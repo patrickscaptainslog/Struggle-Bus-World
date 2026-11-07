@@ -571,7 +571,13 @@ export class CraterPaint {
     shot.y = y + 0.5;
     shot.exact = true;
     shot.drop = Math.max(0, f.y - y);
-    shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
+    // (a Comet keeps its flight and its arc, onto the crater: src/game/Comet.ts. Every other shot lobs, longer the farther it goes)
+    if (shot.comet) {
+      shot.comet.x = x;
+      shot.comet.y = y + 0.5;
+      shot.comet.z = z;
+      shot.comet.drop = shot.drop;
+    } else shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
     shot.crater = t;
   }
 
