@@ -902,11 +902,11 @@ export const config = {
     /** Its whump comes when its sound reaches the bus, but at most this long after the impact (s): 1.6 km is 4.7 s of sound. */
     boomLate: 1.2,
     /** The view tips up this far (degrees) while it climbs, the sky lift's way, and back down while it falls (main.ts); further, as far as keeps its arc's
-     *  top and then its star tipTop degrees under the frame's top, but the bus never lower than tipBus of the half height under the middle (85 % down the
+     *  top and then its star tipTop degrees under the frame's top, but the bus never lower than tipBus of the half height under the middle (89 % down the
      *  screen), eased at tipRate (1/s; the sky lift's 1.6). */
     tip: 10,
-    tipTop: 3,
-    tipBus: 0.7,
+    tipTop: 2,
+    tipBus: 0.78,
     tipRate: 3,
     /** While its ring shows, a dim pillar of its paint stands on the landing (CometFx.beacon, the pillars' program and draw): this tall (m), this share of a
      *  pillar's stipple, a step down its ramp. And once thrown its ring's dots close in as it falls from its top, to 1 - close of its circle as it lands. */
@@ -917,9 +917,9 @@ export const config = {
     motes: 700,
     /** Its throw: a cloud of this many puffs of its paint out of the roof hatch at about puffSpeed m/s, each puffSize x a smoke puff's (CometFx.lobPuff), and
      *  the bus dips this far (m) under it and back over dipTime s (main.ts): no hit-stop, no kick. */
-    puff: 16,
-    puffSpeed: 7,
-    puffSize: 2.4,
+    puff: 22,
+    puffSpeed: 9,
+    puffSize: 3.4,
     dip: 1.2,
     dipTime: 0.45,
   },

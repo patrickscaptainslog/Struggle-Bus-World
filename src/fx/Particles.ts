@@ -272,6 +272,7 @@ const F_BRIGHT = 2; // one step brighter
 const F_GLINT = 4; // brightest step + full glow
 const F_NOSTRETCH = 8; // keep round (no motion smear)
 const F_DEEP = 16; // one step deeper (wet paint reads darker than the dry, sunlit roof under it)
+const F_PAINT = 32; // a puff of paint: lit at its paint's own step, not a pale wisp (a Lob's cloud out of the hatch)
 
 /**
  * Live controls for a geyser whose landing point moves (the super splat's firehose sweeping across the
@@ -676,7 +677,7 @@ void main() {
     float R2 = N * 0.5;
     float q2 = dot(c, c);
     if (N > 2.5 && q2 > R2 * R2 - 0.3) discard;
-    light = 0.8 + uPuff.x - 0.15 * uPuff.y * (1.0 - vC.z);
+    light = (flags & ${F_PAINT}) != 0 ? (st + 0.15) / 7.0 - 0.15 * uPuff.y * (1.0 - vC.z) : 0.8 + uPuff.x - 0.15 * uPuff.y * (1.0 - vC.z);
   }
   sbWrite(ramp, light, vB.w, glow, vec3(0.0, 0.0, 1.0), 0.5, 0.5);
 }
@@ -1478,7 +1479,7 @@ export class Particles {
 
   // ------------------------------------------------------------------ puffs
 
-  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY, sizeK = 1): void {
+  puff(pos: THREE.Vector3, vel: THREE.Vector3, ramp: number = Ramp.GREY, sizeK = 1, paint = false): void {
     const T = fxTune;
     const s = this.s;
     const life = T.puffLife * (0.8 + 0.4 * rnd());
@@ -1501,7 +1502,7 @@ export class Particles {
     s[16] = ramp;
     s[17] = T.puffSize * (0.8 + 0.4 * rnd()) * sizeK;
     s[18] = rnd();
-    s[19] = 0;
+    s[19] = paint ? F_PAINT : 0;
     s[20] = 0;
     s[21] = 0;
     s[22] = 0;

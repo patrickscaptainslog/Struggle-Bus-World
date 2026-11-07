@@ -648,7 +648,7 @@ export class CometFx {
       const a = (i / L.puff) * Math.PI * 2, out = L.puffSpeed * (0.35 + 0.4 * Math.random());
       // (up and a little back off the way it flies, spread round: a cloud that rolls off behind the bus)
       this.v.set(Math.cos(a) * out - this.up.x * L.puffSpeed * 0.3, L.puffSpeed * (0.5 + 0.5 * Math.random()), Math.sin(a) * out - this.up.z * L.puffSpeed * 0.3);
-      this.particles.puff(at, this.v, pal[(c.hue + i) % 6], L.puffSize * (0.7 + 0.6 * Math.random()));
+      this.particles.puff(at, this.v, pal[(c.hue + i) % 6], L.puffSize * (0.7 + 0.6 * Math.random()), true);
     }
     this.stats.motes += L.puff;
     this.sounds.dip?.();
