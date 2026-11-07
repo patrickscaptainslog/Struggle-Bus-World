@@ -917,9 +917,9 @@ export const config = {
     motes: 700,
     /** Its throw: a cloud of this many puffs of its paint out of the roof hatch at about puffSpeed m/s, each puffSize x a smoke puff's (CometFx.lobPuff), and
      *  the bus dips this far (m) under it and back over dipTime s (main.ts): no hit-stop, no kick. */
-    puff: 22,
-    puffSpeed: 9,
-    puffSize: 3.4,
+    puff: 26,
+    puffSpeed: 12,
+    puffSize: 7,
     dip: 1.2,
     dipTime: 0.45,
   },
