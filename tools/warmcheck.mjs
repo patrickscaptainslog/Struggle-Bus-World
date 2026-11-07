@@ -22,6 +22,7 @@
 // --bomb: the url has &bomb: after the blasts (and --crew's factions, --comet's Comets), the Bomb (src/game/Bomb.ts) by real touches (CDP) held still on the
 //   bus itself (Input.busBox): at Cruise over the Western Addition a Bomb II and a Bomb III, at Jet a Bomb III where the Comet lands (its full show), and a
 //   gift (holds.bomb.gift(3)) let go at III; with --crew in each of the five factions, switched on the crest.
+// --curb: the url is a street with ?life (?lat=37.736181&lon=-122.426973&heading=227&life&skipintro, GEARS.md's arterial): Curb with real touches, on and off.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
@@ -253,10 +254,58 @@ const low = async () => {
   return { id, recs: await page.evaluate(() => window.__game.moon.paint.recs.size) };
 };
 
-let lowRun = null;
+// (--curb: the url is a street with ?life, GEARS.md's arterial for one: Curb's phases, with real touches. A flick down to School Zone and another onto
+// the street, the lens coming down, the roll with its paint behind, a car ridden beside until it's painted, the push on, a tap's drive-by, a flick up
+// off it, School Zone's drift down onto it again, a pull held off it: docs/specs/shots/CURB.md)
+const curb = async () => {
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 2, radiusX: 4, radiusY: 4, force: 1 }] });
+  const hold = async (dy, secs) => {
+    await touch('touchStart', 300, 640);
+    for (let i = 1; i <= 6; i++) {
+      await touch('touchMove', 300, 640 + (dy * i) / 6);
+      await page.waitForTimeout(16);
+    }
+    await run(secs);
+    await touch('touchEnd');
+  };
+  await page.evaluate(() => {
+    window.__game.flight.glideSpeed = 0;
+    window.__game.audio.unlock();
+  });
+  await phase('curb-zone');
+  await run(1);
+  await flick(cdp, -1);
+  await run(3);
+  await phase('curb-land');
+  await flick(cdp, -1);
+  await run(4);
+  await phase('curb-roll');
+  await run(20);
+  await phase('curb-push');
+  await hold(-130, 4);
+  await phase('curb-driveby');
+  await page.waitForFunction(() => window.__game.flight.fullness >= 0.999, null, { timeout: 20000, polling: 50 }).catch(() => {});
+  await page.touchscreen.tap(300, 380);
+  await run(3);
+  await phase('curb-off');
+  await flick(cdp, 1);
+  await run(3);
+  await phase('curb-again');
+  await hold(-130, 8);
+  await run(3);
+  await phase('curb-pull');
+  await hold(130, 2);
+  await run(2);
+  await phase('done');
+  return page.evaluate(() => { const c = window.__game.curb; return { state: c.state, left: c.left, asked: c.qa.asked, dabs: c.qa.dabs, passes: c.qa.passes, hits: window.__game.life.qa.hits }; });
+};
+
+let lowRun = null, curbRun = null;
 if (opt.low) lowRun = await low();
 if (opt.moon) await moon();
-const street = !opt.moon && !opt.low;
+if (opt.curb) curbRun = await curb();
+const street = !opt.moon && !opt.low && !opt.curb;
 if (street) await phase('opening-end');
 if (street) await run(2);
 let blast = null;
@@ -563,6 +612,7 @@ const res = {
   comet: cometRun,
   bomb: bombRun,
   low: lowRun,
+  curb: curbRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
   programsAfterWarmupByPhase: after.map(([t, p]) => `${p}@${t}`),

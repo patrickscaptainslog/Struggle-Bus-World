@@ -36,6 +36,9 @@ const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
 /** (rad) a look arrives exactly from here: under a tenth of a game pixel, where a tail would only swim the frame */
 const LOOK_HOME = 1e-4;
+/** (m) Curb: how far apart the lens's sight line to the bus is tried for what's solid, and how far either side of it */
+const CURB_STEP = 0.5;
+const CURB_WIDE = 0.5;
 
 /** The look's curve, a x + b x^3: lookDegPerPx at the start, 180 degrees at lookFullPx. Past 180 it stays that curve, and with a start steep enough to get there on its own, a line. */
 const curve = { a: 0, b: 0 };
@@ -109,6 +112,23 @@ export class CameraRig {
   zoneIn = 0;
   /** ?streetcam (StreetCam.ts): the lens at street height behind a bus set down on a road, instead of the chase. Null: the chase */
   street: { back: number; eye: number; ahead: number; at: number; hfov: number; floor: (x: number, z: number) => number } | null = null;
+  /** Curb (CurbFlight, per frame): 1 brings the lens down to the kerb chase, `curbLens` (back, eye over the road, ahead, at, width, and `side` m to
+   *  the bus's right; the road is config.curb.ride under the bus), never under `curbFloor` (the road under fromY) + config.curb.camFloor nor within
+   *  config.curb.roofGap of `curbRoof` (a deck over it), and pulled in short of anything `curbBlock` says is solid between it and the bus; curbIn is
+   *  where it is now, eased in and out. A look there turns at most config.curb.lookMax either way */
+  curb = 0;
+  curbIn = 0;
+  curbLens: { back: number; eye: number; ahead: number; at: number; fov: number; side: number } | null = null;
+  curbFloor: ((x: number, z: number, fromY: number) => number) | null = null;
+  curbRoof: ((x: number, z: number, fromY: number) => number) | null = null;
+  curbBlock: ((x: number, z: number, y: number) => boolean) | null = null;
+  /** how far in from where it would stand the lens is pulled (m): at once to clear what's in the way, eased back out */
+  private curbPull = 0;
+  /** how much of a look's swing round the bus the street leaves it (0..1): taken back at once, given back eased */
+  private curbSwing = 1;
+  private readonly curbTry = new THREE.Vector3();
+  private readonly curbPos = new THREE.Vector3();
+  private readonly curbLook = new THREE.Vector3();
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
   skyLiftTarget = 0;
   skyLift = 0;
@@ -299,6 +319,21 @@ export class CameraRig {
     const dl2 = Math.max(0, lift) - this.skyLift;
     this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-config.sky.liftRate * dt));
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
+    // Curb: the chase comes down to the kerb, a dolly with no cut, on the rig's own yaw so a turn still sweeps; out again, a crane up to the chase
+    const dc = this.curb - this.curbIn;
+    this.curbIn = Math.abs(dc) < 1e-3 ? this.curb : this.curbIn + dc * (1 - Math.exp(-(dc > 0 ? config.curb.camIn : config.curb.camOut) * dt));
+    if (this.curbIn > 0 && this.curbLens) {
+      const L = this.curbLens, e = smooth01(0, 1, this.curbIn), road = bus.y - config.curb.ride;
+      const p = this.curbPos.set(bus.x - fx * L.back - fz * L.side, road + L.eye, bus.z - fz * L.back + fx * L.side);
+      this.curbHeight(p, road);
+      // (from the chase as it stands: its place, and a look point as far along its view as the bus is from it)
+      const chase = cam.getWorldDirection(this.curbLook).multiplyScalar(cam.position.distanceTo(bus)).add(cam.position);
+      chase.lerp(this.lookTarget.set(bus.x + fx * L.ahead, road + L.at, bus.z + fz * L.ahead), e);
+      cam.position.lerp(p, e);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(chase);
+      this.hfov += (L.fov - this.hfov) * e;
+    }
     if (this.street) {
       // ?streetcam: the lens stands behind the bus at street height (the road is 4 m under the bus), looking down the road
       const S = this.street;
@@ -310,9 +345,11 @@ export class CameraRig {
       cam.lookAt(this.look);
       this.hfov = S.hfov;
     }
-    this.distance = this.pos.distanceTo(bus);
+    this.distance = this.curbIn > 0 ? cam.position.distanceTo(bus) : this.pos.distanceTo(bus);
     focusOut.copy(bus);
     this.applyLook(cam, bus);
+    if (this.curbIn > 0 && this.curbBlock) this.curbClear(cam, bus, dt);
+    else this.curbPull = 0;
     if (this.lookInLow && this.liftClamp && (this.lookYaw.x !== 0 || this.lookPitch.x !== 0)) {
       // (?lift: a look swings the lens round the bus, and never into the hill or a floating house)
       if (this.floorAt) cam.position.y = Math.max(cam.position.y, this.floorAt(cam.position.x, cam.position.z) + 4);
@@ -341,7 +378,9 @@ export class CameraRig {
       this.lookSlack = clamp(this.lookSlack, py - lookPx(C.lookUp), py + lookPx(C.lookDown));
       // (it starts gently: a flick can outlast the thumb's own wait, and only the lift says it was one)
       const ease = smooth01(0, Math.max(0.01, C.lookEaseIn), this.lookHeld + realDt);
-      settle(yaw, this.lookFromYaw + (lookDeg(x) * k - this.lookFromYaw) * ease, C.lookFollowHz, realDt);
+      // (on the street it turns at most config.curb.lookMax either way, as the lens comes down: further round, a street's fronts stand where the lens would)
+      const cap = this.curbIn > 0 ? (config.curb.lookMax * THREE.MathUtils.DEG2RAD) / Math.max(1e-3, smooth01(0, 1, this.curbIn)) : Infinity;
+      settle(yaw, clamp(this.lookFromYaw + (lookDeg(x) * k - this.lookFromYaw) * ease, -cap, cap), C.lookFollowHz, realDt);
       settle(pitch, this.lookFromPitch + (lookDeg(py - this.lookSlack) * k - this.lookFromPitch) * ease, C.lookFollowHz, realDt);
     } else {
       // (home the short way round, a full turn being no turn, and from a stand: what was thrown at the lift would carry on)
@@ -372,6 +411,66 @@ export class CameraRig {
     if (d === 0) return out.copy(view);
     const c = Math.cos(d), s = Math.sin(d);
     return out.set(view.x * c - view.z * s, 0, view.z * c + view.x * s);
+  }
+
+  /** Curb: the lens at p over the road under it (the ground, or the deck the bus is on, never one over it: `road` is the bus's) and under a deck over it. */
+  private curbHeight(p: THREE.Vector3, road: number) {
+    const K = config.curb;
+    if (this.curbFloor) p.y = Math.max(p.y, this.curbFloor(p.x, p.z, road + 3) + K.camFloor);
+    if (this.curbRoof) p.y = Math.max(road + 1, Math.min(p.y, this.curbRoof(p.x, p.z, road + 1) - K.roofGap));
+  }
+
+  /**
+   * Curb, on the finished pose: a narrow street first takes back as much of a look's swing round the bus as would bring the lens nearer than
+   * config.curb.armKeep; then the lens over the road and under a deck where the look left it, and out from the bus to it a step at a time, the
+   * first step in something solid (a front, the hill) bringing the lens in short of it, at once, to go back out eased. So a look round a narrow
+   * street or a sweep past a gap between two houses never has the lens in a house nor a house between it and the bus (the review of feat/curb, B1),
+   * nor the bus a wall of yellow filling the frame. The pull is along the line to the bus, so the bus stays where it stands in the frame.
+   */
+  private curbClear(cam: THREE.PerspectiveCamera, bus: THREE.Vector3, dt: number) {
+    const K = config.curb, road = bus.y - K.ride, yaw = this.lookYaw.x;
+    if (yaw !== 0) {
+      // (the swing that fits, tried a quarter at a time, taken back at once and given back eased: the view turns less there. The drive-by's side
+      // and the turn read the look as the thumb has it, not as the street leaves the view)
+      let fit = 0;
+      for (let k = 1; k > 0; k -= 0.25) {
+        const p = this.curbTry.copy(cam.position).sub(bus).applyAxisAngle(UP, yaw * (1 - k)).add(bus);
+        this.curbHeight(p, road);
+        if (this.curbRoom(bus, p, 1, 0) >= Math.min(K.armKeep, p.distanceTo(bus))) {
+          fit = k;
+          break;
+        }
+      }
+      this.curbSwing = fit <= this.curbSwing ? fit : this.curbSwing + (fit - this.curbSwing) * (1 - Math.exp(-K.armOut * dt));
+      if (this.curbSwing < 1) {
+        const q = this.lookQ.setFromAxisAngle(UP, yaw * (1 - this.curbSwing));
+        cam.position.sub(bus).applyQuaternion(q).add(bus);
+        cam.quaternion.premultiply(q);
+      }
+    } else this.curbSwing = 1;
+    if (yaw !== 0 || this.lookPitch.x !== 0) this.curbHeight(cam.position, road);
+    const v = this.lookV.copy(cam.position).sub(bus), len = v.length();
+    if (len < 1e-3) return;
+    const want = len - this.curbRoom(bus, cam.position, CURB_STEP, CURB_WIDE);
+    this.curbPull = want >= this.curbPull ? want : this.curbPull + (want - this.curbPull) * (1 - Math.exp(-K.armOut * dt));
+    const arm = Math.max(Math.min(K.armMin, len), len - this.curbPull * smooth01(0, 1, this.curbIn));
+    if (arm < len) cam.position.copy(bus).addScaledVector(v, arm / len);
+  }
+
+  /**
+   * Curb: how far out from the bus toward p the line is clear (m; all of it, the distance to p, if nothing's in the way), tried every `step` m and
+   * `wide` m either side, so a corner or a bay window it grazes between two steps still counts, and at p itself last, a step can fall short of it.
+   * What's hit, a face is somewhere in the step before it, so it stands a margin short.
+   */
+  private curbRoom(bus: THREE.Vector3, p: THREE.Vector3, step: number, wide: number): number {
+    const block = this.curbBlock!, vx = p.x - bus.x, vy = p.y - bus.y, vz = p.z - bus.z, len = Math.hypot(vx, vy, vz);
+    if (len < 1e-3) return len;
+    const hl = Math.max(1e-3, Math.hypot(vx, vz)), wx = (-vz / hl) * wide, wz = (vx / hl) * wide;
+    for (let d = step; ; d = Math.min(len, d + step)) {
+      const k = d / len, x = bus.x + vx * k, y = bus.y + vy * k, z = bus.z + vz * k;
+      if (block(x, z, y) || (wide > 0 && (block(x + wx, z + wz, y) || block(x - wx, z - wz, y)))) return Math.max(0, d - 2 * step);
+      if (d >= len) return len;
+    }
   }
 
   /** The finished pose, turned by the look. Nothing to do at home, so home is exactly the rig. */

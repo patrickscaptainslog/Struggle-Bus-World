@@ -3,6 +3,7 @@ import { migratePrefs, type Prefs } from './controlPrefs';
 import type { Input, InputMode } from './Input';
 import { Shifter, type ShiftAnswer } from './Shifter';
 import { clamp } from './springs';
+import { config } from '../config';
 import { SCHOOL_ZONE, TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
 import type { CameraRig } from './CameraRig';
@@ -89,6 +90,8 @@ export class Controls {
   private hiccup = false;
   /** the first run (null: off) */
   private readonly coach: Coach | null;
+  /** Curb's hint is off (?nohud, ?nocoach) */
+  private readonly curbHintOff: boolean;
   private readonly cf: CoachFrame = { glinting: false, openingOver: false, splats: 0, thumb: false, stillPress: 0, charged: false };
   private splats = 0;
   private chargedOnce = false;
@@ -153,6 +156,7 @@ export class Controls {
     this.bombOn = d.params.has('bomb');
     const off = nohud || d.params.has('nocoach') || (d.params.has('skipintro') && !d.params.has('coach'));
     this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn, d.input.aimOn, this.bombOn);
+    this.curbHintOff = nohud || d.params.has('nocoach');
     this.start();
     if (!this.coach) this.hud.arrive();
     if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
@@ -254,8 +258,28 @@ export class Controls {
     // (the rung went: the line that said it must wait is no longer true)
     if (waited && !this.shifter.armed) this.hud.clearToast();
     this.turbo.update(dt, this.d.flight);
-    // (School Zone brings the lens in: CameraRig eases it)
-    this.d.rig.zone = this.turbo.below === SCHOOL_ZONE ? 1 : 0;
+    // (School Zone brings the lens in: CameraRig eases it. Under Curb's own lens it's School Zone's, so the wheels going up crane back to it)
+    this.d.rig.zone = this.turbo.below > 0 ? 1 : 0;
+  }
+
+  /**
+   * Curb's one-time hint (src/game/CurbFlight.ts), the first time the bus is low over a road: LAND ON THE STREET, DIVE AND HOLD, once ever. Not a
+   * first-run cue: ?skipintro shows it, ?nohud and ?nocoach don't. `learn`: a flick landed, so it's known without it. True: it's done with.
+   */
+  curbHint(learn: boolean): boolean {
+    if (this.curbHintOff || ((this.prefs.taught ?? 0) & TAUGHT.curb)) return true;
+    // (the first run's hint has the slot: this one waits for another pass over a road)
+    if (!learn && this.hintLeft > 0) return false;
+    this.prefs.taught = (this.prefs.taught ?? 0) | TAUGHT.curb;
+    this.coach?.done(TAUGHT.curb);
+    savePrefs(this.prefs);
+    if (!learn) this.hud.toast(['LAND ON THE STREET', 'DIVE AND HOLD'], config.curb.hintFor);
+    return true;
+  }
+
+  /** Curb: no street there (FIND A STREET). */
+  noStreet() {
+    this.hud.toast(['FIND A STREET'], config.curb.noneFor);
   }
 
   /** Before bus.update: the bus strains (wheeze, squint) and goes wide-eyed at speed. */
@@ -384,12 +408,12 @@ export class Controls {
   private onTurbo(ev: TurboEvent, gear: number) {
     const d = this.d;
     this.fx.event(ev, d.bus.root, d.flight, d.rig, this.onFlash);
-    if (ev === 'flick' || ev === 'back' || ev === 'turbo' || ev === 'zone') this.hiccup = true;
+    if (ev === 'flick' || ev === 'back' || ev === 'turbo' || ev === 'zone' || ev === 'curb') this.hiccup = true;
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
       if (!this.voice.attached) this.voice.attach(kit, t);
-      if (ev === 'up' || ev === 'down' || ev === 'zone' || ev === 'unzone') this.voice.shift(t, ev === 'up' || ev === 'unzone' ? 1 : -1);
+      if (ev === 'up' || ev === 'down' || ev === 'zone' || ev === 'unzone' || ev === 'curb' || ev === 'uncurb') this.voice.shift(t, ev === 'up' || ev === 'unzone' || ev === 'uncurb' ? 1 : -1);
       else if (ev === 'engage' || ev === 'turbo') this.voice.engage(t);
       else if (ev === 'turbo-down') this.voice.shift(t, -1);
       else if (ev === 'flick' || ev === 'back') this.voice.armed(t);

@@ -19,7 +19,9 @@
 //
 // No DOM: it reads a frame's facts and leaves what is due in its fields.
 
-export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, bomb: 256 } as const;
+/** (curb: Curb's one-time hint, the first time the bus is low over a road, Controls.curbHint: not a first-run cue, so ?skipintro shows it. 128, between
+ *  the aim's 64 and the Bomb's 256: on one bit, learning HOLD TO AIM would hide LAND ON THE STREET in every saved profile) */
+export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, curb: 128, bomb: 256 } as const;
 
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
  *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
