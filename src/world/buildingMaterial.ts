@@ -918,10 +918,13 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           else if (flatW && isWall && faceLit(bIdx, n, cover * uLit)) { ramp = ${R(Ramp.FARGLOW)}; light = 3.0 / 7.0; }`)}
         }
         if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;${fallsed(`
-        // &falls: the runs down a struck tower's walls, in its paint's hue a step brighter and their heads brighter still, over whatever it had (falls.ts)
+        // &falls: the runs down a struck tower's walls, in its paint's hue over whatever it had (falls.ts): a wet body a step darker than the wall there,
+        // darker still at its edges, and a bright head racing ahead, so a run reads on the tower's own new coat of its hue as on grey (the outside look)
         if (vFall > -0.5 && abs(n.y) < 0.5) {
           float fw = sbFall(vFall, f.x, vYRest, bIdx);
-          if (fw > 0.5) { ramp = hueRamp(hue); light = lightAtStep(fw > 1.5 ? 6.0 : 5.0); glow = fw > 1.5 ? 0.35 : 0.1; }
+          // (the step the wall had here, lit or in shade: the wet body one under it, its edges two, the head the ramp's top)
+          float cS = floor((light * max(1.0 - gAF, 0.08) + gAF * gSL) * 7.0 + 0.5);
+          if (fw > 0.5) { ramp = hueRamp(hue); light = lightAtStep(fw > 2.5 ? cS - 2.0 : fw > 1.5 ? 6.0 : cS - 1.0); glow = fw > 1.5 && fw < 2.5 ? 0.35 : 0.0; }
         }`)}
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs

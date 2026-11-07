@@ -42,7 +42,7 @@ float sbFallSlot(float idx) {
 }
 `;
 
-/** Fragment: a run at facade u (m) and rest height y on a wall: 0 dry, 1 wet, 2 its head. */
+/** Fragment: a run at facade u (m) and rest height y on a wall: 0 dry, 1 wet, 2 its head, 3 its wet edge (a column's outer fifths). */
 export const GLSL_FALLS_F = /* glsl */ `
 uniform vec4 uFalls[${FALLS.slots}];
 flat in float vFall;
@@ -59,6 +59,8 @@ float sbFall(float slot, float u, float y, float bIdx) {
   float head = F.y - 2.0 * sbFallH(vec2(col, bIdx + 3.0)) - v * age;
   if (y < head) return 0.0;
   if (age - (F.y - y) / v > ${FALLS.dry.toFixed(1)} * (0.7 + 0.6 * sbFallH(vec2(col, bIdx + 5.0)))) return 0.0;
-  return y < head + 2.5 ? 2.0 : 1.0;
+  if (y < head + 2.5) return 2.0;
+  float fu = fract(u / ${FALLS.col.toFixed(2)});
+  return fu < 0.2 || fu > 0.8 ? 3.0 : 1.0;
 }
 `;

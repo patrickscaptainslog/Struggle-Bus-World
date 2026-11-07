@@ -23,6 +23,8 @@ export interface Prepared {
   warp: Float32Array;
   /** shockwave arrival time by distance, 0..max over WAVE_LUT steps */
   wave: Float32Array;
+  /** &falls's pool: the walls' distance by angle (BlastSpec.foot), its reveal measured from them */
+  foot?: Float32Array;
   max: number;
   dots: BlastDot[];
   /** world bbox of everything this blast paints */
