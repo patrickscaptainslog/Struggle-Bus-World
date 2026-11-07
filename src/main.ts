@@ -293,7 +293,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const fogBumped = new Set<number>();
   /** Rooftop garden / Hundertwasser crown on a building: drawn, and the flight's obstacle field rises over it. */
   const growSprouts = (ref: BuildingRef, hue: number, level: number, start: number) => {
-    const rect = city.roofRect(ref);
+    // (with its ground: a low sun throws its garden's shadow off the roof and down to the street)
+    const rect = Object.assign(city.roofRect(ref), { foot: ref.baseY });
     // (in its building's faction's colours: the paint texture has it by now, at the impact, or from the save)
     const top = sprouts.set(ref.index, rect, hue, level, start, city.paint.get(ref.index).faction, liftOn ? ref.baseY : undefined);
     if (top > 0) {
@@ -1815,6 +1816,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         input.busZone = busLane;
       }
     }
+    // (the gardens drawn as far as this lens sees them: their budget, world/props/sprouts.ts)
+    sprouts.update(camera);
     pipeline.render(scene);
     framesDrawn++;
     // (a tap in the grey has skipped it already)
@@ -2015,7 +2018,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (asked for now: there is no asking once the context is gone)
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
-      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift,
+      flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, sky: live ?? hour, moon, life, lift, sprouts,
       /** QA: the shader warm-up (report: programs, draws, ms; doneAt: performance.now() when it finished) */
       get warm() {
         return warm;
@@ -2044,6 +2047,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: render the frozen frame again (after a tunable change: the same frame, another variant) */
       renderAgain: () => {
         updateSun();
+        sprouts.update(camera);
         pipeline.render(scene);
       },
       lastShot: () => lastShot,
