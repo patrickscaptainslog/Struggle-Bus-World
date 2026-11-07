@@ -315,6 +315,8 @@ let blast = null;
 let crewRun = null;
 let hoseRun = null;
 let cometRun = null;
+let boomRun = null;
+let fallsRun = null;
 let bombRun = null;
 if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
@@ -569,7 +571,6 @@ if (opt.bomb) {
   }
 }
 // --boom: the flick into Turbo 3 at Turbo 2's 720 m/s, 150 m over the Western Addition, in every faction with --crew
-let boomRun = null, fallsRun = null;
 if (opt.boom || opt.falls) {
   const cdp = await ctx.newCDPSession(page);
   const tapCrest = async (name) => {
