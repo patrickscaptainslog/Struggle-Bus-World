@@ -23,6 +23,7 @@ import type { PaintStroke } from '../sky/MoonPaint';
 import { RimBloom } from './RimBloom';
 import type { MoonCraterRequest, MoonCraters } from './moonWorker';
 import { CLIP_LEVELS, PaintClip, type ClipMark } from './PaintClip';
+import { relob } from '../game/Lob';
 
 // Craters are the buildings of the Moon. This is what the street's buildings get from Aim, Splat and PaintState: a pick at the aim point, a target that glints, a hit that goes up a level and blooms, and what's
 // painted kept on the device under the crater's stable id (craters.ts), so it comes back on any map of the Moon. Nothing on the street changes: the bus aims as it does, and this moves the shot onto what glints.
@@ -571,12 +572,14 @@ export class CraterPaint {
     shot.y = y + 0.5;
     shot.exact = true;
     shot.drop = Math.max(0, f.y - y);
-    // (a Comet keeps its flight and its arc, onto the crater: src/game/Comet.ts. Every other shot lobs, longer the farther it goes)
+    // (a Comet keeps its flight and its arc, onto the crater: src/game/Comet.ts; a Lob its throw's parabola, from its mouth onto the crater in its ring:
+    // src/game/Lob.ts. Every other shot lobs, longer the farther it goes)
     if (shot.comet) {
       shot.comet.x = x;
       shot.comet.y = y + 0.5;
       shot.comet.z = z;
       shot.comet.drop = shot.drop;
+      relob(shot.comet);
     } else shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
     shot.crater = t;
   }
