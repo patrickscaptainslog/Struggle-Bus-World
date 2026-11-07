@@ -7,6 +7,7 @@ import { Splatter } from '@src/game/Splat';
 import { Aimer, tapOpts, type Shot } from '@src/game/Aim';
 import type { TurboDrive } from '@src/game/Turbo';
 import { Comet } from '@src/game/Comet';
+import { Lob } from '@src/game/Lob';
 import type { City, BuildingRef } from '@src/world/City';
 
 export interface Ev { t: number; ev: string; [k: string]: unknown }
@@ -46,6 +47,8 @@ export function makeGame(city: City, drive: TurboDrive | null = null): Game {
   const aimer = new Aimer(city, splatter);
   // (the Comet's lens is the caller's: the probe sets its own, tools/controls-sim/s_shots.ts)
   aimer.comet = new Comet(city, splatter);
+  // (the Lob on the Comet's odometer, as main.ts makes it; its lens the caller's too)
+  aimer.lob = new Lob(city, splatter, aimer.comet);
   splatter.onLateMiss = () => (flight.refund = config.splat.missRefund);
   let squashV = 0;
   Object.assign(g, {

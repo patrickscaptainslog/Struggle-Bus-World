@@ -1,0 +1,277 @@
+import * as THREE from 'three';
+import { config } from '../config';
+import { clamp } from './springs';
+import type { City, BuildingRef } from '../world/City';
+import type { Flight } from './Flight';
+import type { Splatter } from './Splat';
+import type { Comet, CometPlan } from './Comet';
+
+// The Lob (docs/specs/shots/SHOTS.md, "The modes"; sb-checks' lob plan): "i want a splat where if i am pointed up, i can shoot upwards into the sky and it
+// will land in the distance". A tap with the bus's body as you see it (Flight.pitch) more than config.lob.from up throws the breath off the nose like a mortar:
+// it climbs at the body's angle (at most config.lob.most: a tap past it is a Lob at it), tops out 90-680 m over the mouth and comes down
+// config.lob.range x sin 2θ along the aim's flat way, 1.23 km at 25 degrees, 1.6 at 45, 1.03 at 70, on the nearest building there, which glints. A dotted ring
+// shows where (main.ts, PixelPipeline's ring dotted), and the hit is a tap's blast with the Comet's core, ring and pillar, the full show every time.
+//
+// The body latches: lifted, the steering thumb lets the bus level out under the eyes (at Cruise 72 to 41 degrees in 0.2 s), so the body as it was when the
+// steering thumb lifted, or when the tap's finger landed with no steering thumb down, is what a tap throws for config.splat.aimLatch s, as the aim latches
+// what glints. A second thumb's tap, the first still steering, reads it live.
+//
+// In view: by the lens moved on by the bus's travel to the impact, it must land config.comet.above of the height over the bus, the Comet's rule; where it
+// doesn't it moves out along its line a stretch at a time, and past config.comet.reach the tap is today's. The landing is the middle of a stretch of its way
+// config.lob.stretch m long, counted along the bus's travel (Comet.track's odometer), so a tap lands on the same building at 30 and 60 fps and what glints
+// steps along, never strobes.
+//
+// Its flight is a CometPlan (CometFx draws its arc true): config.lob.flight x sin θ / sin 45 s after the inhale, a parabola leaving the mouth at θ, whose
+// top over its chord is (L tan θ + drop) / 4. A wall or the ground standing into it takes it there, on its face. Water is a miss with its refund.
+//
+// Never: in School Zone's hover (its body leans 11 degrees at most, its path reads 90 on the bob), in a dive (the path under level: Belly Flop's, later),
+// under a deck, and while a Bomb charges (its shot skips it, Aimer.fire). Recess's comet.clamp is told it's a Lob (HOOKS.md).
+
+const DEG = Math.PI / 180;
+
+/** The Lob's angle a body throws at (rad): the body, at most config.lob.most; under config.lob.from, none (NaN). */
+export function lobAngle(body: number): number {
+  const L = config.lob;
+  return body < L.from * DEG ? NaN : Math.min(body, L.most * DEG);
+}
+
+/** Its flight after the inhale at angle a (s): config.lob.flight at 45 degrees, x sin a / sin 45. */
+export function lobFlight(a: number): number {
+  return (config.lob.flight * Math.sin(a)) / Math.SQRT1_2;
+}
+
+/** Its arc's top over its chord (m) for a throw L m out leaving at angle a, landing `drop` m under the mouth: the parabola that leaves at a. */
+export function lobArc(L: number, a: number, drop: number): number {
+  return Math.max(0, (L * Math.tan(a) + drop) / 4);
+}
+
+export class Lob {
+  /** The lens the player sees (main.ts: the render camera, as last drawn; the sims their own). Null: no in-view rule. */
+  lens: THREE.Camera | null = null;
+  /** the body latched (rad), and whether the path was under level then, until latchUntil (game s) */
+  private latched = 0;
+  private latchedDive = false;
+  private latchUntil = -1;
+  /** the landing held: its stretch, where it is, what it's on */
+  private heldOk = false;
+  private heldK = 0;
+  private heldX = 0;
+  private heldY = 0;
+  private heldZ = 0;
+  private heldT: BuildingRef | null = null;
+  private heldAngle = 0;
+  private readonly v = new THREE.Vector3();
+  private readonly landPt = { x: 0, z: 0 };
+  private readonly pt = { x: 0, z: 0 };
+  /** this plan's lens moved on by the bus's travel to the impact (m), and the bus's height on it (NDC) */
+  private ox = 0;
+  private oy = 0;
+  private oz = 0;
+  private busY = 0;
+  readonly stats = { planned: 0, fired: 0 };
+
+  constructor(
+    private readonly city: City,
+    private readonly splatter: Splatter,
+    private readonly comet: Comet,
+  ) {}
+
+  /** The steering thumb lifted (the body and path as they were with it down: Aimer.update), or a tap's finger landed with none down (Aimer.press): that body
+   *  is what a tap throws until game time `until`. keep: a press inside a latch keeps it, the body having dropped since the lift. */
+  latch(body: number, nose: number, t: number, until: number, keep = false): void {
+    if (keep && t < this.latchUntil) return;
+    this.latched = body;
+    this.latchedDive = nose < -config.lob.levelSlack * DEG;
+    this.latchUntil = until;
+  }
+
+  /** Steering again: the latch lets go, and a tap reads the body live. */
+  unlatch(): void {
+    this.latchUntil = -1;
+  }
+
+  /** The body a tap throws now (rad): latched, or live. */
+  body(f: Flight, t: number): number {
+    return t < this.latchUntil ? this.latched : f.pitch;
+  }
+
+  /** The path under level, as the body reads (a dive never lobs). */
+  private diving(f: Flight, t: number): boolean {
+    return t < this.latchUntil ? this.latchedDive : f.nose < -config.lob.levelSlack * DEG;
+  }
+
+  /** No Lob now: nothing held. */
+  private none(): null {
+    this.heldOk = false;
+    return null;
+  }
+
+  private ndcY(x: number, y: number, z: number): number {
+    const c = this.lens!, v = this.v.set(x, y, z).applyMatrix4(c.matrixWorldInverse);
+    if (v.z >= -1) return -Infinity;
+    return v.applyMatrix4(c.projectionMatrix).y;
+  }
+
+  /** How far over the bus a point shows at the impact, by this plan's lens moved on (share of the height; 1 without a lens, -1 behind it). */
+  private showsAt(x: number, y: number, z: number): number {
+    if (!this.lens) return 1;
+    const q = this.ndcY(x - this.ox, y - this.oy, z - this.oz);
+    return q === -Infinity ? -1 : (q - this.busY) * 0.5;
+  }
+
+  /** Where it lands for the stretch whose middle is d m along the way (held*): the nearest building to there (its landing as Splatter.barf lands on it), or
+   *  the ground. False: Recess's clamp says no. */
+  private land(f: Flight, fx: number, fz: number, d: number): boolean {
+    let x = f.x + fx * d, z = f.z + fz * d;
+    if (this.comet.clamp) {
+      this.pt.x = x;
+      this.pt.z = z;
+      if (!this.comet.clamp(this.pt, 'lob')) return false;
+      x = this.pt.x;
+      z = this.pt.z;
+    }
+    const drop = Math.max(0, f.y - this.city.surfaceAt(x, z, f.y));
+    const r = this.splatter.pick(x, z, this.splatter.pickRadius(drop), f.y);
+    let y: number;
+    if (r) {
+      const l = this.city.landingOn(r, x, z, config.splat.landInset, this.landPt, config.splat.smallRad);
+      x = l.x;
+      z = l.z;
+      y = this.city.roofAtPart(r, x, z, f.y) + 0.5;
+    } else y = this.city.groundAt(x, z);
+    this.heldOk = true;
+    this.heldX = x;
+    this.heldY = y;
+    this.heldZ = z;
+    this.heldT = r;
+    return true;
+  }
+
+  /**
+   * The Lob a tap throws now, or null (the body under config.lob.from, School Zone, a dive, a deck overhead, nothing in view within the reach: the tap is
+   * today's). fx, fz: the aim's flat way (the nose turned by a look). t: game time (the latch's clock). Every frame past config.lob.from (Aimer.update).
+   */
+  plan(f: Flight, fx: number, fz: number, out: CometPlan, t: number): CometPlan | null {
+    const a = lobAngle(this.body(f, t));
+    if (Number.isNaN(a) || f.turbo.hover > 0 || f.hovering || this.diving(f, t)) return this.none();
+    const city = this.city;
+    // (under a deck: the Golden Gate's low shot, the Bay Bridge's lower deck)
+    if (city.overheadAt(f.x, f.z, f.y) !== Infinity) return this.none();
+    const C = config.comet, L = config.lob, S = config.splat;
+    this.stats.planned++;
+    const v = Math.max(1, f.ground);
+    const travel = lobFlight(a), tImp = S.inhale + travel;
+    const atImp = this.comet.flown(v, tImp), launch = this.comet.flown(v, S.inhale);
+    // (the lens moved on by the bus's travel to the impact, a climb in it: the Comet's)
+    this.ox = fx * atImp;
+    this.oz = fz * atImp;
+    this.oy = Math.max(0, f.vy) * tImp;
+    this.busY = this.lens ? this.ndcY(f.x, f.y, f.z) : 0;
+    // the throw from the mouth, then the stretch it's in (counted along the bus's travel: Comet.track's odometer), moved out a stretch at a time to show
+    const odo = this.comet.odometer, Ls = L.stretch;
+    const d0 = launch + L.range * Math.sin(2 * a);
+    let k = Math.round((odo + d0) / Ls - 0.5);
+    if (this.heldOk && this.heldK === k && Math.abs(this.heldAngle - a) < 1e-6 && this.showsAt(this.heldX, this.heldY, this.heldZ) >= C.above) {
+      // (the same stretch and the same throw: the same landing, nothing picked again)
+    } else {
+      let found = false;
+      for (let dc = (k + 0.5) * Ls - odo; dc <= C.reach; dc += Ls, k++) {
+        if (!this.land(f, fx, fz, dc)) return this.none();
+        if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= C.above) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return this.none();
+      this.heldK = k;
+      this.heldAngle = a;
+    }
+    let x = this.heldX, y = this.heldY, z = this.heldZ, target = this.heldT;
+    // its arc from the mouth: a wall or the ground standing into it takes it on its face, where it meets it
+    const x0 = f.x + fx * launch, z0 = f.z + fz * launch, y0 = f.y + f.vy * S.inhale;
+    const Lh = Math.hypot(x - x0, z - z0), arc = lobArc(Lh, a, y0 - y);
+    let wall: BuildingRef | null = null, hill = false, ws = 0;
+    const into = (s: number, ref: BuildingRef | null) => {
+      const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
+      if (ref) return city.contains(ref, px, pz);
+      return ay < city.groundAt(px, pz) + S.wallClear;
+    };
+    for (let s = 8; s < Lh - S.wallSkip; s += 8) {
+      const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
+      if (ay < city.groundAt(px, pz) + S.wallClear) {
+        hill = true;
+        ws = s;
+        break;
+      }
+      const ref = city.buildingAbove(px, pz, ay + S.wallClear, ay);
+      if (!ref || ref === target || ref.roofY - ref.baseY < S.minTargetHeight) continue;
+      wall = ref;
+      ws = s;
+      break;
+    }
+    let lt = Lh, larc = arc;
+    if (wall || hill) {
+      let lo = ws - 8, hi = ws;
+      for (let i = 0; i < 6; i++) {
+        const m = (lo + hi) * 0.5;
+        if (into(m, wall)) hi = m;
+        else lo = m;
+      }
+      const w = Math.max(4, lo - 0.6), u = w / Lh;
+      const ux = (x - x0) / Lh, uz = (z - z0) / Lh;
+      const wy = y0 + (y - y0) * u + arc * 4 * u * (1 - u);
+      x = x0 + ux * w;
+      z = z0 + uz * w;
+      y = wall ? wy : city.groundAt(x, z);
+      target = wall;
+      // (the same parabola cut short where it meets the face: its top over the new chord, the flight as far along it)
+      lt = w;
+      larc = lobArc(w, a, y0 - y);
+    }
+    const along = (x - f.x) * fx + (z - f.z) * fz;
+    out.x0 = x0;
+    out.y0 = y0;
+    out.z0 = z0;
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    out.target = target;
+    out.wall = !!wall;
+    out.arc = larc;
+    out.travel = travel * (lt / Math.max(1, Lh));
+    out.drop = Math.max(0, f.y - y);
+    out.reach = Math.hypot(x - f.x, z - f.z);
+    out.ahead = along - atImp;
+    out.pass = (along - atImp) / v;
+    out.speed = v;
+    out.loaded = city.terrainAt(x, z) !== null;
+    out.above = this.showsAt(x, y, z);
+    out.kind = 'lob';
+    out.angle = a;
+    return out;
+  }
+
+  /** ?moon: the map slid by (dx, dz). */
+  slide(dx: number, dz: number): void {
+    this.heldX -= dx;
+    this.heldZ -= dz;
+  }
+
+  /** The shot a plan throws (Aimer.fire): the next one is picked afresh. */
+  fired(): void {
+    this.heldOk = false;
+    this.latchUntil = -1;
+    this.stats.fired++;
+  }
+}
+
+/** A Lob's arc onto a point it was moved to (CraterPaint.aim: the crater in its ring): the same throw's parabola, from its mouth to there. */
+export function relob(p: CometPlan): void {
+  if (p.kind !== 'lob' || p.angle === undefined) return;
+  p.arc = lobArc(Math.hypot(p.x - p.x0, p.z - p.z0), p.angle, p.y0 - p.y);
+}
+
+/** clamp a body for its ring's look: 0 at config.lob.from, 1 well past it */
+export function lobRingK(body: number): number {
+  return clamp((body / DEG - config.lob.from) / 4, 0, 1);
+}

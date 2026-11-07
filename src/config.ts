@@ -767,6 +767,26 @@ export const config = {
     kickLight: 1.2,
   },
 
+  /** The Lob (src/game/Lob.ts, docs/specs/shots/SHOTS.md "The modes"): a tap with the bus's body (Flight.pitch) more than `from` degrees up throws the breath
+   *  off the nose at the body's angle θ, at most `most` (past it, a Lob at it), into the distance: `range` x sin 2θ m along the aim's flat way, on the middle of
+   *  a stretch of its way `stretch` m long, in view as the Comet must be (config.comet.above, reach and outStep). */
+  lob: {
+    from: 25,
+    most: 70,
+    range: 1600,
+    stretch: 60,
+    /** Its flight after the inhale at 45 degrees (s), x sin θ / sin 45 at θ: 1.43-3.19 s from 25 to 70. */
+    flight: 2.4,
+    /** The path more than this under level (degrees) is a dive, which never lobs (Belly Flop's, later). */
+    levelSlack: 3,
+    /** Its whump comes when its sound reaches the bus, but at most this long after the impact (s): 1.6 km is 4.7 s of sound. */
+    boomLate: 1.2,
+    /** The view tips up this far (degrees) while it climbs, the sky lift's way, and back down while it falls (main.ts). */
+    tip: 10,
+    /** Motes in its streak over its whole flight, three times the Comet's time aloft and more (the Comet's 400). */
+    motes: 700,
+  },
+
   /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */
   bomb: {
     /** The tiers (s from the charge's start, the still hold on the bus with a full belly): each shows inputTune.aimLagMs later, on a frame. */
