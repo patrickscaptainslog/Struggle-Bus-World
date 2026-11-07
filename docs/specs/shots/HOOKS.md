@@ -155,6 +155,7 @@ A tap with the bus's body as you see it more than 25 degrees up throws the breat
 - **The ask for Recess**: during a match, `comet.clamp = () => false` (the standing ask above) keeps a nose-up tap the classic shot at what glints, a captain included. A clamp that tells the kinds apart can keep the Comet out and let a Lob land inside the fence (`kind === 'lob'`, moving `p` in): the producer's to ask for. A captain throws no Lob: `aimer.lob` is the player's.
 - **Locks first**: `holds.tap()` is still asked before a tap fires, so a lock life or Recess holds takes a nose-up tap as it takes any other.
 - **A Bomb never lobs**: while one charges (`aimer.bombing`) no Lob is planned, and its shot is the Comet's or the tap's.
+- **The ask for life** (the Lob's world review, 5; read from the code, not run): people are sampled on the lawns within `LAWN_REACH`, 700 m of the bus (`src/life/Life.ts`), and a Lob comes down 1.03-1.6 km off, so a park it lands on likely has nobody on its blankets to paint, and they come in grey as the bus nears. The ask: a reach that takes in a planned Lob's landing, as `CraterPaint.update`'s `far` does the Moon's craters. `aimer.lobPlan` (x, z) is where it will come down while one is planned, and the blast's `Blast.comet.kind === 'lob'` says one has.
 
 ## Not here yet
 
