@@ -908,6 +908,11 @@ export const config = {
     tipTop: 3,
     tipBus: 0.7,
     tipRate: 3,
+    /** While its ring shows, a dim pillar of its paint stands on the landing (CometFx.beacon, the pillars' program and draw): this tall (m), this share of a
+     *  pillar's stipple, a step down its ramp. And once thrown its ring's dots close in as it falls from its top, to 1 - close of its circle as it lands. */
+    beacon: 260,
+    beaconKeep: 0.3,
+    close: 0.75,
     /** Motes in its streak over its whole flight, three times the Comet's time aloft and more (the Comet's 400). */
     motes: 700,
     /** Its throw: a puff of this many motes of its paint off the mouth, up its way at about puffSpeed m/s, and the recoil's kick (config.comet.kickLight 1.2). */

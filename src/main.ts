@@ -1165,8 +1165,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (shot.comet?.kind === 'lob') {
       controls.lobbed();
       // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
-      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, until: -1 }) - 1] : lobsUp[0]);
-      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), until: simTime + config.splat.inhale + shot.travel });
+      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, hue: 0 }) - 1] : lobsUp[0]);
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, hue });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -1319,7 +1319,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   bombLook(splatter.faction);
   /** the Lob's ring where it will land, eased in and out (main.ts's frame), and the landings of those thrown, each until it lands */
   const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
-  const lobsUp: Array<{ x: number; y: number; z: number; r: number; until: number }> = [];
+  const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; hue: number }> = [];
   const lobOnto = { x: 0, y: 0, z: 0 };
   /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
   const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3();
@@ -2025,7 +2025,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const L = input.state.aim.on ? null : aimer.lobPlan, flying = first !== null;
       lobRing.k = (L || flying) && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
       if (first) {
-        Object.assign(lobRing, { x: first.x, y: first.y, z: first.z, r: first.r, until: first.until });
+        // (its dots close in as it falls from its top, a countdown on the ground, to a quarter of its circle as it lands: the blast then blooms out to it)
+        const u = clamp((simTime - first.from) / Math.max(0.05, first.until - first.from), 0, 1), c = clamp((u - 0.5) / 0.5, 0, 1);
+        Object.assign(lobRing, { x: first.x, y: first.y, z: first.z, r: first.r * (1 - config.lob.close * c * c * (3 - 2 * c)), until: first.until });
       } else if (L && R.k < 0.01) {
         // (on the Moon's ground, on the crater the tap will move it onto: CraterPaint.aim's rule)
         const on = moonPaint?.onto(L.x, L.z, lobOnto);
@@ -2034,6 +2036,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         lobRing.z = on ? on.z : L.z;
         lobRing.r = lobRadius(L);
       }
+      // (and a dim pillar of its paint stands on the landing while its ring shows: from the roofs the ring is a thin arc on the skyline, the pillar what reads)
+      const marked = lobRing.k > 0.3 && R.k < 0.01 && (first !== null || L !== null);
+      cometFx.beacon(marked, lobRing.x, lobRing.y, lobRing.z, splatter.faction, first ? first.hue : splatter.hueNext, simTime);
       if (R.k > 0.01 || lobRing.k <= 0) pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
       else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true, lobRing.y);
     }

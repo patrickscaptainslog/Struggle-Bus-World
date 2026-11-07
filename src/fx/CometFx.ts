@@ -138,10 +138,12 @@ float bayer(vec2 p) {
   return (b + 0.5) / 16.0;
 }
 void main() {
+  // (a Lob's beacon, vB.z 2: dim and steady while its ring shows, a sparse stipple a step down its ramp)
+  bool beacon = vB.z > 1.5;
   float life = vB.z > 0.5 ? uComet.z : uComet.y;
-  float k = clamp(vAge / max(0.01, life), 0.0, 1.0);
+  float k = beacon ? 0.0 : clamp(vAge / max(0.01, life), 0.0, 1.0);
   // (light, not a wall: a stipple that thins up the column and over its life, and its wall near the lens dithered away, so the bus is never lost in it)
-  float keep = (1.0 - k * k) * (0.85 - 0.45 * vH) * smoothstep(uComet2.x, uComet2.y, length(vWorldPos - cameraPosition));
+  float keep = (beacon ? ${config.lob.beaconKeep.toFixed(3)} : 1.0 - k * k) * (0.85 - 0.45 * vH) * smoothstep(uComet2.x, uComet2.y, length(vWorldPos - cameraPosition));
   if (bayer(gl_FragCoord.xy) > keep) discard;
   int f = int(vB.x + 0.5), hue = int(vB.y + 0.5);
   float t = vA / 6.2832 + 0.5;
@@ -171,7 +173,7 @@ void main() {
   i = int(mod(float(i), 6.0));
   float ramp = RAMPS[f * 6 + i];
   // (its paint's own colour, lit from within at its own ramp's step, and little fog: light carries through the haze)
-  sbWrite(ramp, clamp(LIT[int(ramp + 0.5)] + dl / 7.0, 0.0, 1.0), sbFog(vWorldPos) * 0.3, 1.0, vViewNormal, 0.617, 0.5);
+  sbWrite(ramp, clamp(LIT[int(ramp + 0.5)] + (dl - (beacon ? 1.0 : 0.0)) / 7.0, 0.0, 1.0), sbFog(vWorldPos) * 0.3, 1.0, vViewNormal, 0.617, 0.5);
 }
 `;
 
@@ -328,6 +330,8 @@ export class CometFx {
   /** a pillar's foot (m), its time, its show, whether its drops have fallen */
   private readonly base = Array.from({ length: MAX_PILLARS }, () => ({ x: 0, y: 0, z: 0, t: -1e9, h: 0, life: 0, full: false, dropped: false, faction: 0, hue: 0 }));
   private nextPillar = 0;
+  /** a Lob's beacon on its landing while its ring shows (beacon): where, since when (it rises once, and stays where it steps along), whose */
+  private readonly mark = { on: false, x: 0, y: 0, z: 0, t: -1e9, faction: 0, hue: 0 };
   private nextDrop = 0;
   private lastFull = -1e9;
   private booms: Array<{ at: number; k: number; soft: boolean; lob: boolean }> = [];
@@ -372,6 +376,19 @@ export class CometFx {
     const top = c.arc > 0 ? Math.min(1, Math.max(0, 0.5 + rise / (8 * c.arc))) : 0;
     this.at(c, u < top ? top : u < 0.85 ? u : 1, out);
     return true;
+  }
+
+  /** A Lob's landing marked while its ring shows (main.ts): a dim, steady pillar of its paint, config.lob.beacon m, an instance of the pillars' own (their
+   *  program and draw, warmed at boot). */
+  beacon(on: boolean, x: number, y: number, z: number, faction: number, hue: number, now: number): void {
+    const M = this.mark;
+    if (on && !M.on) M.t = now;
+    M.on = on;
+    M.x = x;
+    M.y = y;
+    M.z = z;
+    M.faction = slotOf(faction);
+    M.hue = hue;
   }
 
   /** The full show for this one: the first in config.comet.showEvery s, or a streak on. */
@@ -548,6 +565,14 @@ export class CometFx {
         P.dropped = true;
         this.splatLens(now, P.faction, P.hue);
       }
+    }
+    const M = this.mark;
+    if (M.on && k < MAX_PILLARS) {
+      this.m.makeTranslation(M.x, M.y, M.z);
+      this.pillars.setMatrixAt(k, this.m);
+      A.set([M.t, config.lob.beacon, C.pillarRadius * 0.6, 1e6], k * 4);
+      B.set([M.faction, M.hue, 2, 0.5], k * 4);
+      k++;
     }
     this.pillars.count = k;
     this.pillars.visible = k > 0;
