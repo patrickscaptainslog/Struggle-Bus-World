@@ -181,9 +181,9 @@ export class Flight {
     this.height = y - this.groundUnder;
   }
 
-  /** Returns true if a barf started. */
-  tryBarf(): boolean {
-    if (this.barfT >= 0 || this.fullness < 0.999) return false;
+  /** Returns true if a barf started. `min`: what the belly must hold (a tap: full; a lock's homing shot takes what the Hose left, Holds.fire). */
+  tryBarf(min = 0.999): boolean {
+    if (this.barfT >= 0 || this.fullness < min) return false;
     this.barfT = 0;
     this.preBarfSpeed = this.speed;
     this.refund = 0;

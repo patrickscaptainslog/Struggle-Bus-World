@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Input } from './Input';
 import type { Flight } from './Flight';
-import { Aimer } from './Aim';
+import { hoseTune } from './Hose';
 import type { City } from '../world/City';
 import type { Particles } from '../fx/Particles';
 import type { AudioEngine } from '../audio/AudioEngine';
@@ -75,7 +75,10 @@ export interface HoldHandler {
   move?(h: Hold, dt: number): void;
   /** It was yours, and another handler took it (Holds.claim). */
   lost?(h: Hold): void;
-  /** The finger lifted (cancelled: the touch was lost, three fingers came down, the page lost focus). Only to whoever has it. */
+  /**
+   * The finger lifted (cancelled: the touch was lost, three fingers came down, the page lost focus). To whoever has it, and to every handler with watch: true (one
+   * that doesn't have it reads h.owner, and resets what it kept for h.id).
+   */
   end?(h: Hold, cancelled: boolean): void;
   /** A tap is about to splat: true takes it (you fire something else instead, Holds.fire), and nothing splats. Asked in the order added. */
   tap?(): boolean;
@@ -101,7 +104,11 @@ export interface HomingOpts {
   /** whose colours it flies in (game/factions.ts; default the player's), and which of its six (0-5, default 0) */
   faction?: number;
   hue?: number;
-  /** it spends the bus's belly as a tap does: no loaded belly, no shot (fire() returns null and the bus coughs). Default: true when `from` is unset */
+  /**
+   * it spends the bus's belly: whatever is in it, at least hoseTune.minTank (12 %), so a lock that takes a hold the Hose had been pouring still fires (SHOTS.md:
+   * "Nothing is wasted"); with less, or a breath under way, no shot (fire() returns null and the bus coughs). The belly then refills as after a tap.
+   * Default: true when `from` is unset
+   */
   belly?: boolean;
   /** a whistle rises over its last second (the shot at the player's bus) */
   whistle?: boolean;
@@ -148,6 +155,8 @@ export interface HoldHost {
 
 /** How far a hold's ray looks for the city (m from the camera). */
 const REACH = 6000;
+/** homing shots in flight at once: the player's (from the belly), and everyone else's (captains), each their own */
+const MAX_MINE = 4;
 const MAX_SHOTS = 8;
 
 interface Live extends HomingShot {
@@ -160,6 +169,7 @@ interface Live extends HomingShot {
   ramp: number;
   ending: number;
   whistled: boolean;
+  mine: boolean;
 }
 
 export class Holds {
@@ -168,7 +178,7 @@ export class Holds {
   /** homing shots in flight */
   readonly shots: readonly HomingShot[];
   /** QA: what holds and shots came to */
-  readonly stats = { holds: 0, claimed: 0, hits: 0, misses: 0, fired: 0, lastOwner: '' };
+  readonly stats = { holds: 0, claimed: 0, hits: 0, misses: 0, fired: 0, refused: 0, errors: 0, lastOwner: '' };
 
   private readonly h: HoldHost;
   private readonly handlers: Array<{ h: HoldHandler; last: boolean; watch: boolean }> = [];
@@ -211,7 +221,13 @@ export class Holds {
     h.owner = name;
     this.stats.claimed++;
     this.stats.lastOwner = name;
-    was?.h.lost?.(h);
+    if (was?.h.lost) {
+      try {
+        was.h.lost(h);
+      } catch (err) {
+        this.threw(was.h, err);
+      }
+    }
     return true;
   }
 
@@ -222,8 +238,24 @@ export class Holds {
 
   /** A tap is about to splat (main.ts): a handler may take it. */
   tap(): boolean {
-    for (const e of this.handlers) if (e.h.tap?.()) return true;
+    for (const e of this.handlers) {
+      if (!e.h.tap) continue;
+      try {
+        if (e.h.tap()) return true;
+      } catch (err) {
+        this.threw(e.h, err);
+      }
+    }
     return false;
+  }
+
+  // (a handler that throws is told on the console, once each, and the game goes on: the Hose, the splats and the frame after it never wait on another's bug)
+  private readonly told = new Set<string>();
+  private threw(h: HoldHandler, err: unknown) {
+    this.stats.errors++;
+    if (this.told.has(h.name)) return;
+    this.told.add(h.name);
+    console.error(`Holds: handler '${h.name}' threw`, err);
   }
 
   // ------------------------------------------------------------------ screen and world
@@ -289,7 +321,14 @@ export class Holds {
     this.current = h;
     this.stats.holds++;
     for (const e of this.handlers) {
-      if (e.h.start?.(h)) {
+      if (!e.h.start) continue;
+      let took = false;
+      try {
+        took = e.h.start(h);
+      } catch (err) {
+        this.threw(e.h, err);
+      }
+      if (took) {
         h.owner = e.h.name;
         this.stats.lastOwner = e.h.name;
         break;
@@ -304,8 +343,14 @@ export class Holds {
     this.fill(0);
     h.down = false;
     this.current = null;
-    const e = this.handlers.find((x) => x.h.name === h.owner);
-    e?.h.end?.(h, cancelled);
+    for (const e of this.handlers) {
+      if (!e.h.end || (e.h.name !== h.owner && !e.watch)) continue;
+      try {
+        e.h.end(h, cancelled);
+      } catch (err) {
+        this.threw(e.h, err);
+      }
+    }
   }
 
   /** Once a frame, after the camera is final (dt: game seconds; the hold's own clocks are the wall clock's). */
@@ -315,7 +360,14 @@ export class Holds {
       if (!this.h.input.state.aim.on) this.end(true);
       else {
         this.fill(dt);
-        for (const e of this.handlers) if (e.h.name === h.owner || e.watch) e.h.move?.(h, dt);
+        for (const e of this.handlers) {
+          if (!e.h.move || (e.h.name !== h.owner && !e.watch)) continue;
+          try {
+            e.h.move(h, dt);
+          } catch (err) {
+            this.threw(e.h, err);
+          }
+        }
       }
     }
     this.stepShots(dt);
@@ -339,18 +391,19 @@ export class Holds {
 
   // ------------------------------------------------------------------ the homing shot
 
-  /** Launch a homing shot (HomingOpts). Null: no loaded belly (when it spends one), or MAX_SHOTS already flying. */
+  /** Launch a homing shot (HomingOpts). Null: too little in the belly (when it spends it), or the player's MAX_MINE / everyone else's MAX_SHOTS already flying. */
   fire(o: HomingOpts): HomingShot | null {
     const H = this.h;
-    if (this.live.length >= MAX_SHOTS) return null;
     const belly = o.belly ?? !o.from;
-    if (belly) {
-      if (!Aimer.loaded(H.flight) || !H.flight.tryBarf()) {
-        H.audio.denied();
-        return null;
-      }
-      H.breath();
+    let n = 0;
+    for (const s of this.live) if (s.mine === belly) n++;
+    // (the player's refused shot coughs, whatever refused it: a lift that fires nothing is never silent)
+    if (n >= (belly ? MAX_MINE : MAX_SHOTS) || (belly && !H.flight.tryBarf(hoseTune.minTank))) {
+      this.stats.refused++;
+      if (belly) H.audio.denied();
+      return null;
     }
+    if (belly) H.breath();
     const pos = new THREE.Vector3().copy(o.from ?? H.mouth());
     const tgt = new THREE.Vector3();
     const seen = o.target(tgt);
@@ -365,7 +418,7 @@ export class Holds {
       cancel: () => {
         s.done = true;
       },
-      o, tgt, last: tgt.clone(), tv: new THREE.Vector3(), seen, closest: Infinity, ramp: sprays[((o.hue ?? 0) % 6 + 6) % 6], ending: -1, whistled: false,
+      o, tgt, last: tgt.clone(), tv: new THREE.Vector3(), seen, closest: Infinity, ramp: sprays[((o.hue ?? 0) % 6 + 6) % 6], ending: -1, whistled: false, mine: belly,
     };
     this.live.push(s);
     this.stats.fired++;
@@ -376,7 +429,16 @@ export class Holds {
     const H = this.h;
     for (let i = 0; i < this.live.length; ) {
       const s = this.live[i];
-      if (!s.done && dt > 0) this.stepShot(s, dt);
+      if (!s.done && dt > 0) {
+        // (its target() and callbacks are the caller's: one that throws ends that shot, not the frame)
+        try {
+          this.stepShot(s, dt);
+        } catch (err) {
+          s.done = true;
+          this.stats.errors++;
+          console.error('Holds: a homing shot threw', err);
+        }
+      }
       if (s.done) this.live.splice(i, 1);
       else i++;
     }
