@@ -22,6 +22,9 @@
 // --bomb: the url has &bomb: after the blasts (and --crew's factions, --comet's Comets), the Bomb (src/game/Bomb.ts) by real touches (CDP) held still on the
 //   bus itself (Input.busBox): at Cruise over the Western Addition a Bomb II and a Bomb III, at Jet a Bomb III where the Comet lands (its full show), and a
 //   gift (holds.bomb.gift(3)) let go at III; with --crew in each of the five factions, switched on the crest.
+// --boom: the url has &boom: after the blasts (and the modes before it), Sonic Boom (src/game/Boom.ts): at Turbo 2 over the Western Addition a real flick into
+//   Turbo 3, its crack, the hoop landing as the ring and its crown; with --crew in each of the five factions, switched on the crest.
+// --falls: the url has &falls: the Waterfall (src/fx/Falls.ts): a tap on a Financial District tower's roof, its runs, drops and pool; with --crew in each faction.
 // --curb: the url is a street with ?life (?lat=37.736181&lon=-122.426973&heading=227&life&skipintro, GEARS.md's arterial): Curb with real touches, on and off.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
@@ -565,6 +568,94 @@ if (opt.bomb) {
     await bombHold(key, 'jet', 1700);
   }
 }
+// --boom: the flick into Turbo 3 at Turbo 2's 720 m/s, 150 m over the Western Addition, in every faction with --crew
+let boomRun = null, fallsRun = null;
+if (opt.boom || opt.falls) {
+  const cdp = await ctx.newCDPSession(page);
+  const tapCrest = async (name) => {
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox({ timeout: 8000 });
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+    await run(0.3);
+  };
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1, radiusX: 8, radiusY: 8, force: 1 })) });
+  // (the page's first touch runs a long task: one in the lane first, as --hose does)
+  await touch('touchStart', [[196, 760]]);
+  await page.waitForTimeout(60);
+  await touch('touchEnd', []);
+  const keys = opt.crew ? ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'] : [null];
+  if (opt.boom) {
+    boomRun = [];
+    for (const key of keys) {
+      if (key) {
+        await tapCrest('crew');
+        await tapCrest(`crew-${key}`);
+      }
+      await phase(`boom-${key ?? 'plain'}`);
+      // (held 1.1 km short of the ring's place while the city streams in, at Turbo 2)
+      await page.evaluate(() => {
+        const g = window.__game;
+        const [x, z] = window.__ll(37.7795, -122.4335);
+        const y = g.city.groundAt(x - 950, z) + 150;
+        window.__qa = { pin: { x: x - 950, z, heading: Math.PI / 2, y } };
+        Object.assign(g.flight, { x: x - 950, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 720 });
+        g.controls.turbo.arrive(3, 2);
+      });
+      await settle();
+      const a = await page.evaluate(() => ((window.__qa = null), { ...window.__game.boomState().stats, level: window.__game.controls.turbo.level }));
+      await run(0.2);
+      await flick(cdp, 1);
+      await run(3);
+      const b = await page.evaluate(() => {
+        const g = window.__game, s = g.boomState();
+        return { stats: s.stats, kind: s.plan?.kind ?? null, level: g.controls.turbo.level, faction: g.splatter.faction };
+      });
+      boomRun.push({ key, faction: b.faction, level: [a.level, b.level], kind: b.kind, rings: b.stats.rings - a.rings, flicks: b.stats.flicks - a.flicks });
+      // (the 10 s run out before the next faction's)
+      await page.evaluate(() => (window.__game.boom.last = -Infinity));
+    }
+  }
+  if (opt.falls) {
+    fallsRun = [];
+    for (const key of keys) {
+      if (key) {
+        await tapCrest('crew');
+        await tapCrest(`crew-${key}`);
+      }
+      await phase(`falls-${key ?? 'plain'}`);
+      // (over the Financial District first, while its tiles stream in)
+      await page.evaluate(() => {
+        const g = window.__game;
+        const [cx, cz] = window.__ll(37.7946, -122.3999);
+        const y = g.city.groundAt(cx, cz) + 200;
+        window.__qa = { pin: { x: cx - 300, z: cz, heading: Math.PI / 2, y } };
+        Object.assign(g.flight, { x: cx - 300, z: cz, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+      });
+      await run(1.5);
+      await settle();
+      // (a Financial District tower's roof, through the real splat pipeline as __game.splatAt does a tap, the bus 300 m west of it, 60 m over its roof)
+      const r = await page.evaluate(async (k) => {
+        const g = window.__game;
+        const [cx, cz] = window.__ll(37.7946, -122.3999);
+        const all = g.city.buildingsWithin(cx, cz, 700, []).map((n) => n.ref).filter((r) => r.stableId >= 0 && r.roofY - r.baseY > 60 && g.city.roofAtPart(r, r.cx, r.cz, Infinity) - r.baseY > 45);
+        const t = all[(k ?? 0) % Math.max(1, all.length)];
+        if (!t) return { error: 'no tower' };
+        const y = t.roofY + 60;
+        window.__qa = { pin: { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y } };
+        Object.assign(g.flight, { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+        return { index: t.index, cx: t.cx, cz: t.cz, h: t.roofY - t.baseY };
+      }, keys.indexOf(key));
+      await settle();
+      const p0 = await page.evaluate(() => window.__game.falls.stats.pours);
+      await page.evaluate((r) => {
+        const g = window.__game, t = g.city.buildingsWithin(r.cx, r.cz, 5, []).map((n) => n.ref).find((q) => q.index === r.index);
+        if (t) g.splatter.barf(t.cx, t.cz, { target: t, drop: 60, hitStop: 0 });
+      }, r);
+      await run(3.5);
+      const b = await page.evaluate(() => ((window.__qa = null), { ...window.__game.falls.stats, faction: window.__game.splatter.faction }));
+      fallsRun.push({ key, faction: b.faction, tower: r, pours: b.pours - p0, pools: b.pools, drops: b.drops });
+    }
+  }
+}
 // the landmarks from altitude: west of the pyramid at 430 m heading east, then Sutro Tower from the east
 await phase('landmarks');
 await place(37.7952, -122.4130, 430, Math.PI / 2);
@@ -611,6 +702,8 @@ const res = {
   hose: hoseRun,
   comet: cometRun,
   bomb: bombRun,
+  boom: boomRun,
+  falls: fallsRun,
   low: lowRun,
   curb: curbRun,
   programsTotal: W.programs.length,

@@ -21,6 +21,14 @@
 //            ground. Each: its tier and stages, every building it raised at min(3, before + jump) and none past 3 (?moon: the craters), the frame's draws
 //            and triangles each frame from the lift through its stages and the pogo (at most 200 and 1.5 M), no program made after ready, and a still
 //            as it lands. Exits 1 when a row fails                                                                     -> bomb.json
+//   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 m over the Western Addition and downtown, a real
+//            flick into Turbo 3, in Rainbow, Atlantis and Inferno (&paintas). Each: a ring, every building it raised one level up, the bus over its hole, the
+//            frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M and 8,000), no program made after ready, and stills at the
+//            crack, the band blooming and the bus over it (SB_STILLS=0 leaves them out). Exits 1 when a row fails               -> boom.json
+//   falls    the Waterfall (&falls; src/fx/Falls.ts; not in the default list): at Cruise 60 m over a Financial District tower's roof, 300 m west of it, a
+//            real tap off the lane, in Rainbow, Hyperglow and the Elderwood, the next tower if it didn't pour. Each: its drops and its pool landed round its
+//            foot, the draws, triangles and particles each frame (200, 1.5 M, 8,000), nothing compiled, and stills of the runs, the drops and the pool.
+//            Exits 1 when a row fails                                                                                          -> falls.json
 //   curb     Curb with real touches, ?life (docs/specs/shots/CURB.md; not in the default set): two flicks down onto GEARS.md's arterial (SB_CURB=lat,lon,heading
 //            moves it), a minute rolled beside the cars, the push, a look held left, a tap's drive-by, a flick up off it, School Zone's drift down onto
 //            it again, a pull held off it, and over the bay FIND A STREET, with stills, the draws, triangles and frame times on the street -> curb.json
@@ -1082,6 +1090,186 @@ if (modes.has('bomb')) {
   console.log('bomb:', R.verdicts.join('\n  '));
   writeFileSync(`${out}/bomb.json`, JSON.stringify(R, null, 1));
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('boom') || modes.has('falls')) {
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const stills = process.env.SB_STILLS !== '0';
+  // (a still with the game loop frozen: a 3x screenshot takes long enough for a second of game to pass under it at fixeddt)
+  const still = async (page, path) => {
+    await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+    await wall(60);
+    await page.screenshot({ path });
+    await page.evaluate(() => (window.__qa = null));
+  };
+  // (every frame's draws, triangles and live particles, the fps meter's counters, from when __xTrace is set; and the bus's least distance to __xAt)
+  const traceInit = () => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+    g.audio.unlock();
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      const T = window.__xTrace;
+      if (!T) return;
+      T.push([p.calls, p.tris, g.particles.alive]);
+      if (window.__xAt) window.__xMin = Math.min(window.__xMin ?? Infinity, Math.hypot(g.flight.x - window.__xAt[0], g.flight.z - window.__xAt[1]));
+    };
+  };
+  const traced = (page) => page.evaluate(() => {
+    const tr = window.__xTrace;
+    window.__xTrace = null;
+    return { frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), particles: Math.max(...tr.map((t) => t[2])) };
+  });
+  const limits = (ok, key, t) => ok(t.frames > 10 && t.draws <= 200 && t.tris <= 1.5e6 && t.particles <= 8000, `${key}: at most 200 draws, 1.5 M triangles and 8,000 particles (${t.frames} frames, ${t.draws} draws, ${(t.tris / 1e6).toFixed(3)} M, ${t.particles} particles)`);
+  const raisedBy = (page) => page.evaluate(() => {
+    const d = window.__game.city.paint.data, d0 = window.__lv0;
+    let raised = 0, wrong = 0;
+    for (let i = 1; i < d.length; i += 4) {
+      if (d[i] === d0[i]) continue;
+      raised++;
+      if (d[i] !== Math.min(3, d0[i] + 1)) wrong++;
+    }
+    return { raised, wrong };
+  });
+  // (world m from lat, lon on the page: its manifest's origin, as bomb's rows place the bus)
+  const FACTIONS = { boom: [['rainbow', ''], ['atlantis', '&paintas=atlantis'], ['inferno', '&paintas=inferno']], falls: [['rainbow', ''], ['hyperglow', '&paintas=hyperglow'], ['elderwood', '&paintas=elderwood']] };
+  for (const mode of ['boom', 'falls']) {
+    if (!modes.has(mode)) continue;
+    const R = { rows: [], verdicts: [] };
+    const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+    // (SB_ONLY=rainbow,inferno: those factions' pages alone)
+    for (const [fk, fq] of FACTIONS[mode].filter(([k]) => !process.env.SB_ONLY || process.env.SB_ONLY.split(',').includes(k))) {
+      // (the Waterfall's page starts over the Financial District: pinned there from the Western Addition, its towers weren't in yet)
+      const page = await open((mode === 'falls' ? `?lat=37.7946&lon=-122.4030&heading=88&skipintro&fixeddt=0.05${process.env.SB_Q ?? ''}` : Q) + `&${mode}` + fq, progInit);
+      const cdp = await page.context().newCDPSession(page);
+      const H = hand(page, cdp);
+      await wall(1300);
+      await page.evaluate(traceInit);
+      await runFor(page, 2);
+      // (the page's first touch runs a long task in its touchstart: one in the lane first)
+      await H.down(1, 196, 780);
+      await wall(60);
+      await H.up(1);
+      await runFor(page, 1);
+      const progs0 = await page.evaluate(() => window.__progs);
+      if (mode === 'boom') {
+        for (const [where, lat, lon] of [['western-addition', 37.7795, -122.4335], ['downtown', 37.7905, -122.4035]]) {
+          const key = `${fk}-${where}`;
+          // (held 950 m short of the place at Turbo 2 while the city streams in, heading east, 150 m over the ground there; let go, a flick 0.2 s on)
+          const at = await page.evaluate(([lat, lon]) => {
+            const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(lat - o[0]) * r * 6378137;
+            const y = g.city.groundAt(x - 950, z) + 150;
+            window.__qa = { pin: { x: x - 950, z, heading: Math.PI / 2, y } };
+            Object.assign(g.flight, { x: x - 950, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 720 });
+            g.controls.turbo.arrive(3, 2);
+            g.boom.last = -Infinity;
+            return [x, z];
+          }, [lat, lon]);
+          await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+          await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
+          await runFor(page, 0.2);
+          const a = await page.evaluate(() => ({ ...window.__game.boomState().stats, level: window.__game.controls.turbo.level }));
+          await page.evaluate(() => ((window.__xTrace = []), (window.__xMin = Infinity), (window.__xAt = null)));
+          await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+          const plan = await page.evaluate(() => {
+            const p = window.__game.boomState().plan;
+            if (p) window.__xAt = [p.x, p.z];
+            return p;
+          });
+          if (stills) {
+            await runFor(page, 0.1);
+            await still(page, `${out}/boom-${key}-1-crack.png`);
+            await runFor(page, 0.25);
+            await still(page, `${out}/boom-${key}-2-land.png`);
+            await runFor(page, 0.4);
+            await still(page, `${out}/boom-${key}-3-bloom.png`);
+            await runFor(page, 0.25);
+            await still(page, `${out}/boom-${key}-4-through.png`);
+            await runFor(page, 2);
+          } else await runFor(page, 3);
+          const t = await traced(page);
+          const b = await page.evaluate(() => ({ ...window.__game.boomState(), level: window.__game.controls.turbo.level, min: window.__xMin }));
+          const rz = await raisedBy(page);
+          const row = { key, level: [a.level, b.level], kind: plan?.kind ?? null, r: plan && Math.round(plan.r), inner: plan && Math.round(plan.inner), off: plan && Math.round(Math.hypot(plan.x - at[0], plan.z - at[1])), rings: b.stats.rings - a.rings, busMin: Math.round(b.min), ...rz, ...t };
+          R.rows.push(row);
+          console.log('boom:', JSON.stringify(row));
+          ok(row.level[0] === 2 && row.level[1] === 3 && row.kind === 'ring' && row.rings === 1, `${key}: the flick into Turbo 3 rang (levels ${row.level.join(' to ')}, ${row.kind}, ${row.rings} ring)`);
+          ok(row.raised > 0 && row.wrong === 0, `${key}: every building it raised one level up (${row.raised}, ${row.wrong} not)`);
+          ok(!!plan && row.busMin < plan.inner, `${key}: the bus flew over its hole (${row.busMin} m from its middle at the nearest, the hole ${row.inner} m)`);
+          limits(ok, key, t);
+        }
+      } else {
+        // (a tower's roof: the bus 300 m west of it, 60 m over it, at Cruise; a real tap off the lane, and the next tower if it didn't pour)
+        let poured = false;
+        await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+        for (let k = 0; k < 4 && !poured; k++) {
+          const key = `${fk}-tower${k}`;
+          const r = await page.evaluate((k) => {
+            const g = window.__game, o = g.city.manifest.origin, rr = Math.PI / 180, cx = (-122.3999 - o[1]) * rr * 6378137 * Math.cos(o[0] * rr), cz = -(37.7946 - o[0]) * rr * 6378137;
+            const all = g.city.buildingsWithin(cx, cz, 700, []).map((n) => n.ref).filter((r) => r.stableId >= 0 && r.roofY - r.baseY > 60 && g.city.roofAtPart(r, r.cx, r.cz, Infinity) - r.baseY > 45);
+            const t = all[k * 3];
+            if (!t) return null;
+            const y = t.roofY + 60;
+            window.__qa = { pin: { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y } };
+            Object.assign(g.flight, { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+            return { index: t.index, h: Math.round(t.roofY - t.baseY), cx: t.cx, cz: t.cz, rad: t.rad };
+          }, k);
+          if (!r) break;
+          await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+          await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
+          await page.evaluate(() => window.__game.forceReady());
+          await runFor(page, 0.3);
+          const a = await page.evaluate(() => ({ ...window.__game.falls.stats }));
+          await page.evaluate(() => ((window.__xTrace = []), (window.__xAt = null)));
+          await H.down(1, 300, 260);
+          await wall(90);
+          await H.up(1);
+          await runFor(page, 0.6);
+          const hit = await page.evaluate(() => ({ target: window.__game.lastShot()?.target?.index ?? null, pours: window.__game.falls.stats.pours }));
+          poured = hit.pours > a.pours;
+          if (stills && poured) {
+            await still(page, `${out}/falls-${key}-1-runs.png`);
+            await runFor(page, 0.9);
+            await still(page, `${out}/falls-${key}-2-drops.png`);
+            await runFor(page, 1.4);
+            await still(page, `${out}/falls-${key}-3-pool.png`);
+            await runFor(page, 1);
+          } else await runFor(page, 3.3);
+          const t = await traced(page);
+          const b = await page.evaluate(([r0, hit]) => {
+            const g = window.__game;
+            // (round the tower that poured: what the tap hit, which may not be the one it was aimed at)
+            const r = g.city.buildingsWithin(r0.cx, r0.cz, 800, []).map((n) => n.ref).find((q) => q.index === hit) ?? r0;
+            let wet = 0;
+            for (let i = 0; i < 16; i++) {
+              const q = (i / 16) * Math.PI * 2, s = g.city.ground.sample(r.cx + Math.cos(q) * (r.rad + 4), r.cz + Math.sin(q) * (r.rad + 4));
+              if (s && s.cov >= 0.5) wet++;
+            }
+            return { ...g.falls.stats, wet };
+          }, [r, hit.target]);
+          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, ...t };
+          R.rows.push(row);
+          console.log('falls:', JSON.stringify(row));
+          if (!poured) continue;
+          ok(row.pools === 1 && row.drops > 0, `${key}: it poured, its drops and its pool (${row.drops} drops, ${row.pools} pool; tower ${r.index}, ${r.h} m)`);
+          ok(row.wet >= 8, `${key}: its pool round its foot (${row.wet} of 16)`);
+          limits(ok, key, t);
+        }
+        ok(poured, `${fk}: a tap off the lane at a tower poured (${R.rows.filter((q) => q.key.startsWith(fk)).map((q) => `${q.tower?.index} aimed, ${q.target} hit`).join('; ')})`);
+      }
+      const made = (await page.evaluate(() => window.__progs)) - progs0;
+      R[fk] = { programsAtReady: progs0, madeAfter: made };
+      ok(made === 0, `${mode} ${fk}: nothing compiles: ${made} programs made after ready`);
+      await page.close();
+    }
+    res[mode] = R;
+    console.log(`${mode}:`, R.verdicts.join('\n  '));
+    writeFileSync(`${out}/${mode}.json`, JSON.stringify(R, null, 1));
+    if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+  }
 }
 
 if (modes.has('curb')) {
