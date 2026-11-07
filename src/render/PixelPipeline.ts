@@ -165,6 +165,8 @@ export class PixelPipeline implements WarmPipeline {
   /** the Bomb's ring where it will land (center x, z, radius m, strength; 0 = off) and its heartbeat's pulse */
   private readonly bombRing = new THREE.Vector4();
   private bombPulse = 0;
+  /** ...its six rows of paint, each (ramp, its step at rest, its brightest): Rainbow's, or the bus's faction's spray (setBombRows) */
+  private readonly bombRows = HUE_RAMPS.map((r) => new THREE.Vector3(r, 5, 7));
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -223,6 +225,7 @@ export class PixelPipeline implements WarmPipeline {
         uHeroCircle: { value: new THREE.Vector4() },
         uBombRing: { value: new THREE.Vector4() },
         uBombPulse: { value: 0 },
+        uBombRows: { value: HUE_RAMPS.map((r) => new THREE.Vector3(r, 5, 7)) },
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
         ...(skyOn ? heldResolveUniforms : {}),
@@ -426,6 +429,14 @@ export class PixelPipeline implements WarmPipeline {
   setBombRing(x: number, z: number, r: number, k: number, pulse: number) {
     this.bombRing.set(x, z, Math.max(1, r), k);
     this.bombPulse = pulse;
+  }
+
+  /** The ring's six rows of paint, each (ramp, its step at rest, its brightest on a heartbeat): the bus's faction's spray under &bomb (main.ts), Rainbow's else. */
+  setBombRows(rows: ReadonlyArray<readonly [number, number, number]>) {
+    for (let i = 0; i < 6; i++) {
+      const r = rows[i % rows.length];
+      this.bombRows[i].set(r[0], r[1], r[2]);
+    }
   }
 
   /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
@@ -713,6 +724,7 @@ export class PixelPipeline implements WarmPipeline {
     ru.uHeroCircle.value.copy(this.heroCircle);
     ru.uBombRing.value.copy(this.bombRing);
     ru.uBombPulse.value = this.bombPulse;
+    for (let i = 0; i < 6; i++) (ru.uBombRows.value as THREE.Vector3[])[i].copy(this.bombRows[i]);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -896,6 +908,7 @@ uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
 uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off)
 uniform float uBombPulse;     // ...its heartbeat, 0-1
+uniform vec3 uBombRows[6];    // ...its six rows of paint: ramp, its step at rest, its brightest
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}${space(GLSL_SPACE_UNIFORMS)}
 in vec2 vUv;
@@ -1280,8 +1293,8 @@ void main() {
       col = pal(oRamp, oStep);
     }
   }
-  // the Bomb's ring where it will land, the circle it paints: a band of the rainbow on whatever faces up there, its arcs turning, stippled in as it comes
-  // and a step brighter and a little wider on each of III's heartbeats. The hero's own pixels and fog are left alone
+  // the Bomb's ring where it will land, the circle it paints: a band of its faction's paint on whatever faces up there, its arcs turning, stippled in as it
+  // comes and a step brighter and a little wider on each of III's heartbeats, never past its row's brightest. The hero's own pixels and fog are left alone
   if (uBombRing.w > 0.01 && outlineable && !fogged && !heroRamp) {
     vec3 cfb = -normalize(vec3(uCamWorld[2].xyz));
     vec3 Pb = uCamPos + dir * (depth / max(dot(dir, cfb), 0.05));
@@ -1290,8 +1303,9 @@ void main() {
     if (abs(br - 0.985) < 0.03 + 0.02 * uBombPulse && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
       float bs = atan(bq.y, bq.x) * 1.909859 + uTime * 0.8;
       if (uBombRing.w > 0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0) {
-        oRamp = ${HUE_RAMPS[0]}.0 + mod(floor(bs), 6.0);
-        oStep = 5.0 + floor(1.6 * uBombPulse + 0.5);
+        vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
+        oRamp = brow.x;
+        oStep = min(brow.z, brow.y + floor(1.6 * uBombPulse + 0.5));
         col = pal(oRamp, oStep);
       }
     }

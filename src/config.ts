@@ -763,10 +763,14 @@ export const config = {
     hitStop3: 9,
     recharge2: 3,
     recharge3: 4.5,
-    /** The tell: the bus's swell at II and III (x 1 +, its look alone), and the energy motes a second at III (half at II). */
+    /** The tell: the bus's swell at II and III (x 1 +, its look alone). */
     swell2: 0.06,
     swell3: 0.12,
+    /** MEGA's built look while it charges (SuperFx, in the faction's spray): its motes a second at III, a fifth of them before II and half at II (MEGA's floor);
+     *  and at III alone MEGA's halo orbiting the bus and its sparks, a second */
     motes: 420,
+    halo: 110,
+    sparks: 70,
     /** The stages: each its own write and pop this long apart (s) from the wave's arrival, the later ones written in bands this long ahead of their pops. */
     stageGap: 0.4,
     stageBand: 0.1,

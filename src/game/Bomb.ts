@@ -97,6 +97,8 @@ export class Bomb implements BombHook {
   private beat = 0;
   private beatK = 0;
   private moteAcc = 0;
+  private haloAcc = 0;
+  private sparkAcc = 0;
   private t = 0;
 
   constructor(host: BombHost) {
@@ -272,19 +274,36 @@ export class Bomb implements BombHook {
     this.beatK *= Math.exp(-dt * 9);
     R.pulse = T >= 3 ? this.beatK : 0;
     if (T >= 3) {
-      // MEGA's heartbeat at a full charge, for as long as it's held, and its motes
+      // MEGA's heartbeat at a full charge, for as long as it's held
       this.beat += dt / heartInterval(1);
       if (this.beat >= 1) {
         this.beat -= Math.floor(this.beat);
         this.beatK = 1;
         this.h.audio.bombBeat();
       }
-      this.moteAcc += dt * B.motes;
-      const n = Math.floor(this.moteAcc);
-      if (n > 0) {
-        this.moteAcc -= n;
-        this.h.fx.motes(n, 115 * 0.8, 0.9);
-      }
     } else this.beat = 0.6;
+    if (T === 0) return;
+    // MEGA's built look, in the bus's faction's spray (SuperFx.palette, main.ts): its motes pulled in from the charge's start, a fifth of III's before II and
+    // half at II (MEGA's floor, no halo), and at III all of them, with its halo orbiting the bus and its sparks
+    const fx = this.h.fx;
+    this.moteAcc += dt * B.motes * (T >= 3 ? 1 : T >= 2 ? 0.5 : 0.2);
+    const n = Math.floor(this.moteAcc);
+    if (n > 0) {
+      this.moteAcc -= n;
+      fx.motes(n, 115 * 0.8, 0.9);
+    }
+    if (T < 3) return;
+    this.haloAcc += dt * B.halo;
+    const nh = Math.floor(this.haloAcc);
+    if (nh > 0) {
+      this.haloAcc -= nh;
+      fx.halo(nh, 1.1, 7);
+    }
+    this.sparkAcc += dt * B.sparks;
+    const ns = Math.floor(this.sparkAcc);
+    if (ns > 0) {
+      this.sparkAcc -= ns;
+      fx.sparks(ns, this.h.busVel(), 12);
+    }
   }
 }

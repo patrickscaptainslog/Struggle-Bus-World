@@ -350,16 +350,17 @@ const BOX = { x0: 172, y0: 470, x1: 220, y1: 542 };
 const BX = 196, BY = 506, DROP = 120;
 const bombRows: typeof rows = [];
 const bombNotes: Record<string, any> = {};
-function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths: any[]) => unknown, comet = false) {
+function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths: any[], fxN: { motes: number; halo: number; sparks: number }) => unknown, comet = false) {
   let bomb: InstanceType<typeof Bomb> | null = null;
   const h = harness((dt) => bomb!.update(dt));
   const breaths: any[] = [];
+  const fxN = { motes: 0, halo: 0, sparks: 0 };
   const ms = () => `${Math.round(h.at())}ms`;
   bomb = new Bomb({
     input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
     aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), aim: { x: 0, z: -DROP, drop: DROP } } as any,
     audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
-    fx: { motes: () => {}, sparks: () => {} } as any,
+    fx: { motes: (n: number) => (fxN.motes += n), sparks: (n: number) => (fxN.sparks += n), halo: (n: number) => (fxN.halo += n) } as any,
     breathe: (shot, b) => { breaths.push({ ...b, tag: { ...b.tag }, x: shot.x, z: shot.z, at: Math.round(h.at()) }); h.log.push(`bomb@${ms()}`); return 0; },
     busy: () => h.hose.pouring,
   });
@@ -367,7 +368,7 @@ function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths
   h.input.busBox = BOX;
   h.wait(100);
   h.reset();
-  const note = fn(h, bomb, breaths);
+  const note = fn(h, bomb, breaths, fxN);
   bombRows.push({ name, log: [...h.log], barfs: h.barfs.length, note });
   bombNotes[name] = { note, log: [...h.log], breaths };
   h.input.dispose();
@@ -393,6 +394,15 @@ bombRow('bomb: a hold off the lane while it charges coughs, and pours nothing', 
   const mid = { tier: b.tier, pouring: h.hose.pouring, tank: h.flight.fullness };
   h.up(two, AX, AY); h.wait(200); h.up(one, BX, BY); h.wait(300);
   return { mid, pours: h.hose.stats.pours, coughs: h.hose.stats.coughs };
+});
+// (the look: what it asks of SuperFx a second, charging before II (351-685 ms), at II (685-1,286) and at III, held 3 s)
+bombRow('bomb: the look: a fifth of the motes before II, half at II and no halo, at III all, the halo and sparks', (h, _b, _br, fx) => {
+  const id = newId(); h.down(id, BX, BY);
+  const snap = (ms: number) => { h.wait(ms - h.at()); return { t: h.at(), ...fx }; };
+  const w = [snap(420), snap(670), snap(720), snap(1270), snap(1320), snap(2820)];
+  h.up(id, BX, BY);
+  const rate = (a: typeof w[0], b: typeof w[0]) => ({ motes: Math.round(((b.motes - a.motes) * 1000) / (b.t - a.t)), halo: Math.round(((b.halo - a.halo) * 1000) / (b.t - a.t)), sparks: Math.round(((b.sparks - a.sparks) * 1000) / (b.t - a.t)) });
+  return { one: rate(w[0], w[1]), two: rate(w[2], w[3]), three: rate(w[4], w[5]) };
 });
 bombRow('bomb: let go at II, the Hose pours again once the belly is full', (h) => {
   hold(h, 700, BX, BY); refill(h); h.wait(100);
@@ -421,6 +431,35 @@ const BN = (k: string) => bombNotes[Object.keys(bombNotes).find((x) => x.startsW
   bok(d.note.mid.tier >= 2 && !d.note.mid.pouring && d.note.mid.tank === 1 && d.note.pours === 0 && d.note.coughs >= 1 && d.log.some((x: string) => x.startsWith('cough@')), `a hold off the lane during a charge coughs and the belly stays: ${JSON.stringify(d.note)}`);
   bok(d.breaths.length === 1 && d.breaths[0].tag.charge === 1 && !d.log.some((x: string) => x.startsWith('fizzle@')), `and the charge goes on to its Bomb III (${d.log.join(', ')})`);
   bok(BN('bomb: let go at II, the Hose').note.pouring, 'after a Bomb, with the belly full again, the Hose pours as before');
+  const lk = BN('bomb: the look').note, B = config.bomb, within = (v: number, want: number) => Math.abs(v - want) <= Math.max(3, want * 0.1);
+  bok(within(lk.one.motes, B.motes * 0.2) && lk.one.halo === 0 && lk.one.sparks === 0, `charging before II, a fifth of III's motes and nothing else: ${JSON.stringify(lk.one)} a second`);
+  bok(within(lk.two.motes, B.motes * 0.5) && lk.two.halo === 0 && lk.two.sparks === 0, `at II, MEGA's floor: half the motes, no halo: ${JSON.stringify(lk.two)} a second`);
+  bok(within(lk.three.motes, B.motes) && within(lk.three.halo, B.halo) && within(lk.three.sparks, B.sparks), `at III, MEGA's built look: ${B.motes} motes, ${B.halo} halo and ${B.sparks} sparks a second: ${JSON.stringify(lk.three)}`);
+}
+// the rows SuperFx draws them in (src/fx/SuperFx.ts, its own data): Rainbow's six by default, and with a faction's spray set (main.ts's bombLook, &bomb) its
+// motes and halo in that spray alone and its sparks white-hot, yellow or that spray, never a row of another's
+{
+  const { SuperFx } = await import('@src/fx/SuperFx');
+  const { lookOf } = await import('@src/render/factionLook');
+  const { FACTIONS } = await import('@src/game/factions');
+  const { HUE_RAMPS, Ramp } = await import('@src/render/palette');
+  const drawn = (palette: readonly number[] | null) => {
+    const fx = new SuperFx(1200) as any;
+    if (palette) fx.palette = palette;
+    fx.motes(120, 92, 0.9);
+    fx.halo(60, 1.1, 7);
+    fx.sparks(240, new THREE.Vector3(), 12);
+    const seen: Record<string, Set<number>> = { mote: new Set(), spark: new Set(), halo: new Set() };
+    for (let i = 0; i < fx.data.length; i += 16) if (fx.data[i + 1] > 0) seen[fx.data[i + 2] === 0 ? 'mote' : fx.data[i + 2] === 2 ? 'spark' : fx.data[i + 2] === 3 ? 'halo' : 'arc']?.add(fx.data[i + 12]);
+    return seen;
+  };
+  const only = (set: Set<number>, rows: readonly number[]) => [...set].every((r) => rows.includes(r));
+  const rb = drawn(null);
+  bok(only(rb.mote, HUE_RAMPS) && rb.mote.size === 6 && only(rb.halo, HUE_RAMPS) && only(rb.spark, [Ramp.GLOW_WHITE, Ramp.YELLOW, ...HUE_RAMPS]), 'by default its motes, halo and sparks are Rainbow\'s, as MEGA\'s were');
+  for (const f of FACTIONS) {
+    const spray = lookOf(f.id).spray, s = drawn(spray);
+    bok(only(s.mote, spray) && only(s.halo, spray) && s.mote.size === new Set(spray).size && only(s.spark, [Ramp.GLOW_WHITE, Ramp.YELLOW, ...spray]), `${f.name}: its motes and halo in its spray alone (${[...s.mote].join(', ')}), its sparks white-hot, yellow or its spray`);
+  }
 }
 // the Bomb's hint (Coach's TAUGHT.bomb, 256): HOLD THE BUS STILL / LIFT TO BOMB once, after three taps, the first time a painted building glints with a full
 // belly under 300 m; a Bomb let go first teaches it with no hint; and without the link nothing

@@ -33,6 +33,15 @@ import { registerTunables } from '../ui/tunables';
 // ribbon and lands exactly when that building blooms (travelTime + i *
 // cascadeStep). The primary stream lands travelTime after emission.
 
+/** The factions' rows (Ramp.MAGENTA to OBSIDIAN, 24-31) at the step their breath reads brightest without bleaching: Particles.palette's, SuperFx's. */
+export const FACTION_STEP: readonly number[] = [4, 4, 4, 3, 5, 3, 5, 6];
+
+/** A row of paint glowing over the world (the Bomb's ring, PixelPipeline): its step at rest and at its brightest, a faction's row a step under its FACTION_STEP and at it. */
+export function glowSteps(ramp: number): [number, number] {
+  const f = ramp - Ramp.MAGENTA;
+  return f >= 0 && f < FACTION_STEP.length ? [FACTION_STEP[f] - 1, FACTION_STEP[f]] : [5, 7];
+}
+
 /** Live-tunable look + feel numbers (read every spawn / frame). */
 export const fxTune = {
   // --- geyser ribbon
@@ -366,7 +375,7 @@ flat out vec4 vC;  // sprite light dir xy, sun shadow, flags
 flat out vec4 vD;  // smear dir xy (sprite space), smear half length px, blob radius px
 
 // (the factions' rows, 24-31, at the step their breath reads brightest without bleaching: Particles.palette)
-const float FAC_STEP[8] = float[8](4.0, 4.0, 4.0, 3.0, 5.0, 3.0, 5.0, 6.0);
+const float FAC_STEP[8] = float[8](${FACTION_STEP.map((v) => v.toFixed(1)).join(', ')});
 float hueStep(float ramp) {
   int i = int(ramp + 0.5) - ${Ramp.RED};
   if (i < 0 || i > 5) return ramp > ${Ramp.MAGENTA - 0.5} && ramp < ${Ramp.OBSIDIAN + 0.5} ? FAC_STEP[int(ramp + 0.5) - ${Ramp.MAGENTA}] : 6.0;

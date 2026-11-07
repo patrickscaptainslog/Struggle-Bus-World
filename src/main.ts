@@ -24,7 +24,7 @@ import { StreetCam } from './game/StreetCam';
 import { WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { D as BUS_DIM } from './bus/busShape';
-import { Particles } from './fx/Particles';
+import { glowSteps, Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { Credit } from './ui/Credits';
 import { registerCityData } from './world/PaintState';
@@ -722,9 +722,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas'));
   /** The bus paints as this faction from its next shot: its blasts carry it (the buildings, the ground, the trees, ?moon's craters and open ground), and its
    *  breath's particles take its spray. Paint already down keeps its owner. */
+  /** &bomb: the Bomb's look takes the faction's spray too (set once the Bomb is up) */
+  let bombLook: ((f: number) => void) | null = null;
   const paintAsFaction = (f: number) => {
     splatter.faction = f;
     particles.palette = lookOf(f).spray;
+    bombLook?.(f);
   };
   if (paintAs) paintAsFaction(paintAs.id);
   // ?crew (game/crew.ts, SHOTS.md "MEGA off, and the faction button"): the testers' faction button. Once a page on this phone has seen ?crew, the faction it
@@ -1229,6 +1232,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   });
   bomb.on = controls.bombOn && !moon;
   holds.bomb = bomb;
+  // (&bomb: MEGA's look, the Bomb's, in the bus's faction's spray: SuperFx's motes, halo and sparks, and the ring where it lands. Without the link both stay
+  // Rainbow's, and with it Rainbow's spray is the rainbow: one program each either way, warmed at boot)
+  bombLook = (f) => {
+    if (!bomb.on) return;
+    const spray = lookOf(f).spray;
+    superFx.palette = spray;
+    pipeline.setBombRows(spray.map((r) => [r, ...glowSteps(r)] as const));
+  };
+  bombLook(splatter.faction);
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
