@@ -944,7 +944,7 @@ if (modes.has('bomb')) {
   };
   // (one page each: the street at Cruise, School Zone and Jet; ?life; ?moon's ground at Tycho)
   const pages = [
-    ['street', Q + '&bomb', [['cruise', 'II', 1000], ['cruise', 'III', 1700], ['zone', 'III', 1700], ['jet', 'III', 1700]]],
+    ['street', Q + '&bomb', [['cruise', 'II', 1000], ['cruise', 'III', 1700], ['zone', 'III', 1700], ['jet', 'III', 1700], ['high', 'III', 1700]]],
     ['life', Q + '&bomb&life', [['cruise', 'III', 1700]]],
     ['moon', '?moon&site=TYCHO&skipintro&fixeddt=0.05&bomb', [['cruise', 'III', 1700]]],
   ];
@@ -962,6 +962,9 @@ if (modes.has('bomb')) {
         orig(dt, work);
         if (window.__bombTrace) window.__bombTrace.push([p.calls, p.tris]);
       };
+      // (when each tier showed, as a watcher hears it: holds.bomb.watch)
+      window.__bombTiers = [];
+      g.bomb.watch({ tier: (t) => window.__bombTiers.push([t, performance.now()]) });
     });
     await runFor(page, 2);
     // (the page's first touch runs a long task in its touchstart: one in the lane first)
@@ -993,6 +996,18 @@ if (modes.has('bomb')) {
         await page.evaluate(() => (window.__qa = null));
         await runFor(page, 2.5);
       }
+      if (rung === 'high') {
+        // (600 m over Noe Valley, the world review's: the coarse regions' tiles there split out after its ground has started, three a frame, where they stayed bare)
+        await page.evaluate(() => {
+          const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4337 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7502 - o[0]) * r * 6378137;
+          const y = g.city.groundAt(x, z) + 600;
+          window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+          Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+        });
+        await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+        await page.evaluate(() => (window.__qa = null));
+        await runFor(page, 1);
+      }
       await page.evaluate(() => window.__game.forceReady());
       await runFor(page, 0.5);
       const a = await page.evaluate(() => {
@@ -1003,11 +1018,13 @@ if (modes.has('bomb')) {
       });
       if (!a.box) { ok(false, `${key}: the bus's box is set`); continue; }
       const x = Math.round((a.box.x0 + a.box.x1) / 2), y = Math.round((a.box.y0 + a.box.y1) / 2);
+      const pt0 = await page.evaluate(() => ((window.__bombTiers.length = 0), performance.now()));
       await H.down(1, x, y);
-      await wall(ms - 150);
-      // (no still while it's held: a 3x screenshot takes long enough to carry a Bomb II past III's 1.29 s)
-      const charging = await page.evaluate(() => ({ tier: window.__game.bomb.tier, ring: { ...window.__game.bomb.ring } }));
-      await wall(150);
+      await wall(ms - 60);
+      // (no still while it's held: a 3x screenshot takes long enough to carry a Bomb II past III's 1.29 s. Its tier just before the lift, and when each showed:
+      // read 150 ms before, ?life's III came after it once on a loaded laptop, and the row failed on a Bomb III fired as III)
+      const charging = await page.evaluate((t0) => ({ tier: window.__game.bomb.tier, ring: { ...window.__game.bomb.ring }, shown: window.__bombTiers.map(([t, at]) => [t, Math.round(at - t0)]) }), pt0);
+      await wall(60);
       await page.evaluate(() => (window.__bombTrace = []));
       await H.up(1);
       await runFor(page, 1.2);
@@ -1033,16 +1050,21 @@ if (modes.has('bomb')) {
         }
         const tr = window.__bombTrace;
         window.__bombTrace = null;
-        return { stats: s.stats, comet: !!l?.comet, full: g.cometState().full, raised, wrong, past3, craters, craterTop, craterJump, frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])) };
+        // (its ground and trees in 0.8 of its circle: on the page most of a wide Bomb's tiles came in after its ground started and stayed bare, and its outer trees grey)
+        const near = m ? null : g.paintedAt(l.aim[0], l.aim[2], 0.8 * s.stats.radius);
+        return { stats: s.stats, comet: !!l?.comet, full: g.cometState().full, raised, wrong, past3, craters, craterTop, craterJump, frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), ground: near && +near.groundShare.toFixed(3), treesOnPaint: near?.treesOnPaint, treesGrey: near?.treesGrey };
       });
-      const row = { key, gear: a.gear, at: [x, y], held: ms, charging, fired: b.stats.fired - a.stats.fired, fizzles: b.stats.fizzles - a.stats.fizzles, tier: b.stats.tier, radius: Math.round(b.stats.radius), jump: b.stats.jump, comet: b.comet, full: b.full - a.full, raised: b.raised, wrong: b.wrong, past3: b.past3, craters: b.craters, craterTop: b.craterTop, craterJump: b.craterJump, frames: b.frames, draws: b.draws, tris: b.tris };
+      const row = { key, gear: a.gear, at: [x, y], held: ms, charging, fired: b.stats.fired - a.stats.fired, fizzles: b.stats.fizzles - a.stats.fizzles, tier: b.stats.tier, radius: Math.round(b.stats.radius), jump: b.stats.jump, comet: b.comet, full: b.full - a.full, raised: b.raised, wrong: b.wrong, past3: b.past3, craters: b.craters, craterTop: b.craterTop, craterJump: b.craterJump, frames: b.frames, draws: b.draws, tris: b.tris, ground: b.ground, treesOnPaint: b.treesOnPaint, treesGrey: b.treesGrey };
       R.rows.push(row);
       console.log('bomb:', JSON.stringify(row));
       const want = tier === 'III' ? 3 : 2;
       ok(row.fired === 1 && row.fizzles === 0 && row.tier === want && charging.tier === want, `${key}: held ${ms} ms on the bus, a Bomb ${tier} (fired ${row.fired}, tier ${row.tier}, charging ${charging.tier}, fizzles ${row.fizzles})`);
       ok(charging.ring.k > 0.5 && charging.ring.r > 0, `${key}: its ring shows while it charges (k ${charging.ring.k.toFixed(2)}, ${Math.round(charging.ring.r)} m)`);
       if (where === 'moon') ok(row.craters > 0 && row.craterTop <= 3 && row.craterJump >= 2, `${key}: craters take its jump, none past 3 (${row.craters}, top ${row.craterTop}, jump ${row.craterJump})`);
-      else ok(row.raised > 0 && row.wrong === 0 && row.past3 === 0, `${key}: every building it raised at min(3, before + ${row.jump}), none past 3 (${row.raised}, ${row.wrong} not, ${row.past3} past)`);
+      else {
+        ok(row.raised > 0 && row.wrong === 0 && row.past3 === 0, `${key}: every building it raised at min(3, before + ${row.jump}), none past 3 (${row.raised}, ${row.wrong} not, ${row.past3} past)`);
+        ok(row.ground >= 0.5 && row.treesGrey === 0, `${key}: its ground painted in 0.8 of its circle, and every tree standing on it (${row.ground} of the ground, ${row.treesGrey} of ${row.treesOnPaint} trees grey)`);
+      }
       if (rung === 'jet') ok(row.comet && row.full === 1, `${key}: at Jet the Comet's landing, with its full show (comet ${row.comet}, full ${row.full})`);
       ok(row.frames > 10 && row.draws <= 200 && row.tris <= 1.5e6, `${key}: through its stages and the pogo at most 200 draws and 1.5 M triangles (${row.frames} frames, ${row.draws} draws, ${(row.tris / 1e6).toFixed(3)} M)`);
     }

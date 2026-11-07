@@ -2233,31 +2233,40 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: buildings painted / total within r of a lat/lon, and the share of ground painted there */
       paintedNear: (lat: number, lon: number, r: number) => {
         const [x, z] = latLonToLocal(lat, lon, manifest.origin);
-        const near = city.buildingsNear(x, z, r, []);
-        let painted = 0, cells = 0, ground = 0;
-        for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
-        for (let dz = -r; dz <= r; dz += 4)
-          for (let dx = -r; dx <= r; dx += 4) {
-            if (dx * dx + dz * dz > r * r) continue;
-            cells++;
-            const g = city.ground.sample(x + dx, z + dz);
-            if (g && g.cov >= 0.5) ground++;
-          }
-        // (and the trees standing on painted ground there, which a blast paints)
-        let trees = 0, onPaint = 0;
-        for (const [k, list] of treeIndex) {
-          const tf = treeFields.get(k);
-          if (tf)
-            for (let i = 0; i < list.length; i++) {
-              if (Math.hypot(list[i].x - x, list[i].z - z) >= r) continue;
-              if (tf.paintLevel(i) > 0) trees++;
-              const g = city.ground.sample(list[i].x, list[i].z);
-              if (g && g.cov >= 0.5) onPaint++;
-            }
-        }
-        return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, treesOnPaint: onPaint, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
+        return paintedAt(x, z, r);
       },
+      /** QA: the same at a point of the map (m) */
+      paintedAt: (x: number, z: number, r: number) => paintedAt(x, z, r),
     };
+    /** QA: paintedNear's and paintedAt's count */
+    function paintedAt(x: number, z: number, r: number) {
+      const near = city.buildingsNear(x, z, r, []);
+      let painted = 0, cells = 0, ground = 0;
+      for (const n of near) if (city.paint.level(n.ref.index) > 0.5) painted++;
+      for (let dz = -r; dz <= r; dz += 4)
+        for (let dx = -r; dx <= r; dx += 4) {
+          if (dx * dx + dz * dz > r * r) continue;
+          cells++;
+          const g = city.ground.sample(x + dx, z + dz);
+          if (g && g.cov >= 0.5) ground++;
+        }
+      // (and the trees standing on painted ground there, which a blast paints, and those of them still grey)
+      let trees = 0, onPaint = 0, grey = 0;
+      for (const [k, list] of treeIndex) {
+        const tf = treeFields.get(k);
+        if (tf)
+          for (let i = 0; i < list.length; i++) {
+            if (Math.hypot(list[i].x - x, list[i].z - z) >= r) continue;
+            if (tf.paintLevel(i) > 0) trees++;
+            const g = city.ground.sample(list[i].x, list[i].z);
+            if (g && g.cov >= 0.5) {
+              onPaint++;
+              if (tf.paintLevel(i) === 0) grey++;
+            }
+          }
+      }
+      return { buildings: near.length, painted, groundShare: cells ? ground / cells : 0, paintedTrees: trees, treesOnPaint: onPaint, treesGrey: grey, savedTiles: city.ground.tileCount, landed: city.ground.landedCount, queued: city.ground.queued };
+    }
   }
 }
 
