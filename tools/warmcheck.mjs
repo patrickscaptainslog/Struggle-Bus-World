@@ -633,27 +633,31 @@ if (opt.boom || opt.falls) {
       });
       await run(1.5);
       await settle();
-      // (a Financial District tower's roof, through the real splat pipeline as __game.splatAt does a tap, the bus 300 m west of it, 60 m over its roof)
-      const r = await page.evaluate(async (k) => {
-        const g = window.__game;
-        const [cx, cz] = window.__ll(37.7946, -122.3999);
-        const all = g.city.buildingsWithin(cx, cz, 700, []).map((n) => n.ref).filter((r) => r.stableId >= 0 && r.roofY - r.baseY > 60 && g.city.roofAtPart(r, r.cx, r.cz, Infinity) - r.baseY > 45);
-        const t = all[(k ?? 0) % Math.max(1, all.length)];
-        if (!t) return { error: 'no tower' };
-        const y = t.roofY + 60;
-        window.__qa = { pin: { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y } };
-        Object.assign(g.flight, { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
-        return { index: t.index, cx: t.cx, cz: t.cz, h: t.roofY - t.baseY };
-      }, keys.indexOf(key));
-      await settle();
-      const p0 = await page.evaluate(() => window.__game.falls.stats.pours);
-      await page.evaluate((r) => {
-        const g = window.__game, t = g.city.buildingsWithin(r.cx, r.cz, 5, []).map((n) => n.ref).find((q) => q.index === r.index);
-        if (t) g.splatter.barf(t.cx, t.cz, { target: t, drop: 60, hitStop: 0 });
-      }, r);
-      await run(3.5);
-      const b = await page.evaluate(() => ((window.__qa = null), { ...window.__game.falls.stats, faction: window.__game.splatter.faction }));
-      fallsRun.push({ key, faction: b.faction, tower: r, pours: b.pours - p0, pools: b.pools, drops: b.drops });
+      // (a Financial District tower's roof, through the real splat pipeline as __game.splatAt does a tap, the bus 300 m west of it, 60 m over its roof; the
+      // next tower if it didn't pour: a footprint whose middle lies off it lands the tap on its edge, a podium's roof under 40 m)
+      let tries = 0, r = null, b = null, p0 = 0;
+      for (let k = keys.indexOf(key); tries < 3 && !(b && b.pours > p0); k += 5, tries++) {
+        r = await page.evaluate(async (k) => {
+          const g = window.__game;
+          const [cx, cz] = window.__ll(37.7946, -122.3999);
+          const all = g.city.buildingsWithin(cx, cz, 700, []).map((n) => n.ref).filter((r) => r.stableId >= 0 && r.roofY - r.baseY > 60 && g.city.roofAtPart(r, r.cx, r.cz, Infinity) - r.baseY > 45);
+          const t = all[(k ?? 0) % Math.max(1, all.length)];
+          if (!t) return { error: 'no tower' };
+          const y = t.roofY + 60;
+          window.__qa = { pin: { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y } };
+          Object.assign(g.flight, { x: t.cx - 300, z: t.cz, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+          return { index: t.index, cx: t.cx, cz: t.cz, h: t.roofY - t.baseY };
+        }, k);
+        await settle();
+        p0 = await page.evaluate(() => window.__game.falls.stats.pours);
+        await page.evaluate((r) => {
+          const g = window.__game, t = g.city.buildingsWithin(r.cx, r.cz, 5, []).map((n) => n.ref).find((q) => q.index === r.index);
+          if (t) g.splatter.barf(t.cx, t.cz, { target: t, drop: 60, hitStop: 0 });
+        }, r);
+        await run(3.5);
+        b = await page.evaluate(() => ((window.__qa = null), { ...window.__game.falls.stats, faction: window.__game.splatter.faction }));
+      }
+      fallsRun.push({ key, faction: b.faction, tower: r, tries, pours: b.pours - p0, pools: b.pools, drops: b.drops });
     }
   }
 }
