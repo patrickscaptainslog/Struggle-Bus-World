@@ -24,6 +24,7 @@ Preview of `feat/factions` (it works once the branch is pushed):
 | `?lift` | The real path: three Rainbow breaths take a house to level 3, the fourth lifts it and its painted neighbours. |
 | `?lift&lifted&slowmo=0` | The same with no slow motion at the lift-off, to compare (decision 13). |
 | `?lift&lifted&hood=Fillmore District` | Another neighbourhood, by its name in `hoods.bin`. |
+| `?lift&lifted=atlantis` (`elderwood`, `hyperglow`, `inferno`) | The same neighbourhood in another faction's stage 4: its lake, its undersides and its sky piece ("Stage 4 in the other factions", below). |
 
 What to try, in order:
 
@@ -173,6 +174,67 @@ Its other notes, not done: the seven-colour halo, the park lifting as an island,
 - The hold rule as a scripted check, and a lift made by real taps.
 - The frame spikes in the climb (above).
 
+## Stage 4 in the other factions
+
+FACTIONS.md section 4: "a still of each faction at stage 4 from the street and from a kilometre up. You judge all five looks before they're built." These are those stills' looks, built far enough to judge from a still and a short loop, behind `&lifted=<faction>`. The producer's ruling on the Lift holds in every faction: nothing joins a floating house to the ground (FACTIONS.md's anchor chains, root stilts, hydraulic legs and glowing chains are all out); the houses float, ride the swell and keep their uneven heights, the same motion, heights and flight as Rainbow's; and each faction keeps its lake.
+
+### Try it
+
+| Link (add to the preview's address) | What you get |
+|---|---|
+| `?lift&lifted=atlantis` | Alamo Square in Atlantis's colours, lifted over the sea, the Sky Sea over the park |
+| `?lift&lifted=elderwood` | The Elderwood: over its marsh, the Sky Wood |
+| `?lift&lifted=hyperglow` | Hyperglow: over its black mirror, the Skyway, the houses snapping round on the beat |
+| `?lift&lifted=inferno` | Inferno: over its lake of fire, the Hellmouth |
+| `?lift&lifted` | Rainbow, as it was, to compare |
+
+`&hood=` still picks another neighbourhood: the pieces are placed from its own squares and streets. The bus paints as the link's faction (its breath and petals too), unless `&paintas` says otherwise. The sky piece forms a second or two after the wave starts, so wait for the wave. After the merge, feat/shots' `?crew` button can drive the same key.
+
+### What each is
+
+All four sit over the neighbourhood's heart square (hoods.bin), 220 m over its ground (FACTIONS.md's sky marks, 200-250 m), each one draw and one program, made only on its own link and warmed at boot (`src/world/liftSky.ts`). Everything is placed from the neighbourhood's data: its squares, its streets (the tiles' OpenStreetMap centrelines) and its houses (a fall or a column stands on a street, clear of them), so any city with a `hoods.bin` gets its own. They form after the wave (`uSkyT0`), move in their vertex shaders, and take no paint and stop nothing: the bus flies through the Sea and the Skyway.
+
+- **Atlantis, the Sky Sea.** A lens of ocean 0.62 of the neighbourhood across (180-380 m; 370 on Alamo Square), 48 m thick: from under it a ceiling of teal sea, a net of sunlight wandering over it, schools of fish turning in it, foam at its rim; on top a running swell with foam on the crests. Five falls pour up into it from the streets round the heart, the water running up them in streaks, foam churning at their feet. Two whales, 60 m long, take turns: one breaches out of the top, one plunges out of the belly and back, every 13 s. The lake under the houses is the sea come ashore: deep teal, the sun's net on its floor, foam on the swell and the rings, a foam shore. The undersides drip water and catch the net.
+- **The Elderwood, the Sky Wood.** Seven islands of earth over the squares farthest apart (the heart's 72 m across its radius, the others 32-48), at 180-235 m: silver-lilac rock in strata (never brown) with lime root veins glowing in it, moss turf, one to three old trees each (silver bark, moss crowns, lantern fruit glowing gold, violet caps), a ring of rune stones whose runes glow lime, and glowing roots trailing 22-44 m below, swaying. They rise in turn after the wave and then breathe. The lake is a lotus marsh: dark moss water, glowing roots running through it, lily pads with violet flowers, fireflies, a silver stone shore. The houses trail glowing roots (the drips, 4.5 times longer, never more than 35 % of the way down) and their bellies catch the roots' light.
+- **Hyperglow, Overdrive.** The Skyway: the neighbourhood's real streets copied 220 m up in lanes of light, 16 m across with three lanes a way, magenta edges and pulses of light running both ways along them, its paths in thin magenta, a diamond at every junction and a fence of scanlines along the neighbourhood's edge. It snaps out from the heart 70 m a beat, each lane flashing white as the front passes. The floating houses turn in sharp snaps on the beat: 45 degrees (a big building 90) once every 8 beats of 0.5 s, each on its own beat, with a lock-click past it and back, where the turn can't cut a neighbour floating at its height (`Lift.turns`; 0 draws: the house's own shader, from tLift's spare channel, its walls' light turning with it). The lake is a black mirror under a cyan grid, square ripples snapping out from under each house and magenta pulses running out along the grid. The bellies are dark chrome ruled in cyan with a magenta glow, the drips beads of cyan light.
+- **Inferno, the Hellmouth.** A black sun 120 m across, black glass with a violet sheen at its limb and cracks of crimson fire throbbing on a slow heartbeat, a corona of 90 flame tongues licking off it (gold at the root, orange, crimson at the tip). Four columns of lava twist up into it from street points round the heart, molten and rushing up under a broken crust; embers rise from the lake. Over the neighbourhood a black-violet ceiling of smoke, lit red from under it toward its middle, its edge breaking up into the sky: it faces down only, so from the street the sky is black-violet and from a kilometre it isn't in the way. The lake is fire: floes of black glass drifting with the swell, molten gold and orange in the cracks between, crimson rings throbbing out from under the houses. The bellies are black glass lit crimson from below, the drips molten.
+
+### The numbers
+
+Measured on the development laptop's Intel UHD 620 in a desktop browser at 1179 x 2556 (`lift-stills.mjs`, head 3390a59). **None of it is a phone's.** Draws / triangles, then the frame time over the 90 frames before the still (median / 95th, ms); the sky piece's own triangles in the first column.
+
+| Faction (piece's triangles) | Street, noon | Street, golden hour | 1 km, noon | 1 km, golden hour |
+|---|---|---|---|---|
+| Rainbow (none) | 142 / 1.18 M, 16.7 / 49.9 | **217** / 1.42 M, 33.3 / 50.0 | 91 / 1.26 M, 33.3 / 33.5 | 79 / 0.73 M, 16.8 / 33.5 |
+| Atlantis (6.0k) | 143 / 1.19 M, 33.3 / 50.0 | **218** / 1.43 M, 33.2 / 50.1 | 92 / 1.27 M, 33.3 / 33.5 | 80 / 0.74 M, 16.7 / 33.5 |
+| The Elderwood (13.2k) | 143 / 1.20 M, 16.7 / 33.4 | **218** / 1.44 M, 33.2 / 49.8 | 92 / 1.27 M, 16.8 / 33.4 | 80 / 0.75 M, 16.7 / 33.4 |
+| Hyperglow (0.2k) | 143 / 1.18 M, 33.2 / 33.5 | **218** / 1.42 M, 33.3 / 66.8 | 92 / 1.26 M, 33.3 / 33.5 | 80 / 0.74 M, 16.7 / 33.4 |
+| Inferno (5.1k) | 143 / 1.19 M, 16.8 / 50.0 | **218** / 1.43 M, 16.7 / 33.5 | 92 / 1.26 M, 33.0 / 33.5 | 80 / 0.74 M, 16.7 / 33.4 |
+
+Each piece is one draw and one program; the lakes and undersides add none. **The golden-hour street view is over the floor's 200 draws in every faction, Rainbow's included** (217-218): it's that view's (the lamps and the low sun's city), not the pieces'. Every other view is inside 120-200 draws and 1.0-1.5 M triangles, or under them. The frame times on this laptop wander between 16.7 and 33 ms from page to page whatever the faction, so they don't rank the pieces. The Skyway is light on Alamo Square because its streets are: about 100 segments of the tiles' centrelines cross its 17 squares (SF's long blocks); a denser city gets more lanes.
+
+The stills and the loops: `C:/Users/Utku/sb-checks/factions/stage4/stills/` on the laptop (`<faction>-<sky>-lift-street.png`, `-1k.png`, `<faction>-motion.gif`, `sheet.png`).
+
+Checks on 3390a59 (`sb-checks/factions/stage4/gates.txt`, `gate.sh all`): `tsc` clean; the build and "iOS 15.0 parses every chunk" (the Lift chunk 57.8 kB, from 24.6); flag off against e0f1dde's build, `shots.mjs --det`'s 8 views sky off and golden hour, all 18 files byte-identical; `warmcheck` with no flag and on `?lift&lifted` for each of the five, 0 programs after the warm-up (35 with no flag, 38 Rainbow's, 39 each other faction's: its piece); `lift-check --gpu` all passed (the turn's code in the GLSL changes nothing for a house that doesn't turn); the controls and feel sims, `lift-check`, `owner-check` and `hoods-check` against e0f1dde's outputs: identical, but for seven outputs that differ between two runs of the same code (timings, a time stamp, `Math.random`), compared with their numbers masked. The stills tool took all 25 views and 5 loops with no page error and no shader error.
+
+### Stand-ins and what's not built
+
+- **Hyperglow's turns are drawn only.** The flight and the aim see each house unturned: a 45-degree turn moves a corner up to about 0.3 of its length off where the flight thinks it is. The full one turns LiftField's houses with them (about half a day).
+- **The set pieces cast no shadow and take no paint.** Painting is the whole point: whether the Sea, the islands, the Skyway and the sun take paint is a design question for later (a rival's sky piece painted over?).
+- **No sound.** Atlantis's "inside it the sound goes underwater" isn't built; the wave's sounds are Rainbow's borrowed calls.
+- **The whale is a low spindle with fins, the trees blobs on tapered trunks, the flames flat blades.** Each reads at a still's distance; close up they're simple.
+- **Only the link's faction.** A real square reaching stage 4 (the areas, feat/recess) picks its owner's look; here the whole neighbourhood is one faction, and only one sky piece exists on a page.
+- The lake and the undersides of a mixed neighbourhood already draw each house's own faction (they read the owner from the paint), but the sky piece is the link's.
+
+### The producer's calls, with our pick
+
+1. **Atlantis's falls rise from the streets to the Sea, not from houses.** They are FACTIONS.md's "the canals pour upward" and touch no house. Our pick: keep them.
+2. **Inferno's four columns stay after the sun forms**, feeding it, where FACTIONS.md has them fuse into it. Our pick: keep them, so the sun reads as made of the lake.
+3. **The black-violet sky is a ceiling of smoke over the neighbourhood**, not the live sky's own tables turning black-violet. Our pick: the ceiling, which leaves the sky everywhere else as it is.
+4. **The Elderwood's houses trail roots that never reach the ground.** FACTIONS.md's root stilts are out by the ruling; hanging roots keep the faction's idea under the houses. Our pick: keep them.
+5. **Hyperglow's turns made exact for the flight**, about half a day. Our pick: yes, once the look is liked.
+6. **A set piece per neighbourhood or per square.** FACTIONS.md section 1 moves the sky marks to the heart, one per neighbourhood; these are built that way. Our pick: keep one per neighbourhood.
+
 ## What's left for the whole of step 6
 
 Step 6 is "the fantasy proof" (FACTIONS.md sections 4 and 5, 12 agent-days): Rainbow's stages 1-4 in one area on the producer's phone, plus a still of each faction at stage 4 from the street and from a kilometre up. This slice is its stage 4 for Rainbow, by hand. Still to come:
@@ -180,11 +242,11 @@ Step 6 is "the fantasy proof" (FACTIONS.md sections 4 and 5, 12 agent-days): Rai
 - **Bring this slice to the floor**: the noon 250 m view under 1.5 M triangles, the climb's frame spikes found and gone, the flight steering round what it can't pass inside the layer (`lift-check`'s `j.`, a look ahead along the heading), then a real A15 and iOS Safari (step 2, the slowest phone).
 - **The rest of Rainbow's stage 4**: the seven-colour halo snapping off to 250 m at the heart, the park lifting as an island, splash on the bus, lifted roofs that look richer than level 3, and its own sound on the beat clock (step 3).
 - **Stages 1-3 in the same area**, on the areas' squares and their clock (step 4, `feat/recess`): stage 1's mark drawing itself round in five seconds, stage 2's daisies and popcorn trees, stage 3's rivers running downhill with bunting and onion domes, and stage 4 coming from a square reaching 4 instead of per-building hits.
-- **The other four factions at stage 4**, as stills from the street and from 1 km: Atlantis, the Elderwood, Hyperglow and Inferno, so their looks are judged before they're built (only Rainbow lifts today).
+- **The other four factions at stage 4**: their looks are up for the producer's eye ("Stage 4 in the other factions", above). Once judged, each needs what its stand-ins list: Hyperglow's turns in the flight, the pieces' shadows and paint, their sounds, Rainbow's own halo.
 - **Open nits**: the petals' global palette, the squash seams, the one-frame lag, the 9-building cell, the twin during a region swap.
 - **The producer's eye**, on the phone, on the slow motion and on the two calls above.
 
 ## Checks
 
 - `node tools/factions/lift-check.mjs [--gpu]`: the motion and the swell, the heights on real data in three cities (the bands, touching neighbours apart, the 30 m share), the pick, the field's identity, and the real `Flight` at 120 Hz on Alamo Square with every house up and riding the swell: under the Painted Ladies at the floor and at a held 20 m, over the layer, in from the edge, a pull up under the layer, a low floating house from four sides, four dives and four pull ups through the layer, and 40 straight runs in from outside the neighbourhood, none with the bus's body in a drawn house and none with a step over 3 m; and 192 weaves beside 24 houses at their walls' height (`j.`), reported, the known risk above. With `--gpu`, the motion's GLSL on the GPU against the TypeScript. `LIFT_TRACE=<a run's tag>` prints one run's trace.
-- `node tools/factions/lift-stills.mjs`: the ten stills (five views, noon and golden hour) with their draws and triangles.
+- `node tools/factions/lift-stills.mjs <url> <out> [--factions=rainbow,atlantis,elderwood,hyperglow,inferno] [--views=under,low,mid,street,250,1k,gif] [--skies=noon,golden]`: the stills (`<faction>-<sky>-lift-<view>.png`) with their draws, triangles and frame times, and `gif` a faction's motion (`<faction>-motion.gif`, 28 frames 0.25 s of game time apart, at one pixel a game pixel). Exit 1 on a failed view or a shader error.
