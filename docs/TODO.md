@@ -2,6 +2,39 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Evening report: the first account (2026-11-06)
+
+Everything is on working branches; nothing went live. The links open after Vercel's sign-in, as before. Two more runs are still going (the Comet and Curb), and this report is updated as each lands.
+
+**What to fly**
+- **The shots so far:** https://struggle-bus-world-git-feat-shots-patricks-projects-9ff6e721.vercel.app/?crew&life
+  - MEGA is gone (`&mega` brings it back). The crest at the top left picks any of the five factions; `?crew=off` takes it away on that phone.
+  - A tap's splat is bigger, 85 m round, and paints the people, cars and picnics inside it. A tap on one car or a ferry paints the block round it.
+  - **The Hose:** hold a finger still on the city, high above the bus, for just under half a second. It pours where you hold, and a drag sweeps it. Three seconds of paint, then three to refill: the band on the bus's belly drains, the hiss climbs, and it sputters dry. A quick tap there still splats.
+  - **School Zone:** flick down from Cruise. The bus hovers, and paint balloons pop out of the roof one by one. Steer sideways to turn on the spot, push to drift forward (it sinks gently toward the roofs), pull to climb at a gentle 15 m/s. Flick up and the balloons burst into a rainbow.
+  - Painting a lot at the top level no longer slows everything down: the rooftop gardens keep to a budget. A whole Recess match ran at a 33 ms median frame where it was 50.
+- **The street camera preview**, the bus 4 m over a street on a hill, as Curb will see it: https://struggle-bus-world-git-feat-shots-patricks-projects-9ff6e721.vercel.app/?streetcam&lat=37.754863&lon=-122.428367&heading=85.4&skipintro (`?streetcam=wide` for a wider lens). The streets are bare grey from down there: question 1 below.
+
+**What went wrong, or isn't right yet**
+- Nothing ran on a phone. The frame times are this laptop's, shared with other runs.
+- Our own clean-up of a test copy emptied the laptop's shared install twice today. Both times it came back from the laptop's own files, with no download, and one check was rerun. Every brief now has the rule that stops it.
+- School Zone's first commit broke the page on load; the next one fixed it.
+- Curb's road side, the second account's part, isn't ready yet: in today's review the bus rides inside the car it's pacing on half the frames, and your look picks a turn 220 to 600 m on, not the one in front. It's at the top of their list.
+- Recess, from today's review of the second account's day ([reviews/recess-life-day-2026-11-06.md](reviews/recess-life-day-2026-11-06.md)): two whole matches ran clean on the laptop, and a match no longer touches your saved city. Five things you'd notice need fixing first: the arrows at the screen's edge point the wrong way for a rival behind you, the match's words cover the clock, rival paint spills onto your buildings, rival shots seem to spray out of your own bus, and rivals stop defending their gods. The parks wake at nine, though Dolores has only one group then and doesn't fill until about half past.
+
+**For the producer, one at a time, each with the studio's pick**
+1. **Street surfaces** (decision 14). Fly the street camera preview first. Pick: take them off hold for Curb, starting with kerbs, lane lines and crossings drawn from the road map, so any city gets them.
+2. **Hold to aim starts at about 0.42 s.** Pick: keep it, and tune it on your phone.
+3. **A locked shot takes whatever paint is in the belly**, at least an eighth of it. Pick: yes, that's "nothing is wasted".
+4. **School Zone's drift sinks toward the roofs** as you push. Pick: keep it, since it's how you come down to the street for Curb.
+5. **The bus leans 14 degrees spinning on the spot** in School Zone. Pick: keep it, it reads lively.
+6. **The Hose coughs when the bus is more than 1.5 km up.** Pick: keep it.
+7. **The floating houses**: in 8 of 192 test weaves at their walls' height the bus ends up inside one. Pick: the houses make way, nudged aside like boats bumped on water.
+8. **Two downloads still wait for your OK**: BBBike's San Francisco map extract, 33,058,412 bytes from download.bbbike.org, for the bus routes; and Amsterdam's and London's road data from Overture's 2026-10-21.0 release, about 44 MB, for their bridges and raised roads. Pick: yes to both.
+
+**What to paste into the other account:**
+> Read `docs/TODO.md` on `feat/earth` from the top. Do today's review first (`docs/reviews/recess-life-day-2026-11-06.md`): B2, M12 and M13 on `feat/life` before anything else, since the first account's Curb flight rides on them; then merge `feat/shots` (hold to aim is pushed, with `HOOKS.md`) and build lock-on for boats and planes; then Recess's six majors. Push your branches when you're confident; `main` stays mine.
+
 ## Evening report: the second account (2026-11-06)
 
 **What to fly**
