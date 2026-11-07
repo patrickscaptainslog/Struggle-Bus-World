@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-// The Waterfall (docs/specs/shots/BUILT.md, "Step 8"; the extras' plan), behind &falls: a tower hit 40 m up or more runs with paint. Under the flag the struck
-// tower's 1.5 m columns run down its walls from the impact, each up to 1.6 times the flood's 55 m/s and a step brighter (wet), over whatever paint it had,
+// The Waterfall (docs/specs/shots/BUILT.md, "The extras"; the extras' plan), behind &falls: a tower hit 40 m up or more runs with paint. Under the flag the struck
+// tower's 2 m columns run down its walls from the impact, each up to 1.6 times the flood's 55 m/s and a step brighter (wet), over whatever paint it had,
 // drying from the top in about 6 s; the drops falling off its edges and the pool at its foot are the caller's (fx/Falls.ts). Four towers run at once, one
 // uniform slot each: the building program finds a vertex's slot with four compares (a flat varying), so only those towers' pixels pay for the runs. With
 // &falls off nothing here reaches a shader (as pogo.ts's pogoed()): no source differs by a byte.
@@ -14,7 +14,7 @@ export const fallsed = (glsl: string): string => (fallsOn ? glsl : '');
 
 /** The runs: a tower over `tall` m hit `up` m up or more runs; their speed (m/s, the flood's), up to `fast` times it a column, a column's width (m) and the
  *  share of columns that run, how long a wet run takes to dry (s), and the slots. */
-export const FALLS = { tall: 40, up: 40, speed: 55, fast: 1.6, col: 1.5, share: 0.62, dry: 6, slots: 4 };
+export const FALLS = { tall: 40, up: 40, speed: 55, fast: 1.6, col: 2, share: 0.55, dry: 6, slots: 4 };
 
 /** uFalls[i]: (the tower's building index, -1 none; the impact's height, m; the game time it struck; the runs' speed, m/s). */
 export const fallsUniforms = fallsOn ? { uFalls: { value: Array.from({ length: FALLS.slots }, () => new THREE.Vector4(-1, 0, -1e3, FALLS.speed)) } } : null;

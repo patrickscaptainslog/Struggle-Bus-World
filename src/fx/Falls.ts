@@ -18,7 +18,7 @@ export const fallsTune = {
   dropEvery: 1.25,
   drops: 160,
   splashShare: 1 / 3,
-  dropSize: 0.55,
+  dropSize: 0.85,
   /** the pool reaches this far past the footprint's radius (m), spreading at this speed (m/s) from the walls */
   pool: 10,
   poolSpeed: 6,

@@ -1,4 +1,4 @@
-// The Waterfall on the real city (src/fx/Falls.ts, src/world/falls.ts, &falls; docs/specs/shots/BUILT.md, "Step 8"): taps through the real Splatter on 20
+// The Waterfall on the real city (src/fx/Falls.ts, src/world/falls.ts, &falls; docs/specs/shots/BUILT.md, "The extras"): taps through the real Splatter on 20
 // towers over 40 m and 20 buildings under it within a kilometre of the Financial District's middle, at 1/60 s. Each tower hit on its roof pours once (a
 // slot of the runs at its impact's height and time, its drops, one per 1.25 m of fall up to 160, and its pool as the fastest runs reach the street: the
 // tower's hue on the ground round its foot, life told of it with kind 'falls'); none under 40 m pours; a tower hit again pours no more; and none pours from a
