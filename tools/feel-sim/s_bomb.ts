@@ -6,11 +6,14 @@
 // taps and a Bomb have warmed its paths (the hint comes after three taps), and leaving out a frame Node's garbage collector ran in, which a row says apart
 // (gcFrames, gcWorstMs), as it says its worst frame's parts: the game's, the ground's slice, its upload. Node's streaming is instant and its clock isn't a
 // phone's: the milliseconds say where the cost is, not an A15, nor a first Bomb's cold code on one.
-// The Lift isn't in Node (Lift.aloft is a world/Lift.ts question, checked by tools/factions/lift-check.mjs): "nothing lifted under ?lift" is the page's.
+// Then ?lift: with the Splatter's Lift answering as the page's would (LiftHooks: every house in reach would lift if a blast asked, ten of them up already), a
+// Bomb III from 300 m over each place asks none to lift and starts none, and the ten up are out of it, while a tap there asks and lifts (the control). The
+// Lift itself, its motion and Lift.aloft's own answer, is tools/factions/lift-check.mjs's and the page's.
 //   node tools/feel-sim/run.mjs s_bomb.ts
 import { newCity, pump, ll, makeGame, save, MODE, config, fakeRenderer, type Game } from './lib';
 import { blastCap, blastRadiusFor, groundDeadline } from '@src/game/blastLayout';
 import { globals } from '@src/render/materials';
+import type { LiftHooks } from '@src/world/liftGlsl';
 import { PerformanceObserver } from 'node:perf_hooks';
 
 // (Node's collector, when and how long: a frame it ran in is said apart, not counted)
@@ -140,6 +143,46 @@ for (const [name, lat, lon] of PLACES) {
       ok(worst <= 8, `${tag}: no frame over 8 ms but the collector's (${worst.toFixed(2)}, ${worstAt.toFixed(2)} s from the impact${again ? `, flown twice: ${time.worst.toFixed(2)} and ${again.worst.toFixed(2)}` : ''}; ${gcFrames} with the collector, at most ${gcWorst.toFixed(2)})`);
     }
 }
+
+// ---- ?lift
+const asked = { wants: 0, aloft: 0, start: 0 };
+const up = new Set<number>();
+const spy: LiftHooks = {
+  obstacle: (_x, _z, _y, baked) => baked, overhead: () => Infinity, surface: (_x, _z, _y, baked) => baked, dy: () => 0, dyAt: () => 0, reach: () => 0, over: () => false, noteTop: () => {},
+  wants: () => (asked.wants++, 1), aloft: (ref) => (asked.aloft++, up.has(ref.index)), start: () => { asked.start++; },
+};
+const liftRows: unknown[] = [];
+for (const [name, lat, lon] of PLACES) {
+  const [x, z] = ll(lat, lon);
+  await pump(city, x, z);
+  const ground = city.groundAt(x, z);
+  const roof = city.roofAt(x, z, Infinity) ?? ground;
+  const drop = Math.max(20, roof - ground + 18) + 300;
+  const r = blastRadiusFor(drop) * config.bomb.radius3;
+  up.clear();
+  for (const n of city.buildingsWithin(x, z, r * 0.6, [])) if (up.size < 10) up.add(n.ref.index);
+  city.lift = spy;
+  Object.assign(asked, { wants: 0, aloft: 0, start: 0 });
+  const b = await bomb(x, z, drop, r, config.bomb.jump3, 3, ground);
+  const bombAsked = { ...asked };
+  const upHit = [...up].filter((i) => b.blooms.has(i)).length;
+  // (the control: a tap at the same place, its own circle, every house it reaches asked)
+  Object.assign(asked, { wants: 0, aloft: 0, start: 0 });
+  city.paint.resetAll();
+  const g = makeGame(city);
+  g.splatter.barf(x, z, { drop, radius: blastRadiusFor(drop), hitStop: 0, from: ground + drop });
+  for (let i = 0; i < 60 * 3; i++) frame(g);
+  const tapAsked = { ...asked };
+  city.lift = null;
+  const row = { place: name, r: Math.round(r), up: up.size, upHit, painted: b.blooms.size, bomb: bombAsked, tap: tapAsked };
+  liftRows.push(row);
+  console.log(JSON.stringify(row));
+  const tag = `?lift, ${name} 300 m, Bomb III`;
+  ok(bombAsked.wants === 0 && bombAsked.start === 0 && b.blooms.size > 0, `${tag}: asks none to lift and lifts none (${bombAsked.wants} asked, ${bombAsked.start} started, ${b.blooms.size} painted)`);
+  ok(bombAsked.aloft > 0 && upHit === 0, `${tag}: the ten up already are out of it (${upHit} of ${up.size} bloomed)`);
+  ok(tapAsked.wants > 0 && tapAsked.start > 0, `?lift, ${name}: a tap there asks and lifts, so the Lift was asked as the page's (${tapAsked.wants} asked, ${tapAsked.start} started)`);
+}
 save('bomb', rows);
+save('bomb-lift', liftRows);
 console.log(fails.length ? `[${MODE}] FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `[${MODE}] bomb checks: all ${checks} passed (${rows.length} rows)`);
 process.exit(fails.length ? 1 : 0);
