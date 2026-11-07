@@ -4,7 +4,7 @@ import { GLSL_FACTION } from '../render/factionLook';
 import { globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
-import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, LAYOUT_POOL, LAYOUT_RING, POOL_SPREAD, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
 import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
 import { FACTION_RAINBOW, FACTION_ROOM, ownerOf } from '../game/factions';
@@ -1117,6 +1117,8 @@ export class GroundPaint {
     }
     const wave = new Float32Array(WAVE_LUT);
     for (let k = 0; k < WAVE_LUT; k++) wave[k] = arrival((k / (WAVE_LUT - 1)) * (e.max + 3), spec.r);
+    // (&falls's pool spreads out from the tower's walls, slower than any wave)
+    if (spec.layout === LAYOUT_POOL) for (let k = 0; k < WAVE_LUT; k++) wave[k] = Math.max(0, (k / (WAVE_LUT - 1)) * (e.max + 3) - spec.ring) / POOL_SPREAD;
     return { spec, lut: e.lut, warp, wave, max: e.max, dots: blastDots(spec, e), minX: spec.x - reach, minZ: spec.z - reach, maxX: spec.x + reach, maxZ: spec.z + reach };
   }
 
@@ -1403,7 +1405,9 @@ export class GroundPaint {
         const t = f - k;
         const k1 = k + 1 < SHAPE_LUT ? k + 1 : 0;
         const e = lut[k] * (1 - t) + lut[k1] * t;
-        const c = (e - dist) / 2.6 + 0.5;
+        let c = (e - dist) / 2.6 + 0.5;
+        // (&boom's ring: its inner edge, as soft and as warped as its outer)
+        if (s.layout === LAYOUT_RING) c = Math.min(c, (dist - s.ring - warp[k] * 2.2) / 2.6 + 0.5);
         if (c <= 0.02) continue;
         let hue = s.hue;
         if (s.layout === LAYOUT_BANDS) hue = bandHue(s, s.x + wx, s.z + wz);

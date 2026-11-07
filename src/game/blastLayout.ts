@@ -42,6 +42,11 @@ export interface BlastSpec {
 
 /** BlastSpec.layout: hue by distance from (ox, oz), not from the impact, so many overlapping blasts paint one picture. */
 export const LAYOUT_BANDS = 3;
+/** BlastSpec.layout: &boom's ring (src/game/Boom.ts), the pinwheel's hues on a band from `ring` m out to its edge; the ground inside it is left bare. */
+export const LAYOUT_RING = 4;
+/** BlastSpec.layout: &falls's pool (src/fx/Falls.ts), its one hue revealed outward from `ring` m (the tower's walls) at POOL_SPREAD m/s, not by the wave. */
+export const LAYOUT_POOL = 5;
+export const POOL_SPREAD = 6;
 
 /** A spatter dot beyond the edge (a flung blob lands on it, or it sits still). */
 export interface BlastDot {

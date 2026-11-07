@@ -6,6 +6,7 @@ import { clamp } from './springs';
 import { config } from '../config';
 import { SCHOOL_ZONE, TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
+import type { BoomPlan } from './Boom';
 import type { CameraRig } from './CameraRig';
 import type { AudioEngine } from '../audio/AudioEngine';
 import { LOOKAHEAD } from '../audio/dsp';
@@ -171,6 +172,20 @@ export class Controls {
   readonly megaOn: boolean;
   /** the Bomb is on this page (&bomb) */
   readonly bombOn: boolean;
+  /** Every rung's event after its own looks and sounds (main.ts: &boom's flick into Turbo 3, src/game/Boom.ts) */
+  onRung: ((ev: TurboEvent, gear: number) => void) | null = null;
+
+  /** &boom (src/game/Boom.ts): the flick into Turbo 3 breaks the barrier again, Mach 1's set piece and its N-wave, the hoop landing as the ring `to` (null: the
+   *  crack alone), game clock `now`. */
+  crack(to: BoomPlan | null, now: number) {
+    const d = this.d;
+    this.fx.crack(d.bus.root, d.flight, d.rig, this.onFlash, to, now);
+    const kit = d.audio.voiceKit();
+    if (!kit) return;
+    const t = kit.ctx.currentTime + LOOKAHEAD;
+    if (!this.voice.attached) this.voice.attach(kit, t);
+    this.voice.boom(t);
+  }
 
   get mode(): InputMode {
     return this.d.input.mode;
@@ -420,7 +435,7 @@ export class Controls {
       else if (ev === 'boom') this.voice.boom(t);
       else if (ev === 'locked') this.voice.locked(t);
     }
-    void gear;
+    this.onRung?.(ev, gear);
   }
 
   /** QA: everything about the controls right now. */
