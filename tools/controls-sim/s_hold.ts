@@ -21,7 +21,7 @@ const AX = 300, AY = 300;
 const LANE = { x: 196, y: 506, r: 0.27 * 393, open: 0.25 * 852 };
 const FLAT = { obstacleAt: () => 0, groundAt: () => 0 };
 
-function harness() {
+function harness(bomb?: (dt: number) => void) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
@@ -57,10 +57,13 @@ function harness() {
   let alt = 120;
   const frame = () => {
     const dt = step / 1000;
+    // (the Bomb's rows: its update before input.update, and a charge on the bus making a hold off the lane cough, as main.ts)
+    bomb?.(dt);
     input.update(dt);
     flight.step(dt, { sx: input.state.stretch.x, sy: input.state.stretch.y, dragging: input.state.dragging }, FLAT as any);
     Object.assign(flight, { x: 0, y: alt, z: 0 });
     const was = flight.fullness;
+    if (bomb) hose.bombing = input.state.bomb.on;
     holds.frame(dt);
     hose.update(dt);
     particles.update(dt);
@@ -338,4 +341,105 @@ const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
 mkdirSync(OUT, { recursive: true });
 writeFileSync(`${OUT}/holds.json`, JSON.stringify({ inputTune, hoseTune, rows: notes }, null, 1));
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `hold checks: all ${checks} passed (${rows.length} rows)`);
-process.exit(fails.length ? 1 : 0);
+
+// ---- the Bomb (docs/specs/shots/SHOTS.md, "The modes"), behind &bomb: its rows in a table of their own (holds-bomb.json), so the one above stays byte for byte
+// what it was. The real Bomb on the real Input, Flight, Holds and Hose; its breath is written down (main.ts's breatheNow is the page's), landing where the tap's
+// shot does, 120 m under the bus. The bus on screen at the lane's (196, 506), its box grown 10 px a side: Input.busBox.
+const { Bomb } = await import('@src/game/Bomb');
+const BOX = { x0: 172, y0: 470, x1: 220, y1: 542 };
+const BX = 196, BY = 506, DROP = 120;
+const bombRows: typeof rows = [];
+const bombNotes: Record<string, any> = {};
+function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths: any[]) => unknown, comet = false) {
+  let bomb: InstanceType<typeof Bomb> | null = null;
+  const h = harness((dt) => bomb!.update(dt));
+  const breaths: any[] = [];
+  const ms = () => `${Math.round(h.at())}ms`;
+  bomb = new Bomb({
+    input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
+    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), aim: { x: 0, z: -DROP, drop: DROP } } as any,
+    audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
+    fx: { motes: () => {}, sparks: () => {} } as any,
+    breathe: (shot, b) => { breaths.push({ ...b, tag: { ...b.tag }, x: shot.x, z: shot.z, at: Math.round(h.at()) }); h.log.push(`bomb@${ms()}`); return 0; },
+    busy: () => h.hose.pouring,
+  });
+  bomb.on = true;
+  h.input.busBox = BOX;
+  h.wait(100);
+  h.reset();
+  const note = fn(h, bomb, breaths);
+  bombRows.push({ name, log: [...h.log], barfs: h.barfs.length, note });
+  bombNotes[name] = { note, log: [...h.log], breaths };
+  h.input.dispose();
+}
+/** From the lift: the belly's refill once the breath is out (ms, empty to full), and its refill seconds just after the lift. */
+const refill = (h: Hn) => {
+  const secs = h.flight.rechargeSeconds;
+  let empty = -1, full = -1;
+  for (let i = 0; i < 600 && full < 0; i++) {
+    h.wait(16.7);
+    if (empty < 0 && h.flight.barfT < 0 && h.flight.fullness < 0.05) empty = h.at();
+    else if (empty >= 0 && h.flight.fullness >= 1) full = h.at();
+  }
+  return { secs, emptyToFullMs: Math.round(full - empty) };
+};
+bombRow('bomb: still on the bus 0.7 s from 120 m: Bomb II', (h) => { hold(h, 700, BX, BY); return refill(h); });
+bombRow('bomb: still on the bus 1.3 s from 120 m: Bomb III', (h) => { hold(h, 1300, BX, BY); return refill(h); });
+bombRow('bomb: where the tap\'s shot is a Comet: no hit-stop', (h) => { hold(h, 1300, BX, BY); h.wait(300); return {}; }, true);
+bombRow('bomb: a hold off the lane while it charges coughs, and pours nothing', (h, b) => {
+  const one = newId(); h.down(one, BX, BY); h.wait(400);
+  // (a second finger down beside the first: not the primary, which would retire the first as lost)
+  const two = newId(); h.down(two, AX, AY, false); h.wait(800);
+  const mid = { tier: b.tier, pouring: h.hose.pouring, tank: h.flight.fullness };
+  h.up(two, AX, AY); h.wait(200); h.up(one, BX, BY); h.wait(300);
+  return { mid, pours: h.hose.stats.pours, coughs: h.hose.stats.coughs };
+});
+bombRow('bomb: let go at II, the Hose pours again once the belly is full', (h) => {
+  hold(h, 700, BX, BY); refill(h); h.wait(100);
+  const id = newId(); h.down(id, AX, AY); h.wait(1000); const v = { pouring: h.hose.pouring }; h.up(id, AX, AY); return v;
+});
+const bf: string[] = [];
+let bchecks = 0;
+const bok = (c: boolean, m: string) => { bchecks++; if (!c) bf.push(m); };
+const BN = (k: string) => bombNotes[Object.keys(bombNotes).find((x) => x.startsWith(k))!];
+{
+  const near = (a: number, b: number, e = 0.01) => Math.abs(a - b) < e;
+  for (const [k, tier] of [['bomb: still on the bus 0.7 s', 2], ['bomb: still on the bus 1.3 s', 3]] as const) {
+    const n = BN(k), b = n.breaths[0], B = config.bomb, three = tier === 3;
+    const r = blastRadiusFor(DROP) * (three ? B.radius3 : B.radius2);
+    bok(n.breaths.length === 1 && !n.log.some((x: string) => x.startsWith('tap@')), `${k}: one Bomb, no tap (${n.log.join(', ')})`);
+    bok(near(b.radius, r) && b.jump === (three ? B.jump3 : B.jump2), `${k}: ${three ? 1.8 : 1.4} x the tap's ${blastRadiusFor(DROP).toFixed(1)} m, ${r.toFixed(1)} m, ${three ? 3 : 2} stages (${b.radius.toFixed(1)}, ${b.jump})`);
+    bok(b.width === (three ? B.width3 : B.width2) && b.hitStop === (three ? B.hitStop3 : B.hitStop2), `${k}: MEGA's breath, jet x${b.width}, hit-stop ${b.hitStop} frames`);
+    bok(b.tag.kind === 'bomb' && b.tag.charge === (three ? 1 : 0.5) && b.tag.id > 0, `${k}: tagged ${JSON.stringify(b.tag)}`);
+    const want = (three ? B.recharge3 : B.recharge2) * 1000;
+    bok(n.note.secs * 1000 === want && Math.abs(n.note.emptyToFullMs - want) < 40, `${k}: the belly refills in ${want / 1000} s (${n.note.emptyToFullMs} ms empty to full)`);
+    bok(n.log.some((x: string) => x.startsWith('riser@')) && n.log.some((x: string) => x.startsWith(`clunk${tier}@`)) && n.log.some((x: string) => x.startsWith('let go@')), `${k}: its riser, its clunk and its let-go`);
+  }
+  const c = BN('bomb: where the tap');
+  bok(c.breaths.length === 1 && c.breaths[0].hitStop === 0 && near(c.breaths[0].radius, blastRadiusFor(DROP) * config.bomb.radius3), `a Bomb on a Comet's shot has no hit-stop: ${JSON.stringify(c.breaths[0])}`);
+  const d = BN('bomb: a hold off the lane');
+  bok(d.note.mid.tier >= 2 && !d.note.mid.pouring && d.note.mid.tank === 1 && d.note.pours === 0 && d.note.coughs >= 1 && d.log.some((x: string) => x.startsWith('cough@')), `a hold off the lane during a charge coughs and the belly stays: ${JSON.stringify(d.note)}`);
+  bok(d.breaths.length === 1 && d.breaths[0].tag.charge === 1 && !d.log.some((x: string) => x.startsWith('fizzle@')), `and the charge goes on to its Bomb III (${d.log.join(', ')})`);
+  bok(BN('bomb: let go at II, the Hose').note.pouring, 'after a Bomb, with the belly full again, the Hose pours as before');
+}
+// the Bomb's hint (Coach's TAUGHT.bomb, 256): HOLD THE BUS STILL / LIFT TO BOMB once, after three taps, the first time a painted building glints with a full
+// belly under 300 m; a Bomb let go first teaches it with no hint; and without the link nothing
+{
+  const run = (taught: number, bomb: boolean, f: { splats: number; bombGlint: boolean; bombed?: boolean }) => {
+    const c = new Coach(taught, false, true, bomb);
+    let due = 0;
+    for (let i = 0; i < 600; i++) { c.frame(1 / 60, { glinting: true, openingOver: true, splats: f.splats, thumb: true, stillPress: 0, charged: false, bombGlint: f.bombGlint, bombed: f.bombed }); if (c.bombHintDue) due++; }
+    return { due, taught: c.taught };
+  };
+  const all = TAUGHT.thumbs | TAUGHT.aim | TAUGHT.tap | TAUGHT.drag;
+  const yes = run(all, true, { splats: 3, bombGlint: true });
+  bok(TAUGHT.bomb === 256 && yes.due === 1 && (yes.taught & TAUGHT.bomb) !== 0, `after three taps and a glint, the Bomb's hint once: ${JSON.stringify(yes)}`);
+  bok(run(all, true, { splats: 2, bombGlint: true }).due === 0 && run(all, true, { splats: 3, bombGlint: false }).due === 0, 'not before three taps, nor without a glint');
+  const went = run(all, true, { splats: 3, bombGlint: true, bombed: true });
+  bok(went.due === 0 && (went.taught & TAUGHT.bomb) !== 0, `a Bomb let go first teaches it with no hint: ${JSON.stringify(went)}`);
+  bok(run(all | TAUGHT.bomb, true, { splats: 3, bombGlint: true }).due === 0 && run(all, false, { splats: 3, bombGlint: true }).due === 0, 'taught before, or without the link: nothing');
+}
+writeFileSync(`${OUT}/holds-bomb.json`, JSON.stringify({ box: BOX, drop: DROP, rows: bombNotes }, null, 1));
+for (const r of bombRows) console.log(`${r.name.padEnd(86)} | ${r.log.join(', ') || '-'}${r.barfs ? ` | ${r.barfs} blasts` : ''}`);
+console.log(bf.length ? `BOMB FAILED ${bf.length} of ${bchecks}:\n  ${bf.join('\n  ')}` : `bomb checks: all ${bchecks} passed (${bombRows.length} rows)`);
+process.exit(fails.length || bf.length ? 1 : 0);
