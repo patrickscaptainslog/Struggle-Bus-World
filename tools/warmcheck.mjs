@@ -430,8 +430,12 @@ if (opt.comet) {
       const before = await page.evaluate(() => window.__game.cometState());
       await tapAt(300, 300);
       await run(3.4);
-      const after = await page.evaluate(() => ({ ...window.__game.cometState(), last: window.__game.lastShot() }));
-      cometRun.push({ key, show, planned: !!before.plan, fired: after.fired - before.fired, full: after.full - before.full, booms: after.booms - before.booms, drops: after.drops - before.drops, pillars: after.pillars - before.pillars, gear: after.gear, last: after.last && { comet: !!after.last.comet, reach: after.last.comet?.reach, pass: after.last.comet?.pass } });
+      const after = await page.evaluate(() => {
+        const g = window.__game, l = g.lastShot(), c = l?.comet;
+        return { ...g.cometState(), last: l, ground: c ? g.city.groundAt(c.x, c.z) : null, inFlight: g.splatter.inFlight, faction: g.splatter.faction };
+      });
+      const c = after.last?.comet;
+      cometRun.push({ key, show, faction: after.faction, planned: !!before.plan, fired: after.fired - before.fired, full: after.full - before.full, booms: after.booms - before.booms, drops: after.drops - before.drops, pillars: after.pillars - before.pillars, gear: after.gear, inFlight: after.inFlight, last: c && { reach: Math.round(c.reach), pass: +c.pass.toFixed(2), loaded: c.loaded, wall: c.wall, target: c.target, x: Math.round(c.x), y: Math.round(c.y), z: Math.round(c.z), ground: Math.round(after.ground), miss: !!after.last.miss } });
     }
   }
 }

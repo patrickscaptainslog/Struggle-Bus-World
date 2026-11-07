@@ -130,7 +130,8 @@ void main() {
   else i = fract(sin(dot(floor(vec2(vH * 30.0, t * 12.0)), vec2(12.9898, 78.233))) * 43758.5453) > 0.86 ? 3 : int(mod(floor(vH * 5.0 - uTime * 3.0), 2.0)) * 1;
   i = int(mod(float(i), 6.0));
   float ramp = RAMPS[f * 6 + i];
-  sbWrite(ramp, 0.95, sbFog(vWorldPos) * 0.6, 1.0, vViewNormal, 0.617, 0.5);
+  // (its paint's own colour, lit from within: high on its ramp, not its white end, which every faction's ramp shares)
+  sbWrite(ramp, 0.72, sbFog(vWorldPos) * 0.6, 1.0, vViewNormal, 0.617, 0.5);
 }
 `;
 

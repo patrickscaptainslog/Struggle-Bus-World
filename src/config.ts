@@ -730,7 +730,7 @@ export const config = {
     rise: 0.35,
     fade: 2.5,
     fadeLight: 1.2,
-    pillarRadius: 13,
+    pillarRadius: 20,
     /** Motes in the streak (the lighter one half of them), and in the crown. */
     motes: 400,
     crown: 420,
