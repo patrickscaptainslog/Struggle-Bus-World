@@ -16,8 +16,9 @@
 //
 // No DOM: it reads a frame's facts and leaves what is due in its fields.
 
-/** (curb: Curb's one-time hint, the first time the bus is low over a road, Controls.curbHint: not a first-run cue, so ?skipintro shows it) */
-export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, curb: 64 } as const;
+/** (curb: Curb's one-time hint, the first time the bus is low over a road, Controls.curbHint: not a first-run cue, so ?skipintro shows it. 128, as
+ *  feat/shots has aim at 64: on one bit, learning HOLD TO AIM would hide LAND ON THE STREET in every saved profile) */
+export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, curb: 128 } as const;
 
 /** The hint, a beat after the fog has lifted (s). */
 const HINT_AFTER = 0.7;

@@ -12,16 +12,20 @@ import { CURB, EXPRESS, SCHOOL_ZONE, type TurboDrive } from './Turbo';
 //
 //   fly     flying low over a road (School Zone, Cruise or Express with no turbo, within config.curb.over of it, the road going on ahead) with
 //           the stick pushed for config.curb.hold s asks to land, and meanwhile the floor comes down to the street (Flight.street): the dive. So
-//           does a flick down in School Zone within config.curb.flickOver of the ground (TurboDrive.onCurb). The first time the bus is low over a
+//           does a flick down in School Zone within config.curb.flickOver of the ground or a deck (TurboDrive.onCurb). The first time the bus is low over a
 //           road, the one-time hint
-//   ask     life looks for the kerb lane within 80 m, driven the bus's way. The bus flies on meanwhile; a rung changed takes it back
+//   ask     life looks for the kerb lane within 80 m, driven the bus's way. The bus flies on meanwhile, the dive's floor held only while the
+//           road is still under it; a rung changed takes it back
 //   arc     a lane: the rung is Curb (TurboDrive.curbIn), the lens comes down, and the bus arcs onto the lane, its place and its speed both blended
 //           from the bus's own to the lane's, so nothing jumps. Life's lane is caught up first by as far as the bus will run on while it slows
-//           to the lane's pace, so the bus never slides back along it (life's curb.land takes no speed yet: docs/TODO.md's H1)
-//   on      the roll (Flight.ride): the stick up rolls on to the next car, a look past config.curb.lookDeg takes the next junction its way, and the
-//           lane paints itself behind the bus
-//   leave   a flick up, the stick pulled back for config.curb.pullFor s, a gear forced on it, or the lane's end: the wheels up, School Zone
-//           again (a pull climbs out at its 15 m/s, a flick hovers at the street's floor), and nothing lands for config.curb.quiet s
+//           to the lane's pace, so the bus never slides back along it (life's curb.land takes no speed yet: docs/TODO.md's H1). A lane on the
+//           far side of a deck from the bus (the Bay Bridge's upper deck, seen from under it), or under one too low for it (its lower deck), is
+//           no street, and the wheels go up before the lane runs under one
+//   on      the roll (Flight.ride): the stick up rolls on to the next car, a look past config.curb.lookDeg asks for the next junction its way, and
+//           the lane paints itself behind the bus
+//   leave   a flick up, the stick pulled back for config.curb.pullFor s, a gear forced on it, or the lane's end (life's lane stood still
+//           config.curb.stallFor s): the wheels up, School Zone again (a pull climbs out at its 15 m/s, a flick hovers at the street's floor),
+//           and nothing lands for config.curb.quiet s
 //   bounce  no street there, or no answer: the bus hops and says FIND A STREET, and nothing lands until the stick has let go
 //
 // The Hose (feat/shots) will pour from the window on the side the look is, on Curb: its place is the bus's flank at its middle, a metre over
@@ -30,7 +34,14 @@ import { CURB, EXPRESS, SCHOOL_ZONE, type TurboDrive } from './Turbo';
 
 /** What Curb asks life (src/life/Life.ts: life.curb and life.curbRoll). */
 export interface CurbRoad {
-  readonly curb: { readonly state: 'off' | 'asking' | 'on' | 'none'; readonly beside: string | null; land(x: number, z: number, heading: number): void; leave(): void };
+  readonly curb: {
+    readonly state: 'off' | 'asking' | 'on' | 'none';
+    readonly beside: string | null;
+    /** the kerb's side of the lane, +1 right (driving on the right), -1 left; none said: the right (docs/TODO.md's H7) */
+    readonly kerb?: number;
+    land(x: number, z: number, heading: number): void;
+    leave(): void;
+  };
   curbRoll(dt: number, push: number, look: number, out: CurbPose): boolean;
 }
 
@@ -40,6 +51,10 @@ export interface CurbWorld extends WorldQuery {
   roofAt(x: number, z: number, fromY?: number): number | null;
   /** A bridge deck's roadway under (x, z) below fromY (m), or -Infinity. */
   roadwayAt(x: number, z: number, fromY: number): number;
+  /** The lowest underside of a deck over (x, z) above fromY (m), or Infinity. */
+  overheadAt(x: number, z: number, fromY: number): number;
+  /** A building whose roof at (x, z) stands over y, or null: what stands between the lens and the bus. */
+  buildingAbove(x: number, z: number, y: number): object | null;
 }
 
 export type CurbEvent =
@@ -76,7 +91,7 @@ export interface CurbOptions {
   off: () => boolean;
   /** &curblens=wide: the ride-along lens, not the kerb chase */
   wide: boolean;
-  /** how far behind the bus's middle its rear bumper is (m) */
+  /** how far behind the bus's middle its rear axle is (m): where the lane's paint is laid */
   rear: number;
 }
 
@@ -86,10 +101,10 @@ export class CurbFlight {
   left: CurbLeave | '' = '';
   /** Recess: the wheels went up, and why */
   onLeave: ((why: CurbLeave) => void) | null = null;
-  /** the side the drive-by takes (+1 right, -1 left): the look's past config.curb.sideDeg, else the kerb's */
+  /** the side the drive-by takes (+1 right, -1 left): the look's past config.curb.sideDeg (kept config.curb.sideHold s after), else the kerb's */
   side = 1;
-  /** QA: the band's clocks, the ask's, the arc's, what was laid and heard */
-  readonly qa = { low: 0, dive: 0, asked: 0, askedFor: 0, arcT: 0, arcFor: 0, caughtUp: 0, dabs: 0, passes: 0, turns: 0, hinted: false, lane: { x: 0, y: 0, z: 0, heading: 0, speed: 0 } };
+  /** QA: the band's clocks, the ask's, the arc's (the catch-up's calls to life), what was laid and heard, the look life was given, the stall's clock */
+  readonly qa = { low: 0, dive: 0, asked: 0, askedFor: 0, arcT: 0, arcFor: 0, caughtUp: 0, catchCalls: 0, dabs: 0, passes: 0, turns: 0, hinted: false, look: 0, stood: 0, lane: { x: 0, y: 0, z: 0, heading: 0, speed: 0 } };
   /** where the lane has the bus (life's), and where the bus is put (its middle) */
   private readonly lane: CurbPose = { x: 0, y: 0, z: 0, heading: 0, speed: 0 };
   private readonly at: CurbPose = { x: 0, y: 0, z: 0, heading: 0, speed: 0 };
@@ -111,9 +126,22 @@ export class CurbFlight {
   private readonly v0 = [0, 0, 0];
   private h0 = 0;
   private vyIn = 0;
+  /** the bus's speed as the arc took it (m/s): the readout eases from it to the lane's */
+  private speed0 = 0;
+  /** the ask came from School Zone's flick: landing teaches the hint */
+  private flicked = false;
   private pullT = 0;
   private lookT = 0;
   private turned = false;
+  /** the turn the look asked for (-1, 1) and how long it's still asked (s); the side the look took and how long it's kept (s) */
+  private turnWay = 0;
+  private turnT = 0;
+  private sideWay = 1;
+  private sideT = 0;
+  /** where life's lane had the bus last frame, and how long it hasn't moved (s) */
+  private laneX = NaN;
+  private laneZ = NaN;
+  private stood = 0;
   private rolled = 0;
   private landX = 0;
   private landZ = 0;
@@ -132,8 +160,21 @@ export class CurbFlight {
   ) {
     drive.onCurb = () => this.flickDown();
     const K = config.curb;
-    rig.curbLens = opts.wide ? { back: K.wideBack, eye: K.wideEye, ahead: K.wideAhead, at: K.wideAt, fov: K.wideFov } : { back: K.camBack, eye: K.camEye, ahead: K.camAhead, at: K.camAt, fov: K.camFov };
-    rig.curbFloor = (x, z) => Math.max(world.groundAt(x, z), world.roadwayAt(x, z, Infinity));
+    rig.curbLens = opts.wide ? { back: K.wideBack, eye: K.wideEye, ahead: K.wideAhead, at: K.wideAt, fov: K.wideFov, side: 0 } : { back: K.camBack, eye: K.camEye, ahead: K.camAhead, at: K.camAt, fov: K.camFov, side: K.camSide };
+    // (the lens stands on the deck the bus is on, or the ground, never on a deck over it: the review of feat/curb, M2, rolling under the Bay Bridge)
+    rig.curbFloor = (x, z, fromY) => Math.max(world.groundAt(x, z), world.roadwayAt(x, z, fromY));
+    rig.curbRoof = (x, z, fromY) => world.overheadAt(x, z, fromY);
+    rig.curbBlock = (x, z, y) => world.groundAt(x, z) > y || world.buildingAbove(x, z, y) !== null;
+  }
+
+  /** The kerb's side of the lane (+1 right): life's, else driving on the right. */
+  get kerb(): number {
+    return this.road.curb.kerb ?? 1;
+  }
+
+  /** A deck stands over the lane at (x, z, y) too low for the bus: its roadway 3 to config.curb.headroom m up (the Bay Bridge's lower deck). */
+  private covered(x: number, z: number, y: number): boolean {
+    return this.world.roadwayAt(x, z, y + config.curb.headroom) > y + 3;
   }
 
   /** The wheels are on the street, or coming down onto it: main.ts rolls the bus (roll()) instead of the flight's steps. */
@@ -161,7 +202,8 @@ export class CurbFlight {
       this.leave('pull');
       return;
     }
-    // (a look held past its angle takes the next junction its way, said once a look; a glance doesn't)
+    // (a look held past its angle asks for the next junction its way, said once a look; a glance doesn't. Life takes a way only past 60 degrees
+    // from straight on, so the look asks square, and a moment past the lift, as the drive-by's side is kept: one thumb can't look and tap at once)
     const look = this.rig.lookYawNow, lookRad = (K.lookDeg * Math.PI) / 180;
     this.lookT = Math.abs(look) >= lookRad ? this.lookT + dt : 0;
     if (this.lookT === 0) this.turned = false;
@@ -171,9 +213,31 @@ export class CurbFlight {
       this.qa.turns++;
       this.hooks.event('turn', Math.sign(look));
     }
-    this.side = Math.abs(look) >= (K.sideDeg * Math.PI) / 180 ? Math.sign(look) : 1;
-    const L = this.lane;
-    if (!this.road.curbRoll(dt, push, turning ? look : 0, L)) {
+    if (turning) {
+      this.turnWay = Math.sign(look);
+      this.turnT = K.turnHold;
+    } else this.turnT = Math.max(0, this.turnT - dt);
+    if (Math.abs(look) >= (K.sideDeg * Math.PI) / 180) {
+      this.sideWay = Math.sign(look);
+      this.sideT = K.sideHold;
+    } else this.sideT = Math.max(0, this.sideT - dt);
+    this.side = this.sideT > 0 ? this.sideWay : this.kerb;
+    const L = this.lane, ask = this.turnT > 0 ? (this.turnWay * Math.PI) / 2 : 0;
+    this.qa.look = ask;
+    if (!this.road.curbRoll(dt, push, ask, L)) {
+      this.leave('end');
+      return;
+    }
+    // (the lane's end: at a dead end life's lane holds the bus at its last point, still saying a speed, or slows it to the kerb, and says on
+    // either way (docs/TODO.md's H5). Stood still a moment, the wheels go up; meanwhile the readout says what the bus is doing)
+    const moved = Number.isNaN(this.laneX) ? Infinity : Math.hypot(L.x - this.laneX, L.z - this.laneZ);
+    this.laneX = L.x;
+    this.laneZ = L.z;
+    const still = moved < K.stallSpeed * dt;
+    this.stood = still ? this.stood + dt : 0;
+    this.qa.stood = this.stood;
+    // (or the road goes on under a deck too low for the bus: the wheels up before it)
+    if (this.stood >= K.stallFor || (this.state === 'on' && this.covered(L.x + Math.sin(L.heading) * K.coverAhead, L.z - Math.cos(L.heading) * K.coverAhead, L.y))) {
       this.leave('end');
       return;
     }
@@ -187,16 +251,18 @@ export class CurbFlight {
     at.y = ride;
     at.z = L.z;
     at.heading = L.heading;
-    at.speed = L.speed;
+    at.speed = still ? moved / Math.max(dt, 1e-3) : L.speed;
     if (this.state === 'arc') {
-      // (the arc: the bus's offset from the lane, eased to nothing from its own place and rate, so neither jumps; the heading the short way)
+      // (the arc: the bus's offset from the lane, eased to nothing from its own place and rate, so neither jumps; the heading the short way, and
+      // the readout from the bus's speed to the lane's)
       this.arcT = Math.min(this.arcFor, this.arcT + dt);
-      const s = this.arcT / this.arcFor, T = this.arcFor;
+      const s = this.arcT / this.arcFor, T = this.arcFor, e = s * s * (3 - 2 * s);
       const h00 = 2 * s * s * s - 3 * s * s + 1, h10 = s * s * s - 2 * s * s + s;
       at.x += h00 * this.o0[0] + h10 * this.v0[0] * T;
       at.y += h00 * this.o0[1] + h10 * this.v0[1] * T;
       at.z += h00 * this.o0[2] + h10 * this.v0[2] * T;
-      at.heading = this.h0 + angleDelta(this.h0, L.heading) * s * s * (3 - 2 * s);
+      at.heading = this.h0 + angleDelta(this.h0, L.heading) * e;
+      at.speed = this.speed0 + (at.speed - this.speed0) * e;
       this.qa.arcT = this.arcT;
       if (s >= 1) {
         this.state = 'on';
@@ -207,8 +273,8 @@ export class CurbFlight {
     const px = f.x, pz = f.z;
     f.ride(dt, at, push, this.world);
     if (this.state !== 'on') return;
-    // (the lane behind the rear bumper paints itself, a dab every few metres rolled. Not on a bridge's deck: the ground's paint is the water's under it,
-    // and the deck's own trail isn't built, CURB.md)
+    // (the lane paints itself under the rear axle, a dab every few metres rolled, so the paint comes out from under the bus. Not on a bridge's deck: the
+    // ground's paint is the water's under it, and the deck's own trail isn't built, CURB.md)
     this.rolled += Math.hypot(f.x - px, f.z - pz);
     if (this.rolled >= K.dabEvery) {
       this.rolled -= K.dabEvery;
@@ -239,10 +305,14 @@ export class CurbFlight {
     if (this.state === 'ask') {
       this.askT += dt;
       this.qa.askedFor = this.askT;
+      // (the dive's floor holds only while the road is under the bus and going on: past the street's end it lets go, and the bus rises over the
+      // blocks instead of flying on at street height into them while life answers: the review of feat/curb, m1)
+      if (!Number.isNaN(f.street) && Number.isNaN(this.roadUnder())) f.street = NaN;
       const s = this.road.curb.state;
       // (a rung changed while it asked: the flick meant something else)
       if (this.rung() !== this.askRung) {
         this.road.curb.leave();
+        f.street = NaN;
         this.state = 'fly';
       } else if (s === 'on') this.arc();
       else if (s === 'none' || this.askT >= K.askFor) this.bounce();
@@ -268,12 +338,12 @@ export class CurbFlight {
     if (this.dive >= K.hold) this.ask();
   }
 
-  /** School Zone's flick down (TurboDrive.onCurb): low enough, it asks at once, wherever the bus is (life's 80 m judge it). */
+  /** School Zone's flick down (TurboDrive.onCurb): low enough over the ground or a deck under it, it asks at once, wherever the bus is (life's 80 m judge it). */
   private flickDown(): void {
     const f = this.flight;
-    if (this.state !== 'fly' || this.quiet > 0 || this.opts.off() || f.y - f.groundUnder > config.curb.flickOver) return;
-    this.hinted = this.hooks.hint(true) || this.hinted;
+    if (this.state !== 'fly' || this.quiet > 0 || this.opts.off() || f.y - Math.max(f.groundUnder, this.world.roadwayAt(f.x, f.z, f.y)) > config.curb.flickOver) return;
     this.ask();
+    this.flicked = true;
   }
 
   private ask(): void {
@@ -281,6 +351,7 @@ export class CurbFlight {
     this.low = this.dive = this.gap = 0;
     this.askT = 0;
     this.askRung = this.rung();
+    this.flicked = false;
     this.state = 'ask';
     this.qa.asked++;
     this.road.curb.land(f.x, f.z, f.heading);
@@ -294,23 +365,35 @@ export class CurbFlight {
       this.bounce();
       return;
     }
-    // (the bus's way along the lane and its speed that way, and how long the arc is by how far it has to come)
+    // (the bus's way along the lane and its speed that way, and how long the arc is by how far it has to come: from higher up, longer, never faster)
     const ux = Math.sin(L.heading), uz = -Math.cos(L.heading), g = f.ground;
     const vx = f.fx * g, vz = f.fz * g, along = vx * ux + vz * uz;
     const lift = Math.max(L.y, this.world.groundAt(L.x, L.z)) + K.ride;
+    // (a lane over a deck the bus is under, or under one it's over, is no street: the arc would go through the deck. Nor one under a deck too low
+    // for the bus. The Bay Bridge from the water, and its lower deck, the GPU check's fifth)
+    const lo = Math.min(f.y, lift), hi = Math.max(f.y, lift);
+    if (this.world.overheadAt(L.x, L.z, lo) < hi || this.world.overheadAt(f.x, f.z, lo) < hi || this.covered(L.x, L.z, L.y)) {
+      this.bounce();
+      return;
+    }
     const off0 = Math.hypot(f.x - L.x, f.y - lift, f.z - L.z);
-    const T = clamp(K.arcBase + off0 / K.arcPer, K.arcBase, K.arcMax);
+    const T = Math.max(clamp(K.arcBase + off0 / K.arcPer, K.arcBase, K.arcMax), (1.5 * off0) / K.arcTop);
     // (life's lane rolls at the road's pace from where it was asked: caught up by as far as the bus runs on while it slows to that pace, so it
-    // eases down along the lane and never back up it. The thumb counts as pushed, so no car is paced meanwhile)
+    // eases down along the lane and never back up it. The thumb counts as pushed, so no car is paced meanwhile. In a few long steps: each of
+    // life's rolls looks through every car, and a hundred small ones made a dive's landing frame 33 to 126 ms on the laptop)
     const ahead = (f.x - L.x) * ux + (f.z - L.z) * uz;
     const want = ahead + Math.max(0, along - L.speed) * T * 0.5;
-    let went = 0;
-    for (let i = 0; i < 120 && went < want; i++) {
+    let went = 0, calls = 0;
+    while (calls < 6 && went < want - 0.25) {
       const x = L.x, z = L.z;
-      if (!this.road.curbRoll(Math.min(0.1, Math.max(0.01, (want - went) / Math.max(1, L.speed))), 1, 0, L)) break;
-      went += Math.hypot(L.x - x, L.z - z);
+      calls++;
+      if (!this.road.curbRoll(clamp((want - went) / Math.max(1, L.speed), 0.01, 2), 1, 0, L)) break;
+      const d = Math.hypot(L.x - x, L.z - z);
+      went += d;
+      if (d < 0.01) break;
     }
     this.qa.caughtUp = went;
+    this.qa.catchCalls = calls;
     const y = Math.max(L.y, this.world.groundAt(L.x, L.z)) + K.ride;
     this.o0[0] = f.x - L.x;
     this.o0[1] = f.y - y;
@@ -319,18 +402,25 @@ export class CurbFlight {
     this.v0[1] = f.vy;
     this.v0[2] = vz - uz * L.speed;
     this.vyIn = f.vy;
+    this.speed0 = f.speed;
     this.h0 = f.heading;
     this.arcT = 0;
     this.arcFor = T;
     this.qa.arcFor = T;
     this.landX = L.x;
     this.landZ = L.z;
-    this.pullT = this.lookT = 0;
+    this.laneX = this.laneZ = NaN;
+    this.pullT = this.lookT = this.stood = this.turnT = this.sideT = 0;
     this.turned = false;
+    this.side = this.kerb;
     this.wasBeside = null;
     this.state = 'arc';
     this.drive.curbIn();
     this.rig.curb = 1;
+    if (this.rig.curbLens && !this.opts.wide) this.rig.curbLens.side = -this.kerb * K.camSide;
+    // (a flick that lands has learned it; one that found no street hasn't, and the hint still comes the first time the bus is low over a road)
+    if (this.flicked && !this.hinted) this.hinted = this.qa.hinted = this.hooks.hint(true);
+    this.flicked = false;
     this.hooks.event('land', T);
   }
 
@@ -338,6 +428,8 @@ export class CurbFlight {
   private bounce(): void {
     const K = config.curb;
     this.road.curb.leave();
+    this.flicked = false;
+    this.flight.street = NaN;
     this.flight.vy += K.bounceVy;
     this.quiet = K.bounceQuiet;
     this.lift = true;

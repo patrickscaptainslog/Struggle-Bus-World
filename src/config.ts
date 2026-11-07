@@ -518,16 +518,26 @@ export const config = {
     noneFor: 1.8,
     /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's call on the phone. */
     diveOnly: false,
-    /** In School Zone a flick down lands from at most this high over the ground (m); the lane is the worker's to find, within 80 m. */
-    flickOver: 150,
+    /** In School Zone a flick down lands from at most this high over the ground (m); the lane is the worker's to find, within 80 m. From higher it
+     *  does nothing, as at any height before Curb (at 150 m the arc came down at 115 m/s: the review of feat/curb, M4). */
+    flickOver: 60,
     /** No answer from life in this long is no street (s). */
     askFor: 1.2,
     /** The bus's middle over the lane (m): its tyres on the asphalt (BusModel's at its 1.6 scale stand 2.53 m under its middle; StreetCam's 4 m floats them). */
     ride: 2.55,
-    /** The arc down onto the lane: T = clamp(arcBase + |offset| / arcPer, arcBase, arcMax) s. */
+    /** The arc down onto the lane: T = clamp(arcBase + |offset| / arcPer, arcBase, arcMax) s, and never so short that the arc's own ease comes
+     *  faster than `arcTop` m/s (its peak is 1.5 |offset| / T): from higher up it takes longer, it doesn't come faster. */
     arcBase: 0.45,
     arcPer: 45,
     arcMax: 1.8,
+    arcTop: 60,
+    /** The lane's end: life's lane stood still (under `stallSpeed` m/s) for `stallFor` s, a dead end's kerb or its last point, takes the wheels up. */
+    stallSpeed: 0.5,
+    stallFor: 1,
+    /** A deck's roadway 3 to `headroom` m over the lane (the Bay Bridge's lower deck, 5.5 m under its upper one) leaves the bus no room: no street
+     *  there, and rolling on, the wheels go up `coverAhead` m before it. */
+    headroom: 9,
+    coverAhead: 20,
     /** The heading follows the lane's 4 m steps on a spring this fast (1/s), banking into the turns at this much per (rad/s * m/s), at most `bankMax` deg. */
     turnRate: 6,
     bankPer: 0.02,
@@ -540,16 +550,24 @@ export const config = {
     quiet: 1,
     bounceVy: 5,
     bounceQuiet: 2,
-    /** The look past `lookDeg` held `lookFor` s takes the next junction its way. */
+    /** The look past `lookDeg` held `lookFor` s asks for the next junction its way, square (life turns only past 60 degrees from straight on),
+     *  and keeps asking `turnHold` s after it lets go. On the street the view turns at most `lookMax` deg either way. */
     lookDeg: 20,
     lookFor: 0.25,
-    /** The kerb chase (GEARS.md's chase lens): back, eye height over the road, how far ahead it looks and at what height (m), its width (deg);
-     *  &curblens=wide the ride-along. In at `camIn`, out at `camOut` (1/s); never under the road or a deck + `camFloor` m. */
+    turnHold: 1,
+    lookMax: 30,
+    /** The kerb chase: back, eye height over the road, how far ahead it looks and at what height (m), its width (deg), and `camSide` m toward the
+     *  traffic's side, so the bus doesn't stand on the road ahead. GEARS.md's chase lens, raised from 7.5 m and looking 40 m on, not 90, 4 degrees
+     *  wider (the outside look of feat/curb: its horizon stood mid-screen, half the phone sky). &curblens=wide the ride-along. In at `camIn`, out at
+     *  `camOut` (1/s); never under the road or the deck the bus is on + `camFloor` m, nor within `roofGap` m of a deck over it. Anything solid
+     *  between the bus and the lens (a front a look swings it into, the hill) pulls it in short of it at once, to no nearer than `armMin` m, and it
+     *  goes out again at `armOut` (1/s). */
     camBack: 34,
-    camEye: 7.5,
-    camAhead: 90,
+    camEye: 11,
+    camAhead: 40,
     camAt: 3.5,
-    camFov: 34,
+    camFov: 38,
+    camSide: 1.25,
     wideBack: 16,
     wideEye: 3.2,
     wideAhead: 60,
@@ -558,16 +576,24 @@ export const config = {
     camIn: 1.2,
     camOut: 1.2,
     camFloor: 2.5,
-    /** The lane paints itself: a dab every `dabEvery` m behind the rear bumper, `dabR` m across, in rainbow rings `dabRing` m wide round the landing. */
+    roofGap: 1,
+    armMin: 8,
+    armOut: 2,
+    /** The lane paints itself: a dab every `dabEvery` m at the rear axle (so it comes out from under the bus), `dabR` m round, in rainbow rings
+     *  `dabRing` m wide round the landing. */
     dabEvery: 3,
     dabR: 2.2,
     dabRing: 14,
-    /** The drive-by: the look past `sideDeg` picks its side, else the kerb's; the front `front` m that way within `frontR` m glints, and the
-     *  breath there is `byR` m across, on that side of the lane only. */
+    /** The drive-by: the look past `sideDeg` picks its side, kept `sideHold` s after it lets go (one thumb can't hold a look and tap), else the
+     *  kerb's; the front `front` m that way and `frontAhead` m on (in the lens's view) within `frontR` m glints, and the breath there is `byR` m
+     *  round, on that side of the lane only, its flung blobs too. A street sign it raises stands no smaller than `signMin` of its size from the air. */
     sideDeg: 25,
+    sideHold: 1,
     front: 12,
+    frontAhead: 16,
     frontR: 16,
     byR: 24,
+    signMin: 0.4,
     /** Two toots passing a car, at most every `tootEvery` s. */
     tootEvery: 2,
   },
