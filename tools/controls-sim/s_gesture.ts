@@ -43,6 +43,10 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   // (hold to aim, SHOTS.md decision 4: a still finger off the lane aims from aimHoldMs, and its lift is the hold's release)
   input.onAimStart = () => evs.push(`aim@${at()}`);
   input.onAimEnd = (c) => evs.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`);
+  // (the Bomb, behind &bomb: a still hold on the bus charges, its tiers show, and its end is a Bomb, the tap that follows, or a fizzle)
+  input.onBombCharge = () => evs.push(`charge@${at()}`);
+  input.onBombTier = (t) => evs.push(`bomb${t}@${at()}`);
+  input.onBombEnd = (t, c) => evs.push(`bombEnd${t}${c ? '(cancelled)' : ''}@${at()}`);
   shifter.onAnswer = (a) => evs.push(`${a}@${at()}`);
   drive.onEvent = (ev, g) => evs.push(`${ev}${g}@${at()}`);
   let maxCharge = 0, sawDrag = false, sawThumb = false;
@@ -1277,4 +1281,122 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
 for (const r of rows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.maxChargeHeld ? ` | chargeHeld max ${r.maxChargeHeld}` : ''}${r.thumb ? ' | steering' : ''}${r.look ? ` | look ${r.look.from}-${r.look.to} ms, ${r.look.max} px` : ''}${r.gear ? ` | G${r.gear}` : ''}${r.level ? ` | turbo ${r.level}` : ''}`);
 void doc;
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `gesture checks: all ${checks} passed (${rows.length} rows)`);
-process.exit(fails.length ? 1 : 0);
+
+// ---- the Bomb (docs/specs/shots/SHOTS.md, "The modes"), behind &bomb: its rows in a table of their own (gestures-bomb.json), so the one above stays byte for byte
+// what it was. The bus as Cruise draws it at 393 x 852, 26 x 71 px about (197, 502), grown 10 px a side: Input.busBox. A full belly unless a row says not
+const BOX = { x0: 173, y0: 457, x1: 221, y1: 548 };
+const BX = 197, BY = 500;
+const bombRows: typeof rows = [];
+function bombRow(gesture: string, fn: (h: H) => unknown, fps = 60, full = true) {
+  const h = harness('touch', fps);
+  Object.assign(h.input, { busZone: LANE, busBox: BOX, bombOn: true, bombFull: full });
+  h.wait(100);
+  h.reset();
+  const note = fn(h);
+  h.wait(600);
+  bombRows.push({ mode: 'touch', gesture, ...h.result(), note });
+  h.input.dispose();
+}
+const onBus = (h: H, ms: number, x = BX, y = BY) => { const id = newId(); h.down(id, x, y); h.wait(ms); h.up(id, x, y); };
+bombRow('bomb: a tap on the bus at 120 ms splats', (h) => onBus(h, 120));
+bombRow('bomb: still on the bus, lifted at 300 ms: a tap', (h) => onBus(h, 300));
+bombRow('bomb: still on the bus, lifted at 500 ms: charging, a tap', (h) => onBus(h, 500));
+bombRow('bomb: still on the bus, lifted at 620 ms: a tap', (h) => onBus(h, 620));
+bombRow('bomb: still on the bus, lifted at 700 ms: Bomb II', (h) => onBus(h, 700));
+bombRow('bomb: still on the bus, lifted at 1.3 s: Bomb III', (h) => onBus(h, 1300));
+bombRow('bomb: still on the bus 3 s: III, never by itself', (h) => onBus(h, 3000));
+bombRow('bomb: at 30 fps, lifted at 650 ms reaching the page at 720 ms: a tap', (h) => { const id = newId(); h.down(id, BX, BY); const t = clock.ms; h.wait(720); h.up(id, BX, BY, { timeStamp: t + 650 } as any); }, 30);
+bombRow('bomb: at 30 fps, held 750 ms: Bomb II', (h) => onBus(h, 750), 30);
+bombRow('bomb: at 30 fps, held 1.35 s: Bomb III', (h) => onBus(h, 1350), 30);
+bombRow('bomb: a 20 px slide before II never bombs', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(400); h.slide(id, BX, BY, 20, 0, 100); h.wait(600); h.up(id, BX + 20, BY); });
+bombRow('bomb: a 20 px slide after II keeps it', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.slide(id, BX, BY, 20, 0, 100); h.wait(100); h.up(id, BX + 20, BY); });
+bombRow('bomb: a 40 px slide after II never bombs', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.slide(id, BX, BY, 40, 0, 150); h.wait(100); h.up(id, BX + 40, BY); });
+bombRow('bomb: a landing under the bus never charges', (h) => onBus(h, 1500, BX, 640));
+bombRow('bomb: off the lane over the bus it aims, never charges', (h) => onBus(h, 800, BX, 300));
+bombRow('bomb: an empty belly: no tier, its lift a tap', (h) => onBus(h, 1300), 60, false);
+bombRow('bomb: the belly full at 500 ms: II from 1.17 s', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(500); h.input.bombFull = true; h.wait(900); h.up(id, BX, BY); }, 60, false);
+bombRow('bomb: the belly gone mid-charge fizzles it', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.input.bombFull = false; h.wait(100); h.up(id, BX, BY); });
+bombRow("bomb: another thumb's tap fizzles it, and splats", (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(800); h.down(b, 330, 250, false); h.wait(80); h.up(b, 330, 250); h.wait(300); h.up(a, BX, BY); });
+bombRow("bomb: another thumb's look doesn't stop it", (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(400); h.down(b, 330, 250, false); h.slide(b, 330, 250, -60, 20, 300); h.wait(700); const look = h.input.state.look.on; h.up(b, 270, 270); h.up(a, BX, BY); return { look }; });
+bombRow("bomb: another thumb's flick doesn't stop it", (h) => { const a = newId(); h.down(a, BX, BY); h.wait(500); h.stroke(330, 300, 0, -74, 85, false); h.wait(800); h.up(a, BX, BY); });
+bombRow('bomb: two fingers landing together, lifted fast: one splat, no charge', (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(30); h.down(b, 330, 250, false); h.wait(90); h.up(a, BX, BY); h.up(b, 330, 250); });
+bombRow('bomb: two fingers landing together: no charge while the other could still tap', (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(30); h.down(b, 60, 250, false); h.wait(400); const on = h.input.state.bomb.on; h.wait(700); h.up(b, 60, 250); h.up(a, BX, BY); return { on }; });
+bombRow('bomb: a second thumb on the bus never charges', (h) => { const a = steer(h); const b = newId(); h.down(b, BX, BY, false); h.wait(1400); h.up(b, BX, BY); h.up(a, RX + 30, RY); });
+// (three fingers are the tuner only within tapMs of the first, before any charge: two more fingers on a charge are two thumbs' taps, and the first fizzles it)
+bombRow('bomb: three fingers on a charge: two taps, a fizzle', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, BX, BY); h.wait(380); h.down(b, 60, 250, false); h.down(c, 330, 250, false); h.wait(60); h.up(b, 60, 250); h.up(c, 330, 250); h.wait(400); h.up(a, BX, BY); });
+bombRow('bomb: a lost touch fizzles it', (h) => { const a = newId(); h.down(a, BX, BY); h.wait(800); h.cancel(a, BX, BY); });
+bombRow('bomb: the page losing focus fizzles it', (h) => { const a = newId(); h.down(a, BX, BY); h.wait(800); win.dispatch('blur', {}); h.wait(30); h.up(a, BX, BY); });
+bombRow('bomb: a hand-over fizzles it', (h) => { const a = newId(); h.down(a, BX, BY); h.wait(800); h.input.endPress(); h.wait(30); h.up(a, BX, BY); });
+bombRow('bomb: a gift is III at 420 ms', (h) => { h.input.bombGift = 3; onBus(h, 500); });
+bombRow('bomb: a bank of 0.1: II at 550 ms, III at 1.15 s', (h) => { Object.assign(h.input, { bombTwoMs: 480, bombThreeMs: 1080 }); onBus(h, 1300); });
+bombRow('bomb: a bank of 1: never before 0.35 s', (h) => { Object.assign(h.input, { bombTwoMs: 350, bombThreeMs: 350 }); onBus(h, 600); });
+bombRow('bomb: off (no link): 1.3 s still on the bus does what it did', (h) => { h.input.bombOn = false; onBus(h, 1300); });
+// (the stick and the path: a thumb on the bus moving 8 px and held to 1.4 s, the Flight under it, identical charging or not)
+const path = (on: boolean) => {
+  const h = harness('touch', 60, ROOFS);
+  Object.assign(h.flight, { y: 26.5, groundBroad: 10, fullness: 1, glideSpeed: 0 });
+  Object.assign(h.input, { busZone: LANE, busBox: BOX, bombOn: on, bombFull: true });
+  h.wait(1000);
+  h.reset();
+  const id = newId(), out: number[] = [];
+  h.down(id, BX, BY);
+  for (let i = 0; i < 84; i++) {
+    if (i < 18) h.move(id, BX + (8 * i) / 18, BY);
+    h.wait(16.7);
+    out.push(+h.input.state.stretch.x.toFixed(6), +h.input.state.stretch.y.toFixed(6), +h.flight.x.toFixed(4), +h.flight.y.toFixed(4), +h.flight.z.toFixed(4));
+  }
+  h.up(id, BX + 8, BY);
+  const ev = [...h.evs];
+  h.input.dispose();
+  return { out, ev };
+};
+const pOn = path(true), pOff = path(false);
+
+const bf: string[] = [];
+let bchecks = 0;
+const bok = (c: boolean, m: string) => { bchecks++; if (!c) bf.push(m); };
+const bby = (g: string) => { const r = bombRows.find((x) => x.gesture.startsWith(g)); if (!r) throw new Error(`no row: ${g}`); return r; };
+const bn = (g: string, k: string) => bby(g).events.filter((e) => e.startsWith(k)).length;
+const bat = (g: string, k: string) => { const e = bby(g).events.find((x) => x.startsWith(k)); return e ? Number(e.slice(e.indexOf('@') + 1, -2)) : NaN; };
+const fired = (g: string) => bby(g).events.filter((e) => /^bombEnd[23]@/.test(e)).length;
+const fizzled = (g: string) => bby(g).events.filter((e) => /^bombEnd\d\(cancelled\)/.test(e)).length;
+for (const g of ['bomb: a tap on the bus at 120', 'bomb: still on the bus, lifted at 300']) bok(bn(g, 'tap') === 1 && bn(g, 'charge') === 0, `${g}: one splat, no charge`);
+for (const g of ['bomb: still on the bus, lifted at 500', 'bomb: still on the bus, lifted at 620']) bok(bn(g, 'tap') === 1 && bn(g, 'charge@') === 1 && bn(g, 'bombEnd1@') === 1 && !fired(g), `${g}: charging, and its lift is a tap`);
+{
+  const g1 = 'bomb: still on the bus, lifted at 500';
+  bok(bat(g1, 'charge@') >= 350 && bat(g1, 'charge@') <= 370, `the charge begins at 0.35 s (${bat(g1, 'charge@')} ms)`);
+  const g = 'bomb: still on the bus, lifted at 700';
+  bok(bn(g, 'bomb2@') === 1 && bat(g, 'bomb2@') >= 670 && bat(g, 'bomb2@') <= 690 && bn(g, 'bombEnd2@') === 1 && bn(g, 'tap') === 0, `${g}: II shows at ${bat(g, 'bomb2@')} ms (0.6 s and aimLagMs), its lift a Bomb II, no splat`);
+  const g3 = 'bomb: still on the bus, lifted at 1.3';
+  bok(bat(g3, 'bomb3@') >= 1270 && bat(g3, 'bomb3@') <= 1290 && bn(g3, 'bombEnd3@') === 1 && bn(g3, 'tap') === 0, `${g3}: III shows at ${bat(g3, 'bomb3@')} ms, its lift a Bomb III`);
+  const gl = 'bomb: still on the bus 3 s';
+  bok(bn(gl, 'bomb3@') === 1 && bn(gl, 'bombEnd3@') === 1 && bat(gl, 'bombEnd3@') >= 3000 && bn(gl, 'tap') === 0, `${gl}: it stays III and lets go only at the lift`);
+}
+bok(bn('bomb: at 30 fps, lifted at 650', 'tap') === 1 && !fired('bomb: at 30 fps, lifted at 650'), 'at 30 fps a lift at 650 ms that reaches the page at 720 is the tap its own time says');
+bok(bn('bomb: at 30 fps, held 750', 'bombEnd2@') === 1, 'at 30 fps 750 ms is a Bomb II');
+bok(bn('bomb: at 30 fps, held 1.35', 'bombEnd3@') === 1, 'at 30 fps 1.35 s is a Bomb III');
+bok(!fired('bomb: a 20 px slide before II') && bn('bomb: a 20 px slide before II', 'tap') === 0 && bn('bomb: a 20 px slide before II', 'bomb2') === 0, 'a 20 px slide before II never bombs, and is no tap');
+bok(fired('bomb: a 20 px slide after II') === 1, 'a 20 px slide after II keeps the Bomb');
+bok(!fired('bomb: a 40 px slide after II') && fizzled('bomb: a 40 px slide after II') === 1 && bn('bomb: a 40 px slide after II', 'tap') === 0, 'a 40 px slide after II fizzles, no splat');
+bok(bn('bomb: a landing under the bus', 'charge') === 0, 'a landing under the bus never charges');
+bok(bn('bomb: off the lane over the bus', 'charge') === 0 && bn('bomb: off the lane over the bus', 'aim@') === 1, 'over the bus, off the lane, it aims');
+bok(bn('bomb: an empty belly', 'charge') === 0 && bn('bomb: an empty belly', 'tap') === 1, 'an empty belly: no tier, and its lift is a tap');
+bok(bat('bomb: the belly full at 500', 'bomb2@') >= 1170 && bat('bomb: the belly full at 500', 'bomb2@') <= 1190, `the clock starts with the belly: II at ${bat('bomb: the belly full at 500', 'bomb2@')} ms`);
+bok(fizzled('bomb: the belly gone mid-charge') === 1 && !fired('bomb: the belly gone mid-charge'), 'a belly gone mid-charge fizzles it');
+bok(fizzled("bomb: another thumb's tap") === 1 && bn("bomb: another thumb's tap", 'tap') === 1 && !fired("bomb: another thumb's tap"), "another thumb's tap: a fizzle, and that tap splats");
+bok(fired("bomb: another thumb's look") === 1 && (bby("bomb: another thumb's look").note as any).look, "another thumb's look doesn't stop it");
+bok(fired("bomb: another thumb's flick") === 1 && bn("bomb: another thumb's flick", 'flick+') === 1, "another thumb's flick shifts and doesn't stop it");
+bok(bn('bomb: two fingers landing together, lifted fast', 'tap') === 1 && bn('bomb: two fingers landing together, lifted fast', 'charge') === 0, 'two fingers tapped together: one splat');
+bok(!(bby('bomb: two fingers landing together: no charge').note as any).on, 'no charge while it could be one of a two-finger tap');
+bok(bn('bomb: a second thumb on the bus', 'charge') === 0, 'a second thumb on the bus never charges');
+for (const g of ['bomb: a lost touch', 'bomb: the page losing focus', 'bomb: a hand-over']) bok(fizzled(g) === 1 && !fired(g) && bn(g, 'tap') === 0, `${g}: a fizzle, no splat`);
+bok(fizzled('bomb: three fingers') === 1 && !fired('bomb: three fingers') && bn('bomb: three fingers', 'tap') === 2, 'three fingers on a charge: two taps, and the first fizzles it');
+bok(bn('bomb: a gift', 'bomb3@') === 1 && bn('bomb: a gift', 'bomb2') === 0 && bat('bomb: a gift', 'bomb3@') >= 420 && bat('bomb: a gift', 'bomb3@') <= 440 && bn('bomb: a gift', 'bombEnd3@') === 1, `a gift is III at ${bat('bomb: a gift', 'bomb3@')} ms`);
+bok(bat('bomb: a bank of 0.1', 'bomb2@') >= 550 && bat('bomb: a bank of 0.1', 'bomb2@') <= 570 && bat('bomb: a bank of 0.1', 'bomb3@') >= 1150 && bat('bomb: a bank of 0.1', 'bomb3@') <= 1170, `a bank of 0.1: II at ${bat('bomb: a bank of 0.1', 'bomb2@')}, III at ${bat('bomb: a bank of 0.1', 'bomb3@')} ms`);
+bok(bat('bomb: a bank of 1', 'bomb3@') >= 420 && bat('bomb: a bank of 1', 'bomb3@') <= 440, `a bank of 1: never before 0.35 s (III at ${bat('bomb: a bank of 1', 'bomb3@')} ms)`);
+bok(bn('bomb: off (no link)', 'charge') === 0 && bn('bomb: off (no link)', 'tap') === 0, 'without the link a still 1.3 s on the bus is what it was: nothing');
+bok(JSON.stringify(pOn.out) === JSON.stringify(pOff.out) && pOn.ev.some((e) => e.startsWith('bomb3')) && !pOff.ev.some((e) => e.startsWith('charge')), `the stick and the path are the same, charging or not (${pOn.out.length / 5} frames)`);
+writeFileSync(`${OUT}/gestures-bomb.json`, JSON.stringify({ box: BOX, rows: bombRows }, null, 1));
+for (const r of bombRows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.thumb ? ' | steering' : ''}${r.note ? ` | ${JSON.stringify(r.note)}` : ''}`);
+console.log(bf.length ? `BOMB FAILED ${bf.length} of ${bchecks}:\n  ${bf.join('\n  ')}` : `bomb checks: all ${bchecks} passed (${bombRows.length} rows)`);
+process.exit(fails.length || bf.length ? 1 : 0);
