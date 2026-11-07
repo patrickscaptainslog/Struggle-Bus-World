@@ -54,7 +54,7 @@ It costs about 44 agent-days with reviews, or about 23 days with both accounts w
 
 Every shot now lands where you can see it and paints the whole block it hits. In turbo it flies ahead of the bus and lands about 1.5 s in front of you. At Turbo 3 today it lands 120 m ahead and you pass it in 0.13 s.
 
-The splat grows from 60 m to 85 m across at roof height. It paints every car, person, picnic and boat inside it. A shot that hits a car or a ferry paints the block around it too, so you never aim at one car again.
+The splat's radius grows from 60 m to 85 m at roof height (170 m across; corrected 2026-11-06, it said "across", but the 60 m was always a radius). It paints every car, person, picnic and boat inside it. A shot that hits a car or a ferry paints the block around it too, so you never aim at one car again.
 
 You never pick a mode from a menu. A tap splats, shaped by what the bus is doing: fast, nose up, nose straight up, over water or on the street. A still hold aims instead: on your bus it charges a Bomb, on a boat, plane or bus it locks, and on the city it's a hose.
 
