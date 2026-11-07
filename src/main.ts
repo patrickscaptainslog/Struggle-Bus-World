@@ -639,7 +639,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const fly = breathTravel ?? Math.max(0.05, S.impactDelay - S.inhale);
       jet = { at: simTime + S.inhale, impact: simTime + S.inhale + fly, end: simTime + S.duration, targets, hues, width: breathWidth };
     },
-    miss: (pos, hue) => particles.splash(pos, hue, 0.6),
+    // (a Comet's into the water: its splash thrown up there, a soft boom, and it doesn't use up the full show)
+    miss: (pos, hue, comet) => (comet ? cometFx.miss(pos, hue, comet, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel()) : particles.splash(pos, hue, 0.6)),
+    // (a Comet planned late, its landing's tile in now: its streak bends to where it comes down)
+    late: (comet, pos) => cometFx.retarget(comet, pos, simTime),
     impact: (b) => {
       const S = config.splat;
       const k = b.strength;
@@ -681,9 +684,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (b.comet) cometFx.impact(b, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel(), city.groundAt(b.pos.x, b.pos.z));
       else audio.splatImpact(k);
       audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
-      // one white-hot frame centered on the blast, a kick, and the fog thins over it
+      // one white-hot frame centered on the blast, a kick, and the fog thins over it. (A Comet's, far off: its core held a few frames and as wide as the
+      // landing is far, short of the bus on the screen, and the rest of the frame as it was; its full frame blanked the bus. The outside look of step 3)
       flashPos.copy(b.pos).project(camera);
-      pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
+      if (b.comet) {
+        const C = config.comet;
+        cometBus.set(flight.x, flight.y, flight.z).project(camera);
+        const gap = Math.hypot((flashPos.x - cometBus.x) * 0.5 * camera.aspect, (flashPos.y - cometBus.y) * 0.5);
+        const core = Math.min((C.flashCore * camera.projectionMatrix.elements[5]) / (2 * Math.max(1, camera.position.distanceTo(b.pos))), 0.2 * gap);
+        pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, C.flashFrames, -S.flashStrength, Math.max(0.006, core));
+      } else pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
       if (!b.comet) rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
       // nothing blooms (open ground with no building in reach): no first bloom will queue a sign, so it queues here
@@ -1382,6 +1392,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     lastBlast.z -= dz;
     if (jet) for (const t of jet.targets) t.set(t.x - dx, t.y, t.z - dz);
     cometFx.slide(dx, dz);
+    comet.slide(dx, dz);
     slides++;
   };
   let slides = 0;

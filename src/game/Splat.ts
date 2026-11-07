@@ -60,8 +60,10 @@ export interface SplatFx {
   bloom(ref: BuildingRef, order: number, total: number, hue: number, level: number, roof: THREE.Vector3, flags: number): void;
   primary(ref: BuildingRef, hue: number): void;
   hitStop(frames: number): void;
-  /** The breath came down on nothing paintable (open water): a splash, at the moment it lands. */
-  miss?(pos: THREE.Vector3, hue: number): void;
+  /** The breath came down on nothing paintable (open water): a splash, at the moment it lands (a Comet's: its plan). */
+  miss?(pos: THREE.Vector3, hue: number, comet: CometPlan | null): void;
+  /** A Comet planned late (BarfOpts.late) is planned now: where it comes down, on what's loaded now (its streak bends there). */
+  late?(comet: CometPlan, pos: THREE.Vector3): void;
 }
 
 /** A blast of a super splat: its kind, the charge, and the super's serial (a firehose's impacts and closer share one). */
@@ -212,7 +214,9 @@ export class Splatter {
   private near: Array<{ ref: BuildingRef; d: number }> = [];
   private reachList: Array<{ ref: BuildingRef; d: number; e: number }> = [];
   private fresh: Scheduled[] = [];
-  private misses: Array<{ at: number; pos: THREE.Vector3; hue: number }> = [];
+  private misses: Array<{ at: number; pos: THREE.Vector3; hue: number; comet: CometPlan | null }> = [];
+  /** where the last barf comes down (its blast's or its miss's), for a late plan's SplatFx.late */
+  private lastPos: THREE.Vector3 | null = null;
   private land = { x: 0, z: 0 };
   /** where a bloom's sparkles start (SplatFx.bloom reads it, never keeps it) */
   private readonly roofTmp = new THREE.Vector3();
@@ -257,9 +261,10 @@ export class Splatter {
   barf(x: number, z: number, opts?: BarfOpts): number {
     const S = config.splat;
     if (opts?.late && opts.late > 0 && (opts.travel ?? S.impactDelay) > opts.late + 0.02) {
-      // (planned later, when what it lands on has loaded: the building is picked then, but a wall's face stays the wall's)
+      // (planned later, when what it lands on has loaded: the building is picked then, and its height with it, but a wall's face stays the wall's. The
+      // height the tap had is the far grid's, which put a late Comet's splash and pillar inside the building it found: the review of step 3, 4)
       const travel = opts.travel ?? S.impactDelay;
-      this.held.push({ at: this.t + travel - opts.late, x, z, opts: { ...opts, travel: opts.late, late: 0, target: opts.exact ? opts.target : undefined } });
+      this.held.push({ at: this.t + travel - opts.late, x, z, opts: { ...opts, travel: opts.late, late: 0, target: opts.exact ? opts.target : undefined, y: opts.exact ? opts.y : undefined } });
       this.lastMiss = false;
       return this.t + travel;
     }
@@ -307,8 +312,9 @@ export class Splatter {
     // or hit-stop, just a splash when it comes down (the caller refunds part of the belly)
     const open = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
     this.lastMiss = open && !opts?.moverBlock;
+    this.lastPos = pos;
     if (this.lastMiss) {
-      this.misses.push({ at: tImpact, pos, hue: this.nextHue });
+      this.misses.push({ at: tImpact, pos, hue: this.nextHue, comet: opts?.comet ?? null });
       if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
       return tImpact;
     }
@@ -448,7 +454,9 @@ export class Splatter {
         continue;
       }
       this.held.splice(i, 1);
+      this.lastPos = null;
       this.barf(h.x, h.z, h.opts);
+      if (h.opts.comet && this.lastPos) this.fx.late?.(h.opts.comet, this.lastPos);
       if (this.lastMiss) this.onLateMiss?.();
     }
     for (let i = 0; i < this.misses.length; ) {
@@ -458,7 +466,7 @@ export class Splatter {
         continue;
       }
       this.misses.splice(i, 1);
-      this.fx.miss?.(m.pos, m.hue);
+      this.fx.miss?.(m.pos, m.hue, m.comet);
     }
     for (let i = 0; i < this.pending.length; ) {
       const p = this.pending[i];
