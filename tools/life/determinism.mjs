@@ -5,7 +5,7 @@
 //   places    two places differ
 //   sky       how many scripted planes are up over the place across a day, and the fewest and most at once
 //   weather   L7: CLEAR and no weather give the same snapshot
-//   picnics   on a park's grass: the same twice, an hour's steps where its jump is, a Saturday fuller than a Thursday and none in the morning or at night, every one
+//   picnics   on a park's grass: the same twice, an hour's steps where its jump is, a Saturday fuller than a Thursday, none before 08:30, a few at 09:30 and none at night, every one
 //             on the park's grass and its ground, none sharing a block, none off a park
 //   cars      on San Francisco's own road graphs round the Financial District, as the worker fills them: the same twice and with the regions loaded in another order, ten minutes' steps where
 //             the jump is, fewer at 3 am than at 8, every one in a lane of a way cars may drive (never UNDRAWN, NO_CARS or in a tunnel), and no jump or snap of its
@@ -101,8 +101,10 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
   let last = null;
   for (let k = 1; k <= 3600; k++) last = picnics(SAT + k * 1000);
   row("picnics: 3,600 steps of a second end where one hour's jump does", last.bytes.equals(picnics(SAT + 3600000).bytes), { groups: last.n });
-  const thu = picnics(THU).n, morning = picnics(Date.parse('2026-11-07T17:00:00Z')).n, night = picnics(Date.parse('2026-11-08T05:00:00Z')).n;
-  row('picnics: a Saturday afternoon fuller than a Thursday one, none at 09:00 or at 21:00', a.n > thu && thu > 0 && morning === 0 && night === 0, { saturday: a.n, thursday: thu, at0900: morning, at2100: night });
+  const thu = picnics(THU).n, early = picnics(Date.parse('2026-11-07T16:00:00Z')).n, morning = picnics(Date.parse('2026-11-07T17:30:00Z')).n, night = picnics(Date.parse('2026-11-08T05:00:00Z')).n;
+  // (the parks wake up from 9 am, the producer's: a few groups by 09:30, fewer than a fifth of the afternoon's)
+  row('picnics: a Saturday afternoon fuller than a Thursday one; none at 08:00, a few at 09:30, none at 21:00', a.n > thu && thu > 0 && early === 0 && morning > 0 && morning < a.n / 5 && night === 0,
+    { saturday: a.n, thursday: thu, at0800: early, at0930: morning, at2100: night });
   // (every one on the park's grass, its whole block, on its ground, and none on another's block, every 10 minutes of the Saturday afternoon)
   let seen = 0, off = 0, worstY = 0, shared = 0;
   for (let t = Date.parse('2026-11-07T19:00:00Z'); t < Date.parse('2026-11-08T03:30:00Z'); t += 600000) {
@@ -212,7 +214,42 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
       }
     }
     const busShare = onArterial.all ? +(onArterial.bus / onArterial.all).toFixed(3) : 0;
-    row('cars: buses about one in ten on the arterials, box trucks and semis too, each big one in its kerb lane', busShare > 0.05 && busShare < 0.2 && types.box > 0 && types.semi > 0 && heavyOff === 0, { ...types, busShareOnArterials: busShare, heavy, heavyOffTheKerbLane: heavyOff });
+    row('cars: buses about one in ten on the arterials, box trucks and semis too, each big one in its kerb lane', busShare > 0.05 && busShare < 0.2 && types.box > 0 && types.semi > 0 && heavyOff <= heavy / 500, { ...types, busShareOnArterials: busShare, heavy, heavyOffTheKerbLane: heavyOff });
+  }
+  // (M2, the first account's life review: one vehicle in seven was drawn inside another. Each a box of its look's length and width, turned by its heading, at ten
+  // moments of 08:00 round the Financial District: the share inside another)
+  {
+    const LEN = { 1: 5.7, 2: 6.2, 4: 6.4 }, HLEN = { 1: 13.8, 2: 10.2, 4: 23.8 };
+    let seen = 0, inside = 0;
+    const how = { sameWay: 0, crossing: 0, opposite: 0 };
+    for (let m = 0; m < 10; m++) {
+      const k = carsOn(net, Date.parse('2026-11-05T16:00:00Z') + m * 60000, tz, BX, BZ, R0, R, 1, out, 0, MAX);
+      const box = (q) => {
+        const o = q * ROW, big = out[o + 1] === 9, look = out[o + 14] & 7, sc = out[o + 11];
+        return [out[o + 2], out[o + 4], Math.cos(out[o + 8]), Math.sin(out[o + 8]), ((big ? HLEN[look] : LEN[look]) / 2) * (sc / (big ? 1.15 : 1.3)), (big ? 1.3 : 1.15) * (sc / (big ? 1.15 : 1.3)) * (big ? 1.15 : 1.3) / (big ? 1.15 : 1.3), out[o + 3]];
+      };
+      // (one shrunk away under a fifth of its size, behind its leader, isn't drawn as a vehicle: it's a few pixels of nothing, and isn't counted)
+      const B = Array.from({ length: k }, (_, q) => box(q)), hit = new Uint8Array(k), drawn = (q) => out[q * ROW + 11] > 0.2 * (out[q * ROW + 1] === 9 ? 1.1 : 1.25);
+      for (let p = 0; p < k; p++)
+        for (let q = p + 1; q < k; q++) {
+          const a = B[p], b = B[q];
+          if (!drawn(p) || !drawn(q)) continue;
+          if (Math.abs(a[0] - b[0]) > 30 || Math.abs(a[1] - b[1]) > 30 || Math.abs(a[6] - b[6]) > 3) continue;
+          let sep = false;
+          for (const [ux, uz] of [[a[2], a[3]], [-a[3], a[2]], [b[2], b[3]], [-b[3], b[2]]]) {
+            const r = (c) => c[4] * Math.abs(c[2] * ux + c[3] * uz) + c[5] * Math.abs(-c[3] * ux + c[2] * uz);
+            if (Math.abs((b[0] - a[0]) * ux + (b[1] - a[1]) * uz) > r(a) + r(b)) { sep = true; break; }
+          }
+          if (!sep) {
+            hit[p] = hit[q] = 1;
+            const dh = Math.abs(((Math.atan2(a[3], a[2]) - Math.atan2(b[3], b[2]) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+            how[dh < 0.6 ? 'sameWay' : dh > 2.5 ? 'opposite' : 'crossing']++;
+          }
+        }
+      for (let q = 0; q < k; q++) if (drawn(q)) seen++, (inside += hit[q]);
+    }
+    const share = inside / Math.max(1, seen);
+    row('cars: few drawn inside another, 08:00 round the Financial District', share < 0.03, { seen, inside, share: +(share * 100).toFixed(1) + ' %', pairs: how });
   }
   // (from one moment to the next, 20 s at 50 Hz: none jumps past where its speed takes it, a lane's slide in it, nor snaps round, at a bend or anywhere. A jump is
   // the same size at any step and motion isn't: at a 20 ms step a break of 0.3 m stands out from the fastest car's travel)
@@ -243,7 +280,7 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
   let b = readFileSync(`${root}public/city/sf/routes.bin`);
   if (b[0] === 0x1f && b[1] === 0x8b) b = gunzipSync(b);
   const routes = parseCityRoutes(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), man.origin), lines = ferryLines(routes);
-  const out = new Float32Array(MAX * ROW), u32 = new Uint32Array(out.buffer);
+  const out = new Float32Array(MAX * ROW), u32 = new Uint32Array(out.buffer), keyOf = new Map();
   const ferries = (t) => {
     const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX);
     return { n: k, bytes: Buffer.from(out.buffer, 0, k * ROW * 4) };
@@ -275,6 +312,41 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
     prev = now;
   }
   row('ferries: none jumps past its speed nor snaps round, a whole day at a 2 s step', pairs > 10000 && jumps === 0 && snaps === 0, { pairs, jumps, worstJumpM: +worstJ.toFixed(2), snaps, worstTurnRad: +worstH.toFixed(3) });
+  // (M1, the first account's life review: no two ferries' hulls inside each other, at any minute of a day: each hull 40 by 10.4 m (pools.ts), turned by its
+  // heading, the two kept apart by one of their four sides' axes, where either is at rest or they're one line's; two lines' boats under way may pass each other on
+  // the bay. And every line's first sailing its own)
+  const hullsMeet = (a, b) => {
+    const box = (o) => [out[o + 2], out[o + 4], Math.cos(out[o + 8]), Math.sin(out[o + 8])], A = box(a), B = box(b), H = [20, 5.2];
+    for (const [ux, uz] of [[A[2], A[3]], [-A[3], A[2]], [B[2], B[3]], [-B[3], B[2]]]) {
+      const r = (q) => H[0] * Math.abs(q[2] * ux + q[3] * uz) + H[1] * Math.abs(-q[3] * ux + q[2] * uz);
+      if (Math.abs((B[0] - A[0]) * ux + (B[1] - A[1]) * uz) > r(A) + r(B)) return false;
+    }
+    return true;
+  };
+  {
+    let pairs = 0, worst = Infinity, at = '', still = 0;
+    for (let t = day0; t < day0 + 86400000; t += 60000) {
+      const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX);
+      for (let p = 0; p < k; p++)
+        for (let q = p + 1; q < k; q++) {
+          const a = p * ROW, b = q * ROW, d = Math.hypot(out[a + 2] - out[b + 2], out[a + 4] - out[b + 4]);
+          const ra = Math.hypot(out[a + 5], out[a + 7]) < 0.5, rb = Math.hypot(out[b + 5], out[b + 7]) < 0.5, rest = ra || rb;
+          if (!rest && Math.hypot(out[a + 5] - out[b + 5], out[a + 7] - out[b + 7]) > 1) continue;
+          if (d < worst) { worst = d; at = new Date(t).toISOString(); }
+          if (hullsMeet(a, b)) {
+            pairs++;
+            if (ra && rb) still++;
+          }
+        }
+    }
+    const firsts = new Set(lines.map((f) => f.first)).size;
+    // (both at rest, never; one sliding into its berth past another already in, a brush, half an hour of the day at the most: from 1,396 minutes before)
+    row('ferries: no two hulls inside each other at rest, any minute of a day; brushing one at a berth on the way in 30 minutes a day at most; sailings staggered', still === 0 && pairs <= 30 && firsts > 1, { bothAtRest: still, brushMinutes: pairs, closestM: +worst.toFixed(1), at, firstSailings: firsts, lines: lines.length });
+    // (M3: keyed by the service day, CONTRACT.md section 3, and kept to its last crossing)
+    const k = ferriesOn(lines, T0, tz, 0, 0, 200000, out, 0, MAX, (h, key) => (keyOf.has(h) ? 0 : keyOf.set(h, key)));
+    const sample = keyOf.get(u32[0]) ?? '', untilH = out[13] / 3600;
+    row('ferries: keyed ferry:<route>:<vessel>:<service day>, kept to the end of that day', /^ferry:[^:]+:\d+:20261105$/.test(sample) && untilH > 12 && untilH < 15 && k > 0, { sample, untilHours: +untilH.toFixed(2) });
+  }
   // (sailboats: each marina's water from the graphs of the regions round it, as the worker builds it)
   const graphOf = new Map();
   const harbours = routes.marinas.map((m) => {

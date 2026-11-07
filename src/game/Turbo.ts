@@ -41,7 +41,10 @@ import type { Flight } from './Flight';
 // Under Cruise: School Zone, one flick down from it, a hover that bobs like a blimp
 // (Flight's hover, docs/specs/shots/GEARS.md); a flick up is Cruise again. It's a
 // rung under the gears, not a gear: `below` says it, and the gears' numbers stand.
-// Curb, the rung under it, isn't built: a flick down in School Zone is nothing yet.
+// Curb, the rung under it, is the street (src/game/CurbFlight.ts, ?life only): a flick
+// down in School Zone asks to land (onCurb), and the rung moves only when the wheels
+// are on a lane (curbIn); a flick up from it is School Zone again. With no onCurb (no
+// life) a flick down in School Zone is nothing, as before.
 
 export const GEAR_NAMES = ['CRUISE', 'EXPRESS', 'NONSTOP', 'JET', 'STRATOS', 'RAINBOW WARP'] as const;
 /** The gears above Cruise (0), by name: their places in GEAR_NAMES. */
@@ -51,7 +54,7 @@ export const JET = 3;
 export const STRATOS = 4;
 export const WARP = 5;
 export const SPEED_OF_SOUND = 343;
-/** The rungs under Cruise (TurboDrive.below): School Zone, and Curb under it (not built). */
+/** The rungs under Cruise (TurboDrive.below): School Zone, and Curb under it (?life). */
 export const SCHOOL_ZONE = 1;
 export const CURB = 2;
 export const BELOW_NAMES = ['', 'SCHOOL ZONE', 'CURB'] as const;
@@ -80,6 +83,9 @@ export type TurboEvent =
   /** down into School Zone, and up out of it to Cruise */
   | 'zone'
   | 'unzone'
+  /** the wheels on the street (Curb), and up off it to School Zone */
+  | 'curb'
+  | 'uncurb'
   /** passed Mach 1 */
   | 'boom';
 
@@ -110,8 +116,10 @@ export class TurboDrive {
   gear = 0;
   /** the selected gear has reached its height and drives the speed */
   engaged = false;
-  /** the rung under Cruise it's on (0: none, SCHOOL_ZONE): only ever with gear 0 and no turbo */
+  /** the rung under Cruise it's on (0: none, SCHOOL_ZONE, CURB): only ever with gear 0 and no turbo */
   below = 0;
+  /** Curb (src/game/CurbFlight.ts): a flick down in School Zone asks it to land. Null (no life): that flick is nothing */
+  onCurb: (() => void) | null = null;
   /** 0..1, eased: lifting to the gear's height (1), spooling up, boosting */
   strain = 0;
   /** turbo speed on a log scale: 0 at the surge, 1 at Jet's speed, more beyond */
@@ -203,15 +211,42 @@ export class TurboDrive {
     return this.gear < this.maxGear ? this.shift(1, f) : this.boostUp();
   }
 
-  /** Down (1) a rung under Cruise, or up (-1) one. School Zone is the bottom until Curb is built: down from it is nothing. */
+  /** Down (1) a rung under Cruise, or up (-1) one. Down from School Zone asks Curb to land (the rung moves when it does: curbIn), and nothing is under Curb. */
   private under(dir: 1 | -1): boolean {
     const to = this.below + dir;
+    if (to === CURB && dir > 0) {
+      this.onCurb?.();
+      return false;
+    }
     if (to < 0 || to > SCHOOL_ZONE) return false;
+    const was = this.below;
     this.below = to;
     this.shiftedAt = this.t;
     this.lastDir = dir > 0 ? -1 : 1;
-    this.onEvent?.(dir > 0 ? 'zone' : 'unzone', 0);
+    this.onEvent?.(dir > 0 ? 'zone' : was === CURB ? 'uncurb' : 'unzone', 0);
     return true;
+  }
+
+  /** Curb: the wheels are on a lane (CurbFlight). From School Zone, Cruise or Express, it's the rung under School Zone: Express is let go, as a surge is. */
+  curbIn(): void {
+    this.gear = 0;
+    this.level = 0;
+    this.engaged = false;
+    this.braking = false;
+    this.gearFloor = -Infinity;
+    this.below = CURB;
+    this.shiftedAt = this.t;
+    this.lastDir = -1;
+    this.onEvent?.('curb', 0);
+  }
+
+  /** Curb: the wheels up without a flick (a pull, the lane's end): School Zone again, as a flick up would leave it. */
+  curbOut(): void {
+    if (this.below !== CURB) return;
+    this.below = SCHOOL_ZONE;
+    this.shiftedAt = this.t;
+    this.lastDir = 1;
+    this.onEvent?.('uncurb', 0);
   }
 
   private boostUp(): boolean {

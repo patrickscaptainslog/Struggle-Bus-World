@@ -40,13 +40,17 @@ export interface MoverTarget {
   z: number;
   arrive: number;
   pickR: number;
-  /** taken on the line of fire alone (a person, `KindInfo.onLine`): a building near the aim point doesn't have the shot from it, but a latched one keeps it */
+  /** taken on the line of fire alone (a car, a picnic, `KindInfo.onLine`): a building near the aim point doesn't have the shot from it, but a latched one keeps it */
   onLine: boolean;
+  /** how far the line of fire passes from its middle (m), and its own half size there (m): under it, the line runs over it, which a building the line lands on yields to */
+  miss: number;
+  half: number;
 }
 
 /** What the aim asks life (src/life/Life.ts): the mover nearest a line of fire, and which one glints. */
 export interface MoverAim {
-  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number): MoverTarget | null;
+  /** `ground` false: nothing on the line of fire alone (a car, a picnic) is taken, only what flies or sails by the pick radius (the nose's ray) */
+  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground?: boolean): MoverTarget | null;
   glint(key: string | null): void;
 }
 
@@ -114,11 +118,15 @@ export class Aimer {
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
   private moverLatchUntil = 0;
-  private readonly moverHeld: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false };
+  private readonly moverHeld: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false, miss: 0, half: 0 };
+  /** the shown building's distance from the bus, squared, for `nearer` */
+  private shownD2 = Infinity;
   /** game time the shown building started glinting (the glint's sweep starts there) */
   shownSince = 0;
   /** how far off the nose the breath goes (rad, +right): the look's, per frame (main.ts) */
   lookYaw = 0;
+  /** Curb (main.ts, per frame): the side of the lane a tap's drive-by takes, +1 right, -1 left, 0 off the street. There the front that way glints, and no mover */
+  street = 0;
   /** the way the breath goes, flat: the nose, turned by the look */
   fx = 0;
   fz = 1;
@@ -342,8 +350,8 @@ export class Aimer {
     this.cometPlan = this.cometOnly = this.lobLast = null;
     this.lobbing = false;
     // (the Lob's body: as it was last frame, with the thumb down, when it lifts; live while it's down. The body drops as soon as the thumb lifts, at Cruise
-    // 72 to 41 degrees in 0.2 s, and a frame's drop at 30 fps put a throw tens of metres from 60's)
-    if (this.lob) {
+    // 72 to 41 degrees in 0.2 s, and a frame's drop at 30 fps put a throw tens of metres from 60's). On Curb's street it latches nothing: there's no Lob there
+    if (this.lob && this.street === 0) {
       if (this.wasThumb && !thumb) this.lob.latch(this.bodyWas, this.noseWas, t, t + S.aimLatch, false, t - this.thumbAt <= inputTune.quickTapMs / 1000);
       if (thumb) this.lob.unlatch(t);
     }
@@ -370,6 +378,7 @@ export class Aimer {
       this.target = this.latchRef = this.wallRef = this.lastAim = null;
       return this.noteShown(null);
     }
+    if (this.street !== 0) return this.noteShown(this.streetFront(f));
     this.point(f);
     const own = this.aimOwn(f, t);
     this.lastAim = own;
@@ -377,8 +386,9 @@ export class Aimer {
     // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one. Where it applies it takes the place
     // of ?life's mover, as of the building: HOOKS.md, "The Comet")
     const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
-    // the Lob, nose up (never while a Bomb charges): the farther of it and the Comet, never weighed against the aim's own (chooseShot)
-    const l = this.lob && this.comet && !this.bombing ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;
+    // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): the farther of it and the Comet, never weighed
+    // against the aim's own (chooseShot)
+    const l = this.lob && this.comet && !this.bombing && this.street === 0 ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;
     this.lobLast = l;
     const p = chooseShot(f, null, c, l);
     if (!p) return this.noteShown(own);
@@ -418,7 +428,9 @@ export class Aimer {
 
   /**
    * ?life: a mover on the line of fire, nearer than the building, takes the shot and the glint; past the aim's ray the nose's, so a plane flown alongside can be
-   * painted. Returns the building that glints now (none while a mover does).
+   * painted, but nothing on the ground (the first account's life review, B1: a car 1.7 km down the road took the shot along the nose). Something on the ground takes
+   * it from the building only where the line of fire lands in the street, or runs right over it: the line landing on a building, a car beside it in the street
+   * doesn't steal it (B1 again: aimed at a house by a busy street, the bus painted the cars). Returns the building that glints now (none while a mover does).
    */
   private pickMover(f: Flight, t: number, r: number): BuildingRef | null {
     const life = this.life!, aim = this.aim, shown = this.shown();
@@ -427,21 +439,31 @@ export class Aimer {
     if (!m) {
       const dx = aim.x - f.x, dy = aim.y - f.y, dz = aim.z - f.z;
       // (the building's distance: a mover nearer the bus than it takes the shot, one past it doesn't: the jet couldn't get through)
-      const bd = shown ? (shown.cx - f.x) ** 2 + (shown.roofY - f.y) ** 2 + (shown.cz - f.z) ** 2 : Infinity;
-      const near = (q: MoverTarget | null) => !!q && ((q.onLine && !this.latchRef) || (q.x - f.x) ** 2 + (q.y - f.y) ** 2 + (q.z - f.z) ** 2 < bd);
-      m = life.aim(f.x, f.y, f.z, dx, dy, dz, r, aim.travel);
-      if (m?.onLine && !this.clearTo(m)) m = null;
-      if (!near(m)) {
+      this.shownD2 = shown ? (shown.cx - f.x) ** 2 + (shown.roofY - f.y) ** 2 + (shown.cz - f.z) ** 2 : Infinity;
+      m = life.aim(f.x, f.y, f.z, dx, dy, dz, r, aim.travel, true);
+      if (m?.onLine && (!this.clearTo(m) || (shown && m.miss > m.half && this.landsOnBuilding()))) m = null;
+      if (!this.nearer(m, f)) {
         // (along the nose, as far as a breath's reach: a plane alongside or ahead, which from high up is nearer than any roof under the aim)
         const reach = config.splat.moverReach, c = Math.cos(f.nose), speed = aim.dist / Math.max(0.05, aim.travel);
-        m = life.aim(f.x, f.y, f.z, this.fx * c * reach, Math.sin(f.nose) * reach, this.fz * c * reach, r, reach / Math.max(1, speed));
-        if (m?.onLine && !this.clearTo(m)) m = null;
-        if (!near(m)) m = null;
+        m = life.aim(f.x, f.y, f.z, this.fx * c * reach, Math.sin(f.nose) * reach, this.fz * c * reach, r, reach / Math.max(1, speed), false);
+        if (!this.nearer(m, f)) m = null;
       }
     }
     this.mover = m;
     life.glint(m ? m.key : null);
     return m ? null : shown;
+  }
+
+  /** ?life: the mover takes the shot over the shown building: one on the ground unless a building is latched, else one nearer the bus than the building. */
+  private nearer(q: MoverTarget | null, f: Flight): boolean {
+    return !!q && ((q.onLine && !this.latchRef) || (q.x - f.x) ** 2 + (q.y - f.y) ** 2 + (q.z - f.z) ** 2 < this.shownD2);
+  }
+
+  /** ?life: the line of fire ends on a building: its aim point is on a roof or in a wall, not the street. */
+  private landsOnBuilding(): boolean {
+    // (a roof there within a few metres under the aim point, which the obstacle grid holds 3 m over a roof, or over it: a wall the line ends in)
+    const a = this.aim, ref = this.city.buildingAbove(a.x, a.z, a.y - 6);
+    return !!ref && ref.roofY - ref.baseY >= config.splat.minTargetHeight;
   }
 
   /**
@@ -461,11 +483,45 @@ export class Aimer {
     return true;
   }
 
+  /**
+   * Curb: the house front a drive-by takes, config.curb.front m to the street side and within frontR of there, the breath going that way. On the
+   * street there's no wall in the line of fire to find (every front is one), no latch and no mover: the car beside is the drive-by's own (main.ts).
+   */
+  private streetFront(f: Flight): BuildingRef | null {
+    const K = config.curb, s = this.street, aim = this.aim;
+    this.wallRef = this.latchRef = null;
+    this.mover = this.moverLatch = null;
+    this.life?.glint(null);
+    // (a little on along the street, so the front blooms in the kerb chase's view and not past its edge, beside the bus)
+    const sx = -f.fz * s, sz = f.fx * s, ax = f.fx * K.frontAhead, az = f.fz * K.frontAhead;
+    let x = f.x + sx * K.front + ax, z = f.z + sz * K.front + az;
+    this.target = this.city.nearestBuilding(x, z, K.frontR, config.splat.minTargetHeight, f.y);
+    // (a wide street, or fronts set back: once more, twice as far out, as far again round it)
+    if (!this.target) {
+      x = f.x + sx * K.front * 2.5 + ax;
+      z = f.z + sz * K.front * 2.5 + az;
+      this.target = this.city.nearestBuilding(x, z, K.frontR * 1.5, config.splat.minTargetHeight, f.y);
+    }
+    this.x0 = f.x;
+    this.y0 = f.y;
+    this.z0 = f.z;
+    aim.dist = Math.hypot(x - f.x, z - f.z);
+    this.fx = (x - f.x) / Math.max(1e-3, aim.dist);
+    this.fz = (z - f.z) / Math.max(1e-3, aim.dist);
+    aim.x = x;
+    aim.z = z;
+    aim.y = this.city.groundAt(x, z);
+    aim.drop = 0;
+    aim.wall = false;
+    aim.travel = this.travelFor(aim.dist, f.ground);
+    return this.target;
+  }
+
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
   press(): void {
     // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
-    // thumb's tap reads it live)
-    if (this.lob && !this.wasThumb) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.splat.aimLatch, true);
+    // thumb's tap reads it live. On Curb's street, none)
+    if (this.lob && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.splat.aimLatch, true);
     if (this.mover && !this.moverLatch) {
       // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
       Object.assign(this.moverHeld, this.mover);

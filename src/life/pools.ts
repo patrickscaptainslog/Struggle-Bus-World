@@ -51,16 +51,17 @@ const MODELS: Record<number, Box[]> = {
     // (the beacon, on the fin's top)
     [-26.5, 8.9, 0, 1.6, 0.8, 1.6, 2],
   ],
-  // a ferry, 40 m, its waterline at the origin: the hull, two decks of cabin and the wheelhouse forward on top, each deck's windows a lamp along either side
+  // a ferry, 40 m, its waterline at the origin, double-ended (it never turns round): the hull, two decks of cabin and the wheelhouse on top in the middle, each deck's
+  // windows a lamp along either side
   [Kind.FERRY]: [
     [0, 0.6, 0, 40, 2.4, 10.4],
-    [-2, 3, 0, 30, 2.4, 9.4],
-    [-5, 5.1, 0, 18, 1.8, 8.4],
-    [6, 6.7, 0, 5, 1.4, 6],
-    [-2, 3.2, 4.74, 28, 0.7, 0.08, 1],
-    [-2, 3.2, -4.74, 28, 0.7, 0.08, 1],
-    [-5, 5.2, 4.24, 16, 0.6, 0.08, 1],
-    [-5, 5.2, -4.24, 16, 0.6, 0.08, 1],
+    [0, 3, 0, 30, 2.4, 9.4],
+    [0, 5.1, 0, 18, 1.8, 8.4],
+    [0, 6.7, 0, 5, 1.4, 6],
+    [0, 3.2, 4.74, 28, 0.7, 0.08, 1],
+    [0, 3.2, -4.74, 28, 0.7, 0.08, 1],
+    [0, 5.2, 4.24, 16, 0.6, 0.08, 1],
+    [0, 5.2, -4.24, 16, 0.6, 0.08, 1],
   ],
   // a sailboat, 9 m on the water and 12 m to its masthead: the hull, its cabin, the mast, the mainsail aft of it and the jib forward
   [Kind.SAILBOAT]: [

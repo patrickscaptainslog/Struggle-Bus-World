@@ -161,17 +161,17 @@ On this laptop's GPU (Intel UHD 620), the built page, one browser at a time unde
 
 This step's plan was written on the laptop from SHOTS.md, outside the repo, with the producer's five calls taken as picked: MEGA's look in the faction's colours now and the five set pieces later; a still lift on the bus before II is a tap; 1.8 times the tap's circle from any height; in Recess only the aimed square jumps (an ask, below); the riser and the landing ring. All of it is behind `&bomb` on the link: without it no frame, sim row or `--det` view changes.
 
-**The gesture** (`aeea7b3`, `src/game/Input.ts`). The flying thumb landing on the bus itself (`Input.busBox`: the bus's eight box corners through this frame's lens, 10 px more a side, at least 48 x 56 px, set by main.ts every frame) and held still charges, while it steers as any thumb does. Still is 12 px of the landing until Bomb II shows, then 28 (MEGA's slops). The charge begins 0.35 s in with a full belly, Bomb II shows at 0.69 s and Bomb III at 1.29, each 70 ms late on a frame, as hold to aim does, and a lift's own time picks its tier. A lift before II shows is the tap, however long it was held; after it, the Bomb; held on, it stays III and never fires by itself. The cancels are fizzles that keep the belly: past the slop, three fingers, a lost touch or focus, a hand-over, another thumb's tap. Only the flying thumb charges, never while it could still be one of a two-finger tap, never a second thumb on the bus; another thumb's look or flick doesn't stop it, and a hold off the lane while it charges coughs (`Hose.bombing`), so the Hose can't drain the belly.
+**The gesture** (`aeea7b3`, `src/game/Input.ts`). The flying thumb landing on the bus itself (`Input.busBox`: the bus's eight box corners through this frame's lens, 10 px more a side, at least 48 x 56 px, set by main.ts every frame) and held still charges, while it steers as any thumb does. Still is 12 px of the landing until Bomb II shows, then 28 (MEGA's slops). The charge begins 0.35 s in with a full belly, Bomb II shows at 0.69 s and Bomb III at 1.29, each 70 ms late on a frame, as hold to aim does, and a lift's own time picks its tier. A lift before II shows is the tap while the charge runs, and with none begun (the belly refilling) up to when II would have shown, past which it's nothing, as a resting thumb off the link; after it, the Bomb, at the tier that had shown by the lift's own time (II's and III's frames); held on, it stays III and never fires by itself. The cancels are fizzles that keep the belly: past the slop, three fingers, a lost touch or focus, a hand-over, another thumb's tap. Only the flying thumb charges, never while it could still be one of a two-finger tap, never a second thumb on the bus; another thumb's look or flick doesn't stop it, and a hold off the lane while it charges coughs (`Hose.bombing`), so the Hose can't drain the belly.
 
-**The Bomb and its tell** (`62eb188`, `src/game/Bomb.ts`). At the charge's start MEGA's riser and hiss with an inhale on it; at II a clunk, the bus 6 % bigger on a stiff spring and a ring 1.4 times the tap's circle where it will land (`PixelPipeline.setBombRing`, drawn in the resolve as the hero circle is: no decal, draw or program); at III a deeper clunk and a bell, MEGA's heartbeat a beat at a time for as long as it's held, its motes, 12 % and the ring at 1.8 times, pulsing. No flight or camera number changes while it charges: the swell is the bus's scale alone. Let go, it's MEGA's breath (main.ts's `breatheNow`): jet x1.5 or x2.4, hit-stop 6 or 9 frames, tagged `SuperTag { kind: 'bomb', charge, id }`, and the belly refills in 3 or 4.5 s. The hint, once (Coach's `TAUGHT.bomb`, 256: aim is 64 and feat/curb's curb 128): HOLD THE BUS STILL / LIFT TO BOMB after three taps, the first time a painted building (on the Moon, a crater) glints with a full belly under 300 m; a Bomb let go first teaches it.
+**The Bomb and its tell** (`62eb188`, `src/game/Bomb.ts`). At the charge's start MEGA's riser and hiss with an inhale on it; at II a clunk, the bus 6 % bigger on a stiff spring and a ring 1.4 times the tap's circle where it will land (`PixelPipeline.setBombRing`, drawn in the resolve as the hero circle is: no decal, draw or program); at III a deeper clunk and a bell, MEGA's heartbeat a beat at a time for as long as it's held, its motes, 12 % and the ring at 1.8 times, pulsing. No flight or camera number changes while it charges: the swell is the bus's scale alone. A cancel before II fades the riser out (`bombFade`); from II on it's the fizzle's power-down. Let go, it's MEGA's breath (main.ts's `breatheNow`): jet x1.5 or x2.4, hit-stop 6 or 9 frames when it lands in the frame (none below it), tagged `SuperTag { kind: 'bomb', charge, id }`, and the belly refills in 3 or 4.5 s. The hint, once (Coach's `TAUGHT.bomb`, 256: aim is 64 and feat/curb's curb 128): HOLD THE BUS STILL / LIFT TO BOMB after three taps, the first time a painted building (on the Moon, a crater) glints with a full belly under 300 m; a Bomb let go first teaches it.
 
-**The landing** (`0d5e42e`, `2e16ad2`, `6af2e73`). At School Zone, Cruise and Express it lands where the tap would (the tap's own shot, `Aimer.fire`). At Nonstop and faster it lands where the Comet would, through `Comet.ts`'s seam (its plan and `chooseShot`, which `Aimer.fire` hands over): ahead, in view, with the Comet's full show every time (`CometFx.launch`'s `full`, which counts as the 20 s's full show) and no hit-stop that far off; its ring while it charges is on the Comet's plan of that frame (`Aimer.planned`). Where the tap is the classic shot, at Turbo 3 from 300 m (no Comet in turbo from about 300 m up, step 3's open call), so is the Bomb. Each building in its circle jumps to `min(3, level + 2 or 3)` (`BarfOpts.jump`; a tap's stays one) and never asks the Lift (`Lift.aloft` only says whether a house is lifting, up or staged; one up already is out of it, as of a tap's). Its trees jump as many. Movers in its circle take one level, as `life.blast` always gives them. On the Moon's ground the craters take the jumps (`CraterPaint.impact`): the crater it hits climbs two or three levels at a blow, never past 3, each neighbour as many, never past its top of 2 (rays stay a direct hit's), all landing with the wave; craters don't hop.
+**The landing** (`0d5e42e`, `2e16ad2`, `6af2e73`). At School Zone, Cruise and Express it lands where the tap would (the tap's own shot, `Aimer.fire`). At Nonstop and faster it lands where the Comet would, through `Comet.ts`'s seam (its plan and `chooseShot`, which `Aimer.fire` hands over): ahead, in view, with the Comet's full show every time (`CometFx.launch`'s `full`, which counts as the 20 s's full show) and no hit-stop that far off; its ring while it charges is on the Comet's plan of that frame (`Aimer.planned`). Where the tap is the classic shot, at Turbo 3 from 300 m (no Comet in turbo from about 300 m up, step 3's open call), so is the Bomb. A Bomb never goes to a mover off a floor (a plane glinting on `?life`) but to the building its ring showed (`Aimer.fire`'s `bomb`). A gift fires whatever the belly holds, and while it charges the aim runs as with a full belly (`Aimer.primed`), so its ring and landing are a full belly's. Each building in its circle jumps to `min(3, level + 2 or 3)` (`BarfOpts.jump`; a tap's stays one) and never asks the Lift (`Lift.aloft` only says whether a house is lifting, up or staged; one up already is out of it, as of a tap's). Its trees jump as many. Movers in its circle take one level, as `life.blast` always gives them. On the Moon's ground the craters take the jumps (`CraterPaint.impact`): the crater it hits climbs two or three levels at a blow, never past 3, each neighbour as many, never past its top of 2 (rays stay a direct hit's), all landing with the wave; craters don't hop.
 
-**The stages and the pogo** (`6cf3a01`, `ab6bae5`; `src/world/pogo.ts`). Each stage a Bomb jumps a building is its own write and pop, the first with the wave as a tap's level, the next 0.4 s after the last (`config.bomb.stageGap`), written in bands 0.1 s ahead of their pops so the paint goes up at most once a band. Each pop starts with a hop under one uniform (`uBombPogo`: the last Bomb's circle and its stages' bloom times): `clamp(0.3 x height, 2, 6)` m up and down over 0.24 s, landing in the pop's squash, so a house climbs by hops, skin, garden, crown; towers over 40 m only squash. The rooftop gardens ride the hop: under `&bomb` a garden carries its building's index (`aLiftB`, as under `?lift`) and reads its paint. No new draw or program, and without `&bomb` no shader's source differs by a byte (`pogoed()`, as `liftGlsl`'s `lifted()`). A Bomb's stages share one sparkle budget, about 1,800 (`BLOOM_BOMB`). `blastCap(r, most)` is every blast's cap: a tap's 240 and a super's 480 as before, a Bomb's `min(900, 140 x (r/85)^2)`; Streak's wide tap can take it. A circle over 160 m has its ground drawn by its deadline, `groundDeadline(r)`, the wave reaching its rim (0.84-1.64 s after the impact), not by its impact: `GroundPaint.begin` takes it, and such a job draws its rows nearest first, each frame first what its wave reaches by the next frame and 16 m past, the rest spread to the deadline, so the wave never meets ground not drawn yet; drawn whole in flight a Bomb III from 300 m was a 24-37 ms frame in Node. A newer blast's `begin` finishes a wide job still drawing, so paint stacks in order (one spike frame; only another's blast comes that soon).
+**The stages and the pogo** (`6cf3a01`, `ab6bae5`; `src/world/pogo.ts`). Each stage a Bomb jumps a building is its own write and pop, the first with the wave as a tap's level, the next 0.4 s after the last (`config.bomb.stageGap`), written in bands 0.1 s ahead of their pops so the paint goes up at most once a band. Each pop starts with a hop under one uniform (`uBombPogo`: the last Bomb's circle, round all its buildings and their gardens, and its pops' bloom times, its first stages' included, to the last of any building's): `clamp(0.3 x height, 2, 6)` m up and down over 0.24 s, landing in the pop's squash, so a house climbs by hops, skin, garden, crown; towers over 40 m only squash. The rooftop gardens ride the hop: under `&bomb` a garden carries its building's index (`aLiftB`, as under `?lift`) and reads its paint. No new draw or program, and without `&bomb` no shader's source differs by a byte (`pogoed()`, as `liftGlsl`'s `lifted()`). A Bomb's stages share one sparkle budget, about 1,800 (`BLOOM_BOMB`). `blastCap(r, most)` is every blast's cap: a tap's 240 and a super's 480 as before, a Bomb's `min(2400, 140 x (r/85)^2)` (900 left hundreds grey from 600 m); Streak's wide tap can take it. A Bomb's hues are dealt with each building's touching neighbours from a grid of its plan, not the whole plan. A circle over 160 m has its ground drawn by its deadline, `groundDeadline(r)`, the wave reaching its rim (0.84-1.64 s after the impact), not by its impact: `GroundPaint.begin` takes it, and such a job draws its rows nearest first, each frame first what its wave reaches by the next frame and 16 m past, the rest spread to the deadline, so the wave never meets ground not drawn yet; drawn whole in flight a Bomb III from 300 m was a 24-37 ms frame in Node. A tile that comes in after the job is ordered (City splits a region's tiles out three a frame, from up high: most of a Bomb's on the page) joins it (`GroundPaint.widen`): its rows behind what's drawn are drawn at once with the dots drawn already, and the rest go into the order; a tile that goes and comes back keeps its dead entry, so no other tile's rows move. Its bands go up in each tile's one upload a frame. A tree standing on ground not drawn at the impact takes its paint as the wave reaches it (main.ts's `treesDue`). A newer blast's `begin` finishes a wide job still drawing, so paint stacks in order (one spike frame; only another's blast comes that soon).
 
 **Its looks** (`ed3091a`). Bomb III is MEGA's built look while it charges, in the bus's faction's spray rows (`factionLook.ts`), as data and uniforms: its motes pulled in down the funnel (420 a second), its halo orbiting the bus (110) and its sparks (70); Bomb II is MEGA's floor, half the motes and no halo; charging before II, a fifth of them. `SuperFx.palette` carries the faction's spray, its shader taking a faction's rows at the step they read brightest without bleaching (Particles' table, now `FACTION_STEP`); the landing ring takes six rows from `uBombRows`. main.ts's `bombLook` sets both at the Bomb's start and on each faction switch; without `&bomb` neither changes. MEGA's arcs on the bus stay white, blue and violet: SuperSplat writes them every frame, and the Bomb doesn't use them. FACTIONS.md's five set pieces are the producer's later step.
 
-**The hooks** are in `HOOKS.md`: `holds.bomb` (gift, bank, charge, tier, watch), and the ask for Recess's squares.
+**The hooks** are in `HOOKS.md`: `holds.bomb` (gift, bank, charge, tier, watch with its tier, release, cancel and tap), and the ask for Recess's squares.
 
 Where this departs from the plan:
 - The hint's bit is 256, not the plan's 128: feat/shots has aim at 64, and feat/curb, merging into feat/shots after this, has curb at 128. Streak's plan puts `TAUGHT.lock` at 256, which is the Bomb's now: lock needs 512.
@@ -188,13 +188,24 @@ Where this departs from the plan:
 
 ## What's left of step 4
 
+The producer's calls first (the outside look put them there, with the studio's pick first):
+- **The charge reads only by ear.** A thumb on the bus hides its swell and glow, and at Cruise the ring is mostly off the frame: a band under the hand at II, a thin line near the horizon at III. Only Jet reads. The outside look's pick: a corona 60-90 pt round the touch that snaps shut at II and doubles at III, the grey world one ramp step darker at III, pulsing with the heartbeat, and no swell. Or keep the ring for Jet only, or lift the camera while it charges (the plan ruled that out). Not built.
+- **The release isn't a big hit.** The hit-stop lands 0.40-0.45 s after the lift, on a puff of breath; at Cruise a tap, a II and a III look alike for 1.3 s. The pick: no inhale, the impact within 0.2 s, a flash frame, the ring and a camera punch on the hit-stop, then a 1 s pull-back showing the whole circle. Not built: a camera move after every Bomb is the producer's to see first.
+- **The hops don't read as jumps** from the chase camera (about 15-20 px over 0.3 s in School Zone). The pick: a stretch up, a squash on landing, 2-3 frames of hang, a splash at the base, a ripple outward by distance, and the new stage switched at the top of the hop. Not built.
+- **A falloff**: +3 everywhere makes 180-270 buildings one even carpet; 3 at the centre, 2, then 1 at the rim would leave a crater to read from the air and keep crowns rare. The outside look's pick for extraordinary.
+- **A Bomb on paint already at 3** jumps nothing: its houses re-pop, and now hop once with their re-pop (the pogo's window takes every pop of the Bomb's). What more it should do is the producer's.
+- **The look's small ones**: motes one ramp step lighter than the paint under them, and the chunks kept off the bus, whose yellow gets lost among Rainbow's, the Elderwood's and Inferno's. Not built.
+
+And the rest:
 - **The producer's grip test**: where a resting thumb lands. The bus's box sinks low in School Zone and high up (the plan's table), and no thumb has held it on a phone.
 - **The five set pieces** (FACTIONS.md: Big Bang, Great Wave, Wildgrowth, Strike, Meteor), the producer's first call's second half.
-- **Recess**: the square's jump is the second account's (`HOOKS.md`'s ask).
-- **At Turbo 3 from 300 m** a Bomb, like the tap, is the classic shot, out of the frame under the bus: step 3's open call on no Comet in turbo from about 300 m up.
+- **Recess**: the square's jump is the second account's (`HOOKS.md`'s ask). Another blast while a Bomb's ground is still drawing (a rival's, Recess's bots) finishes that ground first, in its own barf's frame: 5-16 ms in Node against 0.3-0.8 alone (the world review). The fix is to finish only the rows its circle overlaps; not built, and no Bomb has flown in Recess.
+- **Bombing painted ground, the new colours run ahead of the wave**, 180-290 m at 0.5 s (the world review): rows drawn after the landing change old paint at once, where a tap's changes under its flash. Holding each such texel's over-paint until its wave comes is the fix; not built.
+- **At Turbo 3 from 300 m** a Bomb, like the tap, is the classic shot, out of the frame under the bus (now with no hit-stop): step 3's open call on no Comet in turbo from about 300 m up.
+- **The lift's frame from 600 m**: a Bomb III's barf there deals 1,000-1,800 buildings, 6-12 ms in Node on this laptop (the other jobs' load in it), against 21-27 ms before the fix from 300 m. Not measured on an A15; spreading the plan over the shot's flight is the next step if a phone stutters.
 - MEGA's arcs on the bus stay white, blue and violet: say so with the stills if they read as part of the Bomb.
 - Streak's `TAUGHT.lock` needs 512: 256 is the Bomb's.
-- **Not checked**: movers' one level and trees' jump on the page (life's own tools and `paintTrees`), an A15, the producer's phone, a Bomb in Recess, the sound by ear, an outside look at the frames.
+- **Not checked**: movers' one level on the page (life's own tools), a plane glinting under a Bomb on the page (`?life`; the code's and the sims'), an A15, the producer's phone, a Bomb in Recess, the sound by ear.
 
 ## The Lob (step 7's first half, on `feat/lob`, before Streak)
 
@@ -333,6 +344,40 @@ And the rest:
 - **A big tap's frame.** The GPU check found a Comet's tap frame 10-45 ms of game work against a Cruise tap's 6-16 ms; its own classic tap from 300 m at Turbo 3 took 33.7 ms, and in Node a Comet's barf is 0.2-1.4 ms against a classic one's 0.2-0.6 ms with the same drop, so it's the frame of a big blast from high up, any tap's, not the Comet's own work. Not measured on an A15.
 - **Not flown** on `?life` with the fixes, `?moon` (the Moon's side is built, not flown), in Recess, on an A15 or on the producer's phone. The boom wasn't listened to. `controls.mjs` has no `comet` mode yet.
 
+## The review of step 4, and what it came to
+
+Four checks of `a4909c2`: a review through input and play (its probes of the real Input, Flight, Aimer and Bomb), a review of the world and the frame (its probes against the real city, Splatter and GroundPaint, and a GPU run), an outside look at the frames by real touches, and `gate.sh all`. Each finding was read against the code first.
+
+| | Finding | Holds? | What was done |
+|---|---|---|---|
+| Play 1 | A gift let go while the belly refills lands behind the bus at speed | Yes: the aim keeps no point or plan while it refills | `db3a3b0`: a gifted charge primes the aim (`Aimer.primed`). The review's probe: 188 m ahead at Nonstop and 418 at Jet, on `aimShot`'s point, where they were 128 and 279 m behind |
+| Play 2 | A still rest on the bus while the belly refills is a tap however long, with the "not yet" | Yes | `db3a3b0`: with no charge begun, a tap only up to when II would have shown; the probe's 1.3 and 4 s rests do nothing |
+| Play 3 | A pause on the bus before steering plays the riser and the power-down | Yes | `db3a3b0`: before II the riser fades; the power-down is II's and III's |
+| Play 4 | The ring is hard to see; at Turbo 3 from 300 m a 9-frame hit-stop for a blast below the frame | The ring: the producer's (What's left). The hit-stop: yes | `db3a3b0`: a Bomb's hit-stop only for a landing in the frame |
+| Play 5 | `watch()` never hears a charge that ends as a tap | Yes | `db3a3b0`: `BombWatch.tap`, in HOOKS.md |
+| Play 6 | A plane glinting takes the whole Bomb, at one level | Yes, from the code | `db3a3b0`: a Bomb takes no mover off a floor, but the building its ring showed. Not flown on the page |
+| Play 7 | At 30 fps a lift 670-700 ms in is a tap or a Bomb II by when it reaches the page | Yes: 17 of 116 | `db3a3b0`: the tier that had shown by the lift's own time. The probe: 0 of 116 |
+| Play 8 | The charge ignores the bank and the gift | Yes | `db3a3b0` |
+| World B | The ground leaves out tiles that come in after it starts, saves the holes, and a change of detail blanks another tile | Yes: on the page 0 % on 9 core tiles from 600 m | `0e24fa9`: a tile joining a wide ground is drawn as the rest (`widen`), a gone tile's entry stays. The review's probe and s_bomb: the late and the swapped tile as with every tile in |
+| World M | Trees on a wide Bomb's outer rows stay grey | Yes: 1-52 % | `34a5eec`: each painted as its wave reaches it |
+| World M | No pogo over a block at level 2; the rim's houses miss their hop | Yes | `0e24fa9`: every Bomb's pogo, to its last pop, round all its buildings. s_bomb: no hop missing, fresh, at 2 or half at 2 |
+| World M | The cap of 900 leaves a grey rim from 600 m, and 61-65 from 300 m | Yes | `0e24fa9`: 2,400. s_bomb from 600 m: up to 1,804 painted, the cap cutting none |
+| World M | The lift's frame is the spike (barf 21-27 ms from 300 m), and nothing times it | Yes: deal against the whole plan | `0e24fa9`: neighbours from a grid, the stages and queue kept without splicing; s_bomb times the lift's frame |
+| World m | Over painted ground the new colours run ahead of the wave | Yes | Not changed (What's left) |
+| World m | Up to 35 uploads a frame, 7 on a tile | Yes | `0e24fa9`: one a texture a frame; s_bomb counts them |
+| World m | Another blast during a Bomb's ground costs 5-16 ms | Yes | Not changed (What's left) |
+| World n | Gardens at the rim hop out of step; every garden reads paint | Yes | `0e24fa9`: the pogo's circle takes in every building and its gardens; a garden reads paint only inside it while its pops last |
+| Look 1-3, 5 | The charge reads by ear only; the release isn't a big hit; the hops don't read; the motes and chunks | Yes, as seen | The producer's (What's left) |
+| Look 4 | The hint never showed | No: the look's three taps came 1.8-2 s apart, inside the tap's 2.6 s refill, so its second never splatted and the hint wants three | Checked on the page with three that splat (below) |
+| Gate | `controls-bomb`: ?life's Bomb III "charging 2", fired at III | The check's: read 150 ms before the lift on a loaded laptop | `ed3e5b0`: read 60 ms before, with when each tier showed |
+
+**The checks after the fixes** (the laptop's `gate.sh all` at `ed3e5b0`'s tree, then the rows a duplicate run of it overlapped, and `controls-bomb` and `feel-bomb` again after their own fixes; `sb-checks/shots/bomb/gates.txt` gains the hint's row):
+- `tsc` clean. Without `&bomb`, every sim's output and log is byte for byte the base's (feat/shots `808a83a`): the gesture, layout, hold and turbo sims, the probe (its exit 1 as the base's), the fifteen feel sims and owner-check: "NOTHING ELSE DIFFERS" in each.
+- The Bomb's rows: the gesture sim's 36 of 36, the hold sim's 32 of 32, the probe's `--bomb` 266 of 266, `s_bomb` 385 of 385 (32 rows from the roofs to 600 m: every building at `min(3, before + jump)`, a hop for every stage a house of 40 m or less jumps, fresh, over a block at level 2 and one half at 2, the cap cutting none up to 1,804 painted, every wide ground down by its deadline with nothing met undrawn, one upload a texture a frame, a late tile and a swapped one as with every tile in; no frame over 8 ms, the lift's frame 8 ms at most, 12 from 600 m, where noe's Bomb III's was 8.9 ms with its barf 6.8). The review's probes again: the gift 188 and 418 m ahead; no lift that changes with when it reaches the page; a refilling rest of 1.3 or 4 s does nothing.
+- `vite build` exit 0, `iosfloor` "iOS 15.0 parses every chunk".
+- On this laptop's GPU: `--det` against the base's build, 8 of 8 views identical with the sky off and 8 of 8 at golden hour; `warmcheck` plain, `--hose` and `--comet` passed, `--crew --bomb` 38 programs at ready and none after, all 20 Bombs at their tier, none fizzled; `controls.mjs bomb` 38 of 38, with the new row from 600 m over Noe Valley (a 456 m Bomb III raised 1,569 buildings, none wrong, its ground 94.5 % painted in 0.8 of its circle, where the world review saw 0 %, and none of 103 trees on it grey) and every other Bomb's ground 94-96 % painted with no tree on it grey; II showed 675-692 ms and III 1,278-1,325 ms after the touch; at most 96 draws and 0.68 M triangles through the stages and the pogo, no program made after ready on any page; `budget.mjs --bomb` passed (274 raised to 3 at most 151 draws and 1.22 M triangles). The hint on a first run with `&coach`: three taps that splat, and HOLD THE BUS STILL / LIFT TO BOMB 2.5 s after the third, when a painted building glinted with a full belly.
+- Not checked: an A15, the producer's phone, the sound by ear, a plane under a Bomb on `?life`, Recess, the stills by an outside eye after the fixes (they were taken: the laptop's `stills/` and the GIF).
+
 ## The review of step 3, and what it came to
 
 Three checks of `b8db974`: the other run's code review (no blocker, two majors, four minors, four nits), a GPU check on this laptop's UHD 620 with real touches, and an outside look at the frames. Each finding was read against the code first.
@@ -443,6 +488,78 @@ The other run's review of `e0f1dde..3fbffc6` found no blocker, four majors, four
 So this branch alone is over the 1.5 M ceiling at Cruise over painted blocks, and with the gardens' budget it's well under. It goes to `main` after `feat/gardens`, or with it, never before.
 
 **The checks after the fixes** (on `75475dd`): `tsc` clean, `vite build` exit 0, `iosfloor` "iOS 15.0 parses every chunk". The gesture sim 752 of 752, the layout sim 295 of 295, owner-check all passed. The `--det` views, both skies, against step 1's build (3fbffc6): all eight identical. `warmcheck` on `?crew`, and on `?crew --crew` through all five: 35 programs, none after the warm-up; each faction's spot owned by that faction alone, at level 3. The one long task is still the page's first touch (220 ms at the first crest tap). The stills (from the street and from 250 m) paint the same buildings as step 1's, 44 and 170. The Moon's `paint-check` runs only timing rows that fail with another run's browser beside it; none of its code changed here.
+
+## The Bomb and Curb together
+
+`feat/shots` went to the Bomb (`feat/bomb` `7d67c14`, a fast-forward from `808a83a`), then merged Curb (`feat/curb` `6e2334d`, `docs/specs/shots/CURB.md`) at `644c40d`. Curb brings the second account's road side from `feat/life` `b65af07` (`src/life`), taken as committed. Both start from `feat/gears` `3a2b21f`.
+
+**What conflicted, and how each was kept** (seven files, each with both sides' intent):
+- `Flight.ts`: the Hose's belly (no refill while it pours, its 3 s refill after) moved into Curb's `breathClock()`, which `ride()` shares. Without that, the belly refilled on the street while the Hose poured.
+- `Coach.ts`: `TAUGHT` holds aim 64, curb 128 and the Bomb 256, each on its own bit. Streak's lock takes 512 later, and the Lob 1024.
+- `Controls.ts`: the Coach is made with MEGA's, the aim's and the Bomb's flags, and Curb's hint is off under `?nohud` and `?nocoach`.
+- `Splat.ts`: `Blast` and `BarfOpts` carry the Comet's plan, the Bomb's jump and the moverBlock alongside Curb's `side`. The blast hands back the side next to the Comet and the jump.
+- `main.ts`, five places:
+  - The imports: `groundDeadline` with `LAYOUT_BANDS`, and `busShape`'s `D` as `BUS_DIM` for Curb's rear axle too.
+  - Every blast but a plane's paints the movers in its circle, as the shots' 85 m does, now with its hitter's faction (life's C15).
+  - Curb's drive-by sits in the tap's own barf (`Aim.tapOpts`) and widens it to `config.curb.byR` on the look's side.
+  - `__game` keeps `particles` and `sprouts` and gains Curb's getter.
+- `tools/controls.mjs` and `tools/warmcheck.mjs`: both the bomb and curb modes, and both header lines.
+
+**Read where it merged clean:**
+- `Aim.ts`: Curb's street front returns before the aim's own pick and the Comet, so the street has no Comet. Life's B1 fix sits in `pickMover`, under the Comet.
+- `GroundPaint.ts`: Curb's `dab` lands as a small settled blast, never a wide one, next to the Bomb's deadline and `widen`.
+- `config.ts`, the exhaust puff, the street sign's scale, and MEGA's charge, which stays off on the street.
+
+After the merge, `4664190` fixed Curb's stills tool. Its wide lens had no `side`, which the kerb chase took in `0d72f38`, so the lens went to NaN. The run stood at its first wide still on `6e2334d`'s build just as on the merge's.
+
+**The proof** (the laptop's `sb-checks/shots/integrate/`, `gates.txt` run by `gate.sh all`).
+
+`tsc` is clean.
+
+*The three-way rule.* Every Node sim, probe and check ran on four trees, 25 of them: the Bomb's gates.txt set, `s_curb`, and life's `curb.mjs` and `blast.mjs`. The trees were B0 `3a2b21f`, A `7d67c14`, C `6e2334d` and M, the merge. The rule, byte for byte:
+- where A equals B0, M must equal C;
+- where C equals B0, M must equal A;
+- where both changed an output, M must be the clean three-way line merge of the two.
+
+What varies between two runs of one tree is found from two runs of M and masked:
+- the probe's aimMs and row times;
+- `s_bomb`'s ms keys;
+- feel-cost, feel-mesh's l0/l1 ms, feel-pick's pickUs and feel-super's timings;
+- owner's cost line and row stamp;
+- life-curb's msEach.
+
+`s_bomb`'s wall-clock rows ("ms at most", "no frame over 8 ms") follow the laptop's load, not the code. A's ref failed 5 of 385 on them and M's runs 0, 5 and 2. Those rows are read apart, and any other failing row stands.
+
+It printed `three-way: 74 of 74 outputs pass`:
+- 40 unchanged by both;
+- 10 the Bomb's change alone;
+- 18 the Bomb's own sims, `s_hold`, the probe, `--bomb` and `s_bomb`, equal to A;
+- 6 Curb's own, `s_curb`, `curb.mjs` and `blast.mjs`, equal to C.
+
+No output was changed by both, so the rule's third case never came up. Curb changes none of the shared sims, as CURB.md says of `s_gesture` and `s_turbo`. Where the two meet on the street, the belly's clock in `ride()` among it, the proof is `s_curb` equal to C's byte for byte, and the GPU rows.
+
+*`vite build` and `iosfloor`:* "iOS 15.0 parses every chunk".
+
+*The `--det` views,* sky off and golden hour, against the builds of B0, A and C, by the same rule pixel for pixel: 8 of 8 pass each time. The Bomb changed `painted` and `swap`, about 1.21 M and 11.8 k pixels, Curb none. M is A's on those two and all four's on the rest.
+
+*On this laptop's GPU:*
+- `warmcheck` plain, `--hose`, `--comet` and `--crew --bomb`: 38 programs at ready and 0 after. All 20 Bombs at their tier.
+- `warmcheck --curb` on the arterial with `?life`: 41 at ready, 0 after. It landed, its lane painted itself, and it got off by a pull.
+- `controls.mjs bomb`: 38 of 38. Bomb IIIs raised 135-1,458 buildings at 93-128 draws and at most 1.03 M triangles.
+- `controls.mjs zone curb`: zone 11 of 11, curb 15 of 15. Curb drew 95-143 draws and 0.94 M triangles at most on the street, painted two cars, and made 0 programs.
+- `gardens/budget.mjs --bomb`: passes, with 35 programs throughout.
+- The Bomb's hint: due 2.4 s after the third splat.
+- Curb's stills (`curb-shots.mjs`, now fixed): exit 0. All 16 are on the street, the bus's middle 2.55-2.76 m over the road, at 87-121 draws.
+
+The curb row runs on GEARS.md's residential street at 16:20 SF time. On the arterial, Curb's lane ends about 14 s in (by design), and the row rolls a minute: there it failed 4 of 15 on C's own build and on M's alike. With the real clock at 5 am no car came beside.
+
+The first `gate.sh all` ran with the arterial row and passed 14 of 15, that row failing. The second passed 14 of 15 too, with the hint the one fail: its first tap read as a drag, the Bomb's own tool's first touch. A rerun of that row passed.
+
+*Not checked:*
+- the Hose poured on the street (it pours from its usual mouth, not CURB.md's window, which is still to build);
+- a Bomb charged on the street;
+- Curb's hint and the Bomb's sharing the toast;
+- anything on an A15 or the producer's phone.
 
 ## The gardens' budget (feat/gardens)
 

@@ -52,6 +52,8 @@ export interface Blast {
   comet: CometPlan | null;
   /** the stages each building it reaches climbs (BarfOpts.jump): 1, a Bomb's 2 or 3. Its trees take as many */
   jump: number;
+  /** Curb's drive-by (BarfOpts.side): the side of the lane it blooms, which its flung blobs keep to */
+  side?: { x: number; z: number; nx: number; nz: number };
 }
 
 export interface SplatFx {
@@ -126,6 +128,8 @@ export interface BarfOpts {
    *  block round it, as a tap's does (SHOTS.md: "A shot that hits a car or a ferry paints the block around it too"); never a miss, as the mover is there,
    *  and life paints it with the rest of the circle's (main.ts, life.blast). Called with target null and exact */
   moverBlock?: boolean;
+  /** Curb's drive-by: only buildings on this side of the lane bloom (their middles past the line through (x, z), along its normal (nx, nz)) */
+  side?: { x: number; z: number; nx: number; nz: number };
 }
 
 /** BarfOpts.bands */
@@ -240,6 +244,10 @@ export class Splatter {
   /** The hue the next fresh hit takes (?life: a mover hit takes it, main.ts). */
   get hueNext(): number {
     return this.nextHue;
+  }
+  /** ?life, Curb: a car took hueNext fresh with no breath of this splatter's (painted riding beside it, or the drive-by's): the next one moves on. */
+  dealHue(): void {
+    this.nextHue = (this.nextHue + 1) % HUE_COUNT;
   }
   private queue: Scheduled[] = [];
   private pending: PendingBlast[] = [];
@@ -370,10 +378,13 @@ export class Splatter {
     const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
+    const side = opts?.side;
     for (const n of near) {
       // (a landmark standing wholly over the bus where the breath comes down, a deck seen from under, is out of its reach, as `from` keeps the landing off it: a
       // breath from under the Golden Gate into the water no longer takes the bridge up a level. Seen from its height or above, it's in reach as it always was)
       if (n.ref !== primary && city.lmOverhead(n.ref, cx, cz, from)) continue;
+      // (Curb's drive-by: the fronts on the side it looks, not the street's other side)
+      if (side && n.ref !== primary && (n.ref.cx - side.x) * side.nx + (n.ref.cz - side.z) * side.nz < 0) continue;
       const e = n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - cx, n.ref.cz - cz) - 0.55 * Math.sqrt(n.ref.area) : n.d;
       if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
     }
@@ -441,7 +452,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact, jump > 1 ? groundDeadline(r) : 0);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null, jump },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null, jump, ...(side ? { side: { ...side } } : {}) },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;

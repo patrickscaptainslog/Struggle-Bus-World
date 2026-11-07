@@ -12,7 +12,9 @@
 // past the tap slop (slid: it commits as a steering thumb, lifted inside quickTapMs), each a Lob at the body as the steering thumb lifted; a tower in the climb
 // (the Financial District's, toward Salesforce Tower) takes it on its face; at Cruise and Express, once the Lob shows in a pull it stays; and every building
 // whose middle is within 0.8 of its circle takes a level, up to the blast's cap.
-//   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>]
+// --street (the Lob's merge with feat/shots): only Curb's street, aimer.street set as main.ts sets it while Curb rolls, a pull and a tap there nose up at
+// Cruise and Express, one thumb and two: never a Lob, no plan in the pull, nothing planned (Curb's street front is the tap's, before the Lob's slot).
+//   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>] [--street]
 // Results in SB_OUT (shots/feel/sim)/lob.json, a table on stdout; exit 1 when a check fails.
 import { newCity, pump, ll, makeGame, config, manifest, type Game } from './lib';
 import { CameraRig } from '@src/game/CameraRig';
@@ -28,6 +30,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7) ?? '';
+const STREET = args.includes('--street');
 const city = await newCity();
 const DEG = Math.PI / 180;
 const r1 = (x: number) => Math.round(x * 10) / 10;
@@ -47,7 +50,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb'; hold?: number; tap?: 'late' | 'slid' }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid' }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -81,6 +84,9 @@ for (const [place, h, rung, pull] of [['wa', 'floor', 'cruise', 0.75], ['wa', 'f
   for (const tap of ['late', 'slid'] as const) CASES.push({ key: `${place}-${h}/${rung}/p${pull}/1t/${tap}`, place, h, rung, pull, thumbs: 1, want: 'lob', tap });
 // (from Justin Herman Plaza 50 m up, at the Embarcadero Center tower that stands highest over a 26 degree climb from there, 150-500 m out)
 CASES.push({ key: 'fidi-50/cruise/p0.35/2t', place: 'fidi', h: 50, rung: 'cruise', pull: 0.35, thumbs: 2, want: 'wall' });
+// (--street: Curb's street in their place)
+if (STREET)
+  CASES.splice(0, CASES.length, ...(['cruise', 'express'] as const).flatMap((rung) => ([1, 2] as const).map((thumbs): Case => ({ key: `wa-floor/${rung}/p0.75/${thumbs}t/street`, place: 'wa', h: 'floor', rung, pull: 0.75, thumbs, want: 'none', mode: 'street' }))));
 
 const stick = (pull: number) => -(config.flight.yokeDead + pull * (1 - config.flight.yokeDead));
 /** the stick for a path `deg` down with a gear in (s_shots' stickFor) */
@@ -152,6 +158,8 @@ async function run(c: Case, dt: number, slot = true) {
   const g = makeGame(city, drive);
   const f = g.flight;
   if (!slot) g.aimer.lob = null;
+  // (Curb's street: main.ts sets it every frame while CurbFlight rolls; nothing in the sim sets it back)
+  if (c.mode === 'street') g.aimer.street = 1;
   city.paint.resetAll();
   const v0 = gear > 0 && gear !== EXPRESS ? driveSpeed(gear, level, true) : gear === EXPRESS ? config.flight.surgeSpeed : config.flight.cruiseSpeed;
   const hold = c.hold ?? 2;
@@ -356,6 +364,7 @@ for (const r of rows) {
     ok(r.kind === 'lob-miss' && r.refund >= config.splat.missRefund - 0.02, `${id}: the bay is a Lob's miss, with its refund (${r.kind}, belly after ${r.refund})`);
   } else {
     ok(!r.kind.startsWith('lob'), `${id}: no Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
+    if (r.key.endsWith('/street')) ok(r.pull.lob === 0 && r.lobStats?.planned === 0 && r.lobStats?.fired === 0, `${id}: on Curb's street no Lob planned, in the pull or at the tap (${r.pull.lob} of ${r.pull.of} frames, ${JSON.stringify(r.lobStats)})`);
   }
   if (r.key.includes('/bomb')) {
     const base = rows.find((q) => q.key === r.key && !q.slot);

@@ -25,6 +25,9 @@
 //            0.1 s later, at Cruise, Express and Nonstop (where the Comet lands farther, the Comet), with ?life and on ?moon's ground. Each: a Lob at the body
 //            as it was at the lift, every building it raised (?moon: the craters) a level and no more, and from the tap to 1.5 s after it lands the frame's
 //            draws, triangles and particles (at most 200, 1.5 M and 8,000), no program made after ready, and stills of its ring and its landing -> lob.json
+//   curb     Curb with real touches, ?life (docs/specs/shots/CURB.md; not in the default set): two flicks down onto GEARS.md's arterial (SB_CURB=lat,lon,heading
+//            moves it), a minute rolled beside the cars, the push, a look held left, a tap's drive-by, a flick up off it, School Zone's drift down onto
+//            it again, a pull held off it, and over the bay FIND A STREET, with stills, the draws, triangles and frame times on the street -> curb.json
 //   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
@@ -1008,8 +1011,8 @@ if (modes.has('bomb')) {
           window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
           Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
         });
+        // (held there through the Bomb, so it lands on Noe's houses: let go 1 s before it at Jet, it came down 1.2 km east among a few warehouses)
         await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
-        await page.evaluate(() => (window.__qa = null));
         await runFor(page, 1);
       }
       await page.evaluate(() => window.__game.forceReady());
@@ -1033,7 +1036,9 @@ if (modes.has('bomb')) {
       await H.up(1);
       await runFor(page, 1.2);
       await page.screenshot({ path: `${out}/bomb-${key}-2-landed.png` });
-      await runFor(page, 2.6);
+      // (from 600 m its shot flies about a second and its 456 m circle's rim takes its third stage 3.1 s after the impact)
+      await runFor(page, rung === 'high' ? 4.6 : 2.6);
+      if (rung === 'high') await page.evaluate(() => (window.__qa = null));
       const b = await page.evaluate(() => {
         const g = window.__game, s = g.bombState(), l = g.lastShot(), d = g.city.paint.data, d0 = window.__lv0, m = g.moon?.paint;
         const jump = s.stats.jump;
@@ -1212,6 +1217,152 @@ if (modes.has('lob')) {
   console.log('lob:', R.verdicts.join('\n  '));
   writeFileSync(`${out}/lob.json`, JSON.stringify(R, null, 1));
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('curb')) {
+  // Curb with real touches (docs/specs/shots/CURB.md), ?life: over GEARS.md's arterial (SB_CURB=lat,lon,heading moves it), a real flick down to School
+  // Zone and another onto the street; a minute rolled beside the cars, read every 5 s; the push on; a look held left at the next junction; a tap's
+  // drive-by; a real flick up off it; School Zone's drift down onto it again; a pull held off it; and a flick down over the bay, FIND A STREET. Stills
+  // at each (1179 x 2556), the draws, triangles and frame times on the street, and every WebGL program made after ready (none may be)
+  const [lat, lon, hdg] = (process.env.SB_CURB ?? '37.736181,-122.426973,227').split(',').map(Number);
+  const page = await open(`?lat=${lat}&lon=${lon}&heading=${hdg}&skipintro&fixeddt=0.05&life${process.env.SB_Q ?? ''}`, () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  const progs0 = await page.evaluate(() => window.__progs);
+  await page.evaluate(() => {
+    const g = window.__game, c = g.curb, ev = c.hooks.event, ob = g.life.curb.onBeside;
+    window.__curb = { ev: [], painted: [], frames: [] };
+    c.hooks.event = (e, k) => { window.__curb.ev.push(`${e}${k ? ':' + (+k).toFixed(2) : ''}@${g.clock().toFixed(2)}`); ev(e, k); };
+    g.life.curb.onBeside = (k) => { window.__curb.painted.push(k); ob(k); };
+    // (the wall clock's frames on the street: what a player's phone would feel, here on the laptop's GPU)
+    let last = 0;
+    const tick = (t) => { if (last && g.curb.rolling) window.__curb.frames.push(t - last); last = t; requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+  });
+  await runFor(page, 2);
+  const flick = (dy) => H.stamped(() => H.stroke(1, 100, 520, 0, dy, 85));
+  const st = () => page.evaluate(() => {
+    const g = window.__game, c = g.curb, f = g.flight, p = g.perf.snapshot(), T = g.controls.turbo;
+    return { state: c.state, left: c.left, below: T.below, name: T.name, gear: T.gear, speed: +f.speed.toFixed(2), overRoad: +(f.y - g.city.groundAt(f.x, f.z)).toFixed(2), beside: g.life.curb.beside, besideFor: +g.life.curb.besideFor.toFixed(2), side: c.side, dabs: c.qa.dabs, passes: c.qa.passes, turns: c.qa.turns, asked: c.qa.asked, hits: g.life.qa.hits, cam: +g.rig.distance.toFixed(1), curbIn: +g.rig.curbIn.toFixed(3), hfov: +g.rig.hfov.toFixed(1), toast: !!document.querySelector('[data-hud="toast"]'), calls: p.calls, tris: p.triangles, frameMs: p.frameMs, workMs: p.workMs };
+  });
+  const R = { cruise: await st() };
+  await page.screenshot({ path: `${out}/curb-0-cruise.png` });
+  await flick(74);
+  await runFor(page, 3);
+  R.zone = await st();
+  await flick(74);
+  await runFor(page, 0.4);
+  R.arc = await st();
+  await page.screenshot({ path: `${out}/curb-1-arc.png` });
+  await runFor(page, 2.5);
+  R.on = await st();
+  await page.screenshot({ path: `${out}/curb-2-on.png` });
+  // a minute rolled, read every 5 s
+  R.roll = [];
+  for (let i = 0; i < 12; i++) {
+    await runFor(page, 5);
+    R.roll.push(await st());
+    if (i === 5) await page.screenshot({ path: `${out}/curb-3-roll.png` });
+  }
+  R.painted = await page.evaluate(() => window.__curb.painted.slice());
+  // the push on, a held right thumb up
+  await H.down(2, 300, 640);
+  for (let i = 1; i <= 6; i++) { await H.move(2, 300, 640 - i * 22); await runFor(page, 0.05); }
+  await runFor(page, 4);
+  R.push = await st();
+  await page.screenshot({ path: `${out}/curb-4-push.png` });
+  await H.up(2);
+  await runFor(page, 1);
+  // a look held left, high over the bus, for the next junction
+  await H.down(3, 200, 210);
+  for (let i = 1; i <= 6; i++) { await H.move(3, 200 - i * 20, 210); await runFor(page, 0.05); }
+  await runFor(page, 1.5);
+  R.look = await st();
+  await page.screenshot({ path: `${out}/curb-5-look.png` });
+  // a tap's drive-by while looking: the fronts on that side
+  const hits0 = R.look.hits;
+  await page.waitForFunction(() => window.__game.flight.fullness >= 0.999, null, { timeout: 20000, polling: 50 }).catch(() => {});
+  await H.stamped(async () => { await H.down(4, 300, 380, 0); await H.up(4, 90); });
+  await runFor(page, 0.6);
+  await page.screenshot({ path: `${out}/curb-6-driveby.png` });
+  R.driveBy = { ...(await st()), shot: await page.evaluate(() => window.__game.lastShot()), hitsTaken: 0 };
+  R.driveBy.hitsTaken = R.driveBy.hits - hits0;
+  await H.up(3);
+  await runFor(page, 2);
+  // a real flick up: off, School Zone
+  await flick(-74);
+  await runFor(page, 0.2);
+  R.flickUp = await st();
+  await runFor(page, 3);
+  R.flickUpAfter = await st();
+  await page.screenshot({ path: `${out}/curb-7-off.png` });
+  // School Zone's drift down onto it again: the stick held up
+  await H.down(2, 300, 640);
+  for (let i = 1; i <= 6; i++) { await H.move(2, 300, 640 - i * 22); await runFor(page, 0.05); }
+  await until(page, 'g.curb.state === "arc" || g.curb.state === "on"', 15);
+  R.driftLand = await st();
+  await H.up(2);
+  await runFor(page, 3);
+  // a pull held: off, climbing out
+  await H.down(2, 300, 640);
+  for (let i = 1; i <= 6; i++) { await H.move(2, 300, 640 + i * 22); await runFor(page, 0.05); }
+  await runFor(page, 1.5);
+  R.pullOff = await st();
+  await H.up(2);
+  await runFor(page, 3);
+  R.pullOffAfter = await st();
+  R.events = await page.evaluate(() => window.__curb.ev.slice());
+  R.frames = await page.evaluate(() => {
+    const a = window.__curb.frames.slice().sort((p, q) => p - q);
+    return a.length ? { n: a.length, median: +a[Math.floor(a.length / 2)].toFixed(1), p95: +a[Math.floor(a.length * 0.95)].toFixed(1), max: +a[a.length - 1].toFixed(1) } : null;
+  });
+  R.programs = { atReady: progs0, madeAfter: (await page.evaluate(() => window.__progs)) - progs0 };
+  const street = [R.on, ...R.roll, R.push, R.look, R.driveBy];
+  R.onStreet = { callsMax: Math.max(...street.map((s) => s.calls)), callsMin: Math.min(...street.map((s) => s.calls)), trisMax: Math.max(...street.map((s) => s.tris)), frameMsMax: Math.max(...street.map((s) => s.frameMs)) };
+  const ok = (c, m) => (R.verdicts ??= []).push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  ok(R.programs.madeAfter === 0, `nothing compiles on the street: ${R.programs.madeAfter} programs made after ready`);
+  ok(R.zone.below === 1 && R.arc.state !== 'fly' && R.on.state === 'on' && R.on.name === 'CURB', `a real flick down in School Zone lands: ${R.arc.state}, then ${R.on.state} (${R.on.name})`);
+  ok(R.on.overRoad > 1.5 && R.on.overRoad < 4, `the tyres on the road: the bus's middle ${R.on.overRoad} m over it`);
+  ok(R.roll.every((s) => s.state === 'on'), `a minute on the street: ${R.roll.map((s) => s.state).join(',')}`);
+  ok(R.painted.length > 0, `a car ridden beside is painted: ${R.painted.length} (${R.painted.join(', ')})`);
+  ok(R.roll.at(-1).dabs > R.on.dabs + 20, `the lane paints itself: ${R.on.dabs} to ${R.roll.at(-1).dabs} dabs`);
+  ok(R.on.cam < 40 && R.cruise.cam > 100, `the lens down at the kerb: ${R.cruise.cam} to ${R.on.cam} m, ${R.on.hfov} degrees`);
+  ok(R.onStreet.callsMax <= 200 && R.onStreet.trisMax <= 1.5e6, `the budget on the street: ${R.onStreet.callsMin}-${R.onStreet.callsMax} draws, ${(R.onStreet.trisMax / 1e6).toFixed(2)} M triangles at most`);
+  ok(R.push.state === 'on' && R.push.speed > R.roll.at(-1).speed, `the push rolls on: ${R.roll.at(-1).speed} to ${R.push.speed} m/s`);
+  ok(R.look.turns > R.push.turns && R.look.side === -1, `a look held left: the indicator, the drive-by's side left (${R.look.turns} turns, side ${R.look.side})`);
+  ok(!!R.driveBy.shot?.target, `a tap's drive-by took a front: ${JSON.stringify(R.driveBy.shot?.target ?? null)}, the car beside ${R.look.beside ?? 'none'} (${R.driveBy.hitsTaken} hits on movers)`);
+  ok(R.flickUp.below === 1 && R.flickUp.left === 'flick' && R.flickUpAfter.speed < 1, `a real flick up gets off to School Zone: ${R.flickUp.left}, ${R.flickUpAfter.speed} m/s`);
+  ok(R.driftLand.state === 'arc' || R.driftLand.state === 'on', `School Zone's drift down lands again: ${R.driftLand.state}`);
+  ok(R.pullOff.left === 'pull' && R.pullOff.below === 1, `a pull held gets off: ${R.pullOff.left}, ${R.pullOffAfter.overRoad} m over the road after`);
+  await page.close();
+  // over the bay off the Marina, no road within 80 m: a flick down in School Zone hops and says FIND A STREET
+  const bay = await open(`?lat=37.8105&lon=-122.44&heading=0&skipintro&fixeddt=0.05&life${process.env.SB_Q ?? ''}`);
+  const cdp2 = await bay.context().newCDPSession(bay);
+  const H2 = hand(bay, cdp2);
+  await bay.evaluate(() => { window.__game.flight.glideSpeed = 0; window.__game.audio.unlock(); });
+  await runFor(bay, 2);
+  await H2.stamped(() => H2.stroke(1, 100, 520, 0, 74, 85));
+  await runFor(bay, 3);
+  const vy0 = await bay.evaluate(() => window.__game.flight.vy);
+  await H2.stamped(() => H2.stroke(1, 100, 520, 0, 74, 85));
+  await until(bay, 'g.curb.state === "bounce"', 3);
+  await runFor(bay, 0.1);
+  await bay.screenshot({ path: `${out}/curb-8-findastreet.png` });
+  R.findAStreet = await bay.evaluate((vy0) => { const g = window.__game; return { state: g.curb.state, below: g.controls.turbo.below, vyGain: +(g.flight.vy - vy0).toFixed(2), toast: !!document.querySelector('[data-hud="toast"]') }; }, vy0);
+  await runFor(bay, 2.2);
+  R.findAStreet.after = await bay.evaluate(() => window.__game.curb.state);
+  ok(R.findAStreet.state === 'bounce' && R.findAStreet.toast && R.findAStreet.after === 'fly', `no street: the hop and FIND A STREET, then flying again: ${JSON.stringify(R.findAStreet)}`);
+  await bay.close();
+  res.curb = R;
+  console.log('curb:', JSON.stringify(R));
+  writeFileSync(`${out}/curb.json`, JSON.stringify(R, null, 1));
 }
 
 if (modes.has('firstrun')) {
