@@ -153,6 +153,9 @@ export class Aimer {
     return this.lobbing ? this.cometPlan : null;
   }
 
+  /** QA: this frame's Lob, chosen or not (the Comet's landing farther), or null. */
+  lobLast: CometPlan | null = null;
+
   /** A breath can fire right now (Flight.tryBarf's own test). */
   static loaded(f: Flight): boolean {
     return f.barfT < 0 && f.fullness >= 0.999;
@@ -333,7 +336,7 @@ export class Aimer {
     const S = config.splat;
     this.t = t;
     this.ready = Aimer.loaded(f) || (this.primed && f.barfT < 0);
-    this.cometPlan = this.cometOnly = null;
+    this.cometPlan = this.cometOnly = this.lobLast = null;
     this.lobbing = false;
     // (the Lob's body: as it was last frame, with the thumb down, when it lifts; live while it's down. The body drops as soon as the thumb lifts, at Cruise
     // 72 to 41 degrees in 0.2 s, and a frame's drop at 30 fps put a throw tens of metres from 60's)
@@ -372,6 +375,7 @@ export class Aimer {
     const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
     // the Lob, nose up (never while a Bomb charges): the farther of it and the Comet, never weighed against the aim's own (chooseShot)
     const l = this.lob && this.comet && !this.bombing ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;
+    this.lobLast = l;
     const p = chooseShot(f, null, c, l);
     if (!p) return this.noteShown(own);
     this.cometPlan = p;

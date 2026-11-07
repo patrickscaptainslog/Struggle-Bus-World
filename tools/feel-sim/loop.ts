@@ -49,7 +49,10 @@ export function makeGame(city: City, drive: TurboDrive | null = null): Game {
   aimer.comet = new Comet(city, splatter);
   // (the Lob on the Comet's odometer, as main.ts makes it; its lens the caller's too)
   aimer.lob = new Lob(city, splatter, aimer.comet);
-  splatter.onLateMiss = () => (flight.refund = config.splat.missRefund);
+  splatter.onLateMiss = () => {
+    if (flight.barfT >= 0) flight.refund = config.splat.missRefund;
+    else flight.fullness = Math.max(flight.fullness, config.splat.missRefund);
+  };
   let squashV = 0;
   Object.assign(g, {
     flight, splatter, city, t: 0, events, squash: 1, bellyUi: 1, jetAt: -1, aimer, drive,

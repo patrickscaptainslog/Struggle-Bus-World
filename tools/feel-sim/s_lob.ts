@@ -1,0 +1,335 @@
+// The Lob on the real city (src/game/Lob.ts; docs/specs/shots/SHOTS.md, "The modes"; sb-checks' lob plan): a pull held, then a tap, through the real
+// Flight, TurboDrive, TurboLens, CameraRig, Aimer, Comet, Lob and Splatter, at 1/60 and 1/30 s, the lens projecting as the page's at 393 x 852 (lensFov).
+// One thumb: the steering thumb lifts, a finger lands 0.1 s later and lifts 1/15 s after that, the tap; two thumbs: the steering thumb still pulling, a
+// second one taps (whole frames at 30 and 60 fps, so both tap at the same game time). Every row starts on paint at level 0, so a building a tap raised two shows.
+// Lobs at Cruise, Express and Nonstop (where the Comet applies too: the farther of the two) over the Western Addition from the roofs and from 300 m, and downtown and over Glen Park's hills: each a Lob, at the
+// body as it was when the steering thumb lifted (one thumb) or at the tap (two), clamped to config.lob.most; 30 and 60 fps within 2 m and 0.05 s; at the
+// impact in frame and config.comet.above of the height over the bus; its radius blastRadiusFor(drop), every building it reached a level, none two; no
+// hit-stop; its arc never 2 m into the ground.
+// None: from a flick's stroke, in School Zone, out of a dive, under the Golden Gate, from 1.5 km up, at Jet. Over the bay from Fort Mason: a Lob's miss, with
+// its refund. A Bomb let go after a pull lands where it would with no Lob at all (the slot off). And the aim's cost a frame while it plans the Lob.
+//   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>]
+// Results in SB_OUT (shots/feel/sim)/lob.json, a table on stdout; exit 1 when a check fails.
+import { newCity, pump, ll, makeGame, config, manifest, type Game } from './lib';
+import { CameraRig } from '@src/game/CameraRig';
+import { EXPRESS, JET, NONSTOP, SCHOOL_ZONE, TurboDrive, driveSpeed } from '@src/game/Turbo';
+import { TurboLens } from '@src/fx/Turbo';
+import { lensFov } from '@src/render/PixelPipeline';
+import { blastRadiusFor } from '@src/game/blastLayout';
+import { Bomb } from '@src/game/Bomb';
+import { tapOpts } from '@src/game/Aim';
+import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
+import * as THREE from 'three';
+import { mkdirSync, writeFileSync } from 'node:fs';
+
+const args = process.argv.slice(2);
+const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7) ?? '';
+const city = await newCity();
+const DEG = Math.PI / 180;
+const r1 = (x: number) => Math.round(x * 10) / 10;
+const r2 = (x: number) => Math.round(x * 100) / 100;
+const r3 = (x: number) => Math.round(x * 1000) / 1000;
+const SW = 393, SH = 852;
+
+const PLACES = {
+  wa: { lat: 37.7763, lon: -122.4352, hdg: 88 },
+  dt: { lat: 37.7752, lon: -122.4193, hdg: 45 },
+  water: { lat: 37.8065, lon: -122.43, hdg: 0 },
+  glen: { lat: 37.733, lon: -122.44, hdg: 300 },
+  gg: { lat: 0, lon: 0, hdg: 0 },
+} as const;
+type Place = keyof typeof PLACES;
+const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
+/** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
+ *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer'; mode?: 'flick' | 'dive' | 'bomb'; hold?: number }
+const CASES: Case[] = [];
+for (const place of ['wa'] as const)
+  for (const h of ['floor', 300] as const)
+    for (const rung of ['cruise', 'express', 'nonstop'])
+      for (const pull of [0.5, 0.75])
+        for (const thumbs of [1, 2] as const) CASES.push({ key: `${place}-${h}/${rung}/p${pull}/${thumbs}t`, place, h, rung, pull, thumbs, want: rung === 'nonstop' ? 'longer' : 'lob' });
+CASES.push({ key: 'wa-floor/cruise/p1/1t', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'lob' });
+CASES.push({ key: 'wa-floor/express/p1/2t', place: 'wa', h: 'floor', rung: 'express', pull: 1, thumbs: 2, want: 'lob' });
+CASES.push({ key: 'dt-floor/cruise/p0.6/1t', place: 'dt', h: 'floor', rung: 'cruise', pull: 0.6, thumbs: 1, want: 'lob' });
+CASES.push({ key: 'dt-floor/express/p0.6/2t', place: 'dt', h: 'floor', rung: 'express', pull: 0.6, thumbs: 2, want: 'lob' });
+CASES.push({ key: 'glen-floor/cruise/p0.5/1t', place: 'glen', h: 'floor', rung: 'cruise', pull: 0.5, thumbs: 1, want: 'lob' });
+CASES.push({ key: 'glen-floor/express/p0.75/2t', place: 'glen', h: 'floor', rung: 'express', pull: 0.75, thumbs: 2, want: 'lob' });
+CASES.push({ key: 'water-floor/cruise/p0.6/1t', place: 'water', h: 'floor', rung: 'cruise', pull: 0.6, thumbs: 1, want: 'miss' });
+CASES.push({ key: 'wa-floor/cruise/flick/1t', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', mode: 'flick' });
+CASES.push({ key: 'wa-floor/express/flick/1t', place: 'wa', h: 'floor', rung: 'express', pull: 1, thumbs: 1, want: 'none', mode: 'flick' });
+CASES.push({ key: 'wa-floor/zone/p1/2t', place: 'wa', h: 'floor', rung: 'zone', pull: 1, thumbs: 2, want: 'none' });
+CASES.push({ key: 'wa-floor/zone/p1/1t', place: 'wa', h: 'floor', rung: 'zone', pull: 1, thumbs: 1, want: 'none' });
+CASES.push({ key: 'wa-800/cruise/dive/2t', place: 'wa', h: 800, rung: 'cruise', pull: 1, thumbs: 2, want: 'none', mode: 'dive' });
+CASES.push({ key: 'wa-800/express/dive/2t', place: 'wa', h: 800, rung: 'express', pull: 1, thumbs: 2, want: 'none', mode: 'dive' });
+CASES.push({ key: 'wa-1500/cruise/p0.6/1t', place: 'wa', h: 1500, rung: 'cruise', pull: 0.6, thumbs: 1, want: 'none' });
+CASES.push({ key: 'wa-1500/express/p0.6/2t', place: 'wa', h: 1500, rung: 'express', pull: 0.6, thumbs: 2, want: 'none' });
+CASES.push({ key: 'wa-floor/jet/p0.6/1t', place: 'wa', h: 'floor', rung: 'jet', pull: 0.6, thumbs: 1, want: 'none' });
+CASES.push({ key: 'wa-300/jet/p0.6/2t', place: 'wa', h: 300, rung: 'jet', pull: 0.6, thumbs: 2, want: 'none' });
+CASES.push({ key: 'wa-floor/cruise/bomb', place: 'wa', h: 'floor', rung: 'cruise', pull: 0.75, thumbs: 1, want: 'none', mode: 'bomb' });
+CASES.push({ key: 'wa-300/express/bomb', place: 'wa', h: 300, rung: 'express', pull: 0.75, thumbs: 1, want: 'none', mode: 'bomb' });
+// (last: the Golden Gate's obstacles join the city for it)
+CASES.push({ key: 'gg-under/cruise/p0.75/2t', place: 'gg', h: 26, rung: 'cruise', pull: 0.75, thumbs: 2, want: 'none' });
+CASES.push({ key: 'gg-under/cruise/p0.75/1t', place: 'gg', h: 26, rung: 'cruise', pull: 0.75, thumbs: 1, want: 'none' });
+
+const stick = (pull: number) => -(config.flight.yokeDead + pull * (1 - config.flight.yokeDead));
+/** the stick for a path `deg` down with a gear in (s_shots' stickFor) */
+const diveStick = (deg: number) => {
+  const F = config.flight, k = Math.pow(Math.abs(deg) / F.noseUp, 1 / F.noseCurve);
+  return Math.min(1, F.yokeDead + k * (1 - F.yokeDead));
+};
+
+/** A Bomb II let go now through the real Bomb (s_shots' bombTap): what it fired */
+function bombShot(g: Game) {
+  const f = g.flight, nop = () => {};
+  let shot: any = null;
+  const input = { state: { bomb: { on: false, at: 0 } } } as any;
+  const bomb = new Bomb({
+    input, flight: f, aimer: g.aimer,
+    audio: { bombCharge: nop, bombTier: nop, bombStop: nop, bombBeat: nop, superMega: nop } as any,
+    fx: { motes: nop, halo: nop, sparks: nop } as any, rig: { kick: nop } as any, busVel: () => new THREE.Vector3(),
+    breathe: (s) => {
+      shot = s;
+      return g.splatter.barf(s.x, s.z, tapOpts(s, f.y));
+    },
+    busy: () => false,
+  });
+  bomb.on = true;
+  input.onBombEnd(2, false);
+  return shot;
+}
+
+let ggDone = false;
+let gg = { x: 0, z: 0, ux: 0, uz: 1 };
+async function run(c: Case, dt: number, slot = true) {
+  const [gear, level] = RUNGS[c.rung];
+  if (c.place === 'gg' && !ggDone) {
+    const lm = manifest.landmarks.find((l: { kind: string }) => l.kind === 'ggb');
+    const obj = makeGoldenGate(lm.points, lm.deck, lm.supports);
+    city.addObstacles(bridgeObstacles('ggb', lm.points, lm.deck, lm.supports));
+    paintBridge(city, 'lm:ggb', obj, 'Golden Gate Bridge');
+    const d: number[][] = lm.deck, s = [0];
+    let L = 0;
+    for (let i = 1; i < d.length; i++) s.push((L += Math.hypot(d[i][0] - d[i - 1][0], d[i][1] - d[i - 1][1])));
+    let i = 0;
+    while (i + 2 < d.length && L / 2 > s[i + 1]) i++;
+    const k = (L / 2 - s[i]) / (s[i + 1] - s[i]), dx = d[i + 1][0] - d[i][0], dz = d[i + 1][1] - d[i][1], n = Math.hypot(dx, dz);
+    gg = { x: d[i][0] + dx * k, z: d[i][1] + dz * k, ux: dx / n, uz: dz / n };
+    ggDone = true;
+  }
+  let px: number, pz: number, fx: number, fz: number;
+  if (c.place === 'gg') [px, pz, fx, fz] = [gg.x, gg.z, gg.ux, gg.uz];
+  else {
+    const P = PLACES[c.place];
+    [px, pz] = ll(P.lat, P.lon);
+    fx = Math.sin(P.hdg * DEG);
+    fz = -Math.cos(P.hdg * DEG);
+  }
+  const drive = new TurboDrive([-1e7, -1e7, 1e7, 1e7]);
+  const g = makeGame(city, drive);
+  const f = g.flight;
+  if (!slot) g.aimer.lob = null;
+  city.paint.resetAll();
+  const v0 = gear > 0 && gear !== EXPRESS ? driveSpeed(gear, level, true) : gear === EXPRESS ? config.flight.surgeSpeed : config.flight.cruiseSpeed;
+  const hold = c.hold ?? 2;
+  const lead = c.place === 'gg' ? 0.6 : 3;
+  const back = gear < 0 ? 20 : c.place === 'gg' ? 30 : v0 * (lead + hold);
+  f.x = px - fx * back;
+  f.z = pz - fz * back;
+  f.heading = Math.atan2(fx, -fz);
+  f.glideSpeed = 0;
+  f.speed = v0;
+  f.fullness = 1;
+  await pump(city, f.x, f.z);
+  const g0 = city.groundAt(f.x, f.z);
+  const alt = gear === NONSTOP ? config.turbo.nonstopAlt : gear >= JET ? config.turbo.jetAlt : 0;
+  if (c.place === 'gg') {
+    f.y = c.h as number;
+    f.holdY = f.y;
+  } else if (c.h === 'floor') f.y = alt > 0 ? g0 + alt : city.obstacleAt(f.x, f.z) + 9;
+  else {
+    f.y = g0 + c.h;
+    f.holdY = f.y;
+  }
+  if (gear === EXPRESS) drive.rung(1, f);
+  else if (gear > 0) drive.arrive(gear, level);
+  if (gear < 0) drive.rung(-1, f);
+  await pump(city, f.x, f.z, Math.max(0, f.y - g0), fx, fz);
+  const rig = new CameraRig(), lens = new TurboLens(), cam = new THREE.PerspectiveCamera(50, SW / SH, 1, 60000), focus = new THREE.Vector3();
+  const inner = { x: 1, y: 1 };
+  g.aimer.comet!.lens = cam;
+  if (g.aimer.lob) g.aimer.lob.lens = cam;
+  let aimMs = 0, aimN = 0;
+  const upd = g.aimer.update.bind(g.aimer);
+  g.aimer.update = (fl, t, dr, th) => { const t0 = performance.now(); const r = upd(fl, t, dr, th); aimMs += performance.now() - t0; aimN++; return r; };
+  let k = 0;
+  const frame = async (inp: { sx: number; sy: number; dragging: boolean }) => {
+    if (k++ % 10 === 0) await pump(city, f.x, f.z, f.lift, f.fx, f.fz);
+    g.frame(dt, inp);
+    lens.update(dt, drive, rig, f);
+    rig.zone = drive.below === SCHOOL_ZONE ? 1 : 0;
+    rig.update(cam, focus, f, dt);
+    const lf = lensFov(SW, SH, rig.hfov);
+    cam.fov = lf.fov;
+    cam.aspect = lf.aspect;
+    inner.y = lf.inner;
+    inner.x = SW / (SW + (SH / lf.inner - SH));
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld(true);
+  };
+  const idle = { sx: 0, sy: 0, dragging: false };
+  // ---- level in, then the pull (a dive first, from 800 m: 45 degrees down for 2 s, then the whole pull for 0.3 s)
+  for (let j = 0; j < Math.round(lead / dt); j++) await frame(idle);
+  if (c.mode === 'dive') {
+    for (let j = 0; j < Math.round(2 / dt); j++) await frame({ sx: 0, sy: diveStick(45), dragging: true });
+    for (let j = 0; j < Math.round(0.3 / dt); j++) await frame({ sx: 0, sy: stick(1), dragging: true });
+  } else {
+    const held = c.mode === 'flick' ? 0.15 : hold;
+    for (let j = 0; j < Math.round(held / dt); j++) await frame({ sx: 0, sy: stick(c.pull), dragging: true });
+  }
+  const pulled = { sx: 0, sy: c.mode === 'dive' ? stick(1) : stick(c.pull), dragging: true };
+  const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG;
+  // ---- the tap: one thumb, the lift, a finger down 0.1 s later and up 0.08 s after; two thumbs, a finger down and up while the other pulls
+  const fps = Math.round(1 / dt);
+  const steps = (s: number) => Math.max(1, Math.round(s / dt));
+  if (c.thumbs === 1) {
+    for (let j = 0; j < steps(0.1); j++) await frame(idle);
+    g.press();
+    for (let j = 0; j < steps(1 / 15); j++) await frame(idle);
+  } else {
+    g.press();
+    for (let j = 0; j < steps(1 / 15); j++) await frame(pulled);
+  }
+  const bodyTap = f.pitch / DEG;
+  // (what this frame planned, the Lob's and the Comet's: at Nonstop the farther wins)
+  const lobLast = g.aimer.lobLast, lobReach = lobLast ? r1(lobLast.reach) : null;
+  const before = city.paint.data.slice();
+  const ev0 = g.events.length;
+  const tap = { x: f.x, y: f.y, z: f.z, t: g.t, fx: f.fx, fz: f.fz };
+  let res: any;
+  if (c.mode === 'bomb') {
+    const s = bombShot(g);
+    res = { fired: !!s, shot: s ?? { comet: null, x: f.x, z: f.z }, target: s?.target ?? null, landing: s ? { x: s.x, y: s.y ?? (s.target ? city.roofAtPart(s.target, s.x, s.z, f.y) + 0.5 : city.groundAt(s.x, s.z)), z: s.z } : { x: f.x, y: f.y, z: f.z }, wall: !!s?.exact };
+  } else res = g.tap();
+  const plan = res.shot.comet ?? null;
+  const lob = plan?.kind === 'lob';
+  // ---- to the impact (the steering thumb up), then 0.3 s on
+  const at = new THREE.Vector3(res.landing.x, res.landing.y, res.landing.z), busV = new THREE.Vector3();
+  let impact: any = null, scr: any = null, miss = false, refund = -1, climb = 0;
+  const toScreen = (p: THREE.Vector3, b: THREE.Vector3) => {
+    const vis = (q: THREE.Vector3) => {
+      const v = q.clone().applyMatrix4(cam.matrixWorldInverse);
+      const front = v.z < 0;
+      v.applyMatrix4(cam.projectionMatrix);
+      return { x: 0.5 + (v.x * 0.5) / inner.x, y: 0.5 - (v.y * 0.5) / inner.y, front };
+    };
+    const a = vis(p), bb = vis(b);
+    return { x: r3(a.x), y: r3(a.y), in: a.front && a.x >= 0 && a.x <= 1 && a.y >= 0 && a.y <= 1, above: r3(bb.y - a.y) };
+  };
+  for (let j = 0; res.fired && g.t - tap.t < 6; j++) {
+    await frame(c.thumbs === 2 && g.t - tap.t < 0.3 ? pulled : idle);
+    for (let e = ev0; e < g.events.length && !impact; e++) {
+      const ev = g.events[e];
+      if (ev.ev !== 'impact' && ev.ev !== 'miss') continue;
+      impact = ev;
+      miss = ev.ev === 'miss';
+      const p = ev.pos as number[];
+      at.set(p[0], p[1], p[2]);
+      scr = toScreen(at, busV.set(f.x, f.y, f.z));
+      climb = f.y - tap.y;
+    }
+    // (the belly 0.3 s after the impact: a miss's refund is in it, which a Lob's late plan gives after its breath has ended)
+    if (impact && g.t - (impact.t as number) > 0.3) {
+      refund = f.fullness;
+      break;
+    }
+  }
+  const after = city.paint.data;
+  let painted = 0, two = 0;
+  for (let i = 1; i < after.length; i += 4) {
+    const d = after[i] - before[i];
+    if (d > 0.5) painted++;
+    if (d > 1.5) two++;
+  }
+  let underGround = -Infinity;
+  if (plan) {
+    const L = Math.hypot(plan.x - plan.x0, plan.z - plan.z0);
+    for (let s = 4; s < L - 4; s += 4) {
+      const u = s / L;
+      underGround = Math.max(underGround, city.groundAt(plan.x0 + (plan.x - plan.x0) * u, plan.z0 + (plan.z - plan.z0) * u) - (plan.y0 + (plan.y - plan.y0) * u + plan.arc * 4 * u * (1 - u)));
+    }
+  }
+  const top = plan ? Math.max(...[0.25, 0.5, 0.75].map((u) => plan.y0 + (plan.y - plan.y0) * u + plan.arc * 4 * u * (1 - u))) - plan.y0 : null;
+  return {
+    key: c.key, fps, want: c.want, slot,
+    kind: !res.fired ? 'refused' : lob ? (miss ? 'lob-miss' : 'lob') : plan ? (miss ? 'comet-miss' : 'comet') : miss ? 'miss' : 'splat',
+    body: { lift: r1(bodyLift), tap: r1(bodyTap), noseLift: r1(noseLift), angle: plan?.angle !== undefined ? r1(plan.angle / DEG) : null },
+    tImpact: impact ? r3((impact.t as number) - tap.t) : null,
+    planTravel: plan ? r3(config.splat.inhale + plan.travel) : null, planAbove: plan ? r3(plan.above) : null,
+    landing: [r1(at.x), r1(at.y), r1(at.z)],
+    from: r1(Math.hypot(at.x - tap.x, at.z - tap.z)),
+    agl: r1(tap.y - city.groundAt(tap.x, tap.z)),
+    impactScreen: scr,
+    radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(blastRadiusFor(Math.max(0, tap.y - at.y))),
+    painted, raisedTwo: two, refund: r2(refund), climb: r1(climb), lobReach,
+    hitStops: g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length,
+    top: top === null ? null : r1(top), underGround: plan ? r1(underGround) : null,
+    on: miss ? 'water' : res.wall ? 'wall' : res.target ? 'roof' : 'ground',
+    aimMs: r3(aimMs / Math.max(1, aimN)),
+    lobStats: g.aimer.lob ? { ...g.aimer.lob.stats } : null,
+  };
+}
+
+const t0 = Date.now();
+const rows: any[] = [];
+for (const c of CASES) {
+  if (ONLY && !c.key.includes(ONLY)) continue;
+  for (const dt of [1 / 60, 1 / 30]) rows.push(await run(c, dt));
+  if (c.mode === 'bomb') rows.push(await run(c, 1 / 60, false));
+}
+const OUT = process.env.SB_OUT ?? 'shots/feel/sim';
+mkdirSync(OUT, { recursive: true });
+writeFileSync(`${OUT}/lob.json`, JSON.stringify({ rows }, null, 1));
+const fails: string[] = [];
+let checks = 0;
+const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
+const most = config.lob.most;
+for (const r of rows) {
+  const id = `${r.key}@${r.fps}${r.slot ? '' : ' (no Lob)'}`;
+  console.log(`${id.padEnd(34)} ${r.kind.padEnd(8)} body ${String(r.body.lift).padStart(5)}/${String(r.body.tap).padStart(5)} at ${String(r.body.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} climb ${r.climb} (plan ${r.planAbove}) in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} two ${r.raisedTwo} top ${r.top} under ${r.underGround} on ${r.on} agl ${r.agl} aim ${r.aimMs} ms`);
+  if (!r.slot) continue;
+  // (at Nonstop the Comet applies too: the farther wins, chooseShot. A Comet there must land farther than this frame's Lob would)
+  if (r.want === 'longer' && r.kind === 'comet') ok(r.lobReach === null || r.from + 1 >= r.lobReach, `${id}: the Comet, farther than the Lob (${r.from} against ${r.lobReach})`);
+  if (r.want === 'lob' || (r.want === 'longer' && r.kind !== 'comet')) {
+    ok(r.kind === 'lob', `${id}: a Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
+    if (r.kind !== 'lob') continue;
+    const want = Math.min(most, r.key.endsWith('/1t') ? r.body.lift : r.body.tap);
+    ok(Math.abs(r.body.angle - want) <= 0.15, `${id}: thrown at the body ${r.key.endsWith('/1t') ? 'as the steering thumb lifted' : 'at the tap, live'} (${r.body.angle} against ${want}; at the tap ${r.body.tap})`);
+    ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
+    ok(!!r.impactScreen?.in && r.impactScreen.above >= config.comet.above, `${id}: in frame at the impact, ${config.comet.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)}, planned ${r.planAbove})`);
+    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
+    ok((r.on === 'ground' || r.painted >= 5) && r.raisedTwo === 0, `${id}: a level each, none two (${r.painted} painted on ${r.on}, ${r.raisedTwo} two)`);
+    ok(r.hitStops === 0, `${id}: no hit-stop (${r.hitStops})`);
+    ok(r.underGround <= 2, `${id}: its arc never 2 m into the ground (${r.underGround})`);
+    ok(r.from >= 600 && r.from <= config.comet.reach + 1, `${id}: lands in the distance, 600-${config.comet.reach} m (${r.from})`);
+  } else if (r.want === 'miss') {
+    ok(r.kind === 'lob-miss' && r.refund >= config.splat.missRefund - 0.02, `${id}: the bay is a Lob's miss, with its refund (${r.kind}, belly after ${r.refund})`);
+  } else {
+    ok(!r.kind.startsWith('lob'), `${id}: no Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
+  }
+  if (r.key.includes('/bomb')) {
+    const base = rows.find((q) => q.key === r.key && !q.slot);
+    const d = base ? Math.hypot(r.landing[0] - base.landing[0], r.landing[1] - base.landing[1], r.landing[2] - base.landing[2]) : Infinity;
+    ok(r.fps !== 60 || (!!base && base.kind === r.kind && d <= 0.5), `${id}: a Bomb after a pull lands as with no Lob (${r.kind} at ${JSON.stringify(r.landing)}; without ${JSON.stringify(base ? [base.kind, base.landing] : null)})`);
+  }
+  // (30 and 60 fps: the same throw, within 2 m and 0.05 s)
+  if (r.fps === 60 && r.kind === 'lob') {
+    const s = rows.find((q) => q.key === r.key && q.fps === 30 && q.slot);
+    ok(!!s && s.kind === r.kind && Math.hypot(s.landing[0] - r.landing[0], s.landing[1] - r.landing[1], s.landing[2] - r.landing[2]) <= 2 && Math.abs((s.tImpact ?? 0) - (r.tImpact ?? 0)) <= 0.05, `${r.key}: 30 and 60 fps within 2 m and 0.05 s (${JSON.stringify([r.kind, r.landing, r.tImpact])} against ${JSON.stringify(s ? [s.kind, s.landing, s.tImpact] : null)})`);
+  }
+  // (what the aim costs a frame while it plans the Lob, in Node: the plan's 0.035-0.066 ms for its plan alone)
+  ok(r.aimMs <= 0.5, `${id}: the aim 0.5 ms a frame or less (${r.aimMs})`);
+}
+console.log(`${rows.length} rows in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+console.log(fails.length ? `LOB FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `lob checks: all ${checks} passed`);
+process.exit(fails.length ? 1 : 0);

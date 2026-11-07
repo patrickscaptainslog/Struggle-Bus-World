@@ -25,6 +25,11 @@
 // building by building, so a jump shows whole and the top too. Each Bomb lands within 2 m of that tap's Comet and when it does, 1.4 or 1.8 times its
 // radius, every building it reaches at min(3, before + jump) and none past 3, in frame at the impact and with no hit-stop; none of the taps raised two.
 // Where the tap is the classic shot (Turbo 3 from 300 m) so is the Bomb, on the tap's landing, with its hit-stop.
+// --lob flies the Lob's rows instead (src/game/Lob.ts), into shots-lob.json, and gates only them: the nose 30 and 75 degrees up from 300 m and 40 from the
+// roofs, the stick held through the tap (a second thumb's tap, the body read live) and let go 0.3 s after it, at every rung from Cruise to Turbo 3. At Cruise and Express each is a
+// Lob, at Jet and faster never; a Lob lands in frame config.comet.above or more over the bus at the impact, on its flight's time, within 2 m and 0.05 s at 30
+// and 60 fps, a level each and blastRadiusFor(drop), with no hit-stop. Where a Comet applies too, the farther wins (chooseShot). Without --lob a row the Lob
+// throws (kind 'lob') is the Lob's, not the baseline's.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
 import { config } from '@src/config';
 import { CameraRig } from '@src/game/CameraRig';
@@ -43,6 +48,7 @@ const args = process.argv.slice(2);
 const SAVE = args.includes('--save-baseline');
 const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7) ?? '';
 const BOMB = args.includes('--bomb');
+const LOB = args.includes('--lob');
 // (the bundle runs from tools/controls-sim/.out/s_shots_ts/)
 const BASE_FILE = fileURLToPath(new URL('../../shots-baseline.json', import.meta.url));
 const city = await newCity();
@@ -68,7 +74,7 @@ const RUNGS: Array<[string, number, number]> = [['zone', -1, 0], ['cruise', 0, 0
 const COMET_RUNGS = ['nonstop', 'jet', 't1', 't2', 't3'];
 /** a pose: where, how high ('floor' = the rung's own: the roofs, 60 m Nonstop, 150 m from Jet up; else m over the ground, or ASL past 15 km), and the
  *  stick (turn: held sideways for TURN_S s before the tap and on) */
-interface Pose { key: string; place: Place; h: number | 'floor'; asl?: boolean; nose?: number; dive?: number; turn?: number }
+interface Pose { key: string; place: Place; h: number | 'floor'; asl?: boolean; nose?: number; dive?: number; turn?: number; release?: number }
 const TURN_S = 2;
 const POSES: Array<{ pose: Pose; rungs: string[] }> = [
   { pose: { key: 'wa-floor', place: 'wa', h: 'floor' }, rungs: RUNGS.map((r) => r[0]) },
@@ -173,6 +179,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   const inner = { x: 1, y: 1 };
   const cometOf = (g.aimer as any).comet;
   if (cometOf) cometOf.lens = cam;
+  if (g.aimer.lob) g.aimer.lob.lens = cam;
   let aimMs = 0, aimN = 0;
   const upd = g.aimer.update.bind(g.aimer);
   g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return r; };
@@ -205,7 +212,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     glintLast = gi;
   }
   // ---- the tap (between frames, as Input's)
-  const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz };
+  const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz, body: f.pitch / DEG };
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
   const res = tier ? bombTap(g, tier) : g.tap();
@@ -221,7 +228,8 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   let hiddenBy = -Infinity;
   for (let j = 0; res.fired && g.t - tap.t < maxT; j++, k++) {
     const was = along();
-    await frame(k, !!stick || !!turn);
+    // (--lob's poses let the stick go `release` s after the tap: the base's hold it to the end)
+    await frame(k, !!turn || (!!stick && !(pose.release !== undefined && g.t - tap.t > pose.release)));
     if (refund < 0 && f.barfT < 0) refund = f.fullness;
     for (let e = ev0; e < g.events.length && !impact; e++) {
       const ev = g.events[e];
@@ -276,7 +284,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   return {
     key: `${pose.key}/${rname}`, rung: rname, pose: pose.key, fps: Math.round(1 / dt),
     tap: { agl: r1(tap.agl), speed: r1(tap.speed), nose: r1(tap.nose) },
-    kind: !res.fired ? 'refused' : comet ? 'comet' : miss ? 'miss' : 'splat',
+    kind: !res.fired ? 'refused' : comet?.kind === 'lob' ? 'lob' : comet ? 'comet' : miss ? 'miss' : 'splat',
     cometMiss: !!comet && miss,
     tImpact: impact ? r3((impact.t as number) - tap.t) : null,
     landing: [r1(at.x), r1(at.y), r1(at.z)],
@@ -295,6 +303,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     glintsPerS: turn ? r2(glints / TURN_S) : null,
     aimMs: r3(aimMs / Math.max(1, aimN)),
     ...(tier ? { bomb: tier, rose: rose.slice(1), wrong, past3, hitStops } : {}),
+    ...(LOB ? { body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null } : {}),
   };
 }
 
@@ -335,6 +344,38 @@ if (BOMB) {
   }
   console.log(`${rows.length} rows in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   console.log(fails.length ? `BOMB FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `bomb checks: all ${checks} passed`);
+  process.exit(fails.length ? 1 : 0);
+}
+if (LOB) {
+  // ---- the Lob's rows: the nose up, the stick held through the tap, every rung from Cruise up, and their gates alone
+  // (the stick let go 0.3 s after the tap, a second thumb's tap: held on to the impact, a climb at Nonstop took the landing under the bus on the screen)
+  const poses: Pose[] = [{ ...POSES.find((p) => p.pose.key === 'wa-nose30')!.pose, release: 0.3 }, { ...POSES.find((p) => p.pose.key === 'wa-nose75')!.pose, release: 0.3 }, { key: 'wa-floor-nose40', place: 'wa', h: 'floor', nose: 40, release: 0.3 }];
+  for (const pose of poses)
+    for (const name of ['cruise', 'express', 'nonstop', 'jet', 't3']) {
+      if (ONLY && !`${pose.key}/${name}`.includes(ONLY)) continue;
+      const rung = RUNGS.find((r) => r[0] === name)!;
+      for (const dt of [1 / 60, 1 / 30]) rows.push(await run(rung, pose, dt));
+    }
+  writeFileSync(`${OUT}/shots-lob.json`, JSON.stringify({ band: r3(BAND), rows }, null, 1));
+  const fails: string[] = [];
+  let checks = 0;
+  const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
+  for (const r of rows) {
+    const id = `${r.key}@${r.fps}`;
+    console.log(`${id.padEnd(30)} ${r.kind.padEnd(6)} body ${String(r.body).padStart(5)} at ${String(r.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} two ${r.raisedTwo} on ${r.on} agl ${r.tap.agl}`);
+    if (r.rung === 'cruise' || r.rung === 'express') ok(r.body < config.lob.from || r.kind === 'lob', `${id}: the body ${r.body} up at Cruise and Express, a Lob (${r.kind})`);
+    if (r.rung === 'jet' || r.rung === 't3') ok(r.kind !== 'lob', `${id}: at Jet and faster no Lob (${r.kind})`);
+    if (r.kind !== 'lob') continue;
+    ok(Math.abs(r.angle - Math.min(config.lob.most, r.body)) <= 0.15, `${id}: thrown at the body, at most ${config.lob.most} (${r.angle} for ${r.body})`);
+    ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
+    ok(!!r.impactScreen?.in && r.impactScreen.above >= config.comet.above, `${id}: in frame at the impact, ${config.comet.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)})`);
+    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
+    ok(r.raisedTwo === 0 && r.hitStops === 0, `${id}: a level each and no hit-stop (${r.raisedTwo} raised two, ${r.hitStops} hit-stops)`);
+    const s30 = r.fps === 60 ? rows.find((q) => q.key === r.key && q.fps === 30) : null;
+    if (s30) ok(s30.kind === r.kind && Math.hypot(s30.landing[0] - r.landing[0], s30.landing[1] - r.landing[1], s30.landing[2] - r.landing[2]) <= 2 && Math.abs((s30.tImpact ?? 0) - (r.tImpact ?? 0)) <= 0.05, `${r.key}: 30 and 60 fps within 2 m and 0.05 s (${JSON.stringify([r.kind, r.landing, r.tImpact])} against ${JSON.stringify([s30.kind, s30.landing, s30.tImpact])})`);
+  }
+  console.log(`${rows.length} rows in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+  console.log(fails.length ? `LOB FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `lob checks: all ${checks} passed`);
   process.exit(fails.length ? 1 : 0);
 }
 for (const { pose, rungs } of POSES)
@@ -392,7 +433,8 @@ for (const r of rows) {
   // (the hills: its arc never into the ground, the review of step 3, 5)
   if (isComet && (r.pose === 'glen-floor' || r.pose === 'bayview-floor')) ok(r.kind === 'comet' && r.underGround !== null && r.underGround <= 2, `${r.key}@${r.fps}: over the hills a Comet, its arc never 2 m or more into the ground (${r.kind}, ${r.underGround})`);
   // (the poses the baseline has: the turn and the hills came after it)
-  if (base && r.kind !== 'comet' && basePoses.has(r.pose)) {
+  // (a Lob's row, the body past config.lob.from, is the Lob's: s_shots.ts --lob gates it)
+  if (base && r.kind !== 'comet' && r.kind !== 'lob' && basePoses.has(r.pose)) {
     const b = base[`${r.key}@${r.fps}`];
     const d = b ? Math.hypot(r.landing[0] - b.landing[0], r.landing[1] - b.landing[1], r.landing[2] - b.landing[2]) : Infinity;
     ok(!!b && b.kind === r.kind && d <= 0.5 && Math.abs((r.tImpact ?? 0) - (b.tImpact ?? 0)) <= 0.02, `${r.key}@${r.fps}: no Comet, so the baseline's shot (${r.kind} at ${JSON.stringify(r.landing)}, ${r.tImpact} s; baseline ${JSON.stringify(b ? [b.kind, b.landing, b.tImpact] : null)})`);

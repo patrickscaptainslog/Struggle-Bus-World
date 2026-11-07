@@ -775,8 +775,14 @@ export const config = {
     most: 70,
     range: 1600,
     stretch: 60,
+    /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's). */
+    above: 0.05,
     /** Its flight after the inhale at 45 degrees (s), x sin θ / sin 45 at θ: 1.43-3.19 s from 25 to 70. */
     flight: 2.4,
+    /** The lens moved on to the impact climbs with the bus for this long at most (s): a thumb lifted levels it out in about that. */
+    climbFor: 0.5,
+    /** ...and with the steering thumb down (a second thumb's tap), this long: it climbs on. */
+    climbLive: 1,
     /** The path more than this under level (degrees) is a dive, which never lobs (Belly Flop's, later). */
     levelSlack: 3,
     /** Its whump comes when its sound reaches the bus, but at most this long after the impact (s): 1.6 km is 4.7 s of sound. */

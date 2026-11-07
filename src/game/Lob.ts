@@ -21,8 +21,12 @@ import type { Comet, CometPlan } from './Comet';
 // config.lob.stretch m long, counted along the bus's travel (Comet.track's odometer), so a tap lands on the same building at 30 and 60 fps and what glints
 // steps along, never strobes.
 //
+// Latched, the landing holds too: where the frame before the lift had it, so 30 and 60 fps throw onto the same stretch; and while it's ahead and on the
+// screen it stays, the bus flying on under it.
+//
 // Its flight is a CometPlan (CometFx draws its arc true): config.lob.flight x sin θ / sin 45 s after the inhale, a parabola leaving the mouth at θ, whose
-// top over its chord is (L tan θ + drop) / 4. A wall or the ground standing into it takes it there, on its face. Water is a miss with its refund.
+// top over its chord is (L tan θ + drop) / 4. A wall standing into its fall takes it there, on its face, and the ground standing into it anywhere (a hill);
+// the climb goes over what's under the bus (a tower downtown took it 200 m out). Water is a miss with its refund.
 //
 // Never: in School Zone's hover (its body leans 11 degrees at most, its path reads 90 on the bob), in a dive (the path under level: Belly Flop's, later),
 // under a deck, and while a Bomb charges (its shot skips it, Aimer.fire). Recess's comet.clamp is told it's a Lob (HOOKS.md).
@@ -60,6 +64,14 @@ export class Lob {
   private heldZ = 0;
   private heldT: BuildingRef | null = null;
   private heldAngle = 0;
+  /** the last plan's landing after its march (a wall's face, a hillside), for the landing held: a latch keeps it whole, so a grazed wall can't come and go */
+  private lastOk = false;
+  private lastX = 0;
+  private lastY = 0;
+  private lastZ = 0;
+  private lastT: BuildingRef | null = null;
+  private lastWall = false;
+  private lastShare = 1;
   private readonly v = new THREE.Vector3();
   private readonly landPt = { x: 0, z: 0 };
   private readonly pt = { x: 0, z: 0 };
@@ -102,7 +114,7 @@ export class Lob {
 
   /** No Lob now: nothing held. */
   private none(): null {
-    this.heldOk = false;
+    this.heldOk = this.lastOk = false;
     return null;
   }
 
@@ -159,25 +171,35 @@ export class Lob {
     if (city.overheadAt(f.x, f.z, f.y) !== Infinity) return this.none();
     const C = config.comet, L = config.lob, S = config.splat;
     this.stats.planned++;
+    const latched = t < this.latchUntil;
     const v = Math.max(1, f.ground);
     const travel = lobFlight(a), tImp = S.inhale + travel;
-    const atImp = this.comet.flown(v, tImp), launch = this.comet.flown(v, S.inhale);
+    // (the bus's travel to the impact at the speed it flies once the nose is down: up steep its speed over the ground is a fraction of it, 64 of Nonstop's 225
+    // m/s at 73 degrees, and the lens moved on that little put a landing on the screen that came down under the bus)
+    const vt = Math.max(v, f.turbo.speed > 0 ? f.turbo.speed : f.speed);
+    const atImp = this.comet.flown(vt, tImp), launch = this.comet.flown(v, S.inhale);
     // (the lens moved on by the bus's travel to the impact, a climb in it: the Comet's)
     this.ox = fx * atImp;
     this.oz = fz * atImp;
-    this.oy = Math.max(0, f.vy) * tImp;
+    // (a lifted thumb levels the bus out in about config.lob.climbFor; one still pulling climbs on, a second thumb tapping)
+    this.oy = Math.max(0, f.vy) * Math.min(tImp, latched ? L.climbFor : L.climbLive);
     this.busY = this.lens ? this.ndcY(f.x, f.y, f.z) : 0;
     // the throw from the mouth, then the stretch it's in (counted along the bus's travel: Comet.track's odometer), moved out a stretch at a time to show
     const odo = this.comet.odometer, Ls = L.stretch;
     const d0 = launch + L.range * Math.sin(2 * a);
     let k = Math.round((odo + d0) / Ls - 0.5);
-    if (this.heldOk && this.heldK === k && Math.abs(this.heldAngle - a) < 1e-6 && this.showsAt(this.heldX, this.heldY, this.heldZ) >= C.above) {
+    const hold = this.heldOk && Math.abs(this.heldAngle - a) < 1e-6;
+    let frozen = false;
+    if (hold && latched && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
+      // (latched: the landing as it was, while it's ahead of the bus at the impact and shows over it, its march's too)
+      frozen = this.lastOk;
+    } else if (hold && this.heldK === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
       // (the same stretch and the same throw: the same landing, nothing picked again)
     } else {
       let found = false;
       for (let dc = (k + 0.5) * Ls - odo; dc <= C.reach; dc += Ls, k++) {
         if (!this.land(f, fx, fz, dc)) return this.none();
-        if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= C.above) {
+        if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
           found = true;
           break;
         }
@@ -190,19 +212,22 @@ export class Lob {
     // its arc from the mouth: a wall or the ground standing into it takes it on its face, where it meets it
     const x0 = f.x + fx * launch, z0 = f.z + fz * launch, y0 = f.y + f.vy * S.inhale;
     const Lh = Math.hypot(x - x0, z - z0), arc = lobArc(Lh, a, y0 - y);
-    let wall: BuildingRef | null = null, hill = false, ws = 0;
+    let wall: BuildingRef | null = null, hill = false, ws = frozen ? Lh : 0;
+    const uTop = arc > 0 ? 0.5 - (y0 - y) / (8 * arc) : 0;
     const into = (s: number, ref: BuildingRef | null) => {
       const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
       if (ref) return city.contains(ref, px, pz);
       return ay < city.groundAt(px, pz) + S.wallClear;
     };
-    for (let s = 8; s < Lh - S.wallSkip; s += 8) {
+    for (let s = 8; !frozen && s < Lh - S.wallSkip; s += 8) {
       const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
       if (ay < city.groundAt(px, pz) + S.wallClear) {
         hill = true;
         ws = s;
         break;
       }
+      // (a wall only in its fall: past the top, where the arc's slope turns down)
+      if (u < uTop) continue;
       const ref = city.buildingAbove(px, pz, ay + S.wallClear, ay);
       if (!ref || ref === target || ref.roofY - ref.baseY < S.minTargetHeight) continue;
       wall = ref;
@@ -210,7 +235,16 @@ export class Lob {
       break;
     }
     let lt = Lh, larc = arc;
-    if (wall || hill) {
+    if (frozen && this.lastShare < 1) {
+      // (the held march: where it met a wall's face or a hillside, the flight as far along its parabola as then)
+      x = this.lastX;
+      y = this.lastY;
+      z = this.lastZ;
+      target = this.lastT;
+      lt = Lh * this.lastShare;
+      larc = lobArc(Math.hypot(x - x0, z - z0), a, y0 - y);
+      wall = this.lastWall ? target : null;
+    } else if (wall || hill) {
       let lo = ws - 8, hi = ws;
       for (let i = 0; i < 6; i++) {
         const m = (lo + hi) * 0.5;
@@ -228,6 +262,15 @@ export class Lob {
       lt = w;
       larc = lobArc(w, a, y0 - y);
     }
+    if (!frozen) {
+      this.lastOk = true;
+      this.lastX = x;
+      this.lastY = y;
+      this.lastZ = z;
+      this.lastT = target;
+      this.lastWall = !!wall;
+      this.lastShare = lt / Math.max(1, Lh);
+    }
     const along = (x - f.x) * fx + (z - f.z) * fz;
     out.x0 = x0;
     out.y0 = y0;
@@ -242,7 +285,7 @@ export class Lob {
     out.drop = Math.max(0, f.y - y);
     out.reach = Math.hypot(x - f.x, z - f.z);
     out.ahead = along - atImp;
-    out.pass = (along - atImp) / v;
+    out.pass = (along - atImp) / vt;
     out.speed = v;
     out.loaded = city.terrainAt(x, z) !== null;
     out.above = this.showsAt(x, y, z);
