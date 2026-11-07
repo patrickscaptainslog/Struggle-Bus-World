@@ -347,6 +347,12 @@ export class AudioEngine {
     if (g) g.superFx.chargeStop(g.now(), fired);
   }
 
+  /** The charge ends before II, with nothing shown but the riser: it fades out, no power-down. */
+  bombFade(): void {
+    const g = this.live();
+    if (g) g.superFx.chargeFade(g.now());
+  }
+
   /** Held while cooling down: "not yet". */
   superFizzle(): void {
     const g = this.live();

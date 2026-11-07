@@ -1313,7 +1313,10 @@ bombRow('bomb: a 20 px slide after II keeps it', (h) => { const id = newId(); h.
 bombRow('bomb: a 40 px slide after II never bombs', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.slide(id, BX, BY, 40, 0, 150); h.wait(100); h.up(id, BX + 40, BY); });
 bombRow('bomb: a landing under the bus never charges', (h) => onBus(h, 1500, BX, 640));
 bombRow('bomb: off the lane over the bus it aims, never charges', (h) => onBus(h, 800, BX, 300));
-bombRow('bomb: an empty belly: no tier, its lift a tap', (h) => onBus(h, 1300), 60, false);
+bombRow('bomb: an empty belly: no tier, its lift a tap', (h) => onBus(h, 500), 60, false);
+// (after the review: a rest with the belly refilling, past when II would have shown, does nothing, as a resting thumb off the link: it was a tap and its "not yet")
+bombRow('bomb: an empty belly, a 1.3 s rest: no tier and no tap', (h) => onBus(h, 1300), 60, false);
+bombRow('bomb: an empty belly, a 4 s rest: no tier and no tap', (h) => onBus(h, 4000), 60, false);
 bombRow('bomb: the belly full at 500 ms: II from 1.17 s', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(500); h.input.bombFull = true; h.wait(900); h.up(id, BX, BY); }, 60, false);
 bombRow('bomb: the belly gone mid-charge fizzles it', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.input.bombFull = false; h.wait(100); h.up(id, BX, BY); });
 bombRow("bomb: another thumb's tap fizzles it, and splats", (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(800); h.down(b, 330, 250, false); h.wait(80); h.up(b, 330, 250); h.wait(300); h.up(a, BX, BY); });
@@ -1380,7 +1383,8 @@ bok(fired('bomb: a 20 px slide after II') === 1, 'a 20 px slide after II keeps t
 bok(!fired('bomb: a 40 px slide after II') && fizzled('bomb: a 40 px slide after II') === 1 && bn('bomb: a 40 px slide after II', 'tap') === 0, 'a 40 px slide after II fizzles, no splat');
 bok(bn('bomb: a landing under the bus', 'charge') === 0, 'a landing under the bus never charges');
 bok(bn('bomb: off the lane over the bus', 'charge') === 0 && bn('bomb: off the lane over the bus', 'aim@') === 1, 'over the bus, off the lane, it aims');
-bok(bn('bomb: an empty belly', 'charge') === 0 && bn('bomb: an empty belly', 'tap') === 1, 'an empty belly: no tier, and its lift is a tap');
+bok(bn('bomb: an empty belly: no tier', 'charge') === 0 && bn('bomb: an empty belly: no tier', 'tap') === 1, 'an empty belly: no tier, and a lift at 0.5 s is a tap');
+for (const k of ['bomb: an empty belly, a 1.3 s', 'bomb: an empty belly, a 4 s']) bok(bn(k, 'charge') === 0 && bn(k, 'tap') === 0, `${k.slice(6)} rest: no tier and no tap, as a resting thumb`);
 bok(bat('bomb: the belly full at 500', 'bomb2@') >= 1170 && bat('bomb: the belly full at 500', 'bomb2@') <= 1190, `the clock starts with the belly: II at ${bat('bomb: the belly full at 500', 'bomb2@')} ms`);
 bok(fizzled('bomb: the belly gone mid-charge') === 1 && !fired('bomb: the belly gone mid-charge'), 'a belly gone mid-charge fizzles it');
 bok(fizzled("bomb: another thumb's tap") === 1 && bn("bomb: another thumb's tap", 'tap') === 1 && !fired("bomb: another thumb's tap"), "another thumb's tap: a fizzle, and that tap splats");

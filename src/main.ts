@@ -1254,7 +1254,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const bomb = new Bomb({
     input, flight, aimer, audio, fx: superFx, rig, busVel,
     breathe: (shot, b) => {
-      const at = breatheNow(shot, { radius: b.radius, width: b.width, hitStop: b.hitStop, tag: b.tag, jump: b.jump });
+      // (its hit-stop only for a landing in the frame: at Turbo 3 from 300 m, where the tap is the classic shot under the bus, it froze 9 frames for a blast
+      // nobody saw. The Bomb's play review, 4)
+      const iy = shot.y ?? (shot.target ? city.roofAtPart(shot.target, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
+      flashPos.set(shot.x, iy, shot.z).project(camera);
+      const seen = Math.abs(flashPos.x) <= 1 && Math.abs(flashPos.y) <= 1 && flashPos.z <= 1;
+      const at = breatheNow(shot, { radius: b.radius, width: b.width, hitStop: seen ? b.hitStop : 0, tag: b.tag, jump: b.jump });
       controls.splatted();
       controls.bombed();
       return at;
@@ -1664,7 +1669,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const glint = aimer.update(flight, simTime, steering);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
-    if (bomb.on) controls.bombGlint = (moonPaint ? (moonPaint.target?.rec?.level ?? 0) > 0.5 : glint !== null && city.paint.level(glint.index) > 0.5) && flight.y - flight.groundBroad < 300;
+    if (bomb.on) controls.bombGlint = Aimer.loaded(flight) && (moonPaint ? (moonPaint.target?.rec?.level ?? 0) > 0.5 : glint !== null && city.paint.level(glint.index) > 0.5) && flight.y - flight.groundBroad < 300;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);

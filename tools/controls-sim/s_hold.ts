@@ -359,7 +359,7 @@ function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths
   bomb = new Bomb({
     input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
     aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), aim: { x: 0, z: -DROP, drop: DROP } } as any,
-    audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
+    audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombFade: () => h.log.push(`fade@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
     fx: { motes: (n: number) => (fxN.motes += n), sparks: (n: number) => (fxN.sparks += n), halo: (n: number) => (fxN.halo += n) } as any,
     breathe: (shot, b) => { breaths.push({ ...b, tag: { ...b.tag }, x: shot.x, z: shot.z, at: Math.round(h.at()) }); h.log.push(`bomb@${ms()}`); return 0; },
     busy: () => h.hose.pouring,
@@ -408,6 +408,11 @@ bombRow('bomb: let go at II, the Hose pours again once the belly is full', (h) =
   hold(h, 700, BX, BY); refill(h); h.wait(100);
   const id = newId(); h.down(id, AX, AY); h.wait(1000); const v = { pouring: h.hose.pouring }; h.up(id, AX, AY); return v;
 });
+// (after the review: a thumb that rests on the bus and then steers, before II and after; a charge lifted as a tap, as a watcher hears it)
+const heard = (b: InstanceType<typeof Bomb>, h: Hn) => b.watch({ tier: (t) => h.log.push(`watch tier${t}`), tap: () => h.log.push('watch tap'), cancel: () => h.log.push('watch cancel'), release: () => h.log.push('watch release') });
+bombRow('bomb: on the bus 0.5 s, then a 14 px slide: the riser goes quiet, no power-down', (h, b) => { heard(b, h); const id = newId(); h.down(id, BX, BY); h.wait(500); h.slide(id, BX, BY, 14, 0, 50); h.wait(300); h.up(id, BX + 14, BY); return {}; });
+bombRow('bomb: at II, then a 30 px slide: the fizzle, its power-down', (h, b) => { heard(b, h); const id = newId(); h.down(id, BX, BY); h.wait(800); h.slide(id, BX, BY, 30, 0, 50); h.wait(300); h.up(id, BX + 30, BY); return {}; });
+bombRow('bomb: lifted at 0.5 s: a tap, and a watcher hears it end as one', (h, b) => { heard(b, h); hold(h, 500, BX, BY); h.wait(300); return {}; });
 const bf: string[] = [];
 let bchecks = 0;
 const bok = (c: boolean, m: string) => { bchecks++; if (!c) bf.push(m); };
@@ -435,6 +440,11 @@ const BN = (k: string) => bombNotes[Object.keys(bombNotes).find((x) => x.startsW
   bok(within(lk.one.motes, B.motes * 0.2) && lk.one.halo === 0 && lk.one.sparks === 0, `charging before II, a fifth of III's motes and nothing else: ${JSON.stringify(lk.one)} a second`);
   bok(within(lk.two.motes, B.motes * 0.5) && lk.two.halo === 0 && lk.two.sparks === 0, `at II, MEGA's floor: half the motes, no halo: ${JSON.stringify(lk.two)} a second`);
   bok(within(lk.three.motes, B.motes) && within(lk.three.halo, B.halo) && within(lk.three.sparks, B.sparks), `at III, MEGA's built look: ${B.motes} motes, ${B.halo} halo and ${B.sparks} sparks a second: ${JSON.stringify(lk.three)}`);
+  const q = BN('bomb: on the bus 0.5 s, then a 14 px'), f = BN('bomb: at II, then a 30 px'), tp = BN('bomb: lifted at 0.5 s');
+  const has = (n: any, k: string) => n.log.some((x: string) => x.startsWith(k));
+  bok(has(q, 'riser@') && has(q, 'fade@') && !has(q, 'fizzle@') && has(q, 'watch cancel') && !q.breaths.length, `steering off the bus before II: the riser fades, no power-down, a watcher hears the cancel (${q.log.join(', ')})`);
+  bok(has(f, 'clunk2@') && has(f, 'fizzle@') && !has(f, 'fade@') && !f.breaths.length, `steering off it at II: the fizzle's power-down (${f.log.join(', ')})`);
+  bok(has(tp, 'watch tier1') && has(tp, 'watch tap') && !has(tp, 'watch cancel') && !tp.breaths.length, `a charge lifted before II: a watcher hears tier 1 and then the tap (${tp.log.join(', ')})`);
 }
 // the rows SuperFx draws them in (src/fx/SuperFx.ts, its own data): Rainbow's six by default, and with a faction's spray set (main.ts's bombLook, &bomb) its
 // motes and halo in that spray alone and its sparks white-hot, yellow or that spray, never a row of another's

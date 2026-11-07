@@ -260,6 +260,14 @@ export class SuperSfx {
     disposeOnEnd(o2, [o2, g2]);
   }
 
+  /** The charge ends quietly (a Bomb's before II): the riser fades out, with no power-down. */
+  chargeFade(t: number): void {
+    const h = this.charge;
+    if (!h) return;
+    this.charge = null;
+    this.close(h, t, 0.12);
+  }
+
   /** The charge ends: fired (cut straight into the blast) or cancelled (a sad power-down from wherever the riser got to). */
   chargeStop(t: number, fired: boolean): void {
     const h = this.charge;

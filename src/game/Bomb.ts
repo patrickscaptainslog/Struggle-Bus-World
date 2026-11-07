@@ -38,6 +38,8 @@ export interface BombWatch {
   release?(r: { tier: number; x: number; z: number; r: number; arrive: number; id: number }): void;
   /** it fizzled, the belly kept (moved off, three fingers, lost, a hand-over, another thumb's tap) */
   cancel?(): void;
+  /** it was lifted before II showed: the tap's own breath follows (a watcher heard tier(1) and nothing after: the Bomb's play review, 5) */
+  tap?(): void;
 }
 
 /** holds.bomb: the Bomb's side for life and Recess. Without &bomb on the link all of it does nothing. */
@@ -124,7 +126,8 @@ export class Bomb implements BombHook {
   get charge(): number {
     const B = this.h.input.state.bomb;
     if (!this.on || !B.on) return 0;
-    return this.tierV >= 3 ? 1 : clamp((performance.now() - B.at) / 1000 / config.bomb.three, 0, 0.99);
+    // (to III as this charge has it: the bank's sooner, a gift's at once)
+    return this.tierV >= 3 ? 1 : clamp((performance.now() - B.at) / 1000 / this.threeAt(), 0, 0.99);
   }
 
   get tier(): number {
@@ -155,6 +158,8 @@ export class Bomb implements BombHook {
   private charged() {
     this.tierV = 1;
     this.stats.charges++;
+    // (a gift fires whatever the belly holds: the aim runs as with a full one while it charges, so its ring and its landing are where they'd be)
+    this.h.aimer.primed = this.giftTier > 0;
     this.h.audio.bombCharge(Math.max(0.1, this.threeAt() - inputTune.aimHoldMs / 1000));
     this.tell((w) => w.tier?.(1));
   }
@@ -172,7 +177,11 @@ export class Bomb implements BombHook {
     this.tierV = 0;
     if (cancelled) {
       this.stats.fizzles++;
-      this.h.audio.bombStop(false);
+      // (before II nothing has shown but the riser: a thumb that rested on the bus and then steered hears it go quiet, not the power-down. The Bomb's play
+      // review, 3)
+      if (tier >= 2) this.h.audio.bombStop(false);
+      else this.h.audio.bombFade();
+      this.h.aimer.primed = false;
       this.tell((w) => w.cancel?.());
       return;
     }
@@ -180,9 +189,12 @@ export class Bomb implements BombHook {
       // (the tap's own breath follows, from Input)
       this.stats.taps++;
       this.h.audio.bombStop(true);
+      this.h.aimer.primed = false;
+      this.tell((w) => w.tap?.());
       return;
     }
     this.fire(tier >= 3 ? 3 : 2);
+    this.h.aimer.primed = false;
   }
 
   /** The tiers' times (s from the charge's start), the bank's taken off, never before the riser's; a gift's straight to its tier at the riser. */
@@ -197,8 +209,8 @@ export class Bomb implements BombHook {
 
   private fire(tier: 2 | 3) {
     const H = this.h, f = H.flight, B = config.bomb, three = tier === 3;
-    // (where the tap would land: what glints, the tap's own shot)
-    const shot = H.aimer.fire(f);
+    // (where the tap would land: what glints, the tap's own shot; never a plane glinting, which would take it all, but the building its ring showed)
+    const shot = H.aimer.fire(f, true);
     if (this.giftTier) {
       // (a gift is a Bomb whatever the belly holds, as MEGA's blast was)
       f.barfT = -1;

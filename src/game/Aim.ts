@@ -111,6 +111,10 @@ export class Aimer {
   private lastShown: BuildingRef | null = null;
   private t = 0;
   private ready = false;
+  /** A gifted Bomb charging (src/game/Bomb.ts): the aim runs as with a full belly, whatever it holds, so its ring and its shot are where a full one's would be.
+   *  Aimed only with a full belly, a gift let go while the belly refilled came down at the aim's last point, 128-279 m behind the bus at Nonstop and Jet (the
+   *  Bomb's play review, 1) */
+  primed = false;
   private x0 = 0;
   private z0 = 0;
   private readonly land = { x: 0, z: 0 };
@@ -305,7 +309,7 @@ export class Aimer {
   update(f: Flight, t: number, dragging: boolean): BuildingRef | null {
     const S = config.splat;
     this.t = t;
-    this.ready = Aimer.loaded(f);
+    this.ready = Aimer.loaded(f) || (this.primed && f.barfT < 0);
     this.cometPlan = null;
     // (the Comet's odometer runs every frame: its stretches are counted along the bus's travel)
     this.comet?.track(f);
@@ -450,20 +454,22 @@ export class Aimer {
     return s;
   }
 
-  /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames), or ?life's glinting mover. */
-  fire(f: Flight): Shot {
+  /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames), or ?life's glinting mover. `bomb`: a Bomb's, which takes no
+   *  mover off a floor (a plane glinting): the building, as its ring showed. */
+  fire(f: Flight, bomb = false): Shot {
     // (the tap's shot is chosen in one place, Comet.ts: the Comet's when a gear is at speed, and the Lob's slot)
     const lob = this.comet?.lob?.(f) ?? null;
     if (this.comet && this.cometPlan) {
       const s = this.comet.shotOf(this.cometPlan);
       return chooseShot(f, s, s, lob);
     }
-    return lob ? chooseShot(f, this.fireAim(f), null, lob) : this.fireAim(f);
+    return lob ? chooseShot(f, this.fireAim(f, bomb), null, lob) : this.fireAim(f, bomb);
   }
 
-  /** The aim's own shot: at the glinting building, or ?life's glinting mover. */
-  private fireAim(f: Flight): Shot {
-    if (this.mover) {
+  /** The aim's own shot: at the glinting building, or ?life's glinting mover (a Bomb's, one on a floor only: one at a plane painted the plane alone, at one
+   *  level, the Bomb's play review, 6). */
+  private fireAim(f: Flight, bomb = false): Shot {
+    if (this.mover && (!bomb || this.splatter.moverOnFloor(this.mover))) {
       const m = this.mover, shot = this.shotAt(f, null);
       shot.mover = m;
       shot.x = m.x;

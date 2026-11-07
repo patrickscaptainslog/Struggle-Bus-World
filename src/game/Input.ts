@@ -242,11 +242,14 @@ interface Slot {
   aiming: boolean;
   aimArmed: boolean;
   /** The Bomb: the flying thumb landed on the bus with bombOn, and may still charge (moving past the slop ends that, for the touch); bombFrom = the charge's
-   *  clock start (ms; -1: the belly isn't full yet); bombTier = the tier shown (0 none, 1 charging, 2, 3); bombArm = the tier a frame has seen it reach */
+   *  clock start (ms; -1: the belly isn't full yet); bombTier = the tier shown (0 none, 1 charging, 2, 3); bombArm = the tier a frame has seen it reach;
+   *  bombShown2, bombShown3 = when II and III showed (the frame's clock, ms; -1 not yet) */
   onBus: boolean;
   bombFrom: number;
   bombTier: number;
   bombArm: number;
+  bombShown2: number;
+  bombShown3: number;
 }
 
 const enum Src {
@@ -402,7 +405,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0 });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -753,11 +756,12 @@ export class Input {
     // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap)
     const aimed = slot.aiming;
     if (aimed) this.endAim(slot, cancelled);
-    // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, however long it was held. By the lift's own
-    // time: one queued behind a frame that showed a tier it hadn't reached is what its time says)
+    // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, as long as the charge has run, or with none
+    // begun (the belly refilling) up to when II would have shown: a rest past that does nothing, as off the link, where any rest's lift was a tap with the
+    // belly's "not yet" (the Bomb's play review, 2). By the lift's own time: one queued behind a frame that showed a tier after it is what showed when it lifted)
     const tierAt = cancelled ? slot.bombTier : this.bombAt(slot, now);
     const bombed = tierAt >= 2;
-    const bombTap = !cancelled && slot.onBus && !bombed && slot.maxDist <= inputTune.tapSlopPx;
+    const bombTap = !cancelled && slot.onBus && !bombed && slot.maxDist <= inputTune.tapSlopPx && (slot.bombTier > 0 || now - slot.t0 < (this.bombGift >= 2 ? inputTune.aimHoldMs : this.bombTwoMs) + inputTune.aimLagMs);
     if (slot.bombTier > 0) this.bombEnd(slot, cancelled, tierAt);
     const dir = cancelled || aimed || bombed ? 0 : this.flickOf(slot, e.clientX - this.rectL, e.clientY - this.rectT, now);
     const quick = !cancelled && !aimed && !bombed && (this.isQuick(slot, now) || bombTap);
@@ -854,6 +858,7 @@ export class Input {
     slot.bombFrom = -1;
     slot.bombTier = 0;
     slot.bombArm = 0;
+    slot.bombShown2 = slot.bombShown3 = -1;
   }
 
   private free(s: Slot) {
@@ -1103,23 +1108,25 @@ export class Input {
     }
     if (s.bombArm > s.bombTier && k >= (s.bombArm >= 3 ? three : two) + T.aimLagMs) {
       s.bombTier = s.bombArm;
+      if (s.bombShown2 < 0) s.bombShown2 = now;
+      if (s.bombTier >= 3) s.bombShown3 = now;
       this.state.bomb.tier = s.bombTier;
       this.onBombTier?.(s.bombTier);
     }
   }
 
-  /** The tier a lift at `now`, its own time, lets go: the highest one shown whose time (aimLagMs past its judging) it's past. */
+  /** The tier a lift at `now`, its own time, lets go: the highest one that had shown by then (its frame's clock). By the time each was judged, a lift at 30 fps
+   *  670-700 ms in was a tap on time and a Bomb II reaching the page 1.5 frames late, its clunk not sounded when it lifted (the Bomb's play review, 7) */
   private bombAt(s: Slot, now: number): number {
     if (s.bombTier < 2) return s.bombTier;
-    const T = inputTune, k = now - s.bombFrom, gift = this.bombGift >= 2;
-    if (gift) return k >= T.aimHoldMs + T.aimLagMs ? s.bombTier : 1;
-    if (s.bombTier >= 3 && k >= this.bombThreeMs + T.aimLagMs) return 3;
-    return k >= this.bombTwoMs + T.aimLagMs ? 2 : 1;
+    if (s.bombTier >= 3 && now >= s.bombShown3) return 3;
+    return now >= s.bombShown2 ? 2 : 1;
   }
 
   /** The charge ends, if it began: with the tier it had (or the one its lift's own time says), or cancelled. */
   private bombEnd(s: Slot, cancelled: boolean, at = s.bombTier) {
     s.bombArm = 0;
+    s.bombShown2 = s.bombShown3 = -1;
     if (s.bombTier === 0) return;
     const tier = at;
     s.bombTier = 0;
