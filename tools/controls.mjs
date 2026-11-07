@@ -1152,7 +1152,15 @@ if (modes.has('lob')) {
       }
       await runFor(page, 1.8);
       const pull = await page.evaluate(() => { const g = window.__game, s = g.lobState(); return { body: (g.flight.pitch * 180) / Math.PI, plan: s.plan && { x: s.plan.x, z: s.plan.z, reach: s.plan.reach, kind: s.plan.kind }, ring: s.ring }; });
-      await page.screenshot({ path: `${out}/lob-${key}-1-ring.png` });
+      // (each still with the loop held: run on, the pull lasted the still's 0.8-1.1 s more and the bus climbed 60-90 m past the row's, to 340-370 m over
+      // downtown, where by day the city's own draws pass 200, Lob or not)
+      const still = async (path) => {
+        await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+        await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
+        await page.screenshot({ path });
+        await page.evaluate(() => (window.__qa = null));
+      };
+      await still(`${out}/lob-${key}-1-ring.png`);
       await page.evaluate(() => (window.__lobTrace = []));
       await H.up(1);
       await runFor(page, 0.1);
@@ -1160,7 +1168,7 @@ if (modes.has('lob')) {
       await wall(60);
       await H.up(2);
       await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel - 0.05', 6);
-      await page.screenshot({ path: `${out}/lob-${key}-2-landed.png` });
+      await still(`${out}/lob-${key}-2-landed.png`);
       await runFor(page, 1.5);
       const b = await page.evaluate(() => {
         const g = window.__game, l = g.lastShot(), c = l?.comet, d = g.city.paint.data, d0 = window.__lv0, m = g.moon?.paint;
