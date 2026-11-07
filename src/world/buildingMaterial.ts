@@ -11,6 +11,7 @@ import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
 import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
 import { GLSL_POGO, pogoed, pogoedOr, pogoUniforms } from './pogo';
+import { fallsed, fallsUniforms, GLSL_FALLS_F, GLSL_FALLS_V } from './falls';
 
 /**
  * ?lift: the Lift's uniforms (world/Lift.ts fills them), spread into every material that moves with a floating house. Null with the flag off, and
@@ -94,9 +95,9 @@ const R = (r: number) => r.toFixed(1);
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}), ...(pogoUniforms ?? {}) },
+    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}), ...(pogoUniforms ?? {}), ...(fallsUniforms ?? {}) },
     vertexShader: /* glsl */ `
-      ${GLSL_COMMON}${pogoed(GLSL_POGO)}
+      ${GLSL_COMMON}${pogoed(GLSL_POGO)}${fallsed(GLSL_FALLS_V)}
       precision highp sampler2D;
       uniform sampler2D uPaint;
       uniform float uPaintW;
@@ -189,7 +190,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vMeta = aMeta;
         vPaint = paint;
         vBld = aBld;
-        vBld2 = aBld2;
+        vBld2 = aBld2;${fallsed(`
+        vFall = sbFallSlot(idx);`)}
         // size of a game pixel at this building (m), from the nearest point of its vertical axis; the
         // facade LOD is decided per building with it (jittered per building, so no ring shows)
         vec3 axis = (modelMatrix * vec4(aBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, baseY, roofY) + vLift', 'clamp(cameraPosition.y, baseY, roofY)')}, aBld.w, 1.0)).xyz;
@@ -229,7 +231,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in vec3 vViewNormal;
       in float vYRest;${lifted(`
       flat in float vLift;
-      in vec3 vLiftD;`)}
+      in vec3 vLiftD;`)}${fallsed(GLSL_FALLS_F)}
       ${GLSL_OUT}
 
       ${GLSL_FACTION}
@@ -915,7 +917,12 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           // past the ribbons there is no window to see, so no dots: a face is lit or not, one tone, by a hash of the building and the way it looks
           else if (flatW && isWall && faceLit(bIdx, n, cover * uLit)) { ramp = ${R(Ramp.FARGLOW)}; light = 3.0 / 7.0; }`)}
         }
-        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;
+        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;${fallsed(`
+        // &falls: the runs down a struck tower's walls, in its paint's hue a step brighter and their heads brighter still, over whatever it had (falls.ts)
+        if (vFall > -0.5 && abs(n.y) < 0.5) {
+          float fw = sbFall(vFall, f.x, vYRest, bIdx);
+          if (fw > 0.5) { ramp = hueRamp(hue); light = lightAtStep(fw > 1.5 ? 6.0 : 5.0); glow = fw > 1.5 ? 0.35 : 0.1; }
+        }`)}
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs
         float rr, rl, rg;
