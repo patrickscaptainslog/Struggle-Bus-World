@@ -23,6 +23,26 @@ import type { WarmPipeline } from './warmup';
 
 const MARGIN = 2;
 
+/**
+ * The render camera's vertical fov (deg) and aspect for a w x h game-pixel view at the horizontal portrait fov `hfov` (deg), its margin included, and
+ * the share of its height that's on the screen (`inner`): updateProjection's, so a lens outside the pipeline (tools/controls-sim/s_shots.ts) projects as the page's.
+ */
+export function lensFov(w: number, h: number, hfov: number): { fov: number; aspect: number; inner: number } {
+  const W = w + MARGIN * 2;
+  const H = h + MARGIN * 2;
+  let vfov: number;
+  if (h >= w) {
+    // portrait: hold the horizontal fov, derive vertical
+    const hf = THREE.MathUtils.degToRad(hfov);
+    vfov = 2 * Math.atan(Math.tan(hf / 2) / (w / h));
+  } else {
+    vfov = THREE.MathUtils.degToRad(config.camera.vfovLandscape * (hfov / Math.max(1, config.camera.hfovPortrait)));
+  }
+  // widen to include the margin pixels so the visible center stays exact
+  vfov = 2 * Math.atan(Math.tan(vfov / 2) * (H / h));
+  return { fov: THREE.MathUtils.radToDeg(vfov), aspect: W / H, inner: h / H };
+}
+
 export interface PixelFrameInfo {
   /** Size of the visible low-res image (without margin). */
   width: number;
@@ -318,22 +338,9 @@ export class PixelPipeline implements WarmPipeline {
   /** Recomputes the camera projection for the current aspect (call after changing fov settings). */
   updateProjection() {
     const { width: w, height: h } = this.info;
-    const W = w + MARGIN * 2;
-    const H = h + MARGIN * 2;
-    const aspect = W / H;
-    let vfov: number;
-    const hfov = this.hfov ?? config.camera.hfovPortrait;
-    if (h >= w) {
-      // portrait: hold the horizontal fov, derive vertical
-      const hf = THREE.MathUtils.degToRad(hfov);
-      vfov = 2 * Math.atan(Math.tan(hf / 2) / (w / h));
-    } else {
-      vfov = THREE.MathUtils.degToRad(config.camera.vfovLandscape * (hfov / Math.max(1, config.camera.hfovPortrait)));
-    }
-    // widen to include the margin pixels so the visible center stays exact
-    vfov = 2 * Math.atan(Math.tan(vfov / 2) * (H / h));
-    this.camera.fov = THREE.MathUtils.radToDeg(vfov);
-    this.camera.aspect = aspect;
+    const lens = lensFov(w, h, this.hfov ?? config.camera.hfovPortrait);
+    this.camera.fov = lens.fov;
+    this.camera.aspect = lens.aspect;
     this.camera.updateProjectionMatrix();
   }
 

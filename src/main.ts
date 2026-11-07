@@ -14,7 +14,7 @@ import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
-import { Aimer, type Shot } from './game/Aim';
+import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
@@ -973,7 +973,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const block = !!mover && splatter.moverOnFloor(mover);
       const moverFresh = mover && !block ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
       const at = block ? mover! : shot;
-      splatter.barf(at.x, at.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: block ? null : shot.target, y: at.y, exact: block || shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(block ? { moverBlock: true } : mover ? { mover, moverFresh } : {}) });
+      // (a tap's own barf, as the probe's (Aim.tapOpts), and what a mover, a mega and a crater add to it)
+      const o = tapOpts(shot, flight.y);
+      if (block) Object.assign(o, { target: null, y: at.y, exact: true, moverBlock: true });
+      else if (mover) Object.assign(o, { mover, moverFresh });
+      if (mega) Object.assign(o, { radius: mega.radius, hitStop: mega.hitStop, super: mega.tag });
+      Object.assign(o, moonPaint?.barf(shot, !!mega));
+      splatter.barf(at.x, at.z, o);
     } finally {
       breathTravel = null;
       breathWidth = 1;

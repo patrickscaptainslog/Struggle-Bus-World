@@ -2,7 +2,7 @@ import { config } from '../config';
 import { clamp } from './springs';
 import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
-import type { Splatter } from './Splat';
+import type { BarfOpts, Splatter } from './Splat';
 
 // Dragon-breath aim. One source of truth: the building that glints is the
 // building a tap hits.
@@ -62,6 +62,11 @@ export interface Shot {
   travel: number;
   /** ?moon: the crater it lands on (src/moon/CraterPaint.ts), which gives the shot its place and its time */
   crater?: unknown;
+}
+
+/** The barf a tap's shot fires (main.ts's breathe, and tools/feel-sim/loop.ts's tap, so a Node tap is the page's): timed to its flight, at what glints, seen from the bus's height. */
+export function tapOpts(shot: Shot, busY: number): BarfOpts {
+  return { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: busY };
 }
 
 const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
