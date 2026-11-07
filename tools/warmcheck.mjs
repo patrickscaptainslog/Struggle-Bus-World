@@ -321,7 +321,8 @@ if (opt.hose) {
   await phase('hose-refill');
   await wait(3500);
   hoseRun.refilled = (await state()).tank;
-  // the hook: a handler that takes the next hold and fires a homing shot from its release at a point 500 m ahead
+  // the hook: a handler that takes the next hold and fires a homing shot from its release at a point 500 m ahead, at the bus's height or 40 m over the roofs
+  // there (30 m over the ground was in the houses, and the shot ended as a miss into the city)
   await phase('hose-homing');
   await page.evaluate(() => {
     const g = window.__game, H = (window.__wcHoming = { took: 0, fired: 0, white: 0, hit: 0, miss: null });
@@ -331,7 +332,7 @@ if (opt.hose) {
       end(h, cancelled) {
         off();
         if (cancelled) return;
-        const f = g.flight, x0 = f.x + f.fx * 500, z0 = f.z + f.fz * 500, y0 = Math.max(g.city.groundAt(x0, z0) + 30, f.y - 10);
+        const f = g.flight, x0 = f.x + f.fx * 500, z0 = f.z + f.fz * 500, y0 = Math.max(g.city.surfaceAt(x0, z0) + 40, f.y);
         const s = g.holds.fire({ target: (o) => (o.set(x0, y0, z0), true), speed: 300, turn: 2.2, white: 0.7, onWhite: () => H.white++, onHit: () => H.hit++, onMiss: (_a, _s, w) => (H.miss = w) });
         if (s) H.fired++;
       },
