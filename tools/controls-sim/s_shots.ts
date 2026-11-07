@@ -4,13 +4,17 @@
 //
 // Rungs: School Zone, Cruise, Express, Nonstop, Jet, Turbo 1-3, and Jet and Turbo 1-3 at 16 km. Poses: level over the Western Addition (Alamo Square,
 // east) at the rung's floor (the roofs; Nonstop's 60 m; 150 m from Jet up), 300, 1,500 and 6,000 m over the ground; the floor downtown (Market from Van
-// Ness, the towers ahead); over water (north from Fort Mason); the nose 30 and 75 degrees up from 300 m; a 45 degree dive tapped at 800 m. Each at 1/60
-// and 1/30 s. The bus comes into its pose from 3 s back along its way, its gear in, so the lens and the chase have settled when it taps there.
+// Ness, the towers ahead); over water (north from Fort Mason); the nose 30 and 75 degrees up from 300 m; a 45 degree dive tapped at 800 m; full stick
+// right for the 2 s before the tap at the floor over the Western Addition (what glints while steering); at the floor over the hills (Glen Park north at
+// Diamond Heights, the Bayview south at its hills: the arc against the ground, the landing against a ridge). Each at 1/60 and 1/30 s. The bus comes
+// into its pose from 3 s back along its way, its gear in, so the lens and the chase have settled when it taps there.
 //
 // A row: what the tap fired (a splat, a comet, a miss); tap to impact; the landing from the tap and ahead of the bus at the impact, and on what; its
 // screen point at the tap and at the impact (in frame, how far above the bus as a share of the height, clear of the HUD's top band); when the bus passes
-// it; the blast's radius, the buildings it painted and any it raised two levels; a wall that took it; its tile loaded at the tap; the aim's cost a frame.
-// Every row starts on unpainted paint. Streaming is Node's: a region is in the moment it's asked for, so "loaded" is the best case.
+// it; the blast's radius, the buildings it painted and any it raised two levels; a wall that took it; its tile loaded at the tap; the aim's cost a frame;
+// how far off the bus's line it lands; a Comet's arc under the ground at its worst, and the ground over the lens's line to it at the impact; steering,
+// how often what glints changed a second. Every row starts on paint at level 1 everywhere, so a building a tap raised two shows. Streaming is Node's: a
+// region is in the moment it's asked for, so "loaded" is the best case.
 //
 //   node tools/controls-sim/run.mjs s_shots.ts [--save-baseline] [--only=<substring>]
 // --save-baseline writes tools/controls-sim/shots-baseline.json, today's shot (c09e415), which the gates read: every row that isn't a Comet must be the
@@ -46,13 +50,17 @@ const PLACES = {
   wa: { lat: 37.7763, lon: -122.4352, hdg: 88, name: 'the Western Addition, east from Alamo Square' },
   dt: { lat: 37.7752, lon: -122.4193, hdg: 45, name: 'downtown, Market from Van Ness' },
   water: { lat: 37.8065, lon: -122.43, hdg: 0, name: 'north from Fort Mason' },
+  glen: { lat: 37.733, lon: -122.44, hdg: 300, name: 'Glen Park, north at Diamond Heights' },
+  bayview: { lat: 37.73, lon: -122.39, hdg: 200, name: 'the Bayview, south at its hills' },
 } as const;
 type Place = keyof typeof PLACES;
 /** [name, gear (-1 School Zone), turbo level] */
 const RUNGS: Array<[string, number, number]> = [['zone', -1, 0], ['cruise', 0, 0], ['express', EXPRESS, 0], ['nonstop', NONSTOP, 0], ['jet', JET, 0], ['t1', JET, 1], ['t2', JET, 2], ['t3', JET, 3]];
 const COMET_RUNGS = ['nonstop', 'jet', 't1', 't2', 't3'];
-/** a pose: where, how high ('floor' = the rung's own: the roofs, 60 m Nonstop, 150 m from Jet up; else m over the ground, or ASL past 15 km), and the stick */
-interface Pose { key: string; place: Place; h: number | 'floor'; asl?: boolean; nose?: number; dive?: number }
+/** a pose: where, how high ('floor' = the rung's own: the roofs, 60 m Nonstop, 150 m from Jet up; else m over the ground, or ASL past 15 km), and the
+ *  stick (turn: held sideways for TURN_S s before the tap and on) */
+interface Pose { key: string; place: Place; h: number | 'floor'; asl?: boolean; nose?: number; dive?: number; turn?: number }
+const TURN_S = 2;
 const POSES: Array<{ pose: Pose; rungs: string[] }> = [
   { pose: { key: 'wa-floor', place: 'wa', h: 'floor' }, rungs: RUNGS.map((r) => r[0]) },
   { pose: { key: 'wa-300', place: 'wa', h: 300 }, rungs: RUNGS.map((r) => r[0]) },
@@ -64,6 +72,9 @@ const POSES: Array<{ pose: Pose; rungs: string[] }> = [
   { pose: { key: 'wa-nose75', place: 'wa', h: 300, nose: 75 }, rungs: ['cruise', 'nonstop', 'jet', 't3'] },
   { pose: { key: 'wa-dive45', place: 'wa', h: 800, dive: 45 }, rungs: ['cruise', 'nonstop', 'jet', 't3'] },
   { pose: { key: 'wa-16km', place: 'wa', h: 16000, asl: true }, rungs: ['jet', 't1', 't2', 't3'] },
+  { pose: { key: 'wa-turn', place: 'wa', h: 'floor', turn: 1 }, rungs: ['express', 'nonstop', 'jet', 't3'] },
+  { pose: { key: 'glen-floor', place: 'glen', h: 'floor' }, rungs: ['nonstop', 'jet', 't3'] },
+  { pose: { key: 'bayview-floor', place: 'bayview', h: 'floor' }, rungs: ['nonstop', 'jet', 't3'] },
 ];
 /** the stick for a path at `deg` up (+) or down (-) with a gear in (Flight: the nose wants noseUp x pull^noseCurve past the yoke's dead band) */
 const stickFor = (deg: number) => {
@@ -94,6 +105,8 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
   const g = makeGame(city, drive);
   const f = g.flight;
   city.paint.resetAll();
+  // (level 1 everywhere: a tap's blast takes each building to 2, so one it raised two shows as a 3. The review of step 3, 7)
+  for (let i = 1; i < city.paint.data.length; i += 4) city.paint.data[i] = 1;
   const ceiling = config.flight.ceiling;
   if (pose.asl) config.flight.ceiling = 20000; // (?earth's ceiling: past 15 km)
   const v0 = gear > 0 && gear !== EXPRESS ? driveSpeed(gear, level, true) : gear === EXPRESS ? config.flight.surgeSpeed : config.flight.cruiseSpeed;
@@ -125,9 +138,10 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
   const upd = g.aimer.update.bind(g.aimer);
   g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return r; };
   const stick = pose.nose ? stickFor(pose.nose) : pose.dive ? stickFor(-pose.dive) : 0;
+  const turn = pose.turn ?? 0;
   const frame = async (k: number, holdStick: boolean) => {
     if (k % 10 === 0) await pump(city, f.x, f.z, f.lift, f.fx, f.fz);
-    g.frame(dt, holdStick ? { sx: 0, sy: stick, dragging: true } : { sx: 0, sy: 0, dragging: false });
+    g.frame(dt, holdStick ? { sx: turn, sy: stick, dragging: true } : { sx: 0, sy: 0, dragging: false });
     lens.update(dt, drive, rig, f);
     rig.zone = drive.below === SCHOOL_ZONE ? 1 : 0;
     rig.update(cam, focus, f, dt);
@@ -139,10 +153,18 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld(true);
   };
-  // ---- into the pose: the stick held for the nose from 1.5 s before the tap; the dive from the start, tapped as it passes 800 m
-  let k = 0;
+  // ---- into the pose: the stick held for the nose from 1.5 s before the tap; the dive from the start, tapped as it passes 800 m; the turn for the
+  // TURN_S s before the tap, what glints counted each time it changes
+  let k = 0, glints = 0, glintLast: number | undefined = undefined;
   const leadFrames = Math.round(lead / dt);
-  for (; k < leadFrames || (pose.dive && f.y - city.groundAt(f.x, f.z) > 800 && k < leadFrames + 8 / dt); k++) await frame(k, !!pose.dive || (!!pose.nose && k >= leadFrames - 1.5 / dt));
+  const held = (k: number) => !!pose.dive || (!!pose.nose && k >= leadFrames - 1.5 / dt) || (!!turn && k >= leadFrames - TURN_S / dt);
+  for (; k < leadFrames || (pose.dive && f.y - city.groundAt(f.x, f.z) > 800 && k < leadFrames + 8 / dt); k++) {
+    await frame(k, held(k));
+    if (!turn || k < leadFrames - TURN_S / dt) continue;
+    const s = g.aimer.shown(), gi = s ? s.index : -1;
+    if (glintLast !== undefined && gi !== glintLast) glints++;
+    glintLast = gi;
+  }
   // ---- the tap (between frames, as Input's)
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz };
   const before = city.paint.data.slice();
@@ -157,9 +179,10 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
   let impact: any = null, impactScr: Scr | null = null, ahead = NaN, pass: number | null = null, miss = false, refund = -1;
   const maxT = pose.h === 'floor' || (typeof pose.h === 'number' && pose.h < 1000) ? 6 : 30;
   const along = () => (at.x - f.x) * tap.fx + (at.z - f.z) * tap.fz;
+  let hiddenBy = -Infinity;
   for (let j = 0; res.fired && g.t - tap.t < maxT; j++, k++) {
     const was = along();
-    await frame(k, !!stick);
+    await frame(k, !!stick || !!turn);
     if (refund < 0 && f.barfT < 0) refund = f.fullness;
     for (let e = ev0; e < g.events.length && !impact; e++) {
       const ev = g.events[e];
@@ -171,6 +194,12 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
       busV.set(f.x, f.y, f.z);
       impactScr = screen(cam, inner, at, busV);
       ahead = along();
+      // (the ground over the lens's line to it, at the impact: a ridge hiding it)
+      const cp = cam.position, D = Math.hypot(at.x - cp.x, at.z - cp.z);
+      for (let s = 10; s < D - 10; s += 5) {
+        const u = s / D;
+        hiddenBy = Math.max(hiddenBy, city.groundAt(cp.x + (at.x - cp.x) * u, cp.z + (at.z - cp.z) * u) - (cp.y + (at.y - cp.y) * u));
+      }
     }
     if (impact && pass === null) {
       const now = along();
@@ -188,6 +217,15 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
     if (d > 1.5) two++;
   }
   config.flight.ceiling = ceiling;
+  // a Comet's arc (Comet.ts and CometFx.at: the chord, topped by arc 4u(1-u)) against the ground, every 4 m, at its worst
+  let underGround = -Infinity;
+  if (comet) {
+    const L = Math.hypot(comet.x - comet.x0, comet.z - comet.z0);
+    for (let s = 4; s < L - 4; s += 4) {
+      const u = s / L;
+      underGround = Math.max(underGround, city.groundAt(comet.x0 + (comet.x - comet.x0) * u, comet.z0 + (comet.z - comet.z0) * u) - (comet.y0 + (comet.y - comet.y0) * u + comet.arc * 4 * u * (1 - u)));
+    }
+  }
   return {
     key: `${pose.key}/${rname}`, rung: rname, pose: pose.key, fps: Math.round(1 / dt),
     tap: { agl: r1(tap.agl), speed: r1(tap.speed), nose: r1(tap.nose) },
@@ -203,7 +241,11 @@ async function run(rung: [string, number, number], pose: Pose, dt: number) {
     tapScreen: tapScr, impactScreen: impactScr,
     radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(blastRadiusFor(Math.max(0, tap.y - at.y))),
     painted, raisedTwo: two, loaded, refund: r2(refund),
-    plan: comet ? { reach: r1(comet.reach), ahead: r1(comet.ahead), pass: r2(comet.pass), above: r3(comet.above), arc: r1(comet.arc), loaded: comet.loaded } : null,
+    plan: comet ? { reach: r1(comet.reach), ahead: r1(comet.ahead), pass: r2(comet.pass), above: r3(comet.above), arc: r1(comet.arc), arcShare: r3(comet.arc / Math.max(1, Math.hypot(comet.x - comet.x0, comet.z - comet.z0, comet.y - comet.y0))), loaded: comet.loaded } : null,
+    off: r1(Math.abs((at.x - tap.x) * tap.fz - (at.z - tap.z) * tap.fx)),
+    underGround: comet ? r1(underGround) : null,
+    hiddenBy: impact ? r1(hiddenBy) : null,
+    glintsPerS: turn ? r2(glints / TURN_S) : null,
     aimMs: r3(aimMs / Math.max(1, aimN)),
   };
 }
@@ -219,7 +261,9 @@ for (const { pose, rungs } of POSES)
 const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
 mkdirSync(OUT, { recursive: true });
 writeFileSync(`${OUT}/shots.json`, JSON.stringify({ band: r3(BAND), rows }, null, 1));
-const fmt = (r: any) => `${r.key.padEnd(18)} ${String(r.fps).padStart(2)} ${r.kind.padEnd(6)} t ${String(r.tImpact).padStart(6)} from ${String(r.from).padStart(7)} ahead ${String(r.ahead).padStart(8)} pass ${String(r.pass).padStart(6)} on ${r.on.padEnd(6)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'}${r.impactScreen?.clear ? 'c' : '-'} r ${String(r.radius).padStart(5)} painted ${String(r.painted).padStart(3)} two ${r.raisedTwo} loaded ${r.loaded ? 'y' : 'n'} agl ${r.tap.agl} v ${r.tap.speed}`;
+const fmt = (r: any) =>
+  `${r.key.padEnd(18)} ${String(r.fps).padStart(2)} ${r.kind.padEnd(6)} t ${String(r.tImpact).padStart(6)} from ${String(r.from).padStart(7)} ahead ${String(r.ahead).padStart(8)} pass ${String(r.pass).padStart(6)} on ${r.on.padEnd(6)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'}${r.impactScreen?.clear ? 'c' : '-'} r ${String(r.radius).padStart(5)} painted ${String(r.painted).padStart(3)} two ${r.raisedTwo} loaded ${r.loaded ? 'y' : 'n'} agl ${r.tap.agl} v ${r.tap.speed} off ${r.off}` +
+  (r.plan ? ` arc ${r.plan.arcShare} under ${r.underGround} hid ${r.hiddenBy}` : '') + (r.glintsPerS !== null ? ` glints/s ${r.glintsPerS}` : '');
 for (const r of rows) if (r.fps === 60) console.log(fmt(r));
 console.log(`${rows.length} rows in ${((Date.now() - t0) / 1000).toFixed(0)} s; the HUD's top band ends at ${r3(BAND)} of the height`);
 
@@ -236,17 +280,22 @@ const fails: string[] = [];
 let checks = 0;
 const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
 const by = (key: string, fps: number) => rows.find((r) => r.key === key && r.fps === fps);
+const basePoses = new Set(Object.keys(base ?? {}).map((k) => k.split('/')[0]));
 for (const r of rows) {
   const isComet = COMET_RUNGS.includes(r.rung);
   const gated = isComet && (r.pose === 'wa-floor' || r.pose === 'wa-300' || r.pose === 'dt-floor');
   const v = r.tap.speed;
   if (gated) {
     // (a wall that takes it at the floor, downtown or where Turbo's reach gets there from the Western Addition, at least 0.5 s ahead of the bus at the impact)
-    // (at 300 m the bus may not reach it in the run's 6 s: what's ahead of it at the impact says how long it has)
-    const passOk = r.on === 'wall' ? r.ahead >= 0.5 * v : r.pose === 'wa-300' ? (r.pass ?? r.ahead / Math.max(1, v)) >= 1.3 : r.pass !== null && r.pass >= 1.3 && r.pass <= 1.7;
+    // (at 300 m the bus may not reach it in the run's 6 s: what's ahead of it at the impact says how long it has, 1.3 to 3 s. The review of step 3, 7: a
+    // Nonstop Comet 1.26 km ahead, about 5.6 s, passed with no bound)
+    const p300 = r.pass ?? r.ahead / Math.max(1, v);
+    const passOk = r.on === 'wall' ? r.ahead >= 0.5 * v : r.pose === 'wa-300' ? p300 >= 1.3 && p300 <= 3 : r.pass !== null && r.pass >= 1.3 && r.pass <= 1.7;
     ok(r.kind === 'comet', `${r.key}@${r.fps}: a Comet (${r.kind})`);
     ok(r.tImpact !== null && r.tImpact >= 0.6 && r.tImpact <= 0.8, `${r.key}@${r.fps}: lands 0.6-0.8 s after the tap (${r.tImpact})`);
-    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? 'at least 1.3' : '1.3-1.7'} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
+    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? '1.3-3' : '1.3-1.7'} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
+    // (off the bus's line, inside the drops' reach: never a beam out of the bus, the outside look of step 3. A wall's face is where the arc meets it)
+    if (r.kind === 'comet' && r.on !== 'wall') ok(r.off >= 12 && r.off <= config.comet.lensReach, `${r.key}@${r.fps}: lands 12-${config.comet.lensReach} m off the bus's line (${r.off})`);
     ok(r.from <= config.city.loadRadiusHigh + 1, `${r.key}@${r.fps}: within ${config.city.loadRadiusHigh} m of the tap (${r.from})`);
     ok(!!r.impactScreen && r.impactScreen.above >= 0.05 && r.impactScreen.clear, `${r.key}@${r.fps}: at the impact 5 % or more above the bus, clear of the HUD band (${JSON.stringify(r.impactScreen)})`);
     ok(r.painted >= 20 && r.raisedTwo === 0, `${r.key}@${r.fps}: 20 or more buildings, none raised two (${r.painted}, ${r.raisedTwo})`);
@@ -254,14 +303,21 @@ for (const r of rows) {
   }
   if (isComet && r.pose === 'water-floor') ok(r.kind === 'comet' && r.cometMiss && r.refund >= config.splat.missRefund - 0.02 && r.refund < 0.9, `${r.key}@${r.fps}: over water a Comet's miss, with its refund (${r.kind}, miss ${r.cometMiss}, belly after ${r.refund})`);
   if (isComet && r.pose === 'wa-dive45') ok(r.kind === 'comet' && r.ahead > 0 && !!r.impactScreen?.in, `${r.key}@${r.fps}: the dive's tap is a Comet, ahead and in frame (${r.kind}, ahead ${r.ahead}, ${JSON.stringify(r.impactScreen)})`);
-  if (base && r.kind !== 'comet') {
+  // (steering: what glints changes about once a stretch, 1 / (2 x config.comet.hold) a second, and where the margin moves it on as the bus comes up to it
+  // a little more: today's aim's rate at these gears, 3.7-10, where the review of step 3, 3, had 16-26)
+  if (isComet && r.pose === 'wa-turn') ok(r.kind === 'comet' && r.glintsPerS !== null && r.glintsPerS <= 7, `${r.key}@${r.fps}: steering, a Comet, what glints changing 7 times a second or less (${r.kind}, ${r.glintsPerS})`);
+  // (the hills: its arc never into the ground, the review of step 3, 5)
+  if (isComet && (r.pose === 'glen-floor' || r.pose === 'bayview-floor')) ok(r.kind === 'comet' && r.underGround !== null && r.underGround <= 2, `${r.key}@${r.fps}: over the hills a Comet, its arc never 2 m or more into the ground (${r.kind}, ${r.underGround})`);
+  // (the poses the baseline has: the turn and the hills came after it)
+  if (base && r.kind !== 'comet' && basePoses.has(r.pose)) {
     const b = base[`${r.key}@${r.fps}`];
     const d = b ? Math.hypot(r.landing[0] - b.landing[0], r.landing[1] - b.landing[1], r.landing[2] - b.landing[2]) : Infinity;
     ok(!!b && b.kind === r.kind && d <= 0.5 && Math.abs((r.tImpact ?? 0) - (b.tImpact ?? 0)) <= 0.02, `${r.key}@${r.fps}: no Comet, so the baseline's shot (${r.kind} at ${JSON.stringify(r.landing)}, ${r.tImpact} s; baseline ${JSON.stringify(b ? [b.kind, b.landing, b.tImpact] : null)})`);
   }
   if (base && (r.rung === 'zone' || r.rung === 'cruise' || r.rung === 'express')) ok(r.kind !== 'comet', `${r.key}@${r.fps}: School Zone, Cruise and Express never fire a Comet`);
   // (the classic shot from far up lands apart at 30 and 60 fps already: the aim's march is metres long out there. The gate is the Comet's)
-  const s30 = r.fps === 60 ? by(r.key, 30) : null;
+  // (steering integrates at the frame's step, so the turn's rows fly apart at 30 and 60 fps before they tap: not gated)
+  const s30 = r.fps === 60 && r.pose !== 'wa-turn' ? by(r.key, 30) : null;
   if (s30 && (r.kind === 'comet' || s30.kind === 'comet')) {
     const s = s30;
     if (s) ok(s.kind === r.kind && Math.hypot(s.landing[0] - r.landing[0], s.landing[1] - r.landing[1], s.landing[2] - r.landing[2]) <= 2 && Math.abs((s.tImpact ?? 0) - (r.tImpact ?? 0)) <= 0.05, `${r.key}: 30 and 60 fps within 2 m and 0.05 s (${JSON.stringify([r.kind, r.landing, r.tImpact])} against ${JSON.stringify([s.kind, s.landing, s.tImpact])})`);

@@ -1056,11 +1056,12 @@ void main() {
   float z = texelFetch(tDepth, p, 0).r;
   vec4 a = sbAux(p);
   bool layerView = uFogLayer2.w > 0.001 && uCamPos.y > uFogLayer.x && dir.y < -0.001;
-  // impact flash: k = 1 at the blast, falling off over the screen
+  // impact flash: k = 1 at the blast, falling off over the screen (a strength under 0, a Comet's far off: only round it, the rest of the frame as it is)
   float flashK = 0.0;
-  if (uFlash.z > 0.0) {
+  bool flashAll = uFlash.z > 0.0;
+  if (uFlash.z != 0.0) {
     vec2 fd = (vUv - uFlash.xy) * vec2(uSize.x / uSize.y, 1.0);
-    flashK = uFlash.z * (1.0 - smoothstep(uFlash.w, uFlash.w * 4.0, length(fd)));
+    flashK = abs(uFlash.z) * (1.0 - smoothstep(uFlash.w, uFlash.w * 4.0, length(fd)));
   }
   // The sky is what nothing wrote: every sbWrite has flags >= 0.5, the clear is 0. A depth can't say that: with the near plane
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
@@ -1104,7 +1105,7 @@ void main() {
     // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)
     float skyA = 0.0;
     if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
-    if (uFlash.z > 0.0) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
+    if (flashAll || flashK > 0.45) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
     outColor = vec4(sc, skyA);
     return;
   }
@@ -1337,10 +1338,10 @@ void main() {
     }
   }
   // impact flash: white-hot near the blast (shapes kept by their own light),
-  // everything else jumps two or three steps up its own ramp
-  if (uFlash.z > 0.0) {
+  // everything else jumps two or three steps up its own ramp (a Comet's: only round it)
+  if (flashK > 0.0 || flashAll) {
     if (flashK > 0.5 + 0.3 * d) col = pal(${Ramp.GLOW_WHITE}.0, floor(4.5 + 2.6 * light));
-    else col = pal(oRamp, min(oStep + 1.0 + floor(flashK * 3.0 + d), 7.0));
+    else if (flashAll || flashK > 0.04) col = pal(oRamp, min(oStep + 1.0 + floor(flashK * 3.0 + d), 7.0));
   }
   outColor = vec4(col, 1.0);
 }

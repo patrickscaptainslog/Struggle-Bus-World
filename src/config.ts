@@ -697,13 +697,22 @@ export const config = {
   },
 
   /** The Comet (src/game/Comet.ts, docs/specs/shots/SHOTS.md "The modes", BUILT.md step 3): a tap while a gear drives the bus at `speed` or more flies ahead on
-   *  a shallow arc and lands where the bus will be `pass` s after the impact, in view. Its looks are src/fx/CometFx.ts's. */
+   *  an arc through the sky and lands beside where the bus will be `pass` s after the impact, in view. Its looks are src/fx/CometFx.ts's. */
   comet: {
     /** A gear driving the bus at this or more (m/s): Nonstop engaged, Jet, Turbo 1-3. */
     speed: 225,
-    /** Its flight after the inhale (s), and its arc's top over its chord (share of the chord). */
+    /** Its flight after the inhale (s), and its arc's top over its chord (share of the chord), lowered to `arcMin` where its top would leave the frame: by the
+     *  lens moved on to its flight's middle, over `apexTop` of the frame (NDC, 1 its top edge). */
     flight: 0.6,
-    arc: 0.06,
+    arc: 0.17,
+    arcMin: 0.06,
+    apexTop: 0.8,
+    /** It lands this far off the bus's line (m), the side swapping with each Comet, on a building within `sidePick` of there (or of the other side's, or
+     *  of the line, where there's none; with none at all, on the ground): inside the splat and the drops' reach, never a beam out of the bus. */
+    side: 34,
+    sidePick: 12,
+    /** The ground standing more than this over the lens's line to the landing hides it (m): it lands on the ridge. */
+    hide: 4,
     /** It lands where the bus will be this long after the impact (s)... */
     pass: 1.5,
     /** ...at most this far from the tap (m): config.city.loadRadiusHigh, how far the city loads. */
@@ -716,26 +725,39 @@ export const config = {
      *  `arcMax` of the chord. Farther, it takes the Comet on its face. */
     wallAhead: 0.5,
     arcMax: 0.3,
-    /** It lands in the middle of a stretch of its way this many s of the bus's travel either side, anchored to the map (s): what glints holds while the
-     *  bus crosses it, so it doesn't strobe at Turbo 3, and a tap lands the same at 30 and 60 fps. */
+    /** It lands in the middle of a stretch of its way this many s of the bus's travel either side, counted along the bus's travel and held for the stretch
+     *  (s): what glints holds while the bus crosses it, steering or not, so it doesn't strobe at Turbo 3, and a tap lands the same at 30 and 60 fps. */
     hold: 0.12,
     /** Its landing's tile isn't in at the tap (the edge of what's loaded): its blast is planned this long before the impact instead (s). */
     late: 0.2,
     // ---- its looks (src/fx/CometFx.ts)
     /** The full show plays on the first Comet in this long (s), the lighter one on the rest. */
     showEvery: 20,
-    /** The pillar of paint light: height (m), up in `rise` s, gone over `fade` s; the lighter one's height and fade. Its radius at the foot (m). */
+    /** The pillar of paint light: height (m), up in `rise` s, gone over `fade` s; the lighter one's height and fade. Its radius at the foot (m), and never
+     *  thinner than `pillarPx` game pixels on the screen. Its wall dithers away nearer the lens than `pillarWhole` (m), gone by `pillarNear`, so the bus
+     *  flying through it is never lost. */
     pillar: 200,
     pillarLight: 120,
-    rise: 0.35,
+    rise: 0.12,
     fade: 2.5,
     fadeLight: 1.2,
     pillarRadius: 20,
+    pillarPx: 2.5,
+    pillarNear: 35,
+    pillarWhole: 110,
+    /** The impact: a white-hot core over this radius at the landing (m, its share of the screen as far off as it is), held `flashFrames` rendered frames
+     *  and never reaching the bus on the screen; a ring of `ring` motes of paint racing out over the roofs to the blast's edge (the lighter show half). */
+    flashCore: 34,
+    flashFrames: 3,
+    ring: 64,
+    /** Into the water: a splash of `splash` motes thrown up to about `splashUp` m and a soft boom (the lighter show half); it doesn't use up the full show. */
+    splash: 220,
+    splashUp: 70,
     /** Motes in the streak (the lighter one half of them), and in the crown. */
     motes: 400,
     crown: 420,
     /** The bus within this of the pillar's axis (m), under its top: this many drops splat on the lens, run and fade in `dropLife` s (the full show). */
-    lensReach: 40,
+    lensReach: 50,
     dropsMin: 8,
     dropsMax: 14,
     dropLife: 0.5,

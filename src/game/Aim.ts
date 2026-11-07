@@ -307,12 +307,20 @@ export class Aimer {
     this.t = t;
     this.ready = Aimer.loaded(f);
     this.cometPlan = null;
-    // thumb lifted (to tap): freeze what glints while the bus straightens out under it
-    if (this.wasDrag && !dragging && this.ready && this.lastAim) {
-      this.latchRef = this.lastAim;
-      this.latchUntil = t + S.aimLatch;
+    // (the Comet's odometer runs every frame: its stretches are counted along the bus's travel)
+    this.comet?.track(f);
+    // thumb lifted (to tap): freeze what glints while the bus straightens out under it (the Comet's landing as the aim's own pick)
+    if (this.wasDrag && !dragging && this.ready) {
+      if (this.lastAim) {
+        this.latchRef = this.lastAim;
+        this.latchUntil = t + S.aimLatch;
+      }
+      this.comet?.latch(t + S.aimLatch);
     }
-    if (dragging) this.latchRef = null;
+    if (dragging) {
+      this.latchRef = null;
+      this.comet?.unlatch();
+    }
     this.wasDrag = dragging;
     if (!this.ready) {
       this.target = this.latchRef = this.wallRef = this.lastAim = null;
@@ -322,8 +330,9 @@ export class Aimer {
     const own = this.aimOwn(f, t);
     this.lastAim = own;
     // the Comet: a gear at speed lands the tap ahead of the bus, in view, and what glints is where it lands. (The aim's own pick above runs on under
-    // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one)
-    const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut) : null;
+    // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one. Where it applies it takes the place
+    // of ?life's mover, as of the building: HOOKS.md, "The Comet")
+    const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
     if (!c) return this.noteShown(own);
     this.cometPlan = c;
     const aim = this.aim;
@@ -410,8 +419,10 @@ export class Aimer {
       this.moverLatchUntil = this.t + config.splat.aimLatch;
       return;
     }
-    if (!this.ready || this.latchRef) return;
-    // (the aim's own: a Comet's glint isn't latched, it's planned again at the tap from where the bus is)
+    if (!this.ready) return;
+    // (a Comet's landing is latched as it glints, its flight planned again at the tap from where the bus is)
+    if (this.cometPlan) this.comet?.latch(this.t + config.splat.aimLatch);
+    if (this.latchRef) return;
     const s = this.wallRef ?? this.target;
     if (!s) return;
     this.latchRef = s;
