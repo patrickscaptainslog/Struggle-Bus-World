@@ -9,6 +9,10 @@
 // audited every frame, the hold let out again at the street after it, and the lens snapped round at the street. Exit 1 when a view's garden
 // triangles pass --line, when the hold in a view is under --minhold (the line met only by pulling the reaches in), when the flight or a snap
 // finds a pop, when the hold doesn't let out again after the flight, or on a page error.
+// --bomb: the url gets &bomb, so every garden carries its building's index and rides the pogo (src/world/pogo.ts). The n are painted as before but those
+// in a Bomb III's circle from 250 m over the square's middle at level 1, and before the views that Bomb lands there (Splatter.barf as the Bomb's: 1.8 x
+// blastRadiusFor(250), jump 3), its stages raising them to 3 and their gardens growing in while their houses hop: every frame's draws and triangles from
+// its impact to 4 s on, held under 200 and 1.5 M (exit 1 past either), its gardens' own at the end. Then the views as before, all n at level 3.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from '../browser.mjs';
@@ -26,7 +30,7 @@ const MINHOLD = Number(opt.minhold ?? 0.9);
 mkdirSync(out, { recursive: true });
 
 // (the west side of Alamo Square, heading east over it: tools/shots.mjs's grey and high poses start here)
-const Q = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&sky=off&fixeddt=0.0333333' + (opt.q ?? '');
+const Q = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&nohud&sky=off&fixeddt=0.0333333' + (opt.q ?? '') + (opt.bomb ? '&bomb' : '');
 // (the square's middle, from that pose: 48 m east, 13 m north)
 const CX = 48, CZ = -13;
 // where the bus is held for each view: how far back (m, west) of the square's middle, and how high over the ground. The chase lens looks
@@ -73,15 +77,17 @@ report.gpu = await page.evaluate(() => {
 });
 // paint the n nearest to level 3, in the store (as a long session leaves it)
 report.painted = await page.evaluate(
-  ({ n, cx, cz }) => {
+  ({ n, cx, cz, bomb }) => {
     const g = window.__game, c = g.city, x = g.flight.x + cx, z = g.flight.z + cz;
     const near = c.buildingsNear(x, z, 1500, []).sort((a, b) => a.d - b.d);
     const pick = near.slice(0, n);
-    pick.forEach((b, i) => c.paint.set(b.ref.index, { faction: 1, color: i % 6, level: 3, bloomTime: -100 }));
+    // (--bomb: those its circle reaches at level 1, for it to raise)
+    const S = g.config.splat, rb = bomb ? S.blastRadius * (1 + ((S.dropGain300 - 1) * 250) / 300) * g.config.bomb.radius3 : 0;
+    pick.forEach((b, i) => c.paint.set(b.ref.index, { faction: 1, color: i % 6, level: b.d < rb - 10 ? 1 : 3, bloomTime: -100 }));
     c.paint.persist();
     return { asked: n, painted: pick.length, inReach: near.length, radius: Math.round(pick.length ? pick[pick.length - 1].d : 0), x, z };
   },
-  { n: N, cx: CX, cz: CZ },
+  { n: N, cx: CX, cz: CZ, bomb: !!opt.bomb },
 );
 console.log('painted', JSON.stringify(report.painted));
 await page.reload({ waitUntil: 'load' });
@@ -92,6 +98,40 @@ report.programs = await page.evaluate(() => ({ warm: window.__game.warm?.report?
 // --budget=<triangles>: the gardens' own budget for this run (a build that has one: 1e9 draws exactly what's seen, the reaches never held)
 if (opt.budget) report.budget = await page.evaluate((t) => (window.__game.sprouts?.budget ? (window.__game.sprouts.budget.tris = t) : null), Number(opt.budget));
 
+// --bomb: a Bomb III lands on the square's middle from 250 m over it, the frames held to their budget through its stages and the pogo
+if (opt.bomb) {
+  await page.evaluate(({ p }) => {
+    const g = window.__game, f = g.flight, { x, z } = window.__sbStart;
+    window.__qa = { pin: { x: x - p.back, y: g.city.groundAt(x - p.back, z) + p.h, z, heading: f.heading } };
+  }, { p: POSE[250] });
+  await frames(150);
+  await settle();
+  report.bomb = await page.evaluate(
+    () =>
+      new Promise((res) => {
+        const g = window.__game, c = g.city, p = g.perf, S = g.config.splat, B = g.config.bomb, { x, z } = window.__sbStart;
+        const r = S.blastRadius * (1 + ((S.dropGain300 - 1) * 250) / 300) * B.radius3, d0 = c.paint.data.slice(), orig = p.frame.bind(p), tr = [];
+        p.frame = (dt, work) => {
+          orig(dt, work);
+          tr.push([p.calls, p.tris]);
+        };
+        g.splatter.barf(x, z, { drop: 250, radius: r, super: { kind: 'bomb', charge: 1, id: 1 }, hitStop: 0, jump: B.jump3 });
+        const t0 = g.clock();
+        const tick = () => {
+          if (g.clock() - t0 < 5) return requestAnimationFrame(tick);
+          p.frame = orig;
+          const d = c.paint.data;
+          let raised = 0, wrong = 0;
+          for (let i = 1; i < d.length; i += 4) if (d[i] !== d0[i]) (raised++, d[i] !== Math.min(3, d0[i] + B.jump3) && wrong++);
+          let gt = 0;
+          g.scene.getObjectByName('RoofSprouts').traverse((m) => m.isInstancedMesh && m.visible && m.count && (m.layers.mask & 1) && (gt += ((m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3) * m.count));
+          res({ r: Math.round(r), raised, wrong, frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), gardenTris: Math.round(gt) });
+        };
+        tick();
+      }),
+  );
+  console.log(`bomb: a Bomb III of ${report.bomb.r} m raised ${report.bomb.raised} (${report.bomb.wrong} not to min(3, before + 3)); ${report.bomb.frames} frames, at most ${report.bomb.draws} draws and ${(report.bomb.tris / 1e6).toFixed(3)} M triangles; gardens ${report.bomb.gardenTris} after`);
+}
 for (const view of VIEWS) {
   const p = POSE[view];
   await page.evaluate(
@@ -279,6 +319,7 @@ if (snapPops) fails.push(`${snapPops} pops in the snaps`);
 if (held.length) fails.push(`the hold is under ${MINHOLD} in ${held.map(([k, v]) => `${k} (${v.lod.hold.toFixed(3)})`).join(', ')}`);
 if (stuck) fails.push(`the hold stays at ${end[0]} after the flight with room to let out (${end[1]} triangles)`);
 if (over.length) fails.push(`the gardens pass ${LINE} triangles in ${over.map(([k, v]) => `${k} (${v.gardens.tris})`).join(', ')}`);
+if (report.bomb && (report.bomb.draws > 200 || report.bomb.tris > 1.5e6 || report.bomb.wrong || !report.bomb.raised)) fails.push(`the Bomb: ${report.bomb.raised} raised, ${report.bomb.wrong} not to min(3, before + 3), at most ${report.bomb.draws} draws and ${report.bomb.tris} triangles (200 and 1.5 M)`);
 if (errors.length) fails.push(`${errors.length} page errors: ${errors.slice(0, 5).join(' | ')}`);
 for (const f of fails) console.log(`FAIL: ${f}`);
 if (!fails.length) console.log(`pass: the gardens stay under ${LINE} triangles in every view, the hold at ${MINHOLD} or more, no pops in the flight or the snaps, the hold let out after it, no page errors`);
