@@ -19,6 +19,9 @@
 //   (the first) and one with the lighter (the next), its pillar flown through; with --crew in each of the five factions, switched on the crest.
 // --hose: after the blasts, the shots' step 2 by real touches (CDP) over the Western Addition: a tap off the lane, a hold to aim that pours the Hose,
 //   a sweep, the tank run dry, its refill, a second hold taken through the hook (window.__game.holds.add) that fires a homing shot at a point ahead.
+// --bomb: the url has &bomb: after the blasts (and --crew's factions, --comet's Comets), the Bomb (src/game/Bomb.ts) by real touches (CDP) held still on the
+//   bus itself (Input.busBox): at Cruise over the Western Addition a Bomb II and a Bomb III, at Jet a Bomb III where the Comet lands (its full show), and a
+//   gift (holds.bomb.gift(3)) let go at III; with --crew in each of the five factions, switched on the crest.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
 import { chromium } from 'playwright-core';
@@ -260,6 +263,7 @@ let blast = null;
 let crewRun = null;
 let hoseRun = null;
 let cometRun = null;
+let bombRun = null;
 if (street) {
 // the climb to the vista (the yoke pulled: sy -1), and a look around up there
 await phase('climb');
@@ -441,6 +445,77 @@ if (opt.comet) {
     }
   }
 }
+// --bomb: Bomb II and III at Cruise, a Bomb III at Jet on the Comet's landing, and a gift, by real touches held still on the bus, in every faction with --crew
+if (opt.bomb) {
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1, radiusX: 8, radiusY: 8, force: 1 })) });
+  const tapCrest = async (name) => {
+    const b = await page.locator(`[data-hud="${name}"]`).boundingBox({ timeout: 8000 });
+    await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
+    await run(0.3);
+  };
+  const state = () => page.evaluate(() => {
+    const g = window.__game, s = g.bombState(), l = g.lastShot();
+    return { ...s.stats, box: s.box, full: g.cometState().full, comet: !!l?.comet, gear: g.controls.turbo.name, faction: g.splatter.faction };
+  });
+  // (held still on the middle of the bus's box for ms, then lifted: II shows at 0.69 s, III at 1.29)
+  const bombHold = async (key, kind, ms) => {
+    await page.evaluate(() => window.__game.forceReady());
+    await run(0.5);
+    const a = await state();
+    if (!a.box) return bombRun.push({ key, kind, error: 'no busBox' });
+    const x = Math.round((a.box.x0 + a.box.x1) / 2), y = Math.round((a.box.y0 + a.box.y1) / 2);
+    await touch('touchStart', [[x, y]]);
+    await page.waitForTimeout(ms);
+    await touch('touchEnd', []);
+    await run(3.5);
+    const b = await state();
+    bombRun.push({ key, kind, faction: b.faction, gear: b.gear, at: [x, y], fired: b.fired - a.fired, fizzles: b.fizzles - a.fizzles, taps: b.taps - a.taps, tier: b.tier, radius: Math.round(b.radius), jump: b.jump, gift: b.gift, comet: b.comet, full: b.full - a.full });
+  };
+  bombRun = [];
+  // (the page's first touch runs a long task: one in the lane first, as --hose does)
+  await touch('touchStart', [[196, 760]]);
+  await page.waitForTimeout(60);
+  await touch('touchEnd', []);
+  // (every faction's Cruise Bombs first, then every faction's at Jet: back down from Jet a bus still at Jet's speed flew its box off the screen)
+  const keys = opt.crew ? ['atlantis', 'elderwood', 'hyperglow', 'inferno', 'rainbow'] : [null];
+  for (const key of keys) {
+    if (key) {
+      await tapCrest('crew');
+      await tapCrest(`crew-${key}`);
+    }
+    await phase(`bomb-${key ?? 'plain'}-cruise`);
+    await place(37.7752, -122.44, 60, Math.PI / 2 + 0.09);
+    await page.evaluate(() => (window.__qa = null));
+    await settle();
+    await run(1.5);
+    await bombHold(key, 'II', 1000);
+    await bombHold(key, 'III', 1700);
+    await phase(`bomb-${key ?? 'plain'}-gift`);
+    await page.evaluate(() => window.__game.holds.bomb.gift(3));
+    await bombHold(key, 'gift', 650);
+  }
+  for (const key of keys) {
+    if (key) {
+      await tapCrest('crew');
+      await tapCrest(`crew-${key}`);
+    }
+    await phase(`bomb-${key ?? 'plain'}-jet`);
+    // (held there while the city streams in, as --comet's)
+    await page.evaluate(() => {
+      const g = window.__game;
+      const [x, z] = window.__ll(37.7756, -122.4655);
+      const y = g.city.groundAt(x, z) + 150;
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 450 });
+      g.controls.turbo.arrive(3, 0);
+    });
+    await settle();
+    await page.evaluate(() => (window.__qa = null));
+    await run(2.5);
+    await bombHold(key, 'jet', 1700);
+  }
+}
 // the landmarks from altitude: west of the pyramid at 430 m heading east, then Sutro Tower from the east
 await phase('landmarks');
 await place(37.7952, -122.4130, 430, Math.PI / 2);
@@ -486,6 +561,7 @@ const res = {
   crew: crewRun,
   hose: hoseRun,
   comet: cometRun,
+  bomb: bombRun,
   low: lowRun,
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
