@@ -3,7 +3,7 @@ import { gunzip, isGzip } from '../world/gunzip';
 import { parseCityRoutes, parseRegionGraph, type CityRoutes, type RegionGraph } from '../world/lifeData';
 import { ferriesOn, ferryLines, harbourOf, sailsOn, WATER_R, type FerryLine, type Harbour } from './sim/boats';
 import { buildNet, carsOn, type CarNet } from './sim/cars';
-import { curbLand, curbPath, curbTune } from './sim/curb';
+import { type CurbEnd, curbLand, curbPath, curbTune } from './sim/curb';
 import { sunsetSec } from './sim/sun';
 import { parkBlocks, picnicsOn, type LawnTile } from './sim/parks';
 import { livePlanes, LIVE_HOLD, scriptedPlanes, type LivePlane } from './sim/planes';
@@ -46,12 +46,19 @@ export interface LifeCurb {
   length: number;
   look: [number, number] | null;
 }
-/** Its answer: the lane's points (x, y, z, the road's speed), none when there's no street there or the roads aren't in yet. */
+/**
+ * Its answer: the lane's points (x, y, z, the road's speed), none when there's no street there; where each junction with a choice is (the index of its first point
+ * past it), and whether the lane ends at a dead end. `wait`: the roads round there aren't in yet, and the real answer comes when they are.
+ */
 export interface LifeCurbAnswer {
   type: 'curb';
   id: number;
   n: number;
   pts: Float32Array;
+  js: Int32Array;
+  nj: number;
+  dead: boolean;
+  wait?: boolean;
 }
 export interface LifeTick {
   type: 'tick';
@@ -293,6 +300,7 @@ function tick(t: LifeTick): void {
       if (h) n = sailsOn(h, t.utcMs, tz, t.x, t.z, BOAT_REACH, v.rows, n, MAX_ROWS, keys, sunsetSec(place.origin[0], place.origin[1], Math.floor((t.utcMs / 1000 + tz * 60) / 86400), tz));
     }
     roads(t.x, t.y, t.z, marinas);
+    if (curbWaiting && roadsIn(curbWaiting.x, curbWaiting.z, curbWaiting.reach)) curb(curbWaiting);
     // (cars on the roads round the bus, fewer as it climbs away from them, by the place's hour)
     if (t.y < CAR_ALT) {
       if (netStale) rebuild();
@@ -305,13 +313,35 @@ function tick(t: LifeTick): void {
   (self as unknown as Worker).postMessage({ type: 'snap', buf: t.buf }, [t.buf]);
 }
 
-/** Curb's lane: landed again on every ask, by place, since the net's ways are renumbered whenever a region comes or goes. */
+/** A Curb ask waiting for the roads round it (the day review's m21: an empty answer was both "no street" and "not yet"). */
+let curbWaiting: LifeCurb | null = null;
+const curbEnd: CurbEnd = { w: 0, s: 0, dead: false, nj: 0 };
+
+/** Every region within `reach` m of (x, z) has its roads in, or has none: false while one is still on its way. */
+function roadsIn(x: number, z: number, reach: number): boolean {
+  const G = place?.graphs;
+  if (!G) return true;
+  for (const [rx, rz] of G.regions) {
+    if (regionFrom(rx, rz, G.regionM, x, z) > reach) continue;
+    const g = graphs.get(`${rx},${rz}`);
+    if (g === undefined || g === 'asking') return false;
+  }
+  return true;
+}
+
+/** Curb's lane: landed again on every ask, by place, since the net's ways are renumbered whenever a region comes or goes. Held while the roads there aren't in. */
 function curb(m: LifeCurb): void {
+  const post = (a: LifeCurbAnswer) => (self as unknown as Worker).postMessage(a, [a.pts.buffer, a.js.buffer]);
+  if (!roadsIn(m.x, m.z, m.reach)) {
+    if (curbWaiting?.id !== m.id) post({ type: 'curb', id: m.id, n: 0, pts: new Float32Array(0), js: new Int32Array(0), nj: 0, dead: false, wait: true });
+    curbWaiting = m;
+    return;
+  }
+  if (curbWaiting?.id === m.id) curbWaiting = null;
   if (netStale) rebuild();
-  const spot = net ? curbLand(net, m.x, m.z, m.fx, m.fz, m.reach) : null, pts = new Float32Array(Math.ceil(m.length / curbTune.step + 2) * 4);
-  const n = spot && net ? curbPath(net, spot.w, spot.s, m.length, m.look, pts, { w: 0, s: 0 }) : 0;
-  const a: LifeCurbAnswer = { type: 'curb', id: m.id, n, pts };
-  (self as unknown as Worker).postMessage(a, [pts.buffer]);
+  const spot = net ? curbLand(net, m.x, m.z, m.fx, m.fz, m.reach) : null, pts = new Float32Array(Math.ceil(m.length / curbTune.step + 2) * 4), js = new Int32Array(64);
+  const n = spot && net ? curbPath(net, spot.w, spot.s, m.length, m.look, pts, curbEnd, js) : 0;
+  post({ type: 'curb', id: m.id, n, pts, js, nj: n ? curbEnd.nj : 0, dead: n > 0 && curbEnd.dead });
 }
 
 self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn | LifeCurb>) => {
@@ -328,6 +358,7 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn | LifeCurb>) =>
     lines = [];
     net = null;
     netStale = false;
+    curbWaiting = null;
     tzAt = -1;
     tzFmt = null;
   } else if (m.type === 'tick') tick(m);

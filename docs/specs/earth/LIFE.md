@@ -109,17 +109,23 @@ Not yet: L3, the busiest view's draws and triangles measured, waits for the boat
 
 `docs/specs/shots/SHOTS.md`, "Curb: cruising beside the cars": the bus lands on the street and rolls beside the cars with no steering. The road side is life's; the flight, the camera and the landing are the first account's, and call it.
 
-- **The lane** (`sim/curb.ts`, in the worker, on the cars' own net). `curbLand` finds the kerb lane, the right-most, of the nearest way driven the bus's way within 80 m: a way cars may drive, never a tunnel. `curbPath` gives that lane ahead, a point every 4 m with the road's speed. At a junction it goes straight on, or the way the player looks when the look turns from straight on. It never makes a U-turn, and ends at a dead end. There are no lane changes: the plan's push-back.
+- **The line** (`sim/curb.ts`, in the worker, on the cars' own net). `curbLand` finds the bus's line of the nearest way driven the bus's way within 80 m: a way cars may drive, never a tunnel, an alley or a living street. The line is the kerb lane's (the right-most) moved `curbTune.out`, 3.9 m, toward the kerb. The bus is 4 m wide at its scale and a truck 3 m at its, so a truck in the kerb lane passes 0.4 m off it and a car 0.6 to 0.7 m: on a street with one lane each way, every car going the bus's way rides beside it, never inside it (the day review's B2). There the bus's side is 7.5 m from the street's middle, so a kerb drawn for Curb stands there or further out. `curbPath` gives that line ahead, a point every 4 m with the road's speed; where the line crosses itself on a corner's inside it cuts the corner. At a junction it goes straight on, or the way the player looks when the look turns from straight on; it never makes a U-turn, takes an alley only where nothing else goes on, and ends at a dead end. It says where each junction with a choice is and whether it ends at a dead end. There are no lane changes: the plan's push-back. While the roads round an ask aren't in yet, the worker holds it, says `wait`, and answers when they come (the review's m21).
 - **The host** (`Curb.ts`, `life.curb` and `life.curbRoll`):
-  - `curb.land(x, z, heading)` asks the worker. `curb.state` goes 'asking', then 'on', or 'none' (FIND A STREET).
-  - `life.curbRoll(dt, push, look, pose)` each frame gives the bus's place on the lane, its heading and its speed. It rolls at the traffic's speed and pulls up beside the nearest car going its way, measured along the lane so a car round a bend counts. A push rolls on past it. At a dead end it slows to a stop at the kerb.
-  - The next 600 m stretch is asked for by place before the bus is 220 m from the end, so the worker's renumbered net can't lose it.
-  - `curb.onBeside(key)` is told once for a car the bus has ridden beside for 1.5 s; the caller paints it (`life.hit` with the splatter's hue and faction).
+  - `curb.land(x, z, heading, speed?)` asks the worker. `curb.state` goes 'asking', then 'on', or 'none' (FIND A STREET); `curb.waiting` is true while the worker waits for the roads, not yet rather than no street. With `speed` the bus rolls on from it and eases to the pace (H1).
+  - `life.curbRoll(dt, push, look, pose)` each frame gives the bus's place on the line, its heading and its speed. It rolls at the traffic's speed and pulls up beside the nearest car going its way 1.6 to 12 m to the traffic's side, measured along the line so a car round a bend counts. It never closes on a car in its own way (H3, H6). A push rolls on past it.
+  - The look picks the next junction ahead with a choice: when it turns another way than that junction was picked with, the line is asked again from two points before it, so the turn is the one ahead, not one 220 to 600 m on (the review's M12, H2).
+  - The next 600 m stretch is asked for by place before the bus is 220 m from the end, so the worker's renumbered net can't lose it. A stretch that ends at a dead end, or an answer that adds nothing past the end, is the end: the bus brakes to a stop 2 m short of it at no more than 3 m/s², and asks no more (M13, H5).
+  - `curb.onBeside(key)` is told once a landing for a car the bus has ridden beside for 1.5 s; the caller paints it (`life.hit` with the splatter's hue and faction). The set of cars painted that way starts again at each landing.
+  - `curb.beside` is the paced car's key and `curb.besideAt` where it is, while beside (H4). `curb.next` is the nearest car ahead going the bus's way that isn't painted, for its glint (H8). `curb.kerb` is +1, the right (H7): the cars' net drives on the right everywhere for now.
   - `curb.leave()` takes the wheels up.
-- **Checked** in Node on San Francisco's own roads round the Financial District (`tools/life/curb.mjs`):
-  - 761 landings from 800 tries, none the wrong way or in a tunnel, 0.8 ms each;
-  - 600 m lanes with no jump or fold-back (12 real corners past 100 degrees);
-  - looks at junctions;
-  - the host pacing a car round a bend and painting it at 6.6 s;
-  - a push past it, and a long roll over several stretches.
+- **Checked** in Node on San Francisco's own roads round the Financial District (`tools/life/curb.mjs`, 13 rows):
+  - 706 landings from 800 tries, none the wrong way, in a tunnel or in an alley, 0.6 ms each;
+  - 600 m lines with no jump or fold-back;
+  - looks at junctions (27 choices of 27);
+  - the host pacing a car in the kerb lane 3.9 m off it and painting it at 6.9 s, and never pacing a car standing in its own way;
+  - a push past it, and a long roll over several stretches;
+  - landing at 20 m/s and easing to the road's pace;
+  - a look held right from 60 landings taking the first junction ahead with a way right, on average 90 m in (60 of 60);
+  - 12 dead ends: a stop 2 m short of each, braking at most 3.17 m/s², one ask each and none after;
+  - the real cars at Thursday 17:30 over 25 landings of 20 s: the bus inside a vehicle going its way on 0.44 % of frames (the review measured 51 %), inside any on 1.19 %, mostly a car crossing its way at a junction as life's own cars cross each other there, and none of the 18 cars it painted in its own way.
 - **Not checked:** in the browser, where the first account's Curb flight will call it.

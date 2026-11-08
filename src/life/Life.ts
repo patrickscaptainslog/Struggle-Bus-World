@@ -866,7 +866,7 @@ export class LifeHost {
    */
   curbRoll(dt: number, push: number, look: number, out: CurbPose): boolean {
     const s = this.snap;
-    return this.curb.roll(dt, push, look, s, s ? (this.utc - s.f64[0]) / 1000 : 0, this.keys, out);
+    return this.curb.roll(dt, push, look, s, s ? (this.utc - s.f64[0]) / 1000 : 0, this.keys, out, this.painted);
   }
 
   /** A key's hash, as the rows carry it (QA). */
