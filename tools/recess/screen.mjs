@@ -14,7 +14,9 @@
 //   gods      each camp's god standing at its heart from the bell, its heart painted; one toppled by hits at the heart, said, and the heart the attacker's
 //   bell      at the last bell the brain stops and the camera climbs to 1,500 m over the arena: the painted map, and the score in order (scoreboard.png)
 //   freezes   captains paint and nothing freezes: 90 frames on, the game's clock and the match's ran every step (M22)
-//   agrees    each building in a captain's colour stands in or beside one of its squares in the brain; the player's own hits froze 2 s at most, the match's clock on (M23)
+//   agrees    each building in a captain's colour stands in one of its squares in the brain (M43); the player's own hits froze 2 s at most, the match's clock on (M23)
+//   edges     a captain behind the player: its chevron points down, under the clock and over the thumb, its name level (M46); the clock's row under the words' (M61)
+//   rings     each god's ring round its heart: whole when the next hit counts, closing again from a hit; a tap on your own god too soon says so (M47)
 //   B21       a stand-in saved city in the paint stores' own keys is the same after a match, nothing was saved for it, and the next match starts with none painted
 //   flag off  the same page without ?recess has no match and no captains
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
@@ -88,6 +90,22 @@ try {
     return { matchFov: +g.rig.matchFov.toFixed(1), hfov: +g.rig.hfov.toFixed(1), pull: +g.rig.matchPull.toFixed(1), tags: [...document.querySelectorAll('[data-hud=recess-tag]')].filter((e) => e.style.display !== 'none').length, fence: g.scene.getObjectByName('RecessFence')?.count ?? 0, ribbons: g.scene.children.filter((o) => o.name === 'RecessRibbon').length, captainScale: +g.scene.getObjectByName('RecessCaptain1').children[0].scale.x.toFixed(2) };
   });
   row('findable: the lens wider (about 40 degrees), pulled back with a rival near, both captains tagged, the fence up, ribbons behind bigger captains', find.hfov > 38 && find.hfov < 46 && find.pull > 10 && find.tags >= 2 && find.fence > 900 && find.ribbons === 2 && find.captainScale > 2.2, find);
+  // ---- M46 and M61: a captain behind the player, 400 m off: its chevron at the bottom of its frame pointing down, its name level; the clock under the words ----
+  // (pinned again every few frames from where the captain is now, so the chase camera has swung round behind the bus when it's read)
+  for (let k = 0; k < 8; k++) {
+    await page.evaluate(() => {
+      const R = window.__recess, b = R.sim.buses[1], x = R.cx + b.x + 280, z = R.cz + b.z + 280;
+      window.__qa.pin = { x, y: window.__game.flight.y, z, heading: Math.atan2(x - R.cx - b.x, -(z - R.cz - b.z)) };
+    });
+    await frames(4, { pin: await page.evaluate(() => window.__qa.pin) });
+  }
+  const edge = await page.evaluate(() => {
+    const R = window.__recess, el = [...document.querySelectorAll('[data-hud=recess-tag]')][0], H = window.innerHeight, rc = el.getBoundingClientRect(), arrow = el.children[0], rot = /rotate\(([-\d.]+)rad\)/.exec(arrow.style.transform);
+    const clock = document.querySelector('[data-hud=recess]').getBoundingClientRect().top;
+    return { shown: el.style.display !== 'none', midY: Math.round(rc.top + rc.height / 2), H, frameTop: 150, frameBottom: Math.round(H * 0.74), arrowRad: rot ? +(+rot[1]).toFixed(2) : null, nameTurned: /rotate/.test(el.style.transform), clockTop: Math.round(clock), wordsEnd: 10 + 54 + 44, said: R.said };
+  });
+  await page.evaluate(() => delete window.__qa.pin);
+  row('edges: a captain behind points down from the frame\'s bottom, over the thumb and under the clock, its name level; the clock under the words', edge.shown && edge.midY <= edge.frameBottom + 12 && edge.midY >= edge.H * 0.5 && edge.arrowRad !== null && Math.abs(Math.abs(edge.arrowRad) - Math.PI) < 0.7 && !edge.nameTurned && edge.clockTop >= edge.wordsEnd, edge);
   row('up: the match, two captains over the arena, the player on its edge', up.phase === 'play' && up.captains === 2 && up.at.every((c) => c.r < 900 && c.agl > 20 && c.shown) && up.playerR < 800 && up.camps === 3, up);
   await page.screenshot({ path: join(dir, 'match.png') });
   // ---- M22: the captains paint without freezing anything: 90 frames on, the game's clock ran every frame's step, and the match's with it ----
@@ -146,21 +164,31 @@ try {
   // ---- paint: the captains' own hues on the city, in the arena, and in the score ----
   const paint = { atlantis: await landed(2), all: await landed(), score: await page.evaluate(() => window.__recess.sim.score().filter((_, i) => [1, 2, 5].includes(i))), paints: await page.evaluate(() => window.__recess.counts.paint ?? 0) };
   row('paint: where a captain\'s blast lands the buildings are saved as its faction\'s, drawn in its colours, and its squares score', paint.atlantis.blasts > 0 && paint.all.share >= 0.6 && paint.score[1] > 0 && paint.score[2] > 0, paint);
-  // ---- M23: the city's paint agrees with the brain: each building a captain's colour owns stands in or beside a square of that faction's ----
+  // ---- M23 and M43: the city's paint agrees with the brain: each building a captain's colour owns stands in a square of that faction's ----
   const agree = await page.evaluate(() => {
     const g = window.__game, R = window.__recess, A = R.sim.areas, P = g.city.paint;
+    // (M43, as each blast landed: the buildings a captain's blast painted, its faction's within its circle and bloomed as it landed, stand in its own square)
+    let took = 0, inSquare = 0;
+    const off = (g.splatter?.t ?? R.now) - R.now;
+    for (const p of R.painted.filter((q) => q.at < R.now - 1.5))
+      for (const n of g.city.buildingsWithin(p.x, p.z, p.r + 25)) {
+        const r = P.get(n.ref.index);
+        if (r.level < 0.5 || r.faction !== p.faction || Math.abs(r.bloomTime - off - p.at) > 1.2) continue;
+        took++;
+        const k = (((Math.floor((n.ref.cx - R.cx) / 128) & 0xffff) << 16) | (Math.floor((n.ref.cz - R.cz) / 128) & 0xffff)) >>> 0;
+        if (k === p.key) inSquare++;
+      }
     let painted = 0, agrees = 0;
     for (const { ref } of g.city.buildingsWithin(R.cx, R.cz, 900)) {
       const r = P.get(ref.index);
       if (r.level < 0.5 || (r.faction !== 2 && r.faction !== 5)) continue;
       painted++;
-      let ok = false;
-      for (let dz = -1; dz <= 1 && !ok; dz++) for (let dx = -1; dx <= 1 && !ok; dx++) ok = A.get(ref.cx - R.cx + dx * 128, ref.cz - R.cz + dz * 128)?.faction === r.faction;
-      if (ok) agrees++;
+      if (A.get(ref.cx - R.cx, ref.cz - R.cz)?.faction === r.faction) agrees++;
     }
-    return { painted, agrees, share: painted ? +(agrees / painted).toFixed(3) : 0, frozenS: +R.frozen.toFixed(3), lagS: +R.lag.toFixed(3) };
+    return { took, inSquare, landedShare: took ? +(inSquare / took).toFixed(3) : 0, painted, agrees, endShare: painted ? +(agrees / painted).toFixed(3) : 0, frozenS: +R.frozen.toFixed(3), lagS: +R.lag.toFixed(3) };
   });
-  row('paint agrees: every building in a captain\'s colour is in or beside one of its squares; the player\'s hits froze at most 2 s, the match\'s clock on through them', agree.painted > 0 && agree.share >= 0.97 && agree.frozenS <= 2 && Math.abs(agree.lagS - agree.frozenS) < 0.2, agree);
+  // (the end state is printed too: a square a rival later took or knocked grey keeps the old paint its new owner's blast didn't reach)
+  row('paint agrees: every building a captain\'s blast paints is in its own square; the player\'s hits froze at most 2 s, the match\'s clock on through them', agree.took > 20 && agree.landedShare >= 0.97 && agree.frozenS <= 2 && Math.abs(agree.lagS - agree.frozenS) < 0.2, agree);
   // ---- the fence: the bus put just past the edge, flying out: it's bounced back in, pointing in ----
   await page.evaluate(() => { const R = window.__recess, g = window.__game; window.__qa.pin = { x: R.cx + 760, y: g.flight.y, z: R.cz, heading: Math.PI / 2 }; });
   await frames(1, { pin: await page.evaluate(() => window.__qa.pin) });
@@ -200,6 +228,20 @@ try {
     }
     return out;
   });
+  // ---- M47: the gods' rings: whole round a god whose next hit counts; a hit starts one closing again; your own god tapped too soon says so ----
+  const ring0 = await page.evaluate(() => window.__recess.rings.map((r) => ({ shown: r.visible, count: r.count })));
+  const ringHit = await page.evaluate(() => {
+    const R = window.__recess, A = R.sim.areas, k = A.realm.heart(2), ix = (k >>> 16) << 16 >> 16, iz = (k & 0xffff) << 16 >> 16;
+    A.hit((ix + 0.5) * 128, (iz + 0.5) * 128, 2, R.sim.t);
+    const mine = A.realm.heart(0), mx = (((mine >>> 16) << 16 >> 16) + 0.5) * 128, mz = ((((mine & 0xffff) << 16) >> 16) + 0.5) * 128, g = window.__game;
+    A.all.get(mine).last = R.sim.t;
+    R.playerPaint(R.cx + mx, R.cz + mz, g.clock());
+    return { owner: A.all.get(mine).faction };
+  });
+  await frames(3);
+  const ring1 = await page.evaluate(() => ({ rings: window.__recess.rings.map((r) => ({ shown: r.visible, count: r.count })), said: window.__recess.said, tooSoon: window.__recess.counts.tooSoon ?? 0 }));
+  row('rings: a whole ring round each god whose next hit counts; a hit starts its ring closing again; your own god tapped too soon says so', ring0.every((r) => r.shown && r.count === 40) && ring1.rings[2].count < 8 && ring1.rings[1].count === 40 && ring1.tooSoon === 1,
+    { ring0: ring0.map((r) => r.count), ring1: ring1.rings.map((r) => r.count), tooSoon: ring1.tooSoon, said: ring1.said, ...ringHit });
   const fell = await page.evaluate(() => {
     const R = window.__recess, A = R.sim.areas, k = A.realm.heart(1), ix = (k >>> 16) << 16 >> 16, iz = (k & 0xffff) << 16 >> 16, x = (ix + 0.5) * 128, z = (iz + 0.5) * 128;
     const outs = [];

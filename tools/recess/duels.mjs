@@ -277,6 +277,45 @@ row('recess: three camps; a lone captain on grey raises its camp\'s god by the f
 const full = all.filter((d) => d.recess), fsum = (f) => full.reduce((n, d) => n + f(d), 0);
 row('recess: each camp starts with its god (the studio\'s answer); in three minutes some fall, cracks are healed, and the score counts the standing', full.every((d) => d.godsAtStart === 3) && full.some((d) => d.topples > 0) && fsum((d) => d.heals) > 0,
   { matches: full.length, withATopple: full.filter((d) => d.topples > 0).length, topples: fsum((d) => d.topples), cracks: fsum((d) => d.cracks), heals: fsum((d) => d.heals), raised: fsum((d) => d.gods), godsAtTheBell: fsum((d) => d.godsEnd) });
+// (M45, the day review: a captain whose god is cracked goes home its skill's share of the time, not once a danger: 60 matches of the player's stand-in and two
+// captains, every captain's god watched while it stands cracked)
+{
+  let crackedS = 0, defendS = 0, gods = 0, healed = 0, crackedAtBell = 0;
+  const share = { learner: [0, 0], rival: [0, 0], veteran: [0, 0] };
+  for (let n = 0; n < 60; n++) {
+    const la = LEVELS[n % 3], lb = LEVELS[(n + 1) % 3];
+    const r = new Recess([{ faction: R }, { faction: A, bot: la }, { faction: I, bot: lb }], { mode: MODES[n % 3] });
+    const caps = [null, new Captain(la, n * 13 + 3), new Captain(lb, n * 13 + 5)], me = player(n + 101);
+    const was = new Map(), hadCrack = new Set(), heal = new Set();
+    for (let k = 0, steps = Math.round(T.length / r.dt); k < steps; k++) {
+      r.step(r.buses.map((b) => (b.id === 0 ? me(r, b) : caps[b.id].think(r, b)) ?? still));
+      for (const b of r.buses) {
+        if (b.id === 0 || b.home < 0) continue;
+        const h = r.areas.all.get(r.areas.realm.heart(b.home));
+        const cracked = !!h && h.stage === 5 && h.faction === b.faction && h.cracks > 0;
+        const before = was.get(b.id) ?? 0;
+        if (cracked) {
+          crackedS += r.dt;
+          share[caps[b.id].level][0] += r.dt;
+          hadCrack.add(b.id);
+          if (caps[b.id].goal === 'defend') {
+            defendS += r.dt;
+            share[caps[b.id].level][1] += r.dt;
+          }
+        }
+        if (h && h.stage === 5 && h.faction === b.faction && h.cracks < before) heal.add(b.id);
+        was.set(b.id, h && h.stage === 5 && h.faction === b.faction ? h.cracks : 0);
+      }
+    }
+    gods += hadCrack.size;
+    healed += [...hadCrack].filter((id) => heal.has(id)).length;
+    for (const id of hadCrack) if ((was.get(id) ?? 0) > 0) crackedAtBell++;
+  }
+  const by = Object.fromEntries(Object.entries(share).map(([k, [c, d]]) => [k, c ? +(d / c).toFixed(2) : null]));
+  // (the review's second reading: 1.4 % of cracked time defending, 31 of 107 cracked gods healed; the skills' shares are 40, 70 and 95 %, less the trips home)
+  row('defend: a captain with its god cracked goes home its skill\'s share of the time, and most cracked gods are healed', defendS / crackedS > 0.4 && healed / gods > 0.6 && by.learner < by.rival && by.rival < by.veteran,
+    { crackedGods: gods, healed, crackedAtBell, defendingShare: +(defendS / crackedS).toFixed(2), byLevel: by });
+}
 // (both players see it: the same seed and hands, the same match)
 const again = [0, 1, 2, 3, 7, 11, 19].map((n) => duel(n).crc === all[n]?.crc);
 row('duels: a match replays the same from its seed, every event at its moment', again.every(Boolean), { replayed: again.length });

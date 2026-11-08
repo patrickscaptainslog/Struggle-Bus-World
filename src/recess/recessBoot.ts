@@ -10,8 +10,7 @@
 
 import * as THREE from 'three';
 import { BusModel, type BusPose } from '../bus/BusModel';
-import { config } from '../config';
-import { Faction, squareCentre } from '../factions/areas';
+import { areaTune, Faction, squareCentre, squareKey } from '../factions/areas';
 import type { Flight } from '../game/Flight';
 import { latLonToLocal } from '../game/geo';
 import type { MoverAim, MoverTarget } from '../game/Aim';
@@ -70,9 +69,27 @@ export const recessScreen = {
   /** the camera's climb at the bell (s), and how high over the arena's ground it goes (m) */
   rise: 4,
   scoreboard: 1500,
+  /** a god's ring (M47): `ringBubbles` bubbles `ringSize` m round on a circle `ringR` m round its heart, `ringUp` m over the ground there, breathing out by
+   *  `ringBreath` on the beat when it's closed */
+  ringBubbles: 40,
+  ringSize: 4,
+  ringR: 56,
+  ringUp: 30,
+  ringBreath: 0.12,
+  /** the clock and the score's row, this far under the safe area's top (px): under the words' slot (M61) */
+  clockTop: 112,
+  /** an edge chevron's frame (M46): this far under the safe area's top (px, clear of the clock's row), no lower than this share of the height (clear of the
+   *  thumb), and this far in from the sides (px) */
+  tagTop: 150,
+  tagBottom: 0.74,
+  tagSide: 30,
   /** the captains fly this high over the ground, and this over what's under them and ahead (m) */
   captainAGL: 45,
   captainClear: 22,
+  /** the match's paint keeps inside the square the brain gave its shooter (the first account's M43): a blast `paintR` m round, its middle moved into the square
+   *  so it stays `paintEdge` m inside its edges; a heart's blast as big as fits */
+  paintR: 40,
+  paintEdge: 6,
 };
 
 /** The arena (FACTIONS.md section 4: "a 1.5 km circle the game picks where any city is densest"): San Francisco's where Alamo Square, the Lower Haight and Hayes
@@ -140,6 +157,8 @@ export class RecessGame implements MoverAim {
   private lag = 0;
   private hud: HTMLDivElement | null = null;
   private hudText = '';
+  /** the safe area's top (px), read once */
+  private safeTop = 0;
   private readonly pose: BusPose = { squash: 1, eye: 1, fullness: 1, mouth: 0, speed: 0, wheeze: 0, heave: 0 };
   private readonly eul = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly camFrom = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
@@ -165,10 +184,14 @@ export class RecessGame implements MoverAim {
   private readonly qRoll = new THREE.Quaternion();
   private readonly zAxis = new THREE.Vector3(0, 0, 1);
   private bounceAt = -Infinity;
+  /** QA: the last words said */
+  said = '';
+  /** each heart's ring (M47) */
+  private readonly rings: THREE.InstancedMesh[] = [];
   /** the camps' hearts as they were last step */
   private readonly hearts: { n: number; key: number; faction: number; stage: number; cracks: number }[] = [];
   /** QA: the captains' last paint on the city, where and whose, landing when */
-  readonly painted: { x: number; z: number; faction: number; at: number }[] = [];
+  readonly painted: { x: number; z: number; faction: number; at: number; r: number; key: number }[] = [];
   /** QA: what happened, by kind */
   readonly counts: Record<string, number> = {};
 
@@ -202,6 +225,9 @@ export class RecessGame implements MoverAim {
     for (let n = 0; n < R.count; n++) {
       const a = this.sim.areas.all.get(R.heart(n));
       this.hearts.push({ n, key: R.heart(n), faction: a?.faction ?? 0, stage: a?.stage ?? 0, cracks: 0 });
+      const ring = makeRing();
+      h.scene.add(ring);
+      this.rings.push(ring);
     }
     bots.forEach((b, i) => this.captains.push(new Captain(b, 0x5eed + i * 101)));
     for (const b of this.sim.buses) {
@@ -355,8 +381,14 @@ export class RecessGame implements MoverAim {
         for (let i = this.pending.length - 1; i >= 0; i--) {
           const p = this.pending[i];
           if (this.sim.t < p.at) continue;
-          this.sim.areas.hit(p.x, p.z, Faction.RAINBOW, this.sim.t);
+          const o = this.sim.areas.hit(p.x, p.z, Faction.RAINBOW, this.sim.t).outcome, a = this.sim.areas.get(p.x, p.z);
           this.pending.splice(i, 1);
+          // (on a god: a tap before its ring closes is wasted, and says so; a whole god's ring only starts again. The seal is said with the heart's watch)
+          if (a?.stage === 5) {
+            if (o === 'encore' || o === 'parry') this.count('tooSoon');
+            if (o === 'encore' || o === 'parry') this.say([o === 'encore' ? 'TOO SOON' : 'PARRIED', 'WAIT FOR THE RING'], 1.2, 2);
+            else if (o === 'guard') this.say(['GUARDED', 'THE RING STARTS AGAIN'], 1.2, 1);
+          }
         }
         this.events();
         this.watchHearts();
@@ -365,6 +397,7 @@ export class RecessGame implements MoverAim {
       this.player(clock, f);
     }
     this.draw(dt, simTime);
+    this.drawRings();
     this.hitFx(simTime);
     this.lens(clock);
     if (this.phase !== 'over') this.kickoff(simTime, camera);
@@ -572,12 +605,37 @@ export class RecessGame implements MoverAim {
       } else if (a.stage === 5 && a.cracks > h.cracks) {
         const need = A.toppleHits(h.n, a.faction);
         this.say([mine ? 'YOUR GOD IS CRACKED' : `${name}'S GOD CRACKED`, `${a.cracks} OF ${need}`], 1.6, mine ? 2 : 1);
-      } else if (a.stage === 5 && a.cracks < h.cracks && mine) this.say(['HEALED'], 1, 1);
+      } else if (a.stage === 5 && a.cracks < h.cracks) {
+        // (seal two: a ready owner's hit seals two cracks, or the one there is)
+        const k = h.cracks - a.cracks, what = k >= 2 ? 'TWO CRACKS' : 'A CRACK';
+        this.say(mine ? ['SEALED', what] : [`${name} SEALS`, what], 1.4, mine ? 2 : 1);
+      }
       h.faction = a.faction;
       h.stage = a.stage;
       h.cracks = a.cracks;
     }
     void R;
+  }
+
+  /**
+   * The gods' rings (decision 16, "seal two"; the day review's M47): round each standing god's heart, bubbles in its owner's colour that close over the five
+   * seconds after a hit, and whole, breathing on the beat, when the next hit counts: a seal of two from its owner, a crack from a raider.
+   */
+  private drawRings(): void {
+    const A = this.sim.areas, R = recessScreen;
+    this.hearts.forEach((h, i) => {
+      const ring = this.rings[i], a = A.all.get(h.key);
+      if (!a || a.stage !== 5) {
+        ring.visible = false;
+        return;
+      }
+      const c = squareCentre(h.key), x = this.cx + c.x, z = this.cz + c.z, s = Math.min(1, Math.max(0, (this.sim.t - a.last) / areaTune.cooldown));
+      ring.position.set(x, this.h.groundAt(x, z) + R.ringUp, z);
+      ring.visible = true;
+      ring.count = s >= 1 ? R.ringBubbles : Math.floor(s * R.ringBubbles);
+      (ring.material as THREE.ShaderMaterial).uniforms.uRamp.value = SIDES[a.faction]?.ramp ?? Ramp.GLOW_WHITE;
+      ring.scale.setScalar(s >= 1 ? 1 + R.ringBreath * Math.max(0, Math.sin(this.now * Math.PI * 2 * (84 / 60))) : 1);
+    });
   }
 
   /** A big blast of `faction`'s paint on heart square `key`. */
@@ -586,15 +644,21 @@ export class RecessGame implements MoverAim {
     this.paint(c.x, c.z, faction, 0.4, this.h.groundAt(wx, wz) + 80, 1.5);
   }
 
-  /** Paint on the real city at brain point (x, z), `faction`'s: Rainbow's dealt hues, a captain's one. */
+  /**
+   * Paint on the real city at brain point (x, z), `faction`'s: Rainbow's dealt hues, a captain's one. Inside the square (x, z) is in, as the brain takes only
+   * that square: the blast `paintR` m round (`size` times, as much as fits), its middle moved in from the edges so it stays `paintEdge` m inside them (M43).
+   * The match's paint draws no stream from the player's bus (M44).
+   */
   private paint(x: number, z: number, faction: number, travel: number, fromY: number, size = 1): void {
-    const wx = this.cx + x, wz = this.cz + z;
+    const R = recessScreen, c = squareCentre(squareKey(x, z)), half = areaTune.size / 2 - R.paintEdge, r = Math.min(R.paintR * size, half), room = half - r;
+    const wx = this.cx + Math.max(c.x - room, Math.min(c.x + room, x)), wz = this.cz + Math.max(c.z - room, Math.min(c.z + room, z));
     const drop = Math.max(0, fromY - this.h.groundAt(wx, wz));
     if (faction !== Faction.RAINBOW) {
-      this.painted.push({ x: wx, z: wz, faction, at: this.now + travel });
+      this.painted.push({ x: wx, z: wz, faction, at: this.now + travel, r, key: squareKey(wx - this.cx, wz - this.cz) });
       if (this.painted.length > 64) this.painted.shift();
     }
-    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, faction, hitStop: 0, tag: QUIET, ...(size !== 1 ? { radius: config.splat.blastRadius * size } : {}) });
+    // (no building picked to land on: the game's own pick could be the next square's, and it's always painted, wherever it stands)
+    this.h.barf(wx, wz, { travel: Math.max(0.05, travel), drop, from: fromY, faction, hitStop: 0, tag: QUIET, stream: true, radius: r, target: null });
   }
 
   /** A hit's flash on bus `id`, in the air where it is: a hit on or by the player freezes the screen, at most 2 s a match; one between captains is quiet. */
@@ -694,6 +758,7 @@ export class RecessGame implements MoverAim {
   /** A word for the player, the more important over the less, none over a more important one still up. */
   private say(lines: string[], seconds: number, rank: number): void {
     if (this.now < this.saidAt && rank < this.saidRank) return;
+    this.said = lines.join(' / ');
     this.saidAt = this.now + seconds;
     this.saidRank = rank;
     this.h.toast(lines, seconds);
@@ -706,8 +771,15 @@ export class RecessGame implements MoverAim {
   // ---- the clock and the score, top middle ----
 
   private makeHud(): void {
+    // (the safe area's top, px: a chevron keeps under it, and under the clock)
+    const probe = document.createElement('div');
+    Object.assign(probe.style, { position: 'fixed', top: '0', height: 'env(safe-area-inset-top)', visibility: 'hidden' });
+    document.body.append(probe);
+    this.safeTop = probe.offsetHeight || 0;
+    probe.remove();
     const d = document.createElement('div');
-    Object.assign(d.style, { position: 'fixed', left: '50%', top: 'calc(env(safe-area-inset-top) + 64px)', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: '21' });
+    // (under the words' slot, which ends at most 103 px under the safe area's top (hudLayout.ts: the toast at T + 54, 44 high): the day review's M61)
+    Object.assign(d.style, { position: 'fixed', left: '50%', top: `calc(env(safe-area-inset-top) + ${recessScreen.clockTop}px)`, transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: '21' });
     d.dataset.hud = 'recess';
     document.body.append(d);
     this.hud = d;
@@ -759,9 +831,11 @@ export class RecessGame implements MoverAim {
       }
       if (onScreen) tag.show((x * 0.5 + 0.5) * W, (0.5 - y * 0.5) * H, null, d);
       else {
-        // (to the edge, along the way it lies)
-        const k = 0.9 / Math.max(Math.abs(x), Math.abs(y), 1e-6);
-        tag.show((x * k * 0.5 + 0.5) * W, (0.5 - y * k * 0.5) * H, Math.atan2(-y, x), d);
+        // (to the edge, along the way it lies from the middle, inside a frame clear of the status bar and the clock above and the thumb below: the day review's
+        // M46. The arrow points at it, angle up positive; the name stays level)
+        const R = recessScreen, top = this.safeTop + R.tagTop, bot = H * R.tagBottom, cx = W / 2, cy = H / 2, dx = x * W, dy = -y * H;
+        const k = Math.min(dx > 0 ? (W - R.tagSide - cx) / dx : dx < 0 ? (R.tagSide - cx) / dx : Infinity, dy > 0 ? (bot - cy) / dy : dy < 0 ? (top - cy) / dy : Infinity);
+        tag.show(cx + dx * k, cy + dy * k, Math.atan2(y * H, x * W), d);
       }
     }
   }
@@ -845,6 +919,23 @@ class Ribbon {
 }
 
 /** The fence (SHOTS.md): chalk bubbles round the arena's edge, in rows over the ground there. One draw. */
+/** A god's ring: `ringBubbles` bubbles round its heart, from the north clockwise, drawn as many as have closed (InstancedMesh.count). */
+function makeRing(): THREE.InstancedMesh {
+  const R = recessScreen, n = R.ringBubbles;
+  const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(R.ringSize, 0), makeRampMaterial({ ramp: Ramp.GLOW_WHITE, glow: 0.6, noOutline: true, shadowMul: 0 }), n);
+  const m = new THREE.Matrix4();
+  for (let k = 0; k < n; k++) {
+    const a = -Math.PI / 2 + (k / n) * Math.PI * 2;
+    mesh.setMatrixAt(k, m.makeTranslation(Math.cos(a) * R.ringR, 0, Math.sin(a) * R.ringR));
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.count = 0;
+  mesh.visible = false;
+  mesh.frustumCulled = false;
+  mesh.name = 'RecessRing';
+  return mesh;
+}
+
 function makeFence(cx: number, cz: number, groundAt: (x: number, z: number) => number): THREE.InstancedMesh {
   const R = recessScreen, r = recessTune.radius, per = Math.round((Math.PI * 2 * r) / R.fenceStep), rows = R.fenceRows;
   const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.6, 0), makeRampMaterial({ ramp: Ramp.GLOW_WHITE, glow: 0.35, noOutline: true, shadowMul: 0 }), per * rows.length);
@@ -860,10 +951,12 @@ function makeFence(cx: number, cz: number, groundAt: (x: number, z: number) => n
   return mesh;
 }
 
-/** A tag on the HUD: a name and distance over a captain, or a chevron at the screen's edge. */
+/** A tag on the HUD: a name and distance over a captain, or a chevron at the screen's edge pointing to it, the name level beside it. */
 class Tag {
   readonly id: number;
   private readonly el: HTMLDivElement;
+  private readonly arrow: HTMLDivElement;
+  private readonly label: HTMLDivElement;
   private readonly name: string;
   private readonly colour: number;
   private text = '';
@@ -873,29 +966,40 @@ class Tag {
     this.colour = colour;
     this.id = id;
     const d = document.createElement('div');
-    Object.assign(d.style, { position: 'fixed', left: '0', top: '0', pointerEvents: 'none', zIndex: '21', display: 'none' });
+    Object.assign(d.style, { position: 'fixed', left: '0', top: '0', pointerEvents: 'none', zIndex: '21', display: 'none', flexDirection: 'column', alignItems: 'center' });
     d.dataset.hud = 'recess-tag';
+    const a = document.createElement('div'), l = document.createElement('div'), c = new PixelCanvas(12, 12, 2);
+    c.clear();
+    c.textOutlined('▲', 3, 2, colour, C.ink, HUD_FONT);
+    c.flush();
+    a.append(c.el);
+    d.append(a, l);
     document.body.append(d);
     this.el = d;
+    this.arrow = a;
+    this.label = l;
   }
 
   hide(): void {
     this.el.style.display = 'none';
   }
 
-  /** At (x, y) CSS px: over the bus (`angle` null), or at the edge pointing `angle` (rad, 0 to the right, up positive). */
+  /** At (x, y) CSS px: over the bus (`angle` null), or at the edge with its arrow pointing `angle` (rad, 0 to the right, up positive) and its name level. */
   show(x: number, y: number, angle: number | null, d: number): void {
-    const t = `${angle === null ? '' : '▲ '}${this.name}${this.name ? ' ' : ''}${Math.round(d / 10) * 10}M`;
+    const t = `${this.name}${this.name ? ' ' : ''}${Math.round(d / 10) * 10}M`;
     if (t !== this.text) {
       this.text = t;
       const w = textWidth(t, HUD_FONT) + 6, c = new PixelCanvas(w, 12, 2);
       c.clear();
       c.textOutlined(t, 3, 2, this.colour, C.ink, HUD_FONT);
       c.flush();
-      this.el.replaceChildren(c.el);
+      this.label.replaceChildren(c.el);
     }
-    this.el.style.display = 'block';
-    const rot = angle === null ? '' : ` rotate(${(-angle + Math.PI / 2).toFixed(3)}rad)`;
-    this.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)${rot}`;
+    this.el.style.display = 'flex';
+    this.arrow.style.display = angle === null ? 'none' : 'block';
+    // (the name on the side away from the edge it points past: under the arrow, but over it when it points down)
+    this.el.style.flexDirection = angle !== null && Math.sin(angle) < -0.3 ? 'column-reverse' : 'column';
+    if (angle !== null) this.arrow.style.transform = `rotate(${(Math.PI / 2 - angle).toFixed(3)}rad)`;
+    this.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, ${angle === null ? '-100%' : '-50%'})`;
   }
 }

@@ -91,19 +91,19 @@ export class Captain {
       this.flickAt = Infinity;
     }
     // (what it wants: home when its god is in danger, its avenger's mark, then a hunt or the ground, rerolled every few seconds)
-    // (rolled once a danger, not every step: the first account's review, m33. Home, it hunts the raider one time in seven (the studio's heal study), and
-    // otherwise heals and guards its god on the ring)
+    // (rolled when a danger starts, not every step: the first account's review, m33; and again each time its run of 4 to 7 s ends while the danger lasts, so a
+    // god cracked and not healed at once still gets its owner back, its skill's share of the time (the day review's M45). Home, it hunts the raider one time in
+    // seven (the studio's heal study), and otherwise heals and guards its god on the ring. The danger over, it goes back to its own)
     const danger = this.danger(r, me);
     if (danger && !this.alarmed) {
       this.alarmed = true;
-      if (this.rand() < S.defend) {
-        this.goal = 'defend';
-        this.goalUntil = t + 4 + this.rand() * 3;
-        this.chase = this.rand() < 0.15;
-      }
+      this.rollDefend(t);
     }
-    if (!danger) this.alarmed = false;
-    if (t >= this.goalUntil) {
+    if (!danger) {
+      this.alarmed = false;
+      if (this.goal === 'defend') this.goalUntil = t;
+    }
+    if (t >= this.goalUntil && !(danger && this.rollDefend(t))) {
       this.goal = this.rand() < S.hunt ? 'hunt' : 'paint';
       this.goalUntil = t + 3 + this.rand() * 4;
       this.pickGround(r, me);
@@ -154,6 +154,15 @@ export class Captain {
       }
     }
     return h;
+  }
+
+  /** Its skill's roll to go home and defend for 4 to 7 s: true if it does. */
+  private rollDefend(t: number): boolean {
+    if (this.rand() >= this.skill.defend) return false;
+    this.goal = 'defend';
+    this.goalUntil = t + 4 + this.rand() * 3;
+    this.chase = this.rand() < 0.15;
+    return true;
   }
 
   /** Its god in danger: cracked (true), or a rival bus within 350 m of its heart (that bus); else null. */
