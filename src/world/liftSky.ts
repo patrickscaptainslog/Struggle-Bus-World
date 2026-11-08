@@ -45,6 +45,8 @@ export interface SkyPlace {
  * can't touch them, so they stand over its climb's chase view, not in it. Each piece stands higher where the floating roofs under it call for it.
  */
 export const SKY_Y = 300;
+/** QA, &skyy=<m>: the pieces' height over the heart's ground for the checks instead (clear3: lower, the floating roofs hold some of them up) */
+const skyOver = (typeof location !== 'undefined' && Number(new URLSearchParams(location.search).get('skyy'))) || SKY_Y;
 /** How far each piece stays over the highest floating roof under it (m): over Lift.roofNear's reach, which has the overshoot and the heave in it. */
 const SKY_CLEAR = 12;
 /**
@@ -64,7 +66,7 @@ const FOOT_Y = 220;
  * reach downward, each as a disc (x, z, its radius, and how far under the height its lowest part comes, m).
  */
 function skyY(p: SkyPlace, under: ReadonlyArray<readonly [number, number, number, number]>): number {
-  let Y = p.ground + SKY_Y;
+  let Y = p.ground + skyOver;
   for (const [x, z, r, depth] of under) Y = Math.max(Y, p.roof(x, z, r) + depth + SKY_CLEAR);
   return Y;
 }
