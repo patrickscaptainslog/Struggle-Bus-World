@@ -233,6 +233,12 @@ export class PaintState {
     if (was && rec.level < 0.5) this.paintedCount--;
   }
 
+  /** &falls (fx/Falls.ts): a building's bloom time moved on by `s` s, for the GPU only (its level, hue and the saved store as they are). */
+  delay(index: number, s: number) {
+    this.data[index * 4 + 2] += s;
+    this.dirty.add(index);
+  }
+
   /**
    * ?lift&lifted (world/Lift.ts): paint for this session only. The texel and the painted count, as set() writes them, and never the saved store or
    * its timer: a reload, or a page without the flag, has the player's own paint.

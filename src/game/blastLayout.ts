@@ -38,10 +38,19 @@ export interface BlastSpec {
   oz?: number;
   /** the hitter's faction (game/factions.ts): what it paints is that faction's. None: Rainbow, as every blast before factions */
   faction?: number;
+  /** layout POOL (&falls): the tower's walls' distance from (x, z) by angle, SHAPE_LUT steps from +x toward +z (src/fx/Falls.ts's footLut): its edge keeps
+   *  to the walls' shape, `r` less the farthest of them past each, and it's revealed outward from them. Not saved: a pool redrawn from a save is a circle */
+  foot?: Float32Array;
 }
 
 /** BlastSpec.layout: hue by distance from (ox, oz), not from the impact, so many overlapping blasts paint one picture. */
 export const LAYOUT_BANDS = 3;
+/** BlastSpec.layout: &boom's ring (src/game/Boom.ts), the pinwheel's hues on a band from `ring` m out to its edge; the ground inside it is left bare. */
+export const LAYOUT_RING = 4;
+/** BlastSpec.layout: &falls's pool (src/fx/Falls.ts), its one hue revealed outward from the tower's walls (`foot`, or `ring` m without it) at POOL_SPREAD m/s,
+ *  not by the wave. */
+export const LAYOUT_POOL = 5;
+export const POOL_SPREAD = 6;
 
 /** A spatter dot beyond the edge (a flung blob lands on it, or it sits still). */
 export interface BlastDot {

@@ -7,6 +7,7 @@ import type { Flight } from '../game/Flight';
 import type { TurboDrive } from '../game/Turbo';
 import type { CameraRig } from '../game/CameraRig';
 import type { Particles } from './Particles';
+import { boomed, boomedOr, boomOn, hoopPose, type BoomPlan, type HoopPose } from '../game/Boom';
 
 // Turbo gear effects. Everything 3D writes the indexed G-buffer (palette ramps
 // via sbWrite, no free RGB), dissolves by hard thresholds (no alpha), is one
@@ -50,6 +51,15 @@ export const turboFxTune = {
   hoopR0: 9,
   hoopR1: 92,
   hoopBack: 150,
+  /** &boom's crack (src/game/Boom.ts) over the whole frame: the flash, how long (s) and how strong (its first 0.05 s white-hot); the sky's pressure ring, how
+   *  long its front takes to race out (s) and how far from the bus's heading it gets (rad: the sky's top edge is about 0.45 from it and the frame's bottom
+   *  about 1, so it rolls up through the sky over its first half second and on down the city; out to 1.9 in 0.85 s it crossed the sky in 0.2, the stills);
+   *  the camera's jolt (rad), pitch and roll ringing down */
+  crackFlash: 0.16,
+  crackFlashK: 0.55,
+  crackFront: 1.5,
+  crackFrontMax: 1.2,
+  crackJolt: 0.03,
   /** fov kick spring (Hz) */
   kickHz: 2.2,
 };
@@ -131,6 +141,33 @@ export class TurboLens {
   }
 }
 
+const HOOP_Z = new THREE.Vector3(0, 0, 1), HOOP_N = new THREE.Vector3(), HOOP_UP = new THREE.Quaternion(), HOOP_LIE_Q = new THREE.Quaternion();
+const HOOP_X = new THREE.Vector3(1, 0, 0);
+
+/**
+ * &boom's hoop turned `flat` of the way (0 upright, facing (nx, nz) along the path; 1 lying flat on the band, TurboFx.landHoop, s_boom checks it): its
+ * face tips over about the path's own crosswise axis, eased, so it falls straight forward onto the band on every heading (from a yaw-only pose to a
+ * yawless one it swung up to 45 degrees sideways on its way down, by the compass).
+ */
+export function hoopTurn(nx: number, nz: number, flat: number, out: THREE.Quaternion): THREE.Quaternion {
+  HOOP_UP.setFromUnitVectors(HOOP_Z, HOOP_N.set(nx, 0, nz));
+  HOOP_LIE_Q.setFromAxisAngle(HOOP_X, (-Math.PI / 2) * flat * flat * (3 - 2 * flat));
+  return out.multiplyQuaternions(HOOP_UP, HOOP_LIE_Q);
+}
+
+/**
+ * &boom's crack over the frame `age` s after the flick into Turbo 3 (TurboFx draws it, s_boom checks it): the flash's strength over the whole frame (0: none;
+ * a sky white and every surface a step or two up its ramp, white-hot round the nose), and the sky's pressure ring, its front's angle from the bus's heading
+ * (rad, racing out and slowing; under 0: none). Into `out`.
+ */
+export function crackSky(age: number, out: { flash: number; front: number }): { flash: number; front: number } {
+  const X = turboFxTune;
+  out.flash = age >= 0 && age < X.crackFlash ? (age < 0.05 ? 0.9 : X.crackFlashK) : 0;
+  const u = (age - 0.03) / X.crackFront;
+  out.front = u >= 0 && u < 1 ? X.crackFrontMax * (1 - Math.pow(1 - u, 1.2)) : -1;
+  return out;
+}
+
 export class TurboFx {
   readonly object = new THREE.Group();
   readonly lens = new TurboLens();
@@ -151,7 +188,8 @@ export class TurboFx {
   private tHead = -1;
   private tCount = 0;
   private readonly trail: THREE.Mesh;
-  private readonly trailU = { uOn: { value: 0 }, uBillow: { value: 9 }, uWander: { value: 5 } };
+  /** uTrailRows: its six bands' rows, the bus's faction's spray (setTrailRows; Rainbow's hues, the rows it always had, until a faction is picked) */
+  private readonly trailU = { uOn: { value: 0 }, uBillow: { value: 9 }, uWander: { value: 5 }, uTrailRows: { value: HUE_RAMPS.slice() as number[] } };
 
   private readonly lines: THREE.Mesh;
   private readonly lineU = {
@@ -172,6 +210,20 @@ export class TurboFx {
   private readonly hoop: THREE.Mesh;
   private readonly hoopU = { uT: { value: 1 }, uSeed: { value: 0 } };
   private hoopT = -1;
+  /** &boom: the hoop's rows (the faction's spray, setHoopRows) and its band's width, a share of its radius (Mach 1's 0.5) */
+  private readonly boomU = boomOn ? { uHoopRows: { value: HUE_RAMPS.slice() as number[] }, uHoopW: { value: 0.5 } } : null;
+  /** &boom: the ring the hoop stands ahead for and lands as (crack, Boom's live plan): null, Mach 1's, sweeping back */
+  private hoopTo: BoomPlan | null = null;
+  private readonly hoopPose: HoopPose = { x: 0, y: 0, z: 0, r: 1, flat: 0, w: 0.5, tear: 0 };
+  /** &boom's crack over the frame (crack): its age (s, under 0: none), where its flash and pressure ring go (Controls' pipeline), the heading it's centred on */
+  private crackAge = -1;
+  /** its flash's age on the wall clock (s, realDt): it fades through a hit-stop or a hold, where the game's clock stands */
+  private crackLit = -1;
+  private crackFlashTo: ((pos: THREE.Vector3, strength: number) => void) | null = null;
+  private crackSkyTo: ((x: number, y: number, z: number, front: number) => void) | null = null;
+  private readonly crackAxis = new THREE.Vector3();
+  private readonly crackOut = { flash: 0, front: -1 };
+  private shimmerT = 0;
 
   private time = 0;
   /** the first frames draw every effect invisibly, so its shader compiles behind the loading fog, not at the shift */
@@ -256,6 +308,7 @@ export class TurboFx {
         ${GLSL_BAYER}
         uniform float uOn;
         uniform float uBillow;
+        uniform float uTrailRows[6];
         in float vSide;
         in float vAge;
         in float vDist;
@@ -282,7 +335,7 @@ export class TurboFx {
           float fold = 0.65 * tbNoise(vec2(along * 1.3 + 2.0, side * 1.4)) + 0.35 * (0.5 - side * 0.5);
           float cel = (fold > 0.56 ? 0.1 : fold < 0.4 ? -0.09 : 0.0) * set;
           float light = 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge) + cel;
-          sbWrite(${Ramp.RED}.0 + band, light, sbFog(vWorld), 0.55 * fresh * uOn, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
+          sbWrite(uTrailRows[int(band)], light, sbFog(vWorld), 0.55 * fresh * uOn, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
         }
       `,
     });
@@ -430,7 +483,7 @@ export class TurboFx {
     const hg = new THREE.RingGeometry(0.42, 1, 96, 1);
     const hoopMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { ...globals, ...this.hoopU },
+      uniforms: { ...globals, ...this.hoopU, ...(this.boomU ?? {}) },
       side: THREE.DoubleSide,
       vertexShader: /* glsl */ `
         ${GLSL_COMMON}
@@ -448,7 +501,9 @@ export class TurboFx {
         ${GLSL_OUT}
         ${GLSL_BAYER}
         uniform float uT;
-        uniform float uSeed;
+        uniform float uSeed;${boomed(`
+        uniform float uHoopRows[6];
+        uniform float uHoopW;`)}
         in vec2 vP;
         in vec3 vWorld;
         void main() {
@@ -456,7 +511,7 @@ export class TurboFx {
           float a = fract(atan(vP.y, vP.x) / 6.2831853 + 0.5);
           // the front is scalloped, and the band thins as it stretches
           float scallop = 0.05 * tbNoise(vec2(a * 40.0, uSeed));
-          float w = 0.5 - 0.2 * uT;
+          float w = ${boomedOr('uHoopW', '0.5')} - 0.2 * uT;
           float b = (1.0 - scallop - rho) / w; // 0 at the crest, 1 at the inner edge
           if (b < 0.0 || b >= 1.0) discard;
           // it tears from the inside out, clumps first, the crest last
@@ -465,7 +520,7 @@ export class TurboFx {
           if (clump + (tbBayer4(ivec2(gl_FragCoord.xy)) - 0.5) * 0.1 > keep) discard;
           // a white crest, then the six hues, red outside
           float k = floor(b * 7.0);
-          float ramp = k < 0.5 ? ${Ramp.GLOW_WHITE}.0 : ${Ramp.RED}.0 + (k - 1.0);
+          float ramp = k < 0.5 ? ${Ramp.GLOW_WHITE}.0 : ${boomedOr('uHoopRows[int(k - 1.0)]', `${Ramp.RED}.0 + (k - 1.0)`)};
           // each hue is two palette steps, the lit one on its outer side: a body, not a flat stripe
           float lit = fract(b * 7.0) < 0.42 ? 0.08 : -0.03;
           sbWrite(ramp, k < 0.5 ? 0.97 : 0.7 + lit, sbFog(vWorld), 0.75 * (1.0 - uT), vec3(0.0, 0.0, 1.0), 0.87, 0.5);
@@ -511,9 +566,13 @@ export class TurboFx {
       rig.kick(T.boomKick);
       this.coneT = 0;
       this.cone.visible = true;
-      this.hoopT = 0;
-      this.hoop.visible = true;
-      this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
+      // (&boom's hoop standing or landing: the barrier's own crossing under Turbo 3, from a run of flicks faster than the speed, leaves it be)
+      if (!this.hoopTo) {
+        if (this.boomU) this.boomU.uHoopW.value = 0.5;
+        this.hoopT = 0;
+        this.hoop.visible = true;
+        this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
+      }
       this.vaporRing(bus, f, 30, 16, 7);
       bus.localToWorld(this.tmp.copy(this.noseLocal));
       flash(this.tmp, T.boomFlash);
@@ -536,6 +595,52 @@ export class TurboFx {
       rig.kick(0.6);
       this.backfire(bus, f, 4);
     }
+  }
+
+  /**
+   * &boom (src/game/Boom.ts): the flick into Turbo 3 cracks the sky. Mach 1's set piece with the flash held over the whole frame, the camera's jolt and the
+   * sky's pressure ring (`sky`: Controls hands it to the resolve), and its hoop shoots out from the nose to stand upright ahead, then lands as the ring `to`
+   * (Boom's live plan, read every frame: hoopPose); null (from too high), it sweeps back as Mach 1's.
+   */
+  crack(bus: THREE.Object3D, f: Flight, rig: CameraRig, flash: (pos: THREE.Vector3, strength: number) => void, to: BoomPlan | null, sky: (x: number, y: number, z: number, front: number) => void) {
+    this.hoopTo = null;
+    this.event('boom', bus, f, rig, flash);
+    rig.jolt(turboFxTune.crackJolt);
+    this.crackAge = 0;
+    this.crackLit = 0;
+    this.crackFlashTo = flash;
+    this.crackSkyTo = sky;
+    // (the ring is centred on the heading, a touch over the horizon: the vanishing point the bus flies at)
+    this.crackAxis.set(f.fx, 0.08, f.fz).normalize();
+    this.hoopTo = to;
+  }
+
+  /** The contrail's six bands, the bus's faction's spray (main.ts's paintAsFaction, with ?crew or &paintas; SHOTS.md: "a contrail in your colour"). */
+  setTrailRows(rows: readonly number[]) {
+    for (let i = 0; i < 6; i++) this.trailU.uTrailRows.value[i] = rows[i % rows.length];
+  }
+
+  /** &boom: the hoop's six rows, the bus's faction's spray (main.ts's boomLook). */
+  setHoopRows(rows: readonly number[]) {
+    if (this.boomU) for (let i = 0; i < 6; i++) this.boomU.uHoopRows.value[i] = rows[i % rows.length];
+  }
+
+  /** &boom: the hoop out from the nose, standing ahead, slamming onto the band and lying there (crack, hoopPose): false once it's gone. */
+  private landHoop(dt: number, bus: THREE.Object3D): boolean {
+    const L = this.hoopTo!, U = this.boomU!, P = this.hoopPose;
+    bus.localToWorld(this.tmp2.copy(this.noseLocal));
+    if (!hoopPose(L, L.t0 + this.crackAge, this.tmp2, P)) return false;
+    this.hoop.position.set(P.x, P.y, P.z);
+    this.hoop.scale.setScalar(P.r);
+    hoopTurn(L.nx, L.nz, P.flat, this.hoop.quaternion);
+    this.hoopU.uT.value = P.tear;
+    U.uHoopW.value = P.w;
+    // (lying on the band it shimmers: its scalloped edge redrawn every few frames)
+    if (P.flat >= 1 && dt > 0 && (this.shimmerT -= dt) <= 0) {
+      this.shimmerT = 0.07;
+      this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
+    }
+    return true;
   }
 
   /**
@@ -631,8 +736,28 @@ export class TurboFx {
         this.cone.quaternion.copy(bus.quaternion);
       }
     }
+    // ---- &boom's crack over the frame: the flash held, then the sky's pressure ring racing out from the heading (the hoop below reads the same age)
+    if (this.crackAge >= 0) {
+      this.crackAge += dt;
+      this.crackLit += realDt;
+      const lit = crackSky(this.crackLit, this.crackOut).flash, c = crackSky(this.crackAge, this.crackOut);
+      if (lit > 0 && this.crackFlashTo) {
+        bus.localToWorld(this.tmp.copy(this.noseLocal));
+        this.crackFlashTo(this.tmp, lit);
+      }
+      if (c.front >= 0) this.crackSkyTo?.(this.crackAxis.x, this.crackAxis.y, this.crackAxis.z, c.front);
+      else if (this.crackAge > X.crackFront && !this.hoopTo) this.crackAge = -1;
+    }
     // ---- the rainbow hoop: it opens around the bus and falls back along its path, past the camera
-    if (this.hoopT >= 0) {
+    if (this.hoopT >= 0 && this.hoopTo) {
+      if (!this.landHoop(dt, bus)) {
+        this.hoopT = -1;
+        this.hoopTo = null;
+        this.hoop.visible = false;
+        this.boomU!.uHoopW.value = 0.5;
+        if (this.crackAge > X.crackFront) this.crackAge = -1;
+      }
+    } else if (this.hoopT >= 0) {
       this.hoopT += dt / Math.max(0.05, X.hoopTime);
       if (this.hoopT >= 1) {
         this.hoopT = -1;
@@ -656,11 +781,16 @@ export class TurboFx {
     if (this.rattleRoll !== 0) root.rotateZ(this.rattleRoll);
   }
 
-  /** ?moon: the map slid by (dx, dz) (main.ts): the trail lies where it lay, by the new map. */
+  /** ?moon: the map slid by (dx, dz) (main.ts): the trail lies where it lay, by the new map, and &boom's hoop lies on its ring there. */
   slide(dx: number, dz: number) {
     for (let i = 0; i < TRAIL_N; i++) {
       this.tx[i] -= dx;
       this.tz[i] -= dz;
+    }
+    // (the Boom moves its plan until the crown goes up; the hoop lies on after that, and this moves it)
+    if (this.hoopTo?.crowned) {
+      this.hoopTo.x -= dx;
+      this.hoopTo.z -= dz;
     }
   }
 
@@ -775,7 +905,8 @@ export class TurboFx {
       this.vel.set(-fz * cr * out + ux * sr * out - dir.x * 10, uy * sr * out - dir.y * 10, fx * cr * out + uz * sr * out - dir.z * 10);
       this.tmp2.copy(this.tmp).addScaledVector(this.vel, 0.08);
       this.vel.addScaledVector(dir, along);
-      this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : HUE_RAMPS[(i >> 1) % 6], size);
+      // (&boom: in the faction's spray, as the breath's)
+      this.particles.puff(this.tmp2, this.vel, i % 2 === 0 ? Ramp.FOG : (boomOn ? this.particles.palette : HUE_RAMPS)[(i >> 1) % 6], size);
     }
     this.particles.sparkles(this.tmp, sparkles, 5, [0, 2, 4], 26);
   }

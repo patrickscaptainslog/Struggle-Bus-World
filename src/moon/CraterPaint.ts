@@ -5,7 +5,7 @@ import { blastUniforms } from '../world/GroundPaint';
 import type { Flight } from '../game/Flight';
 import type { Shot } from '../game/Aim';
 import type { Blast, BarfOpts } from '../game/Splat';
-import type { BlastSpec } from '../game/blastLayout';
+import { layoutHue, type BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
 import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 import { craterById, cratersNear, mix32, type Age } from './craters';
@@ -637,19 +637,22 @@ export class CraterPaint {
   impact(b: Blast): Target | null {
     const S = config.splat, t = (b.tag as Target | null) ?? null, now = b.t;
     this.hitName = t?.name ?? null;
-    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * 0.8;
+    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * (b.super?.inner ? 1 : 0.8);
     // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
     const R = (t && !big ? t.r * 1.25 + 30 : Math.max(b.spec.r, t?.r ?? 0)) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
     blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(Math.max(1, R / 100)), v, R);
     const hits: Array<{ i: number; d: number; ang: number }> = [];
     const D = this.data;
     const maxR = t ? Math.max(30, t.r * 1.4) : base;
+    const hole = b.super?.inner ?? 0;
     for (let i = 0; i < this.n; i++) {
       const o = i * CRATER_FLOATS, r = D[o + 2];
       if (r > maxR || r < 8) continue;
       const dx = D[o] - cx, dz = D[o + 1] - cz, d = Math.hypot(dx, dz);
       if (d - r > base) continue;
       if (t && Math.abs(D[o] - t.x) < 0.5 && Math.abs(D[o + 1] - t.z) < 0.5) continue;
+      // (&boom's ring, src/game/Boom.ts: a crater wholly in its hole is out of it)
+      if (hole > 0 && d + r < hole) continue;
       if (this.sites.length && this.inSite(D[o], D[o + 1])) continue;
       // (a firehose lands a dozen times a second: a crater goes up once a second at most)
       const was = this.listRec[i];
@@ -695,6 +698,19 @@ export class CraterPaint {
     const sp = b.spec;
     // (nothing stays on a crewed site, nor grows there)
     if (this.inSite(sp.x, sp.z)) return;
+    const hole = b.super?.inner ?? 0;
+    if (hole > 0) {
+      // (&boom's ring: eighteen strokes round its band, overlapping into an unbroken ring, each in the pinwheel's hue there as the near band has it, and
+      // none in its hole past 0.04 of the radius)
+      const m = (sp.r + hole) * 0.5, w = (sp.r - hole) * 0.66;
+      for (let k = 0; k < 18; k++) {
+        const a = (k / 18) * Math.PI * 2, dx = Math.cos(a) * m, dz = Math.sin(a) * m;
+        if (!this.inSite(sp.x + dx, sp.z + dz)) this.markStroke(sp.x + dx, sp.z + dz, w, layoutHue(sp, dx, dz), (sp.seed % 6283) / 1000 + k, b.t, ownerOf(sp.faction));
+      }
+      this.strokesDirty = true;
+      this.saveAt = 1;
+      return;
+    }
     this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t, ownerOf(sp.faction));
     this.strokesDirty = true;
     this.saveAt = 1;

@@ -5,8 +5,9 @@ import type { City, BuildingRef } from '../world/City';
 import { FACTION_RAINBOW } from './factions';
 import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import type { CometPlan } from './Comet';
-import { arrival, blastCap, blastRadiusFor, groundDeadline, LAYOUT_BANDS, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
+import { arrival, blastCap, blastRadiusFor, groundDeadline, LAYOUT_BANDS, LAYOUT_RING, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 import { setPogo } from '../world/pogo';
+import { lookOf } from '../render/factionLook';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
 // rainbow projectile forward; it snaps to the building at the aim point and
@@ -73,9 +74,11 @@ export interface SplatFx {
 
 /** A blast of a super splat: its kind, the charge, and the super's serial (a firehose's impacts and closer share one). */
 export interface SuperTag {
-  kind: 'mega' | 'hose' | 'closer' | 'bomb';
+  kind: 'mega' | 'hose' | 'closer' | 'bomb' | 'boom' | 'falls';
   charge: number;
   id: number;
+  /** &boom's ring (src/game/Boom.ts): its hole's radius (m), where nothing is painted (life leaves the movers in it alone: HOOKS.md) */
+  inner?: number;
 }
 
 /** Optional aim for Splatter.barf. */
@@ -130,6 +133,9 @@ export interface BarfOpts {
   moverBlock?: boolean;
   /** Curb's drive-by: only buildings on this side of the lane bloom (their middles past the line through (x, z), along its normal (nx, nz)) */
   side?: { x: number; z: number; nx: number; nz: number };
+  /** &boom's ring (src/game/Boom.ts): a band from this radius (m) out to the blast's. Only buildings reaching into it bloom, its ground is the band alone
+   *  (LAYOUT_RING), and its cap goes with the band's area */
+  inner?: number;
 }
 
 /** BarfOpts.bands */
@@ -303,6 +309,8 @@ export class Splatter {
   private seed = (Math.random() * 0xffffffff) >>> 0;
   /** The last barf came down on nothing paintable (the caller refunds part of the belly). */
   lastMiss = false;
+  /** The last barf's blast's spec, when it planned one (&boom's crown reads its hues by angle) */
+  lastSpec: BlastSpec | null = null;
   /** per building (dense index): game time until which firehose impacts leave it alone */
   private hoseUntil: Float32Array | null = null;
   /** per building (dense index): the last pour (BarfOpts.pour) that raised it */
@@ -374,7 +382,9 @@ export class Splatter {
     // capped by its area, not its radius: over dense housing it must not leave grey blocks in a rainbow street
     // grid (a tap's 85 m paints every building in it, SHOTS.md; a super's up to megaBuildingsCap, a tap's or a hose's up to maxBuildingsCap)
     const jump = Math.max(1, Math.min(3, Math.round(opts?.jump ?? 1)));
-    const cap = blastCap(r, jump > 1 ? config.bomb.cap : opts?.super && !hose ? S.megaBuildingsCap : S.maxBuildingsCap);
+    const inner = opts?.inner ?? 0;
+    // (&boom's ring: its band's area, not its disc's)
+    const cap = inner > 0 ? blastCap(Math.sqrt(Math.max(0, r * r - inner * inner)), config.bomb.cap) : blastCap(r, jump > 1 ? config.bomb.cap : opts?.super && !hose ? S.megaBuildingsCap : S.maxBuildingsCap);
     const near = city.buildingsWithin(cx, cz, r + S.smallRad, this.near);
     const reach = this.reachList;
     reach.length = 0;
@@ -386,6 +396,8 @@ export class Splatter {
       // (Curb's drive-by: the fronts on the side it looks, not the street's other side)
       if (side && n.ref !== primary && (n.ref.cx - side.x) * side.nx + (n.ref.cz - side.z) * side.nz < 0) continue;
       const e = n.ref.rad <= S.smallRad ? Math.hypot(n.ref.cx - cx, n.ref.cz - cz) - 0.55 * Math.sqrt(n.ref.area) : n.d;
+      // (&boom's ring: a building wholly in its hole is out of it)
+      if (inner > 0 && Math.hypot(n.ref.cx - cx, n.ref.cz - cz) + (n.ref.rad <= S.smallRad ? 0.55 * Math.sqrt(n.ref.area) : n.ref.rad) < inner) continue;
       if (e <= r) reach.push({ ref: n.ref, d: n.d, e: n.ref === primary ? -1e9 : e });
     }
     if (primary && !near.some((n) => n.ref === primary)) reach.push({ ref: primary, d: 0, e: -1e9 });
@@ -395,6 +407,7 @@ export class Splatter {
     const open = reach.length === 0 && city.groundAt(x, z) < S.missWaterY;
     this.lastMiss = open && !opts?.moverBlock;
     this.lastPos = pos;
+    this.lastSpec = null;
     if (this.lastMiss) {
       this.misses.push({ at: tImpact, pos, hue: this.nextHue, comet: opts?.comet ?? null });
       if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
@@ -410,6 +423,17 @@ export class Splatter {
       spec.ox = bands.x;
       spec.oz = bands.z;
     }
+    if (inner > 0) {
+      // (its ground out to its radius, a little ragged, with a few short splashes over the rim: a tap's 0.8 of its circle, lobed by a quarter, would leave
+      // a 30 m band broken)
+      spec.layout = LAYOUT_RING;
+      spec.ring = inner;
+      spec.edge = 1;
+      spec.ragged = 0.08;
+      spec.rays = 8;
+      spec.rayLen = 0.25;
+    }
+    this.lastSpec = spec;
     // (a boat in open water: the boats in its circle take it, and the water none)
     const afloat = open && !!opts?.moverBlock;
     const groundless = opts?.shape?.(spec) === false || afloat;
@@ -511,15 +535,23 @@ export class Splatter {
     // (a Bomb's plan, up to config.bomb.cap: each building's neighbours from a grid of it, where each against the whole plan was 21-27 ms of the lift's frame
     // over fresh housing from 300 m: the Bomb's world review. The same neighbours; a tap's plan stays the scan it was)
     const grid = plan.length > DEAL_GRID ? dealGrid(plan) : null;
-    for (const p of plan) if (p.hue < 0) p.hue = this.freeHue(p.pref, p.ref, plan, layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z), grid);
+    // (&boom's ring in a faction with its strongest rows named: its walls are dealt from those slots alone, touching neighbours kept apart in them and off
+    // the ground's (its strongest too), where a remap after the deal put two neighbours on one slot)
+    const look = spec.layout === LAYOUT_RING ? lookOf(spec.faction ?? FACTION_RAINBOW).ring : undefined;
+    for (const p of plan)
+      if (p.hue < 0) {
+        const g = layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z);
+        p.hue = this.freeHue(p.pref, p.ref, plan, look ? look.ground[g % look.ground.length] : g, grid, look?.walls);
+      }
   }
 
-  /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. */
-  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number, grid: DealGrid | null = null): number {
+  /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. `slots`: only those, from pref's on. */
+  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number, grid: DealGrid | null = null, slots?: readonly number[]): number {
     const ra = Math.sqrt(ref.area) * 0.5;
     const near = grid ? gridNear(grid, ref, ra, this.dealNear) : null;
-    for (const off of HUE_TRY) {
-      const h = wrapHue(pref + off);
+    const n = slots ? slots.length : HUE_TRY.length;
+    for (let o = 0; o < n; o++) {
+      const h = slots ? slots[(pref + o) % n] : wrapHue(pref + HUE_TRY[o]);
       if (h === ground) continue;
       let clash = false;
       if (near) clash = near.some((p) => p.hue === h);
@@ -534,7 +566,7 @@ export class Splatter {
         }
       if (!clash) return h;
     }
-    return pref;
+    return slots ? slots[pref % n] : pref;
   }
 
   update(dt: number) {

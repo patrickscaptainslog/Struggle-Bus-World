@@ -1,0 +1,421 @@
+import { config } from '../config';
+import { clamp } from './springs';
+import type { Flight } from './Flight';
+import type { City } from '../world/City';
+import type { Splatter, SuperTag } from './Splat';
+import { arrival, blastRadiusFor, layoutHue, type BlastSpec } from './blastLayout';
+
+// Sonic Boom (docs/specs/shots/BUILT.md, "The extras"; the extras' plan): behind &boom on the link. The flick into Turbo 3 breaks the barrier again: Mach 1's
+// set piece cracks the sky round the bus (the cone, the vapor ring, the flash over the frame, the camera's jolt, a pressure ring racing across the sky and
+// the N-wave), and its hoop shoots out from the nose, tight there and stretching as it goes, to stand upright across the bus's path at its height a second
+// ahead. The bus threads it, and as it crosses the hoop's plane (by where the bus is, at any frame rate) the hoop is punched on ahead and slams down flat onto
+// the city as a ring of paint, its band, 0.75 to 1 of 0.94 times the tap's circle from there, blooming as the hoop lands on it, ahead of the bus; the bus
+// flies over its band as a crown of the band's colours goes up, and the hoop lies spreading and shimmering behind it. At most once in 10 s; inside them the
+// flick is today's. It paints from Jet's floor to 500 m over the ground; higher, the crack alone. Over open water a ring of spray, and the 10 s aren't spent,
+// as a Comet's miss keeps its full show. No geyser, hit-stop or belly: the ring is the flick's, not the breath's.
+//
+// The ring's paint is a blast of its own (Splatter.barf with BarfOpts.inner), barfed as the bus threads the hoop: the buildings reaching into its band take
+// one level each, dealt the rainbow by angle, its ground is the band alone (GroundPaint's LAYOUT_RING), the Moon's craters in its hole are left out
+// (CraterPaint), and life.blast hears SuperTag { kind: 'boom', inner } (HOOKS.md: the movers in the hole are life's to leave, and Recess takes no square from it).
+//
+// Frame order (main.ts): flick() from Controls.onRung on the 'turbo' event of the last level; update() once a frame on the game clock, after the Splatter.
+
+export const boomTune = {
+  /** seconds between two rings, at least */
+  cooldown: 10,
+  /** the hoop: where it stands, where the bus will be this long after the flick (s); how long it takes to get there from the nose (s); its radius there
+   *  (m, and more a metre over Jet's floor: higher, the frame is wider) and at the nose */
+  hoopAhead: 1,
+  hoopFly: 0.3,
+  hoopR: 40,
+  hoopRK: 0.05,
+  hoopR0: 2.5,
+  /** standing, it keeps to the bus: its height and its place across the path eased (1/s) toward where the bus will be as it reaches its plane (on its arc
+   *  at its yaw rate, and up or down as the path's nose goes where the stick has it, or as the floor lifts it: a pull, a push or a half carve after the
+   *  flick is threaded), across by this share of its radius at most (a full carve flies past its side; a bus that won't reach its plane in `aheadMax` s,
+   *  a full pull, flies over it, which stands at the bus's height), and its lower arc `hoopClear` m over every roof across it, so a tower in its way has
+   *  the bus lifted to it (Flight.hoopFloor) and the hoop standing where the lift will have it, a quarter of its hole over that at most. Its easing
+   *  quickens as the bus closes, to `hoopSnap` over the seconds left, so a pull begun late meets it at its middle, not its rim */
+  hoopTrack: 6,
+  hoopSnap: 1,
+  hoopDrift: 1.1,
+  hoopClear: 2,
+  aheadMax: 1.5,
+  /** a bus that turns away never crosses the hoop's plane: it slams down this long after the flick anyway (s) */
+  hoopWait: 2.4,
+  /** where the ring lands: where the bus will be once the hoop is threaded, the hoop has slammed onto the band and the band blooms, and `gap` s more from
+   *  Jet's floor (150 m over the ground), `gapK` s more a metre higher (the frame sees farther ahead), up to leadMax (s) all told, so the band blooms ahead of
+   *  the bus as high on the screen from every height (s_boom: its middle 0.7 of the height down at most) */
+  gap: 0.62,
+  gapFrom: 150,
+  gapK: 1 / 320,
+  leadMax: 3.9,
+  /** the spool's share counted in that distance: the bus speeds up from Turbo 2's 720 m/s toward Turbo 3's 900 over the second */
+  spoolK: 0.3,
+  /** the ring: its outer radius x the tap's circle from the height over it (blastRadiusFor), and its inner edge x its radius */
+  radiusK: 0.94,
+  innerK: 0.75,
+  /** the shock's flight to the ground (s), and how long before the bus reaches the hoop's plane its barf goes (s, by the bus's distance from it and its
+   *  speed): the shock lands just after the bus threads the hoop, which lands flat on the band as its inner edge blooms, arrival(inner) after that. The ring's
+   *  ground is drawn over the shock's flight, so a short one would crowd its slices into a frame or two (s_boom: 8.4-10.9 ms at 0.05 s from 490 m) */
+  travel: 0.3,
+  preBarf: 0.25,
+  /** no paint with the bus over this height over the ground under it (m) */
+  paintTop: 500,
+  /** the crown: puffs round the band as it blooms, how fast they go up (m/s) and out, their size; twinkles with them */
+  crown: 40,
+  crownUp: 34,
+  crownOut: 9,
+  crownSize: 2.6,
+  sparks: 60,
+};
+
+/** Where a ring lands, for the hoop (TurboFx.crack, hoopPose) and its crown. */
+export interface BoomPlan {
+  /** centre (world m), the ground under it */
+  x: number;
+  y: number;
+  z: number;
+  /** where the hoop lies down: over the band's rooftops (their median, or 14 m over the ground where they're low), so towers don't bury it */
+  top: number;
+  /** outer and inner radius (m) */
+  r: number;
+  inner: number;
+  /** the drop from the bus to the ground there at the flick (m), as the barf takes it */
+  drop: number;
+  /** the hoop standing: its centre (world m), its facing (unit, along the path at the flick), its radius and its hole's (m), the floor its centre keeps
+   *  over the roofs under it (its lower arc clear of them; the bus is lifted to it), and how far across it has moved toward the bus (m) */
+  hx: number;
+  hy: number;
+  hz: number;
+  nx: number;
+  nz: number;
+  hR: number;
+  hole: number;
+  floor: number;
+  drift: number;
+  /** game times: the flick; the bus through the hoop's plane (NaN: not yet); the shock landing; the hoop flat on the band (its inner edge blooming); the band
+   *  at its middle blooming (Infinity until it's threaded) */
+  t0: number;
+  thread: number;
+  land: number;
+  slam: number;
+  bloom: number;
+  /** the bus went through the hoop's hole (not past its side, or after the wait) */
+  threaded: boolean;
+  /** the last ring's time before this one, given back if this one comes down on open water */
+  spent: number;
+  /** what it was: a ring of paint, a ring of spray on open water, or nothing landing (from too high); a ring until it's threaded */
+  kind: 'ring' | 'water' | 'high';
+  /** its blast's spec (the hues by angle), once it's barfed; null for spray */
+  spec: BlastSpec | null;
+  /** the crown went up */
+  crowned: boolean;
+}
+
+export interface BoomHooks {
+  /** the crack: Mach 1's set piece, its hoop standing ahead and landing as the ring (null: from too high, the crack alone) */
+  crack(plan: BoomPlan | null): void;
+  /** the band blooms (or the spray goes up, on water): the crown */
+  crown(plan: BoomPlan): void;
+}
+
+const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+/** &boom on the link */
+export const boomOn = !!q && q.has('boom');
+/** GLSL only &boom compiles (the hoop's rows and width, fx/Turbo.ts; the sky's pressure ring, PixelPipeline): without it no source differs by a byte, as pogo.ts's pogoed() */
+export const boomed = (glsl: string): string => (boomOn ? glsl : '');
+export const boomedOr = (glsl: string, off: string): string => (boomOn ? glsl : off);
+
+/** How far ahead the ring lands, in seconds of the bus's flight after the flick, `over` m over the ground and `r` m its radius. */
+export function boomLead(over: number, r: number): number {
+  const B = boomTune;
+  return Math.min(B.leadMax, B.hoopAhead + B.travel - B.preBarf + arrival(r * (1 + B.innerK) * 0.5, r) + B.gap + Math.max(0, over - B.gapFrom) * B.gapK);
+}
+
+/** The hoop's pose: its centre (world m), radius (m), how far it has lain down (0 upright across the path, 1 flat on the band), its band's width (a share of
+ *  its radius) and its tear (0 whole, 1 gone). */
+export interface HoopPose {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  flat: number;
+  w: number;
+  tear: number;
+}
+
+/** how long the hoop lies on the band, spreading out and tearing (s), and how far it spreads (x its radius): a beat behind the bus, not a blink */
+export const HOOP_LIE = 2;
+export const HOOP_SPREAD = 0.3;
+
+/**
+ * The hoop at game time `t` (TurboFx draws it, s_boom checks it): out from the nose (`nose`, world m, where it is now) over hoopFly s, tight there and
+ * stretching; standing where the plan has it; punched on ahead from the bus's crossing and slamming down flat onto the band by `slam`; lying there, spreading
+ * and tearing, HOOP_LIE s. False once it's gone.
+ */
+export function hoopPose(p: BoomPlan, t: number, nose: { x: number; y: number; z: number }, out: HoopPose): boolean {
+  const B = boomTune, age = t - p.t0, band = 1 - p.inner / p.r;
+  const ty = Math.max(p.top, p.y + 14);
+  if (age < B.hoopFly) {
+    // (accelerating away from the nose: the first frames show it there, a tight ring round it)
+    const u = Math.max(0, age) / B.hoopFly, e = u * u;
+    out.x = nose.x + (p.hx - nose.x) * e;
+    out.y = nose.y + (p.hy - nose.y) * e;
+    out.z = nose.z + (p.hz - nose.z) * e;
+    out.r = B.hoopR0 + (p.hR - B.hoopR0) * Math.pow(u, 0.6);
+    out.flat = 0;
+    out.w = 0.62 - 0.12 * u;
+    out.tear = 0;
+    return true;
+  }
+  if (!(t >= p.thread)) {
+    out.x = p.hx;
+    out.y = p.hy;
+    out.z = p.hz;
+    out.r = p.hR;
+    out.flat = 0;
+    out.w = 0.5;
+    out.tear = 0;
+    return true;
+  }
+  if (t < p.slam) {
+    // (punched on ahead, then dropping ever faster: a slam, not a glide; it opens to the ring's size, lies down, and its band narrows to the ring's)
+    const u = (t - p.thread) / Math.max(1e-3, p.slam - p.thread), h = 1 - (1 - u) * (1 - u);
+    out.x = p.hx + (p.x - p.hx) * h;
+    out.y = p.hy + (ty - p.hy) * u * u;
+    out.z = p.hz + (p.z - p.hz) * h;
+    out.r = p.hR + (p.r - p.hR) * h;
+    out.flat = Math.min(1, u * 1.25);
+    out.w = 0.5 + (band - 0.5) * u;
+    out.tear = 0.04 * u;
+    return true;
+  }
+  const w = (t - p.slam) / HOOP_LIE;
+  if (w >= 1) return false;
+  // (lying on the band, it spreads out past the rim and tears slowly, the crest last)
+  out.x = p.x;
+  out.y = ty;
+  out.z = p.z;
+  out.r = p.r * (1 + HOOP_SPREAD * Math.pow(w, 0.7));
+  out.flat = 1;
+  out.w = band + 0.12 * w;
+  out.tear = 0.04 + 0.96 * Math.pow(w, 1.6);
+  return true;
+}
+
+/** Boom.ahead's answer: where the bus will cross a hoop's plane */
+const AT = { y: 0, across: 0, T: 0 };
+
+export class Boom {
+  /** &boom (main.ts sets it, as bomb.on): off, flick() does nothing */
+  on = false;
+  /** game time of the last ring spent (-Infinity: none) */
+  last = -Infinity;
+  /** the last plan (QA, s_boom) */
+  plan: BoomPlan | null = null;
+  readonly stats = { flicks: 0, rings: 0, water: 0, high: 0, quiet: 0, cracks: 0, threaded: 0 };
+  private t = 0;
+  private serial = 0;
+  private readonly live: BoomPlan[] = [];
+  /** the bus the last flick was flown by: update() watches it cross the hoop's plane */
+  private f: Flight | null = null;
+
+  constructor(private readonly city: City, private readonly splatter: Splatter, private readonly hooks: BoomHooks) {}
+
+  /** the game clock (s), as update() has it */
+  get time(): number {
+    return this.t;
+  }
+
+  /** The flick into Turbo 3, this frame, `want` m/s the speed the new level drives at. Returns what it did (null: nothing new, the flick is today's). */
+  flick(f: Flight, want = f.turbo.speed): BoomPlan | null {
+    if (!this.on) return null;
+    this.stats.flicks++;
+    if (this.t - this.last < boomTune.cooldown) {
+      this.stats.quiet++;
+      return null;
+    }
+    const B = boomTune;
+    this.f = f;
+    const over = f.y - (Number.isFinite(f.groundBroad) ? f.groundBroad : f.groundUnder);
+    // (where the bus will be: its speed over the ground now, and a share of what the new level spools it up to)
+    const v = f.ground + Math.max(0, want - f.speed) * B.spoolK;
+    const r0 = B.radiusK * blastRadiusFor(Math.max(0, over));
+    const d = boomLead(over, r0) * v;
+    const x = f.x + f.fx * d, z = f.z + f.fz * d;
+    const y = this.city.groundAt(x, z);
+    const drop = Math.max(0, f.y - y);
+    const r = B.radiusK * blastRadiusFor(drop);
+    const hd = B.hoopAhead * v, hR = B.hoopR + Math.max(0, over - B.gapFrom) * B.hoopRK;
+    const hx = f.x + f.fx * hd, hz = f.z + f.fz * hd;
+    // (the roofs across the hoop and a little either side of its plane: its lower arc clears each by hoopClear, so a tower in its way has it stand over the
+    // tower, where its centre stood the bus's clearance over the roof and the tower cut through its lower arc; and the bus is lifted to it)
+    let floor = -Infinity;
+    for (let i = -4; i <= 4; i++) {
+      const s = (i / 4) * hR, arc = hR * Math.sqrt(1 - (i / 4) * (i / 4)) + B.hoopClear;
+      for (let j = -1; j <= 1; j++) {
+        const a = j * 25, roof = this.city.roofAt(hx - f.fz * s + f.fx * a, hz + f.fx * s + f.fz * a);
+        if (roof !== null) floor = Math.max(floor, roof + arc);
+      }
+    }
+    const t0 = this.t;
+    const plan: BoomPlan = {
+      x, y, z, top: y + 14, r, inner: B.innerK * r, drop,
+      hx, hy: Math.max(f.y, floor), hz, nx: f.fx, nz: f.fz, hR, hole: hR * 0.5, floor, drift: 0,
+      t0, thread: NaN, land: Infinity, slam: Infinity, bloom: Infinity, threaded: false, spent: -Infinity, kind: 'ring', spec: null, crowned: false,
+    };
+    this.plan = plan;
+    this.stats.cracks++;
+    if (over > B.paintTop + 1) {
+      plan.kind = 'high';
+      this.last = this.t;
+      this.stats.high++;
+      this.hooks.crack(null);
+      return plan;
+    }
+    // (the band's rooftops, at twelve points round it)
+    const roofs: number[] = [];
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2, m = (plan.r + plan.inner) * 0.5;
+      roofs.push(this.city.roofAt(x + Math.cos(a) * m, z + Math.sin(a) * m) ?? y);
+    }
+    roofs.sort((p, q) => p - q);
+    plan.top = Math.max(y + 14, (roofs[5] + roofs[6]) * 0.5 + 4);
+    // (spent now, so a flick while the hoop stands is today's; given back if it comes down on open water)
+    plan.spent = this.last;
+    this.last = this.t;
+    this.live.push(plan);
+    this.hooks.crack(plan);
+    return plan;
+  }
+
+  /** Once a frame on the game clock: each hoop kept to where the bus will cross its plane until it does, then its ring barfed; each ring's crown as its
+   *  band blooms. The bus is lifted to a hoop standing over a tower (Flight.hoopFloor) until it's through. */
+  update(dt: number) {
+    this.t += dt;
+    const B = boomTune, f = this.f;
+    let lift = -Infinity;
+    for (let i = 0; i < this.live.length; ) {
+      const p = this.live[i];
+      if (Number.isNaN(p.thread)) {
+        // (along the path: under 0 the bus hasn't reached the hoop's plane; across it, and up)
+        const along = f ? (f.x - p.hx) * p.nx + (f.z - p.hz) * p.nz : 0;
+        const across = f ? (f.z - p.hz) * p.nx - (f.x - p.hx) * p.nz : 0;
+        // (the lift holds through a hit-stop or a hold, where the game clock stands still, and lets a bus carved past the hoop's side go)
+        if (f && along < 0 && Math.abs(across) < p.hR) lift = Math.max(lift, p.floor);
+        if (f && along < 0 && dt > 0) {
+          this.ahead(f, p);
+          const k = 1 - Math.exp(-Math.max(B.hoopTrack, B.hoopSnap / Math.max(1e-3, AT.T)) * dt), lim = B.hoopDrift * p.hR;
+          const s = clamp(p.drift + AT.across * k, -lim, lim) - p.drift;
+          p.drift += s;
+          p.hx -= p.nz * s;
+          p.hz += p.nx * s;
+          p.hy += (Math.max(AT.y, Math.min(p.floor, AT.y + 0.25 * p.hole)) - p.hy) * k;
+        }
+        const age = this.t - p.t0;
+        if (!(p.land < Infinity) && ((f && along >= -B.preBarf * Math.max(1, f.ground)) || age >= B.hoopWait - B.preBarf)) this.barf(p);
+        if (p.land < Infinity && ((f && along >= 0) || age >= B.hoopWait)) {
+          // (where the bus crossed the plane, between this frame and the last: a frame past it at 30 fps, a 0.6 pull had climbed 11 m on from its hole)
+          const back = f ? along / Math.max(1, f.ground) : 0;
+          const at = f ? across - f.ground * (f.fz * p.nx - f.fx * p.nz) * back : Infinity, dy = f ? f.y - f.vy * back - p.hy : Infinity;
+          this.thread(p, along >= 0 && Math.abs(at) < p.hole && Math.abs(dy) < p.hole);
+        }
+        i++;
+        continue;
+      }
+      if (this.t < (p.kind === 'water' ? p.land : p.bloom)) {
+        i++;
+        continue;
+      }
+      p.crowned = true;
+      this.hooks.crown(p);
+      this.live.splice(i, 1);
+    }
+    if (f) f.hoopFloor = lift;
+  }
+
+  /** Where the bus will be as it reaches p's plane: on its arc at its yaw rate now, in steps of a thirtieth of a second (the last cut at the plane),
+   *  aheadMax s at most, its speed spooling on toward the gear's. On the path (Flight.noseTo) its nose going where the stick has it at the Flight's
+   *  noseRate, its speed split between over the ground and up by it, as Flight.step flies it (a held pull is where it threads, not its climb now grown
+   *  on); off it, its climb now, or the floor's critically damped lift where the bus is under its floor (a tower's hoop: where the lift will have it, so a
+   *  bus the lift can't carry all the way still threads), and no lower than the floor. Not there in time (a full pull), the bus's height now, eased from
+   *  there by how far short it falls. Into AT, its height and how far across from the hoop's middle (m), and the seconds to the plane (aheadMax: not there
+   *  in time). */
+  private ahead(f: Flight, p: BoomPlan) {
+    const F = config.flight, Tb = f.turbo, st = 1 / 30, w = f.yawRate, path = Number.isFinite(f.noseTo), kn = 1 - Math.exp(-Math.max(0.1, F.noseRate) * st);
+    const ks = Tb.speed > 0 && Tb.rate > 0 ? 1 - Math.exp(-Tb.rate * st) : 0;
+    let x = f.x, z = f.z, y = f.y, h = f.heading, nose = f.nose, sp = f.speed, v = 1, T = 0, a = (x - p.hx) * p.nx + (z - p.hz) * p.nz;
+    for (let n = 0; n < Math.round(boomTune.aheadMax / st) && a < 0; n++) {
+      if (path) nose += (f.noseTo - nose) * kn;
+      // (the gear's spool: the speed easing on toward its drive, Flight.step's)
+      sp += (Math.max(sp, Tb.speed) - sp) * ks;
+      v = Math.max(1, path ? sp * Math.cos(nose) : f.ground + sp - f.speed);
+      const vy = path ? sp * Math.sin(nose) : f.vy;
+      const h2 = h + w * st, x2 = x + Math.sin(h2) * v * st, z2 = z - Math.cos(h2) * v * st, a2 = (x2 - p.hx) * p.nx + (z2 - p.hz) * p.nz;
+      const u = a2 >= 0 ? -a / Math.max(1e-6, a2 - a) : 1;
+      x += (x2 - x) * u;
+      z += (z2 - z) * u;
+      y += vy * st * u;
+      h += (h2 - h) * u;
+      T += st * u;
+      a = a2 >= 0 ? 0 : a2;
+    }
+    if (!path && f.y < f.floorY) {
+      // (y - floor goes (e0 + (v0 + W e0) t) e^-Wt, Flight's vyFloor)
+      const W = 2 * Math.PI * F.climbHz, e0 = f.y - f.floorY;
+      y = f.floorY + (e0 + (f.vy + W * e0) * T) * Math.exp(-W * T);
+    } else y = Math.max(f.floorY, y);
+    // (not there in time: back to the bus's height by a quarter second more of its flight short, so nothing jumps where a pull tips it past aheadMax)
+    AT.y = a < 0 ? f.y + (y - f.y) * clamp(1 + a / (0.25 * v), 0, 1) : y;
+    AT.T = T;
+    AT.across = (z - p.hz) * p.nx - (x - p.hx) * p.nz;
+  }
+
+  /** The bus through the hoop's plane (`threaded`: through its hole), this frame: the hoop is punched on and slams down flat onto the band as its inner edge
+   *  blooms (a bus that came late, slowed or turned: a quarter second at least). */
+  private thread(p: BoomPlan, threaded: boolean) {
+    p.thread = this.t;
+    p.threaded = threaded;
+    if (threaded) this.stats.threaded++;
+    p.slam = Math.max(this.t + 0.25, p.land + arrival(p.inner, p.r));
+  }
+
+  /** The bus preBarf s from the hoop's plane, this frame: the ring's barf, its shock landing `travel` s on, just after the bus threads the hoop. */
+  private barf(p: BoomPlan) {
+    const B = boomTune;
+    p.land = this.t + B.travel;
+    p.bloom = p.land + arrival(p.r * (1 + B.innerK) * 0.5, p.r);
+    const tag: SuperTag = { kind: 'boom', charge: 1, id: ++this.serial, inner: p.inner };
+    this.splatter.barf(p.x, p.z, { target: null, exact: true, y: p.y + 0.5, drop: p.drop, radius: p.r, inner: p.inner, travel: B.travel, stream: true, hitStop: 0, super: tag });
+    if (this.splatter.lastMiss) {
+      p.kind = 'water';
+      this.last = p.spent;
+      this.stats.water++;
+    } else {
+      p.spec = this.splatter.lastSpec;
+      this.stats.rings++;
+    }
+  }
+
+  /** The hue of the ring at angle a (rad) round its centre: its blast's pinwheel there, so the crown is the band it rises from (water: the next hue on). */
+  hueAt(p: BoomPlan, a: number): number {
+    return p.spec ? layoutHue(p.spec, Math.cos(a) * (p.r + p.inner) * 0.5, Math.sin(a) * (p.r + p.inner) * 0.5) : (this.splatter.hueNext + Math.floor((a / (Math.PI * 2)) * 6 + 6)) % 6;
+  }
+
+  /** ?moon: the map slid by (dx, dz) (main.ts): a ring on its way lands where it was going, by the new map, and its hoop stands there. */
+  slide(dx: number, dz: number) {
+    for (const p of this.live) {
+      p.x -= dx;
+      p.z -= dz;
+      p.hx -= dx;
+      p.hz -= dz;
+    }
+  }
+}
+
+/** A ring's spray, for its crown: whether open water is under its band at angle a (the hue's ground gives way to white foam there). */
+export function waterAt(city: City, p: BoomPlan, a: number): boolean {
+  const m = (p.r + p.inner) * 0.5;
+  return city.groundAt(p.x + Math.cos(a) * m, p.z + Math.sin(a) * m) < config.splat.missWaterY;
+}

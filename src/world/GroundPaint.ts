@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { GLSL_FACTION } from '../render/factionLook';
+import { GLSL_FACTION, lookOf } from '../render/factionLook';
 import { globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
-import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, LAYOUT_POOL, LAYOUT_RING, POOL_SPREAD, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
 import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
 import { FACTION_RAINBOW, FACTION_ROOM, ownerOf } from '../game/factions';
@@ -681,6 +681,12 @@ export class GroundPaint {
     return { cov: m.data[o] / 255, hue: Math.min(5, Math.floor(m.data[o + 1] / 32)), faction: m.data[o] ? texelOwner(m.data[o + 1]) : 0 };
   }
 
+  /** A wide blast is still drawing (begin() would finish it first, all of it in that frame). */
+  wideBusy(): boolean {
+    for (const j of this.jobs) if (j.wide) return true;
+    return false;
+  }
+
   /**
    * A projectile is in the air and will explode on spec at tImpact (game
    * clock): its paint is drawn by work() over the next frames, hidden.
@@ -1117,7 +1123,19 @@ export class GroundPaint {
     }
     const wave = new Float32Array(WAVE_LUT);
     for (let k = 0; k < WAVE_LUT; k++) wave[k] = arrival((k / (WAVE_LUT - 1)) * (e.max + 3), spec.r);
-    return { spec, lut: e.lut, warp, wave, max: e.max, dots: blastDots(spec, e), minX: spec.x - reach, minZ: spec.z - reach, maxX: spec.x + reach, maxZ: spec.z + reach };
+    // (&falls's pool spreads out from the tower's walls, slower than any wave; with its footprint's shape (spec.foot) its edge keeps the walls' shape, as far
+    // past each as the circle reaches past the farthest, and each texel's reveal is its distance past the wall at its angle, rows())
+    let foot: Float32Array | undefined;
+    if (spec.layout === LAYOUT_POOL) {
+      for (let k = 0; k < WAVE_LUT; k++) wave[k] = Math.max(0, (k / (WAVE_LUT - 1)) * (e.max + 3) - spec.ring) / POOL_SPREAD;
+      if (spec.foot && spec.foot.length === SHAPE_LUT) {
+        foot = spec.foot;
+        let far = 0;
+        for (let k = 0; k < SHAPE_LUT; k++) far = Math.max(far, foot[k]);
+        for (let k = 0; k < SHAPE_LUT; k++) e.lut[k] -= far - foot[k];
+      }
+    }
+    return { spec, lut: e.lut, warp, wave, foot, max: e.max, dots: blastDots(spec, e), minX: spec.x - reach, minZ: spec.z - reach, maxX: spec.x + reach, maxZ: spec.z + reach };
   }
 
   private start(job: GroundJob) {
@@ -1382,7 +1400,9 @@ export class GroundPaint {
     const live = serial !== null;
     const S = s.sectors;
     const ringW = 1 / Math.max(1, s.ring);
-    const lut = p.lut, warp = p.warp, wave = p.wave;
+    // (&boom's ring in a faction with its strongest rows named: only those slots)
+    const strong = s.layout === LAYOUT_RING ? lookOf(s.faction ?? FACTION_RAINBOW).ring?.ground : undefined;
+    const lut = p.lut, warp = p.warp, wave = p.wave, foot = p.foot;
     const lutK = SHAPE_LUT / (Math.PI * 2);
     const R2 = R * R;
     const waveK = (WAVE_LUT - 1) / Math.max(1, R);
@@ -1396,6 +1416,8 @@ export class GroundPaint {
         const d2 = wx * wx + wz * wz;
         if (d2 > R2) continue;
         const dist = Math.sqrt(d2);
+        // (&boom's ring: its hole, more than its edge's warp in, is bare, and over half its texels: the soft edge reaches 2.2 + 1.25 m in where the warp is -1)
+        if (s.layout === LAYOUT_RING && dist < s.ring - 3.5) continue;
         const a = Math.atan2(wz, wx);
         let f = a * lutK;
         if (f < 0) f += SHAPE_LUT;
@@ -1403,7 +1425,9 @@ export class GroundPaint {
         const t = f - k;
         const k1 = k + 1 < SHAPE_LUT ? k + 1 : 0;
         const e = lut[k] * (1 - t) + lut[k1] * t;
-        const c = (e - dist) / 2.6 + 0.5;
+        let c = (e - dist) / 2.6 + 0.5;
+        // (&boom's ring: its inner edge, as soft and as warped as its outer)
+        if (s.layout === LAYOUT_RING) c = Math.min(c, (dist - s.ring - warp[k] * 2.2) / 2.6 + 0.5);
         if (c <= 0.02) continue;
         let hue = s.hue;
         if (s.layout === LAYOUT_BANDS) hue = bandHue(s, s.x + wx, s.z + wz);
@@ -1415,8 +1439,11 @@ export class GroundPaint {
           const ring = Math.floor((dist + wd) * ringW);
           const off = s.layout === 1 ? ring : s.layout === 2 ? sector + ring : sector;
           hue = (((s.hue + off) % 6) + 6) % 6;
+          if (strong) hue = strong[hue % strong.length];
         }
-        this.put(d, (j * GROUND_N + i) * 4, c > 1 ? 1 : c, hue * 32 + low, live ? wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))] : 0, serial, under, deferred);
+        // (&falls's pool with its footprint: revealed by the distance past the wall at its angle)
+        const rv = !live ? 0 : foot ? Math.max(0, dist - (foot[k] * (1 - t) + foot[k1] * t)) / POOL_SPREAD : wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))];
+        this.put(d, (j * GROUND_N + i) * 4, c > 1 ? 1 : c, hue * 32 + low, rv, serial, under, deferred);
       }
     }
   }

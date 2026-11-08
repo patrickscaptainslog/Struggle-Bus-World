@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { config } from './config';
 import { PixelPipeline } from './render/PixelPipeline';
 import { globals, layerTopBase } from './render/materials';
-import { HUE_RAMPS } from './render/palette';
+import { HUE_RAMPS, Ramp } from './render/palette';
 import { lookOf } from './render/factionLook';
 import { WarmUp } from './render/warmup';
 import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
@@ -25,7 +25,7 @@ import { StreetCam } from './game/StreetCam';
 import { CurbFlight, type CurbEvent } from './game/CurbFlight';
 import { curbBoing, curbChirp, curbTicks, curbToot } from './audio/curbSfx';
 import { LOOKAHEAD } from './audio/dsp';
-import { WARP } from './game/Turbo';
+import { driveSpeed, WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { D as BUS_DIM } from './bus/busShape';
 import { glowSteps, Particles } from './fx/Particles';
@@ -45,6 +45,8 @@ import { SuperSplat } from './game/SuperSplat';
 import { Holds } from './game/Hold';
 import { Hose } from './game/Hose';
 import { Bomb } from './game/Bomb';
+import { Boom, boomOn, boomTune } from './game/Boom';
+import { Falls } from './fx/Falls';
 import { SuperFx } from './fx/SuperFx';
 import { CometFx } from './fx/CometFx';
 import { Comet } from './game/Comet';
@@ -607,8 +609,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const flashPos = new THREE.Vector3();
   /** Where a flung blob comes down: the roof it hits, else the ground (seen from fromY: never on a deck over it). */
   const landingY = (x: number, z: number, fromY: number) => city.roofAt(x, z, fromY) ?? city.groundAt(x, z);
-  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. */
-  const paintTrees = (b: Blast, freshOnly = false) => {
+  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. None
+   *  nearer its middle than `inner` m (&boom's ring: its bare hole, where older paint under a tree raised it) */
+  const paintTrees = (b: Blast, freshOnly = false, inner = 0) => {
     const ts = manifest.tileSize;
     const { x, z, r } = b.spec;
     const reach = r * b.spec.reach;
@@ -623,7 +626,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
           const d = Math.hypot(t.x - x, t.z - z);
-          if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
+          if (d > reach || d < inner || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) {
             if (wide) treesDue.push({ key, tf, i, x: t.x, z: t.z, at: b.t + arrival(d, r), jump: b.jump });
@@ -665,6 +668,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   cometFx.moon = !!moon;
   scene.add(cometFx.pillars, cometFx.drops);
   const cometBus = new THREE.Vector3();
+  // the Waterfall (src/fx/Falls.ts, behind &falls): a tower hit 40 m up or more runs with paint, its drops fall off its edges and a pool spreads at its foot
+  const falls = new Falls(city, particles, {
+    landing: (x, z, fromY) => landingY(x, z, fromY),
+    pool: (x, y, z, r, hue, tag, arrive, faction) => life?.blast(x, y, z, r, hue, tag, arrive, ownerOf(faction)),
+    trickle: (secs) => audio.fallsTrickle(secs),
+    plop: (delay) => audio.fallsPlop(delay),
+    slap: () => audio.fallsSlap(),
+  });
   const splatter = new Splatter(city, {
     geyser: (targets, hues) => {
       const S = config.splat;
@@ -691,6 +702,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // where it came down, for its sign: open ground (a park, a plaza, a street, a canal) when the breath
       // landed on the ground, not on a roof or a wall
       lastBlast.open = b.pos.y < city.groundAt(b.pos.x, b.pos.z) + 1;
+      // (&boom's ring: its own landing, src/game/Boom.ts)
+      if (b.super?.kind === 'boom') return boomImpact(b);
+      // (&falls: a tower struck 40 m up or more runs)
+      falls.impact(b, simTime);
       if (b.hose) {
         // a firehose impact: the super splat plays its own (lighter) fx; trees take their first colour only
         // (a dozen impacts a second would run a tree through every level at once)
@@ -758,12 +773,40 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas'));
   /** The bus paints as this faction from its next shot: its blasts carry it (the buildings, the ground, the trees, ?moon's craters and open ground), and its
    *  breath's particles take its spray. Paint already down keeps its owner. */
-  /** &bomb: the Bomb's look takes the faction's spray too (set once the Bomb is up) */
+  /** &bomb: the Bomb's look takes the faction's spray too (set once the Bomb is up); &boom's hoop too */
   let bombLook: ((f: number) => void) | null = null;
+  let boomLook: ((f: number) => void) | null = null;
+  /** the contrail takes the faction's spray (set once the Controls are up: Rainbow's is its hues, as before) */
+  let trailLook: ((f: number) => void) | null = null;
   const paintAsFaction = (f: number) => {
     splatter.faction = f;
     particles.palette = lookOf(f).spray;
+    trailLook?.(f);
     bombLook?.(f);
+    boomLook?.(f);
+  };
+  /** &boom's ring lands (src/game/Boom.ts): no splash or fountain at its middle, where nothing is painted; its blobs fly out from the band's inner edge, a
+   *  softer flash and kick than a tap's (the crack had the big one), the splat's boom at its loudest with a Comet's thunder under it, and the bells */
+  const boomImpact = (b: Blast) => {
+    const S = config.splat, inner = b.spec.ring;
+    for (const dot of b.dots) {
+      if (!dot.blob) continue;
+      const a = Math.atan2(dot.z - b.spec.z, dot.x - b.spec.x);
+      // (from what stands at the band's inner edge there, a roof or the ground: from the middle's ground they started underground on a slope, or in a tower)
+      const sx = b.spec.x + Math.cos(a) * inner, sz = b.spec.z + Math.sin(a) * inner;
+      flingFrom.set(sx, landingY(sx, sz, Infinity) + 1 + Math.random() * 2, sz);
+      flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y + 40) + 0.15, dot.z);
+      particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
+    }
+    // (none in its hole, more than its inner edge's warp in: buildings wholly there are left out, Splat.ts)
+    paintTrees(b, false, inner - 2.2);
+    audio.splatImpact(Math.max(1.4, b.strength));
+    audio.cometBoom(1.2, false, false);
+    audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
+    flashPos.copy(b.pos).project(camera);
+    pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength * 0.6);
+    rig.kick(S.kick * 0.5);
+    bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
   };
   if (paintAs) paintAsFaction(paintAs.id);
   // ?crew (game/crew.ts, SHOTS.md "MEGA off, and the faction button"): the testers' faction button. Once a page on this phone has seen ?crew, the faction it
@@ -1332,6 +1375,39 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** how far over the lens's middle a point shows (degrees, the sky lift's own taken off: where it would be with the view untipped); p is moved into the lens's space */
   const lobUpDeg = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), (Math.atan2(p.y, -p.z) * 180) / Math.PI + rig.skyLift);
 
+  // ---- Sonic Boom (src/game/Boom.ts, behind &boom): the flick into Turbo 3 cracks the sky, and its hoop lands as a ring of paint where the bus will be
+  // 1.3 s on, which it flies through as the band's crown goes up. On the Moon's ground too, where its craters in the hole are left out (CraterPaint)
+  const crownAt = new THREE.Vector3(), crownV = new THREE.Vector3();
+  const boom = new Boom(city, splatter, {
+    crack: (p) => controls.crack(p),
+    crown: (p) => {
+      const B = boomTune, n = B.crown, water = p.kind === 'water';
+      for (let i = 0; i < n; i++) {
+        const a = ((i + Math.random() * 0.6) / n) * Math.PI * 2, m = p.inner + (p.r - p.inner) * (0.25 + 0.5 * Math.random());
+        const x = p.x + Math.cos(a) * m, z = p.z + Math.sin(a) * m, g = landingY(x, z, p.y + 600);
+        const ramp = water ? (i % 2 ? Ramp.FOG : Ramp.GLOW_WHITE) : particles.palette[boom.hueAt(p, a)];
+        // (a curtain, three puffs up the column, rising and billowing out: the wall of the band's colours the bus crosses)
+        for (let k = 0; k < 3; k++) {
+          crownAt.set(x, g + 4 + 22 * k + Math.random() * 10, z);
+          crownV.set(Math.cos(a) * B.crownOut * (0.5 + Math.random()), B.crownUp * (0.45 + 0.55 * Math.random()), Math.sin(a) * B.crownOut * (0.5 + Math.random()));
+          particles.puff(crownAt, crownV, ramp, B.crownSize * (1 - 0.15 * k));
+        }
+        if (water && i % 3 === 0) particles.splash(crownAt.set(x, g, z), boom.hueAt(p, a), 1.2);
+      }
+    },
+  });
+  // (not in Recess until its areas.hit takes no square from a ring: HOOKS.md, the producer's fifth call; the guard goes with that hook)
+  boom.on = boomOn && !params.has('recess');
+  controls.onRung = (ev, n) => {
+    if (ev === 'turbo' && n === config.turbo.levels.length) boom.flick(flight, driveSpeed(controls.turbo.gear, n, true));
+  };
+  boomLook = (f) => {
+    if (boom.on) controls.fx.setHoopRows(lookOf(f).spray);
+  };
+  boomLook(splatter.faction);
+  trailLook = (f) => controls.fx.setTrailRows(lookOf(f).spray);
+  trailLook(splatter.faction);
+
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
     pipeline.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
@@ -1579,6 +1655,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       u.x -= dx;
       u.z -= dz;
     }
+    boom.slide(dx, dz);
     slides++;
   };
   let slides = 0;
@@ -1923,6 +2000,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     holds.frame(dt);
     hose.update(dt);
     splatter.update(dt);
+    boom.update(dt);
+    falls.update(simTime);
     const lobAt = aimer.lobPlan;
     moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z), lobAt ? Math.hypot(lobAt.x - flight.x, lobAt.z - flight.z) : 0);
     if (jet && simTime >= jet.at) {
@@ -2387,6 +2466,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: hold to aim (Holds: the hold under way, its handlers, the homing shots) and the Hose (its stats; qaPour pours at a world point until the tank runs dry) */
       holds,
       bomb,
+      /** QA: &boom (src/game/Boom.ts): its last plan and counts */
+      boom,
+      /** QA: &falls (src/fx/Falls.ts): its counts */
+      falls,
+      boomState: () => ({ on: boom.on, last: boom.last, time: boom.time, plan: boom.plan ? { ...boom.plan, spec: null } : null, stats: { ...boom.stats } }),
       bombState: () => ({ on: bomb.on, tier: bomb.tier, charge: bomb.charge, input: { ...input.state.bomb }, box: input.busBox ? { ...input.busBox } : null, stats: { ...bomb.stats } }),
       hose,
       /** QA: the Comet (src/game/Comet.ts): its plan this frame (where a tap now lands, null when it's the classic shot), and its looks' counts */

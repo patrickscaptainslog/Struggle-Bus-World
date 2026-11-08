@@ -316,7 +316,7 @@ function farTowerMesh(looks: Float32Array, n: number, material: THREE.Material):
 }
 
 /** Point-in-ring test for record k of a building tile. */
-function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
+export function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
   const s = b.vertStart[k], e = b.vertStart[k + 1];
   let inside = false;
   for (let i = s, j = e - 1; i < e; j = i++) {
