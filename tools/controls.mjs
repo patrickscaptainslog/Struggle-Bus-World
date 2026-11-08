@@ -26,6 +26,8 @@
 //            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
 //            and 8,000), no program made after ready, and stills held on the Boom's clock at the crack, the hoop standing ahead, the bus at its plane, the
 //            slam, the band blooming and the band behind, and the sky's ring at 0.2 s (SB_STILLS=0 leaves them out). Exits 1 when a row fails                 -> boom.json
+//            SB_BOOM_X=1: the reviews' rows instead (BUILT.md, "The reviews of the Sonic Boom pass and of feat/extras"): a pull held after the flick over the
+//            Western Addition, the slam heading north and south there, and downtown's tallest tower under the hoop from 150 m
 //   falls    the Waterfall (&falls; src/fx/Falls.ts; not in the default list): at Cruise 60 m over a Financial District tower's roof, 300 m west of it, a
 //            real tap off the lane, in Rainbow, Hyperglow and the Elderwood, the next tower if it didn't pour. Each: its drops and its pool landed round its
 //            foot, the draws, triangles and particles each frame (200, 1.5 M, 8,000), nothing compiled, and stills of the runs, the drops and the pool.
@@ -1167,20 +1169,25 @@ if (modes.has('boom') || modes.has('falls')) {
       await runFor(page, 1);
       const progs0 = await page.evaluate(() => window.__progs);
       if (mode === 'boom') {
-        for (const [where, lat, lon, over] of [['western-addition', 37.7795, -122.4335, 150], ['western-addition', 37.7795, -122.4335, 300], ['downtown', 37.7905, -122.4035, 150]]) {
+        const E = Math.PI / 2;
+        const ROWS = process.env.SB_BOOM_X === '1'
+          ? [['pull-western-addition', 37.7795, -122.4335, 150, E, 1400, true], ['north-western-addition', 37.7795, -122.4335, 150, 0, 1400], ['south-western-addition', 37.7795, -122.4335, 150, Math.PI, 1400], ['tower-downtown', 37.78975, -122.39686, 150, E, 920]]
+          : [['western-addition', 37.7795, -122.4335, 150, E], ['western-addition', 37.7795, -122.4335, 300, E], ['downtown', 37.7905, -122.4035, 150, E]];
+        for (const [where, lat, lon, over, heading, backAt, pull] of ROWS) {
           const key = `${fk}-${where}-${over}`;
-          // (held short of the place at Turbo 2 while the city streams in, heading east, `over` m over the ground there, by about where the ring lands from
-          // there (Boom's boomLead: 1,400 m short from 150, 2,050 from 300); let go, a flick 0.2 s on)
-          const back = over > 200 ? 2050 : 1400;
-          const at = await page.evaluate(([lat, lon, over, back]) => {
-            const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r) - back + 950, z = -(lat - o[0]) * r * 6378137;
-            const y = g.city.groundAt(x - 950, z) + over;
-            window.__qa = { pin: { x: x - 950, z, heading: Math.PI / 2, y } };
-            Object.assign(g.flight, { x: x - 950, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 720 });
+          // (held short of the place at Turbo 2 while the city streams in, heading east (or `heading`), `over` m over the ground there, by about where the ring
+          // lands from there (Boom's boomLead: 1,400 m short from 150, 2,050 from 300; `backAt` 920: the hoop stands on it); let go, a flick 0.2 s on)
+          const back = backAt ?? (over > 200 ? 2050 : 1400);
+          const at = await page.evaluate(([lat, lon, over, back, heading]) => {
+            const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, px = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r), pz = -(lat - o[0]) * r * 6378137;
+            const bx = px - Math.sin(heading) * (back - 950), bz = pz + Math.cos(heading) * (back - 950), x = bx - Math.sin(heading) * 950, z = bz + Math.cos(heading) * 950;
+            const y = g.city.groundAt(x, z) + over;
+            window.__qa = { pin: { x, z, heading, y } };
+            Object.assign(g.flight, { x, z, heading, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 720 });
             g.controls.turbo.arrive(3, 2);
             g.boom.last = -Infinity;
-            return [x, z];
-          }, [lat, lon, over, back]);
+            return [bx, bz];
+          }, [lat, lon, over, back, heading]);
           await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
           await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
           await runFor(page, 0.2);
@@ -1199,6 +1206,11 @@ if (modes.has('boom') || modes.has('falls')) {
             if (plan) {
               await page.evaluate((p) => (window.__xAt = [p.x, p.z]), plan);
               const t0 = plan.t0;
+              // (a pull held after the flick: a thumb down in the lane under the bus and drawn down, held through the stills)
+              if (pull) {
+                await H.down(2, 196, 700);
+                await H.move(2, 196, 740);
+              }
               await stillAt(page, t0 + 0.05, `${out}/boom-${key}-1-crack.png`);
               // (the sky's pressure ring rolling up through the sky, the hoop on its way; then the hoop standing, the ring rolling on down the city)
               await stillAt(page, t0 + 0.2, `${out}/boom-${key}-2-sky.png`);
@@ -1212,6 +1224,7 @@ if (modes.has('boom') || modes.has('falls')) {
               await stillAt(page, p3.bloom + 0.05, `${out}/boom-${key}-5-bloom.png`);
               // (the band spreading under the bus and behind it: a second on, it's out of the chase's frame)
               await stillAt(page, p3.bloom + 0.35, `${out}/boom-${key}-6-behind.png`);
+              if (pull) await H.up(2);
               await page.evaluate(() => (window.__qa = null));
               await runFor(page, 1);
             } else await page.evaluate(() => (window.__qa = null));
@@ -1227,7 +1240,7 @@ if (modes.has('boom') || modes.has('falls')) {
           const t = await traced(page);
           const b = await page.evaluate(() => ({ ...window.__game.boomState(), level: window.__game.controls.turbo.level, min: window.__xMin }));
           const rz = await raisedBy(page);
-          const row = { key, level: [a.level, b.level], kind: plan?.kind ?? null, threaded: b.plan?.threaded ?? null, cracks: b.stats.cracks - a.cracks, r: plan && Math.round(plan.r), inner: plan && Math.round(plan.inner), off: plan && Math.round(Math.hypot(plan.x - at[0], plan.z - at[1])), rings: b.stats.rings - a.rings, busMin: Math.round(b.min), ...rz, ...t };
+          const row = { key, level: [a.level, b.level], kind: plan?.kind ?? null, threaded: b.plan?.threaded ?? null, hoop: b.plan && { hy: Math.round(b.plan.hy), floor: Math.round(b.plan.floor), drift: Math.round(b.plan.drift) }, cracks: b.stats.cracks - a.cracks, r: plan && Math.round(plan.r), inner: plan && Math.round(plan.inner), off: plan && Math.round(Math.hypot(plan.x - at[0], plan.z - at[1])), rings: b.stats.rings - a.rings, busMin: Math.round(b.min), ...rz, ...t };
           R.rows.push(row);
           console.log('boom:', JSON.stringify(row));
           ok(row.level[0] === 2 && row.level[1] === 3 && row.kind === 'ring' && row.rings === 1, `${key}: the flick into Turbo 3 rang (levels ${row.level.join(' to ')}, ${row.kind}, ${row.rings} ring)`);
