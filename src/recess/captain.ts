@@ -68,11 +68,18 @@ export class Captain {
     this.rand = rng(seed);
   }
 
-  /** The first bell (SHOTS.md, "First contact within 10 s"): the first 10 s hunting, so the duel comes to the player. */
-  kickoff(t: number): void {
-    this.goal = 'hunt';
+  /**
+   * The first bell (SHOTS.md, "First contact within 10 s": "The easiest captain locks you at about 4 s and fires at about 5 s ... Your first duel is a dodge you
+   * win"): with `prey` (a bus's id, the player's) the first 10 s hunting it, so the duel comes to the player; without, the first 10 s painting, so the first duel
+   * is the easiest captain's (the day review's m52: the kickoff hunted the nearest rival, the other captain at 168 m, and the player met the Rival first).
+   */
+  kickoff(t: number, prey = -1): void {
+    this.goal = prey >= 0 ? 'hunt' : 'paint';
     this.goalUntil = t + 10;
+    this.mark = prey;
   }
+  /** the bus the kickoff's hunt is for (-1 none) */
+  private mark = -1;
 
   think(r: Recess, me: Bus): Hands {
     const T = recessTune, S = this.skill, t = r.t, h: Hands = { steer: 0, tap: false, flick: 0 };
@@ -118,6 +125,7 @@ export class Captain {
         this.gz = c.z;
       }
     } else if (me.avenge >= 0 && t < me.avengeUntil && r.canLock(me, r.buses[me.avenge])) prey = r.buses[me.avenge];
+    else if (this.goal === 'hunt' && me.state !== 'ride' && this.mark >= 0 && t < this.goalUntil && r.canLock(me, r.buses[this.mark])) prey = r.buses[this.mark];
     else if (this.goal === 'hunt' && me.state !== 'ride') {
       let d0 = Infinity;
       for (const b of r.buses) {

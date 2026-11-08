@@ -372,7 +372,9 @@ export class RecessGame implements MoverAim {
     }
     if (this.phase === 'ready' && simTime >= this.t0) {
       this.phase = 'play';
-      for (const c of this.captains) c.kickoff(0);
+      // (the easiest captain hunts the player from the bell; the other paints its first 10 s, so the first duel is the easy one: m52)
+      const order: Level[] = ['learner', 'rival', 'veteran'], easiest = this.captains.reduce((e, c) => (order.indexOf(c.level) < order.indexOf(e.level) ? c : e), this.captains[0]);
+      for (const c of this.captains) c.kickoff(0, c === easiest ? 0 : -1);
       this.say(['DING DING DING', `${Math.round(this.length / 60) || 1} MINUTES`], 2, 3);
       // (each god's heart in its colour, a big blast, so the field shows whose camp is whose)
       for (const h of this.hearts) if (h.stage === 5) this.heartBlast(h.key, h.faction);
@@ -414,7 +416,8 @@ export class RecessGame implements MoverAim {
         this.watchHearts();
         if (this.sim.t >= this.length) this.bell(simTime);
       }
-      this.player(clock, f);
+      // (not after the bell: a ride going then would shift the gears back up and hold its flood, the day review's n57)
+      if (this.phase === 'play') this.player(clock, f);
     }
     this.draw(dt, simTime);
     this.drawRings();
@@ -481,7 +484,8 @@ export class RecessGame implements MoverAim {
     for (const b of this.sim.buses) if (b.id !== 0 && Math.hypot(b.x - me.x, b.z - me.z) < R.near) near = true;
     const k = 1 - Math.exp(-dt / R.ease), on = this.phase === 'over' ? 0 : 1;
     this.pullNow += ((near ? R.pull : 0) * on - this.pullNow) * k;
-    this.h.rig.matchFov += (R.wider * on - this.h.rig.matchFov) * k;
+    // (the wider lens stays at the bell, so the scoreboard from 1,500 m holds all three hearts: the day review's m54)
+    this.h.rig.matchFov += (R.wider - this.h.rig.matchFov) * k;
     this.h.rig.matchPull = this.pullNow;
   }
 
@@ -693,8 +697,9 @@ export class RecessGame implements MoverAim {
   private bell(simTime: number): void {
     this.phase = 'over';
     this.overAt = simTime;
-    // (recess is over: the gears back to Cruise)
+    // (recess is over: the gears back to Cruise, a ride ended and its flood drained)
     for (let k = 0; k < 8 && this.h.turbo.gear > 0; k++) this.h.turbo.shift(-1, this.h.flight);
+    if (this.flood) this.flood.drainAt = Math.min(this.flood.drainAt, this.now);
     const s = this.sim.score(), order = [Faction.RAINBOW, Faction.ATLANTIS, Faction.INFERNO].sort((p, q) => s[q] - s[p]);
     const tie = s[order[0]] === s[order[1]];
     this.say(['THE BELL!', tie ? 'A TIE' : order[0] === Faction.RAINBOW ? 'RAINBOW WINS' : `${SIDES[order[0]].name} WINS`], 4, 4);
