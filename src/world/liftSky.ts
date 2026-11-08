@@ -807,6 +807,8 @@ function* hyperglowGeo(p: SkyPlace, g: Geo): Steps {
       if (inHood((ax + bx) / 2, (az + bz) / 2)) under.push([(ax + bx) / 2, (az + bz) / 2, Math.hypot(bx - ax, bz - az) / 2 + 16, 3]);
     }
   const Y = skyY(p, under);
+  // (the roofs under every lane are a part of their own: with the lanes they were 11-27 ms on a big hilly neighbourhood)
+  yield;
   const ends = new Map<string, [number, number, number]>();
   const node = (x: number, z: number) => {
     const key = `${Math.round(x / 6)},${Math.round(z / 6)}`;
