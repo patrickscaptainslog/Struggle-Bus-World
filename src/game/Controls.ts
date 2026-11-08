@@ -99,6 +99,7 @@ export class Controls {
   private bombedOnce = false;
   private thumbOnce = false;
   private gestured = false;
+  private readonly onCrackSky = (x: number, y: number, z: number, front: number) => this.d.pipeline.crackSky(x, y, z, front);
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
     const p = this.flashTmp.copy(pos).project(this.d.camera);
     this.d.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 1, strength);
@@ -175,11 +176,11 @@ export class Controls {
   /** Every rung's event after its own looks and sounds (main.ts: &boom's flick into Turbo 3, src/game/Boom.ts) */
   onRung: ((ev: TurboEvent, gear: number) => void) | null = null;
 
-  /** &boom (src/game/Boom.ts): the flick into Turbo 3 breaks the barrier again, Mach 1's set piece and its N-wave, the hoop landing as the ring `to` (null: the
-   *  crack alone), game clock `now`. */
-  crack(to: BoomPlan | null, now: number) {
+  /** &boom (src/game/Boom.ts): the flick into Turbo 3 breaks the barrier again, Mach 1's set piece and its N-wave, the flash over the frame and the sky's
+   *  pressure ring (the resolve's), the hoop standing ahead and landing as the ring `to` (null: the crack alone). */
+  crack(to: BoomPlan | null) {
     const d = this.d;
-    this.fx.crack(d.bus.root, d.flight, d.rig, this.onFlash, to, now);
+    this.fx.crack(d.bus.root, d.flight, d.rig, this.onFlash, to, this.onCrackSky);
     const kit = d.audio.voiceKit();
     if (!kit) return;
     const t = kit.ctx.currentTime + LOOKAHEAD;

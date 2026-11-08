@@ -162,6 +162,9 @@ export class CameraRig {
   shake = 0;
   private kickT = 1e3;
   private kickA = 0;
+  /** &boom's crack (TurboFx.crack): a turn of the view that rings down, where the kick only moves it */
+  private joltT = 1e3;
+  private joltA = 0;
   private readonly kickUp = new THREE.Vector3();
   private readonly kickRight = new THREE.Vector3();
   private readonly bus = new THREE.Vector3();
@@ -500,6 +503,13 @@ export class CameraRig {
     this.kickT = 0;
   }
 
+  /** &boom's crack: the view jolted `rad` in pitch and roll, ringing down over about 0.45 s. The kick moves the camera, which leaves the sky where it was (it's
+   *  drawn by direction alone): this turns it, so the horizon and the whole sky shake. */
+  jolt(rad: number) {
+    this.joltA = rad;
+    this.joltT = 0;
+  }
+
   /**
    * Applies the kick after update(), on REAL time (it keeps shaking through
    * the hit-stop freeze). Translation only, along the camera's own up/right
@@ -507,6 +517,13 @@ export class CameraRig {
    * rest goes to the upscale shift), so a kick never shimmers. No rotation.
    */
   applyKick(cam: THREE.PerspectiveCamera, realDt: number) {
+    if (this.joltT < 0.45) {
+      // (&boom's jolt: a turn, so it shimmers for its half second; it's the sky cracking)
+      const t = this.joltT, env = this.joltA * Math.exp(-7 * t);
+      this.joltT += realDt;
+      cam.rotateX(env * Math.cos(2 * Math.PI * 9 * t));
+      cam.rotateZ(env * 0.7 * Math.sin(2 * Math.PI * 7 * t));
+    }
     const D = Math.max(0.05, config.splat.kickDecay);
     if (this.kickT > D * 1.5) return;
     const t = this.kickT;

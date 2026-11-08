@@ -142,12 +142,13 @@ function hand(page, cdp) {
     },
     cancel() { pts.clear(); return send('touchCancel'); },
     /** run fn with the game loop frozen (frames are instant, the page sees the touches as they come) and its events stamped from 2 s ago */
-    async stamped(fn) {
+    async stamped(fn, keep = false) {
       await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
       await wall(40);
       t0 = Date.now() / 1000 - 2;
       await fn();
-      await page.evaluate(() => (window.__qa = null));
+      // (keep: the loop stays frozen after it, for a caller stepping it a frame at a time)
+      if (!keep) await page.evaluate(() => (window.__qa = null));
     },
     /** one stroke, x0, y0 by dx, dy over ms, inside stamped(): `from` = ms into the gesture */
     async stroke(id, x0, y0, dx, dy, ms, from = 0) {
@@ -1106,6 +1107,15 @@ if (modes.has('boom') || modes.has('falls')) {
     await page.screenshot({ path });
     await page.evaluate(() => (window.__qa = null));
   };
+  // (a still of the first frame at or after the Boom's game time tb, the loop frozen there; it stays frozen after)
+  const stillAt = async (page, tb, path) => {
+    await page.evaluate((tb) => {
+      const g = window.__game;
+      window.__qa = { holdAt: g.clock() + (tb - g.boom.time) - 1e-4 };
+    }, tb);
+    await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 120000, polling: 50 });
+    await page.screenshot({ path });
+  };
   // (every frame's draws, triangles and live particles, the fps meter's counters, from when __xTrace is set; and the bus's least distance to __xAt)
   const traceInit = () => {
     const g = window.__game, p = g.perf, orig = p.frame.bind(p);
@@ -1135,7 +1145,7 @@ if (modes.has('boom') || modes.has('falls')) {
     return { raised, wrong };
   });
   // (world m from lat, lon on the page: its manifest's origin, as bomb's rows place the bus)
-  const FACTIONS = { boom: [['rainbow', ''], ['atlantis', '&paintas=atlantis'], ['inferno', '&paintas=inferno']], falls: [['rainbow', ''], ['hyperglow', '&paintas=hyperglow'], ['elderwood', '&paintas=elderwood']] };
+  const FACTIONS = { boom: [['rainbow', ''], ['atlantis', '&paintas=atlantis'], ['hyperglow', '&paintas=hyperglow'], ['inferno', '&paintas=inferno']], falls: [['rainbow', ''], ['hyperglow', '&paintas=hyperglow'], ['elderwood', '&paintas=elderwood']] };
   for (const mode of ['boom', 'falls']) {
     if (!modes.has(mode)) continue;
     const R = { rows: [], verdicts: [] };
@@ -1156,49 +1166,70 @@ if (modes.has('boom') || modes.has('falls')) {
       await runFor(page, 1);
       const progs0 = await page.evaluate(() => window.__progs);
       if (mode === 'boom') {
-        for (const [where, lat, lon] of [['western-addition', 37.7795, -122.4335], ['downtown', 37.7905, -122.4035]]) {
-          const key = `${fk}-${where}`;
-          // (held 950 m short of the place at Turbo 2 while the city streams in, heading east, 150 m over the ground there; let go, a flick 0.2 s on)
-          const at = await page.evaluate(([lat, lon]) => {
-            const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(lat - o[0]) * r * 6378137;
-            const y = g.city.groundAt(x - 950, z) + 150;
+        for (const [where, lat, lon, over] of [['western-addition', 37.7795, -122.4335, 150], ['western-addition', 37.7795, -122.4335, 300], ['downtown', 37.7905, -122.4035, 150]]) {
+          const key = `${fk}-${where}-${over}`;
+          // (held short of the place at Turbo 2 while the city streams in, heading east, `over` m over the ground there (950 m short from 150, 1,400 from 300,
+          // as the ring lands farther on); let go, a flick 0.2 s on)
+          const back = over > 200 ? 1400 : 950;
+          const at = await page.evaluate(([lat, lon, over, back]) => {
+            const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r) - back + 950, z = -(lat - o[0]) * r * 6378137;
+            const y = g.city.groundAt(x - 950, z) + over;
             window.__qa = { pin: { x: x - 950, z, heading: Math.PI / 2, y } };
             Object.assign(g.flight, { x: x - 950, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 720 });
             g.controls.turbo.arrive(3, 2);
             g.boom.last = -Infinity;
             return [x, z];
-          }, [lat, lon]);
+          }, [lat, lon, over, back]);
           await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
           await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
           await runFor(page, 0.2);
           const a = await page.evaluate(() => ({ ...window.__game.boomState().stats, level: window.__game.controls.turbo.level }));
           await page.evaluate(() => ((window.__xTrace = []), (window.__xMin = Infinity), (window.__xAt = null)));
-          await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
-          const plan = await page.evaluate(() => {
-            const p = window.__game.boomState().plan;
-            if (p) window.__xAt = [p.x, p.z];
-            return p;
-          });
+          let plan = null;
           if (stills) {
-            await runFor(page, 0.1);
-            await still(page, `${out}/boom-${key}-1-crack.png`);
-            await runFor(page, 0.25);
-            await still(page, `${out}/boom-${key}-2-land.png`);
-            await runFor(page, 0.4);
-            await still(page, `${out}/boom-${key}-3-bloom.png`);
-            await runFor(page, 0.25);
-            await still(page, `${out}/boom-${key}-4-through.png`);
-            await runFor(page, 2);
-          } else await runFor(page, 3);
+            // (the loop kept frozen from the stroke and stepped a frame at a time to the flick's; then each still held at its game time on the Boom's clock: the
+            // crack, the hoop standing ahead, the bus at its plane, the slam, the band blooming, the band behind)
+            await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85), true);
+            for (let k = 0; k < 40 && !plan; k++) {
+              await page.evaluate(() => (window.__qa = { holdFrames: 1 }));
+              await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 60000, polling: 20 });
+              plan = await page.evaluate((n) => (window.__game.boomState().stats.flicks > n ? window.__game.boomState().plan : null), a.flicks);
+            }
+            if (plan) {
+              await page.evaluate((p) => (window.__xAt = [p.x, p.z]), plan);
+              const t0 = plan.t0;
+              await stillAt(page, t0 + 0.05, `${out}/boom-${key}-1-crack.png`);
+              await stillAt(page, t0 + 0.5, `${out}/boom-${key}-2-hoop.png`);
+              // (the frame before the bus's crossing: its plane hoopAhead s on, a frame early at fixeddt's 0.05 s)
+              await stillAt(page, t0 + 0.92, `${out}/boom-${key}-3-thread.png`);
+              const p2 = await page.evaluate(() => window.__game.boomState().plan);
+              const th = Number.isFinite(p2.thread) ? p2.thread : t0 + 1;
+              await stillAt(page, th + 0.2, `${out}/boom-${key}-4-slam.png`);
+              const p3 = await page.evaluate(() => window.__game.boomState().plan);
+              await stillAt(page, p3.bloom + 0.05, `${out}/boom-${key}-5-bloom.png`);
+              await stillAt(page, p3.bloom + 1.0, `${out}/boom-${key}-6-behind.png`);
+              await page.evaluate(() => (window.__qa = null));
+              await runFor(page, 1);
+            } else await page.evaluate(() => (window.__qa = null));
+          } else {
+            await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85));
+            plan = await page.evaluate(() => {
+              const p = window.__game.boomState().plan;
+              if (p) window.__xAt = [p.x, p.z];
+              return p;
+            });
+            await runFor(page, 4);
+          }
           const t = await traced(page);
           const b = await page.evaluate(() => ({ ...window.__game.boomState(), level: window.__game.controls.turbo.level, min: window.__xMin }));
           const rz = await raisedBy(page);
-          const row = { key, level: [a.level, b.level], kind: plan?.kind ?? null, r: plan && Math.round(plan.r), inner: plan && Math.round(plan.inner), off: plan && Math.round(Math.hypot(plan.x - at[0], plan.z - at[1])), rings: b.stats.rings - a.rings, busMin: Math.round(b.min), ...rz, ...t };
+          const row = { key, level: [a.level, b.level], kind: plan?.kind ?? null, threaded: b.plan?.threaded ?? null, cracks: b.stats.cracks - a.cracks, r: plan && Math.round(plan.r), inner: plan && Math.round(plan.inner), off: plan && Math.round(Math.hypot(plan.x - at[0], plan.z - at[1])), rings: b.stats.rings - a.rings, busMin: Math.round(b.min), ...rz, ...t };
           R.rows.push(row);
           console.log('boom:', JSON.stringify(row));
           ok(row.level[0] === 2 && row.level[1] === 3 && row.kind === 'ring' && row.rings === 1, `${key}: the flick into Turbo 3 rang (levels ${row.level.join(' to ')}, ${row.kind}, ${row.rings} ring)`);
           ok(row.raised > 0 && row.wrong === 0, `${key}: every building it raised one level up (${row.raised}, ${row.wrong} not)`);
           ok(!!plan && row.busMin < plan.inner, `${key}: the bus flew over its hole (${row.busMin} m from its middle at the nearest, the hole ${row.inner} m)`);
+          ok(row.threaded === true && row.cracks === 1, `${key}: one crack, and the bus threaded the hoop (${row.cracks}, ${row.threaded})`);
           limits(ok, key, t);
         }
       } else {

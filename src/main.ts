@@ -1342,7 +1342,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // 1.3 s on, which it flies through as the band's crown goes up. On the Moon's ground too, where its craters in the hole are left out (CraterPaint)
   const crownAt = new THREE.Vector3(), crownV = new THREE.Vector3();
   const boom = new Boom(city, splatter, {
-    crack: (p) => controls.crack(p, boom.time),
+    crack: (p) => controls.crack(p),
     crown: (p) => {
       const B = boomTune, n = B.crown, water = p.kind === 'water';
       for (let i = 0; i < n; i++) {

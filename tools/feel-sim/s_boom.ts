@@ -1,15 +1,19 @@
 // Sonic Boom on the real city (src/game/Boom.ts, &boom; docs/specs/shots/BUILT.md, "The extras"): the flick into Turbo 3 from Turbo 2's 720 m/s at 150 and 500 m
 // over the ground, 1 km and 16 km, over the Western Addition and downtown, through the real Flight, TurboDrive, TurboLens, CameraRig and Splatter at 1/60 s.
-// From 150 and 500 m a ring lands where the bus will be 1.3 s on or so: every building reaching into its band (0.75 to 1 of its radius, 0.94 times the
-// tap's circle from there) goes up one level, none in its hole or past its rim does, its ground is painted in the band and not in the hole; the ring is in
-// the frame's lower half as its band blooms, and the bus flies over its hole; no frame passes 8 ms (the flick's frame, with its barf, included), leaving out
-// a frame Node's collector ran in (a row over 8 ms is flown again and the lower counts, as s_bomb's). From 1 and 16 km, the crack alone: nothing painted. Over the bay, a ring of spray, nothing painted, and the 10 s unspent.
+// From 150, 300 and 490 m, at 1/60 s and 1/30 s: the crack fires once (its flash over the frame held 0.16 s, its sky's pressure ring racing out after it),
+// the hoop stands upright across the path at the bus's height about a second ahead, the bus threads it (through its hole as it crosses its plane, at either
+// frame rate), and the hoop lies flat as the ring by the time the band's inner edge blooms; a ring lands ahead: every building reaching into its band (0.75
+// to 1 of its radius, 0.94 times the tap's circle from there) goes up one level, none in its hole or past its rim does, its ground is painted in the band and
+// not in the hole; the ring is in the frame's lower half as its band blooms, and the bus flies over its hole; no hit-stop; no frame passes 8 ms (the flick's
+// and the thread's frames, with its barf, included), leaving out a frame Node's collector ran in (a row over 8 ms is flown again and the lower counts, as
+// s_bomb's). From 1 and 16 km, the crack alone: nothing painted. Over the bay, a ring of spray, nothing painted, and the 10 s unspent.
 // A second flick inside 10 s is nothing, and one 10 s after the last rings. Node's clock isn't a phone's: the milliseconds say where the cost is.
 //   node tools/feel-sim/run.mjs s_boom.ts
 import { newCity, pump, ll, makeGame, makeCam, save, MODE, config } from './lib';
-import { Boom, boomTune, type BoomPlan } from '@src/game/Boom';
+import { Boom, boomLead, boomTune, hoopPose, type BoomPlan, type HoopPose } from '@src/game/Boom';
 import { JET, driveSpeed, TurboDrive } from '@src/game/Turbo';
-import { TurboLens } from '@src/fx/Turbo';
+import { crackSky, TurboLens, turboFxTune } from '@src/fx/Turbo';
+import { blastRadiusFor } from '@src/game/blastLayout';
 import { globals } from '@src/render/materials';
 import { PerformanceObserver } from 'node:perf_hooks';
 
@@ -21,7 +25,6 @@ let checks = 0;
 const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
 const rows: unknown[] = [];
 const r1 = (x: number) => Math.round(x * 10) / 10, r2 = (x: number) => Math.round(x * 100) / 100;
-const dt = 1 / 60;
 /** where the ring's middle sits on the screen at most as its band blooms (of the height down): from 150 m it blooms round the bus at 0.66, and the outside look
  *  asked that every height get that frame (from 300 and 490 m it bloomed at 0.75 or lower, its band at the frame's bottom edge as it came up) */
 const BLOOM_Y = 0.7;
@@ -29,12 +32,13 @@ const PLACES: Array<[string, number, number]> = [['western-addition', 37.7795, -
 const counting = { properties: { get: () => ({}) }, getContext: () => ({ texSubImage2D() {} }), state: { activeTexture() {}, bindTexture() {}, pixelStorei() {} } } as any;
 
 /** A bus at Turbo 2's 720 m/s, `over` m over the ground under (x, z) less the second's flight, heading east; flicked into Turbo 3, flown on 3 s. */
-async function flick(place: string, lat: number, lon: number, over: number, opts: { second?: boolean; prior?: number } = {}) {
+async function flick(place: string, lat: number, lon: number, over: number, opts: { second?: boolean; prior?: number; dt?: number } = {}) {
+  const dt = opts.dt ?? 1 / 60;
   city.paint.resetAll();
   city.ground.resetAll();
   const [px, pz] = ll(lat, lon);
   const B = boomTune;
-  const lead = Math.min(B.leadMax, Math.max(B.lead, B.lead + (over - B.leadFrom) * B.leadK));
+  const lead = boomLead(over, B.radiusK * blastRadiusFor(over));
   // (a second's run-in at 720 m/s before the flick: the ring lands on the place)
   const x0 = px - 780 * lead - 720, z0 = pz;
   // (where it starts, then where the ring lands, last: the city keeps the tiles round its last focus)
@@ -48,7 +52,8 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   drive.arrive(JET, 2);
   const cam = makeCam(), lens = new TurboLens();
   const plans: Array<BoomPlan | null> = [];
-  const boom = new Boom(city, g.splatter, { crack: () => {}, crown: (p) => (p.crowned = true) });
+  let cracks = 0;
+  const boom = new Boom(city, g.splatter, { crack: () => cracks++, crown: (p) => (p.crowned = true) });
   boom.on = true;
   if (opts.prior !== undefined) boom.last = -opts.prior;
   // (a frame as the page's: the game's, then the city's ground slice and its upload; its parts' milliseconds)
@@ -68,7 +73,7 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
     cam.update(f, dt);
     return [a, performance.now()];
   };
-  for (let i = 0; i < 60; i++) step();
+  for (let i = 0, n = Math.round(1 / dt); i < n; i++) step();
   // (its height over the ground under it now, where the Boom reads it)
   f.y = f.holdY = f.targetY = f.groundBroad + over;
   const before = new Map<number, number>();
@@ -89,10 +94,33 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   frames.push({ ms: b0 - a0, a: a0, b: b0, parts: [flickMs, ...parts] });
   const plan = plans[0];
   let busMin = Infinity, bloomY = NaN, bloomX = NaN, rimY: number[] = [];
-  for (let i = 0; i < 180; i++) {
-    if (opts.second && i === 60) fire();
+  // the hoop: standing (its pose at hoopFly s, against the bus then), at the thread (the bus's offsets from its middle), and as the band's inner edge blooms
+  const pose: HoopPose = { x: 0, y: 0, z: 0, r: 0, flat: 0, w: 0, tear: 0 };
+  const nose = { x: 0, y: 0, z: 0 };
+  let stand: { ahead: number; dy: number; flat: number; r: number } | null = null, thr: { along: number; across: number; dy: number; age: number; flat: number } | null = null, slam: { flat: number; dx: number; dz: number; r: number } | null = null;
+  const hitStops0 = (g as any).events.filter((e: any) => e.ev === 'hitstop').length;
+  // (the crack over the frame, by its age: frames with the flash, the front's angles)
+  let flashFrames = 0, flashEnd = 0;
+  const fronts: number[] = [], t0 = boom.time - dt, sky = { flash: 0, front: -1 };
+  // (4 s on: longer, at 30 fps the tiles round the ring are let go behind the bus before its ground is sampled)
+  for (let i = 0, n = Math.round(4 / dt); i < n; i++) {
+    if (opts.second && i === Math.round(1 / dt)) fire();
+    const age = boom.time - t0;
+    crackSky(age, sky);
+    if (sky.flash > 0) {
+      flashFrames++;
+      flashEnd = age;
+    }
+    if (sky.front >= 0) fronts.push(sky.front);
     const [a, b] = step();
     frames.push({ ms: b - a, a, b, parts });
+    if (plan && plan.kind !== 'high') {
+      Object.assign(nose, { x: f.x + f.fx * 6, y: f.y, z: f.z + f.fz * 6 });
+      const has = hoopPose(plan, boom.time, nose, pose);
+      if (!stand && boom.time - plan.t0 >= boomTune.hoopFly && has) stand = { ahead: r2(((pose.x - f.x) * plan.nx + (pose.z - f.z) * plan.nz) / Math.max(1, f.ground)), dy: r1(pose.y - f.y), flat: pose.flat, r: r1(pose.r) };
+      if (!thr && boom.time >= plan.thread) thr = { along: r1((f.x - plan.hx) * plan.nx + (f.z - plan.hz) * plan.nz), across: r1((f.z - plan.hz) * plan.nx - (f.x - plan.hx) * plan.nz), dy: r1(f.y - plan.hy), age: r2(plan.thread - plan.t0), flat: pose.flat };
+      if (!slam && boom.time >= plan.slam && has) slam = { flat: pose.flat, dx: r1(pose.x - plan.x), dz: r1(pose.z - plan.z), r: r2(pose.r / plan.r) };
+    }
     if (plan) {
       busMin = Math.min(busMin, Math.hypot(f.x - plan.x, f.z - plan.z));
       if (Number.isNaN(bloomY) && boom.time >= plan.bloom) {
@@ -138,7 +166,8 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   const gBand = at(0.87), gHole = at(0.45), gOut = at(1.6);
   const counted = frames.filter((fr) => !gcs.some(([s, e]) => s < fr.b && e > fr.a));
   const worst = Math.max(...counted.map((fr) => fr.ms)), worstAt = frames.findIndex((fr) => fr.ms === worst);
-  const row = { place, over, kind: plan?.kind ?? null, r: plan && r1(plan.r), inner: plan && r1(plan.inner), ahead: plan && r1(Math.hypot(plan.x - x0, plan.z - z0)), band, up1, wrong, hole, outside, gBand: r2(gBand), gHole: r2(gHole), gOut: r2(gOut), bloom: [r2(bloomX), r2(bloomY)], rimY, busMin: r1(busMin), worstMs: r2(worst), worstAt, worstParts: frames[worstAt]?.parts, gcFrames: frames.length - counted.length, last: boom.last, stats: { ...boom.stats }, plans: plans.map((p) => p?.kind ?? null) };
+  const hitStops = (g as any).events.filter((e: any) => e.ev === 'hitstop').length - hitStops0;
+  const row = { place, over, fps: Math.round(1 / dt), cracks, flashFrames, flashEnd: r2(flashEnd), frontMax: r2(Math.max(-1, ...fronts)), frontFrames: fronts.length, stand, thr, threaded: plan?.threaded ?? null, slam, hitStops, kind: plan?.kind ?? null, r: plan && r1(plan.r), inner: plan && r1(plan.inner), ahead: plan && r1(Math.hypot(plan.x - x0, plan.z - z0)), band, up1, wrong, hole, outside, gBand: r2(gBand), gHole: r2(gHole), gOut: r2(gOut), bloom: [r2(bloomX), r2(bloomY)], rimY, busMin: r1(busMin), worstMs: r2(worst), worstAt, worstParts: frames[worstAt]?.parts, gcFrames: frames.length - counted.length, last: boom.last, stats: { ...boom.stats }, plans: plans.map((p) => p?.kind ?? null) };
   rows.push(row);
   console.log(JSON.stringify(row));
   return { row, boom, plan };
@@ -150,12 +179,18 @@ await flick('warm-up', PLACES[0][1] - 0.01, PLACES[0][2] - 0.02, 500);
 rows.length = 0;
 for (const [place, lat, lon] of PLACES) {
   // (the 500 m row is flown at 490 over the ground where it starts: the ground under it a second on is a few metres either way, and over 500 it's the crack alone)
-  for (const over of [150, 300, 490]) {
-    const { row, plan } = await flick(place, lat, lon, over);
-    const L = `${place} ${over} m`;
+  for (const [over, dt] of [150, 300, 490].flatMap((o) => [[o, 1 / 60], [o, 1 / 30]])) {
+    const { row, plan } = await flick(place, lat, lon, over, { dt });
+    const L = `${place} ${over} m at ${row.fps} fps`;
     // (a frame over 8 ms is flown again and the lower counts, as s_bomb's: on the laptop beside the Lob's run a frame with nothing but the flight in it took
     // 22 ms once, the machine's, not the ring's)
-    const again = row.worstMs > 8 ? (await flick(place, lat, lon, over)).row.worstMs : null;
+    const again = row.worstMs > 8 ? (await flick(place, lat, lon, over, { dt })).row.worstMs : null;
+    const st = row.stand, th = row.thr, sl = row.slam, X = turboFxTune;
+    ok(row.cracks === 1 && row.flashFrames >= Math.floor(X.crackFlash / dt) && row.flashEnd < X.crackFlash && row.frontFrames > 0 && row.frontMax > 1.5, `${L}: the crack fired once, its flash held ${X.crackFlash} s and its pressure ring raced out (${row.cracks} cracks, ${row.flashFrames} frames of flash to ${row.flashEnd} s, the front to ${row.frontMax} rad over ${row.frontFrames} frames)`);
+    ok(!!st && st.flat === 0 && st.ahead >= 0.4 && st.ahead <= 1.1 && Math.abs(st.dy) <= 12, `${L}: the hoop stands upright across the path at the bus's height ahead (${JSON.stringify(st)}: s of flight ahead, m over the bus)`);
+    ok(!!th && row.threaded === true && th.flat === 0 && th.age >= 0.8 && th.age <= 1.3, `${L}: the bus threads it, upright, about a second on (${JSON.stringify(th)}, threaded ${row.threaded})`);
+    ok(!!sl && sl.flat === 1 && Math.hypot(sl.dx, sl.dz) < 1 && sl.r >= 1 && sl.r < 1.06, `${L}: the hoop flat as the ring as its inner edge blooms (${JSON.stringify(sl)})`);
+    ok(row.hitStops === 0, `${L}: no hit-stop (${row.hitStops})`);
     const worst = again === null ? row.worstMs : Math.min(row.worstMs, again);
     ok(row.kind === 'ring' && !!plan, `${L}: a ring (${row.kind})`);
     ok(row.band > 0 && row.up1 === row.band, `${L}: every building in the band one level up (${row.up1} of ${row.band})`);
@@ -172,7 +207,7 @@ for (const [place, lat, lon] of PLACES) {
   }
   // a second flick inside the 10 s: nothing
   const s = await flick(place, lat, lon, 150, { second: true });
-  ok(s.row.plans[0] === 'ring' && s.row.plans[1] === null && s.boom.stats.quiet === 1 && s.boom.stats.rings === 1, `${place}: a second flick a second on is nothing (${JSON.stringify(s.row.plans)}, ${JSON.stringify(s.boom.stats)})`);
+  ok(s.row.plans[0] === 'ring' && s.row.plans[1] === null && s.boom.stats.quiet === 1 && s.boom.stats.rings === 1 && s.row.cracks === 1, `${place}: a second flick a second on is nothing (${JSON.stringify(s.row.plans)}, ${JSON.stringify(s.boom.stats)})`);
   // the 10 s run out: a flick 10 s after the last rings
   const t = await flick(place, lat, lon, 150, { prior: 10.05 });
   ok(t.row.kind === 'ring', `${place}: a flick 10 s after the last rings (${t.row.kind})`);
