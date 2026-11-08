@@ -7,6 +7,7 @@ import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import type { CometPlan } from './Comet';
 import { arrival, blastCap, blastRadiusFor, groundDeadline, LAYOUT_BANDS, LAYOUT_RING, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 import { setPogo } from '../world/pogo';
+import { lookOf } from '../render/factionLook';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
 // rainbow projectile forward; it snaps to the building at the aim point and
@@ -535,6 +536,9 @@ export class Splatter {
     // over fresh housing from 300 m: the Bomb's world review. The same neighbours; a tap's plan stays the scan it was)
     const grid = plan.length > DEAL_GRID ? dealGrid(plan) : null;
     for (const p of plan) if (p.hue < 0) p.hue = this.freeHue(p.pref, p.ref, plan, layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z), grid);
+    // (&boom's ring in a faction with its strongest rows named: its walls take only those slots, fresh ones)
+    const strong = spec.layout === LAYOUT_RING ? lookOf(spec.faction ?? FACTION_RAINBOW).ring?.walls : undefined;
+    if (strong) for (const p of fresh) p.hue = strong[p.hue % strong.length];
   }
 
   /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. */

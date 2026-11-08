@@ -33,6 +33,9 @@ export interface FactionLook {
   readonly leaf: number;
   /** where Rainbow has VIOLET: a painted tree's trunk, a garden's wood */
   readonly bark: number;
+  /** &boom's ring (src/game/Boom.ts): the slots its band deals, its ground's and its walls', the faction's strongest rows (Hyperglow: its magenta and cyan,
+   *  not the chrome its paint is mostly); none, every slot as any blast's */
+  readonly ring?: { readonly ground: readonly number[]; readonly walls: readonly number[] };
 }
 
 const RAINBOW: FactionLook = { body: HUE_RAMPS, accent: HUE_RAMPS, glass: HUE_RAMPS, ground: HUE_RAMPS, spray: HUE_RAMPS, trim: Ramp.WHITE, gold: Ramp.YELLOW, leaf: Ramp.GREEN, bark: Ramp.VIOLET };
@@ -82,6 +85,8 @@ export const FACTION_LOOKS: readonly FactionLook[] = (() => {
     gold: CYAN,
     leaf: MAGENTA,
     bark: CHROME,
+    // (the ground's magenta and cyan slots, and the walls' with magenta or cyan accents: its band was pale lavender on grey, the outside look)
+    ring: { ground: [1, 3, 5], walls: [0, 2, 4, 5] },
   };
   // Inferno: crimson and black glass walls, red-hot trim (RED: a Painted Lady's frames and belts are half its face, too much for the flame's gold, which
   // made gold houses), the flame's gold (YELLOW) in a sixth of the accents (level 3's zigzag bands on a house in three, a tower's veins), its windows flame
