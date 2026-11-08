@@ -21,7 +21,7 @@ import { blastRadiusFor } from './blastLayout';
 // finger that slides past the tap slop commits as a steering thumb, but lifted within inputTune.quickTapMs it's still a tap: for that long the latch it
 // found stays the body a tap throws. A second thumb's tap, the first still steering, reads it live.
 //
-// In view: by the lens moved on by the bus's travel to the impact, it must land config.comet.above of the height over the bus, the Comet's rule; where it
+// In view: by the lens moved on by the bus's travel to the impact, it must land config.lob.above of the height over the bus, the Comet's rule on its own number; where it
 // doesn't it moves out along its line a stretch at a time, and past config.comet.reach the tap is today's. The landing is the middle of a stretch of its way
 // config.lob.stretch m long, counted along the bus's travel (Comet.track's odometer), so a tap lands on the same building at 30 and 60 fps and what glints
 // steps along, never strobes.
