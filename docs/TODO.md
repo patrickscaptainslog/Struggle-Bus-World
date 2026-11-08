@@ -31,7 +31,7 @@ Your two calls are in `CLAUDE.md`: every pick of the first account's report (que
 - When a rival takes one of your squares, your old paint stays on its buildings until the new owner's blast reaches them: at the bell about 87 % of painted buildings match the score.
 - The lock's clack borrows the Bomb's clunk until it has its own sound, and its glint is a brightening, not your colour yet.
 - The bus routes are started, not built: the extract is read (365 routes, 135 of them Muni's, 15,302 stops). Buses driving them is next.
-- Life's checks in Node all pass: Curb 13 rows, the blast 6, lock-on 6 (on a stand-in for the hold, not the real page), the day's sameness and the frame's memory. Its browser smoke on the merged branch runs after Recess's.
+- Life's checks in Node all pass: Curb 13 rows, the blast 6, lock-on 6 (on a stand-in for the hold, not the real page), the day's sameness and the frame's memory. Its browser smoke on the merged branch passed all 11 rows at a fixed step: planes, cars, ferries, night, the parks at 15:00 and 9:30, nothing compiling after the warm-up, no page errors.
 
 **The reviews you asked for**
 - **`feat/shots` at fd6d413:** no blocker. One major for the first account before the duel is built on it: a homing shot fired from inside its own white window can't hit anything that moves (M80). Tonight's lock-on is clear of it: its white is 0.15 s, about 78 m at a boat's speed. ([reviews/shots-fd6d413-2026-11-08.md](reviews/shots-fd6d413-2026-11-08.md))
