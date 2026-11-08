@@ -323,7 +323,8 @@ uniform vec4 uSkyBus; // the bus (x, y, z, m) and the cut's reach (w: the tangen
 void sbCut() {
   vec3 b = uSkyBus.xyz - cameraPosition, q = vWorldPos - cameraPosition;
   float lb = length(b), along = dot(q, b) / max(lb, 1e-3);
-  if (along <= 0.0 || along > lb + 2.0) return;
+  // (and through the bus's own length past its middle: a belly or a sun it's flying into crosses it there)
+  if (along <= 0.0 || along > lb + 10.0) return;
   float a = length(q - b * (along / max(lb, 1e-3))) / along;
   if (a < uSkyBus.w * 0.68 || (a < uSkyBus.w && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
 }
