@@ -7,7 +7,7 @@
 //   unnamed row    a colour only a row the table doesn't name holds (such a row stays black)
 //   brown, taupe   art's gate (research-art.md): OKLCH hue 35-100, L < 0.60 and C > 0.03, or L < 0.72 and 0.02 < C < 0.09
 //   world chroma   the peak chroma off paint and the bus (a colour with more than 8 px), over 0.75 of paint's median. A frame with under MIN_PAINT px of paint has only the bus's
-//                  band, not a median: there the table's own paint median stands in, steps 2-5 of the six rows
+//                  band, not a median: there the table's own paint median stands in, steps 2-5 of the six hues. Paint is the six hues' rows and the factions' (24-31)
 //   paint cap      paint on steps 6-7 outside a glint. A frame can't see glow: a glint is rare, so past GLINTS of the paint's px, and past GLINT_PX, it isn't one
 //   shimmer        tools/shimmer.py over the five pairs of a view's burst, the mean, worse than today's on the same pose. The sky's rows count as one colour on both builds (its --flat):
 //                  a sky holds still on the screen, and one with bands would pull a band's fit off the world in front of it, which is no crawl of anybody's
@@ -35,7 +35,9 @@ const q = `${q0}${/(^|&)t=/.test(q0) ? '' : `&t=${new Date().toISOString()}`}${/
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PYTHON = process.env.SB_PYTHON ?? (existsSync('C:/Users/Utku/sb-venv/Scripts/python.exe') ? 'C:/Users/Utku/sb-venv/Scripts/python.exe' : 'python3');
 
-const PAINT = new Set([8, 9, 10, 11, 12, 13]);
+/** The six hues (the table's median is theirs), and every row that is paint: theirs and the factions' (palette.ts's FACTION_RAMPS). */
+const HUES = [8, 9, 10, 11, 12, 13];
+const PAINT = new Set([...HUES, 24, 25, 26, 27, 28, 29, 30, 31]);
 const HERO = new Set([14, 15]);
 /** SKY_WARM, NIGHT_SKY, TWILIGHT, SKY_LOW; today's sky is FOG and SKY_WARM. */
 const SKY_ROWS = [3, 32, 37, 45];
@@ -207,7 +209,7 @@ const data = await livePalette(url, `${q}&`);
 const pal = indexPalette(data);
 const flatSky = rowColours(data, SKY_ROWS), flatToday = rowColours(await livePalette(today, ''), TODAY_SKY);
 const tableChroma = [];
-for (const r of PAINT) for (let s = 2; s <= 5; s++) {
+for (const r of HUES) for (let s = 2; s <= 5; s++) {
   const i = (r * STEPS + s) * 4;
   tableChroma.push([lch((data[i] << 16) | (data[i + 1] << 8) | data[i + 2])[1], 1]);
 }

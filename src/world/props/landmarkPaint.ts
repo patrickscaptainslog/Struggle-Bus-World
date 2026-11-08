@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../../config';
-import { HUE_RAMPS, Ramp } from '../../render/palette';
+import { GLSL_FACTION } from '../../render/factionLook';
+import { Ramp } from '../../render/palette';
 import { byHour } from '../../sky/flag';
 import { paintUniforms } from '../buildingMaterial';
 import { PAINT_KEPT } from '../PaintState';
@@ -70,7 +71,6 @@ export interface LandmarkLook {
 export const LM_DOME = 20;
 export const LM_FLAG = 21;
 
-const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
 
 // live from config.bloom (getter uniforms: the tuner edits them, no per-frame code)
 const floodV = new THREE.Vector4();
@@ -209,10 +209,16 @@ uniform vec3 uGlint;
 uniform float uLmBase;
 flat in vec4 vPaint;
 in vec3 vLmLocal;
-const float LM_HUES[6] = float[6](${HUES});
-float lmHue(float h) { return LM_HUES[int(mod(floor(h + 0.5) + 60.0, 6.0))]; }
-// a flower's hue: never the leaves' green
-float lmBloomHue(float h) { float r = lmHue(h); return r == ${Ramp.GREEN}.0 ? ${Ramp.YELLOW}.0 : r; }
+${GLSL_FACTION}
+// (whose paint the landmark is, from its texel's alpha: factionLook.ts. Its own slot is the body, an offset an accent; Rainbow's both are its six hues)
+int gLmFac = 1;
+float lmHue(float h) { return sbFacHue(gLmFac, int(mod(floor(h + 0.5) + 60.0, 6.0)), false); }
+float lmBody(float h) { return sbFacHue(gLmFac, int(mod(floor(h + 0.5) + 60.0, 6.0)), true); }
+float lmGlass(float h) { return sbFacGlass(gLmFac, int(mod(floor(h + 0.5) + 60.0, 6.0))); }
+/** slot h's offset k: the body at k = 0 (and every sixth), an accent otherwise */
+float lmCycle(float h, float k) { return mod(k, 6.0) < 0.5 ? lmBody(h) : lmHue(h + k); }
+// a flower's hue: never the leaves' green (a flower its leaves' colour takes the gold)
+float lmBloomHue(float h) { float r = lmHue(h); return r == sbFacLeaf(gLmFac) ? sbFacGold(gLmFac) : r; }
 float lmH21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float lmNoise(vec2 p) {
   vec2 i = floor(p);
@@ -232,6 +238,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
   float H = max(top - bot, 1.0);
   float tb = uTime - vPaint.b;
   bool painted = uLmIdx >= 0.0 && level > 0.5;
+  gLmFac = sbFac(vPaint.a > ${PAINT_KEPT - 0.5} ? vPaint.a - ${PAINT_KEPT}.0 : vPaint.a);
   // an escalation (already painted) stays painted while the blast wave travels to it
   if (painted && vPaint.a < ${PAINT_KEPT - 0.5}) {
     bool on = false;
@@ -262,12 +269,12 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
     if (!painted || tb < 0.0) discard;
     if (type < ${LM_FLAG}.0 - 0.5) {
       if (pat.y > clamp((tb - 0.15) / 0.8, 0.0, 1.0) * pat.w) discard;
-      o.ramp = ${Ramp.YELLOW}.0;
+      o.ramp = sbFacGold(gLmFac);
       o.lo = lo + 0.12;
       o.glow = 0.16;
     } else {
       if (pat.y > (tb - 0.35) * 60.0) discard;
-      o.ramp = lmHue(vPaint.r + floor(pat.x));
+      o.ramp = lmCycle(vPaint.r, floor(pat.x));
       o.lo = lo + 0.1;
     }
     o.mode = 1.0;
@@ -281,7 +288,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
     bool up = n.y > 0.7; // a ledge or a roof
     bool lit = y > uLmLook.x;
     o.mode = 1.0;
-    o.ramp = lmHue(hue);
+    o.ramp = lmBody(hue);
     o.lo = lo * 0.8 + 0.03; // the pattern's detail stays, as steps of the hue
     if (ramp0 == ${Ramp.GREY}.0) {
       // a dark recess (the pyramid's lobby): its hue in deep shadow (warm hues shadow toward rose and violet)
@@ -292,17 +299,17 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       // plain trim: white, like the Painted Ladies' (gilt at level 3). (A plain roof is no trim: it takes the
       // hue as the buildings' roofs do, and turns to turf from level 2; the Ferry Building's 200 m roof
       // stayed white at level 1)
-      o.ramp = L >= 3.0 ? ${Ramp.YELLOW}.0 : ${Ramp.WHITE}.0;
+      o.ramp = L >= 3.0 ? sbFacGold(gLmFac) : sbFacTrim(gLmFac);
       o.lo = L >= 3.0 ? lo + 0.1 : lo - 0.02;
       if (L >= 3.0) o.glow = 0.16;
     }
     // the prop's own paint bands (Sutro's red and white) become a rainbow
-    if (uLmLook.w > 0.0 && (type == 1.0 || type == 2.0)) o.ramp = lmHue(hue + floor(y / uLmLook.w));
+    if (uLmLook.w > 0.0 && (type == 1.0 || type == 2.0)) o.ramp = lmCycle(hue, floor(y / uLmLook.w));
     // level 3: Hundertwasser's wavy bands, all six hues, on every wall
     if (L >= 3.0 && type != 0.0 && ramp0 != ${Ramp.GREY}.0) {
       float bh = uLmLook.z;
       float wave = 0.3 * bh * sin(u * 0.19 + seed) + 0.17 * bh * sin(u * 0.47 + seed * 3.0) + 0.12 * bh * sin(y * 0.05 + u * 0.08);
-      o.ramp = lmHue(hue + floor((y + wave) / bh));
+      o.ramp = lmCycle(hue, floor((y + wave) / bh));
     }
     // window bands: a deeper step of the wall, a scatter of windows lit in stained glass (one accent hue at
     // levels 1-2, like the Painted Ladies'; at level 3 every window lit, each its own hue). A whole band of
@@ -319,7 +326,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       if (on && row > 0.5 && mpp < 0.75 * (0.75 + 0.5 * lmH21(cell + 5.3)) && (colm > 0.5 || mpp > 0.3)) {
         float acc = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
         float wh = L >= 3.0 ? floor(lmH21(cell + seed * 1.7) * 6.0) : 0.0;
-        o.ramp = lmHue(hue + acc + wh);
+        o.ramp = lmGlass(hue + acc + wh);
         o.mode = 2.0;
         o.light = 0.56 + 0.1 * lmH21(cell + 11.0);
         o.glow = uLmFx.y;
@@ -330,7 +337,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       vec2 fc = floor(vec2(u, y) / 2.2);
       float fl = mpp < 0.8 ? 1.0 : 0.0;
       if (up && type != 3.0) {
-        o.ramp = ${Ramp.GREEN}.0;
+        o.ramp = sbFacLeaf(gLmFac);
         o.mode = 1.0;
         o.lo = -0.06 + (lmNoise(wp.xz * 0.45) - 0.5) * 0.18;
         if (fl > 0.5 && lmH21(floor(wp.xz / 2.0) + seed) > 0.8) { o.ramp = lmBloomHue(hue + 1.0); o.lo = 0.14; }
@@ -338,7 +345,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
       // vertical walls in the planted band (the pyramid's wings) grow lush
       if (type == 3.0 && abs(n.y) < 0.03 && y > uLmLook2.x && y < uLmLook2.y) {
         float lf = lmNoise(vec2(u, y) * 0.32 + seed);
-        o.ramp = ${Ramp.GREEN}.0;
+        o.ramp = sbFacLeaf(gLmFac);
         o.mode = 1.0;
         o.lo = -0.08 + (lf - 0.5) * 0.24;
         float b = lmH21(fc + seed * 3.0);
@@ -358,7 +365,7 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
         // (big leafy lobes, never under ~2 pixels: thin vines would crawl)
         float wv = max(1.3 + 1.8 * leaf * (1.0 - smoothstep(0.0, tip + 1.0, h) * 0.6), mpp * 1.6);
         if (h < tip - leaf * 4.0 && fx < wv) {
-          o.ramp = ${Ramp.GREEN}.0;
+          o.ramp = sbFacLeaf(gLmFac);
           o.mode = 1.0;
           o.lo = -0.05 + (leaf - 0.5) * 0.2;
           if (fl > 0.5 && lmH21(fc + seed * 5.0) > 0.84) { o.ramp = lmBloomHue(hue + 5.0); o.lo = 0.14; }
@@ -369,11 +376,11 @@ LmPaint lmPaint(float ramp0, float lo, float type, vec4 pat, float y, vec3 wp, v
     if (lit) {
       float s = smoothstep(uLmLook.x, top, y);
       float pulse = 1.0;
-      o.ramp = L >= 3.0 ? ${Ramp.YELLOW}.0 : lmHue(hue + 2.0);
+      o.ramp = L >= 3.0 ? sbFacGold(gLmFac) : lmHue(hue + 2.0);
       if (uLmLook2.z > 0.5) {
         float ring = floor(y / 3.5);
         pulse = 0.25 + 0.75 * step(0.55, fract(uTime * 0.6 + ring * 0.21));
-        o.ramp = lmHue(hue + ring);
+        o.ramp = lmCycle(hue, ring);
       }
       o.mode = 2.0;
       o.light = 0.56 + 0.22 * s * pulse;

@@ -28,6 +28,8 @@ import { EasterEgg } from './EasterEgg';
 import { SWING, TripView } from './TripView';
 import { EarthLanding, type StreetWorld } from './EarthLanding';
 import { earthResume, SWAP_FRAME, SWAP_KEY } from './flag';
+import { crew } from '../game/crew';
+import { lookOf } from '../render/factionLook';
 export { laterStreet } from './EarthLanding';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
 
@@ -330,6 +332,15 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   if (fx) scene.add(fx.object);
   const breath = new MoonBreath(pipeline, bus);
   scene.add(breath.particles.object);
+  // ?crew (game/crew.ts): the Moon from orbit paints as the testers' faction, and a switch on the crest takes its next stroke (MoonPaint.faction; the street's
+  // Splatter follows the same choice in main.ts). Without ?crew ever seen, Rainbow's as before
+  const crewFaction = (f: number) => {
+    breath.paint.faction = f;
+    breath.particles.palette = lookOf(f).spray;
+  };
+  crew.init(new URLSearchParams(location.search));
+  if (crew.on) crewFaction(crew.faction);
+  crew.listen(crewFaction);
   if (landing) landing.big = (s) => breath.lowStroke(s);
   const names = trip ? new MoonNames() : null;
   if (names) scene.add(names.object);

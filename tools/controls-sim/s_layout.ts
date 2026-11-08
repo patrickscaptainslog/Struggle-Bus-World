@@ -79,5 +79,19 @@ for (const [name, w, h, ins, compact] of sets)
     // the settings button stays where it is, and MEGA and its meter are all that mirror
     ok(L.settings.v.x === layoutHud(w, h, ins, false, compact).settings.v.x, `${tag} settings stays top right`);
   }
+// the first run's hint, HOLD TO AIM in it (SHOTS.md): every line fits the screen's 131 game px with the toast's 8 px of edge, and its four lines fit the toast's slot (10 px a line, 4 px of edge)
+{
+  const { hintLines, AIM_LINE } = await import('@src/ui/Coach');
+  const { textWidth, HUD_FONT } = await import('@src/ui/pixelUi');
+  const home = layoutHud(393, 852, notch, false, false);
+  for (const aim of [false, true]) {
+    const lines = hintLines(aim);
+    const w = Math.max(...lines.map((l) => textWidth(l.toUpperCase(), HUD_FONT))) + 8;
+    ok(w <= 131, `the hint (${aim ? 'with' : 'without'} HOLD TO AIM) is ${w} of 131 px wide`);
+    ok(lines.length * 10 + 4 <= home.toast.h, `the hint's ${lines.length} lines fit the toast's ${home.toast.h} px slot`);
+  }
+  ok(hintLines(true).includes(AIM_LINE) && !hintLines(false).includes(AIM_LINE), 'HOLD TO AIM is in the hint when hold to aim is on, and only then');
+  console.log(`hint widths: ${hintLines(true).map((l) => `${l} ${textWidth(l, HUD_FONT)}`).join(', ')}`);
+}
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `layout checks: all ${checks} passed`);
 process.exit(fails.length ? 1 : 0);

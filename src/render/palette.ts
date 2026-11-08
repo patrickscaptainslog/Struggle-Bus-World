@@ -36,9 +36,16 @@ export const Ramp = {
   STONE: 21, // pre-war masonry and terracotta: pale buff stone in the sun, cool violet-grey in shade
   GRANITE: 22, // polished dark granite (555 California): near-black plum grey
   BRIDGE_ORANGE: 23, // painted bridge steel (the Golden Gate's International Orange), muted, shadows to rose and plum
-  // Reserved rows (docs/specs/STAGES.md 3.4 rule 7); claim them here, by name:
-  //   24-31 faction ramps: MAGENTA 24, CYAN 25, AQUA 26, PEARL 27 (spare since Cloud Nine was cut),
-  //         MOSS 28, BIOLUME 29, FAE_VIOLET 30, SILVERBARK 31 (the Elderwood)
+  // 24-31: the four other factions' paint (docs/specs/factions/FACTIONS.md, section 2's "Colours."; render/factionLook.ts deals them out). Rainbow's is the
+  // six hues above. Paint, as they are: every table names them and grades them as paint is, with no world row's cap or brown gate
+  MAGENTA: 24, // Hyperglow's neon
+  CYAN: 25, // Hyperglow's neon
+  TEAL: 26, // Atlantis: deep indigo to foam white, its shade steps the deep sea's blue
+  PEARL: 27, // lilac shadows to pearl white: Atlantis's marble, the Elderwood's bark and stone (and Inferno's bones, when people take paint)
+  MOSS: 28, // the Elderwood: near-black depths to emerald, lime only in a glint (6-7)
+  CHROME: 29, // Hyperglow's lavender chrome, silver in the light
+  CRIMSON: 30, // Inferno: black wine in shade, scarlet to vermilion in the sun, its flame's gold only in a glint (6-7)
+  OBSIDIAN: 31, // Inferno's black glass, near black, its violet sheen in the top steps
   // 32-46: the sky's and world travel's (docs/specs/sky/SKY.md 4, Rows). Nothing in the day's frames reads them: only src/sky/SkyTable.ts's tables name
   // them all, and the day's table below names what a part of the held hour falls back on
   NIGHT_SKY: 32, // the sky's far side, high: it can go black while the haze stays bright
@@ -111,6 +118,18 @@ const RAMPS: Record<number, string[]> = {
   [Ramp.STONE]: ['#23262c', '#33353b', '#45464d', '#5d5e65', '#77767d', '#949298', '#b6b0a6', '#d4cdc0'],
   [Ramp.GRANITE]: ['#0c0b11', '#14121a', '#1d1a24', '#28232f', '#352e3c', '#463d4d', '#5c5163', '#7b6e80'],
   [Ramp.BRIDGE_ORANGE]: ['#24121f', '#3d1828', '#5e2131', '#842c38', '#a33a3a', '#b4564a', '#bf7a6c', '#c9a197'],
+  // (the factions' rows, from FACTIONS.md's words. Each sits a band of lightness away from Rainbow's six where their hues meet, so no two factions blur
+  // in any of the live sky's seven tables, colour-blind sight included: tools/factions/colours.ts measures it. Dark steps shadow to indigo, wine or violet,
+  // never brown; a faction's gold is YELLOW's and Inferno's flame its own steps 6-7, which paint reaches only in a glint. MOSS and CRIMSON hold each other
+  // apart under deuteranopia, where red and green fall to one hue: the Elderwood a band lighter than Inferno in shade and darker in the sun)
+  [Ramp.MAGENTA]: ['#2f0133', '#580055', '#87007b', '#ba00a1', '#eb16be', '#ff6bcd', '#ffb3dd', '#ffe7f3'],
+  [Ramp.CYAN]: ['#051a36', '#003754', '#005e7b', '#1c87a5', '#18b1cd', '#3adaf2', '#91f4ff', '#d9fdff'],
+  [Ramp.TEAL]: ['#060756', '#063f6a', '#127299', '#1c97b9', '#1cc7bd', '#2ee5c7', '#b1f8eb', '#ebfdf9'],
+  [Ramp.PEARL]: ['#402e55', '#654c77', '#8a6e97', '#af93b6', '#cdb4d1', '#e6cfe6', '#f5e5f6', '#fffaff'],
+  [Ramp.MOSS]: ['#010404', '#01160f', '#023014', '#044420', '#0f865a', '#15a661', '#97d51c', '#e7ee77'],
+  [Ramp.CHROME]: ['#261e6b', '#443e95', '#8073e2', '#a5a0ef', '#cbb8f4', '#e3d1f8', '#f6f4fb', '#fefdff'],
+  [Ramp.CRIMSON]: ['#070006', '#15000c', '#270111', '#400213', '#a60b1c', '#ca220a', '#f28f29', '#fcebb6'],
+  [Ramp.OBSIDIAN]: ['#010104', '#05010c', '#0e021d', '#1b082c', '#2c143e', '#412354', '#7e479c', '#b989cd'],
   // (a light has one colour at any hour)
   [Ramp.LIT]: ['#3a1f4a', '#7a2f58', '#c04e5c', '#ef8450', '#ffb04e', '#ffcf72', '#ffe7a4', '#fff7dc'],
   [Ramp.LAMP]: ['#191636', '#2f2449', '#54345a', '#8b4a60', '#bd6a5e', '#e29662', '#f6c07e', '#ffe6b0'],
@@ -121,7 +140,10 @@ RAMPS[Ramp.SAND] = RAMPS[Ramp.SKY_WARM];
 RAMPS[Ramp.RIDGE] = RAMPS[Ramp.GREEN_GREY];
 RAMPS[Ramp.FARGLOW] = RAMPS[Ramp.GREY]; // (the held hour's far lit faces, with its table switched off)
 
-export const RAMP_COUNT = 64; // texture rows (8x64 RGBA8, 2 KB; rows 24-31, 47 and 56-63 reserved or spare, a row no table names is black)
+export const RAMP_COUNT = 64; // texture rows (8x64 RGBA8, 2 KB; rows 47 and 56-63 spare or held, a row no table names is black)
+
+/** The factions' rows, 24-31 (factionLook.ts): paint, as HUE_RAMPS are, wherever a table or a check tells paint from the world. */
+export const FACTION_RAMPS: readonly number[] = [Ramp.MAGENTA, Ramp.CYAN, Ramp.TEAL, Ramp.PEARL, Ramp.MOSS, Ramp.CHROME, Ramp.CRIMSON, Ramp.OBSIDIAN];
 
 /** Linear-ish sRGB triplets 0..1 for CPU use (e.g. CSS colors, splash screens). */
 export function rampColor(ramp: number, step: number): string {

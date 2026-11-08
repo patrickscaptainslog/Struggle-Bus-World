@@ -1,13 +1,32 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { globals, GLSL_COMMON, GLSL_OUT, GLSL_SKY_LIGHT } from '../render/materials';
-import { Ramp, HUE_RAMPS } from '../render/palette';
+import { GLSL_FACTION } from '../render/factionLook';
+import { Ramp } from '../render/palette';
 import { byHour, held, heldOr } from '../sky/flag';
 import { Part } from './BuildingMesher';
 import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
+import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
+import { GLSL_POGO, pogoed, pogoedOr, pogoUniforms } from './pogo';
+import { fallsed, fallsUniforms, GLSL_FALLS_F, GLSL_FALLS_V } from './falls';
+
+/**
+ * ?lift: the Lift's uniforms (world/Lift.ts fills them), spread into every material that moves with a floating house. Null with the flag off, and
+ * then no material has them.
+ */
+export const liftUniforms = liftOn
+  ? {
+      tLift: { value: null as THREE.Texture | null },
+      uLiftRect: { value: new THREE.Vector4(1e9, 1e9, -1e9, -1e9) },
+      uLiftW: { value: 1024 },
+      uLiftRows: { value: 0 },
+      tLake: { value: null as THREE.Texture | null },
+      uLakeRect: { value: new THREE.Vector4(1e9, 1e9, 0.5, 0) },
+    }
+  : null;
 
 // One shader for every building. Grey state: Hopper — cool battleship
 // greys, lighter trim, dark glass that catches the low sun. Painted state:
@@ -71,15 +90,14 @@ export function setFacadeView(high: number, calm: number) {
   facadeUniforms.uCalmF.value = calm;
 }
 
-const HUES = HUE_RAMPS.map((r) => r.toFixed(1)).join(', ');
 const R = (r: number) => r.toFixed(1);
 
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2 },
+    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}), ...(pogoUniforms ?? {}), ...(fallsUniforms ?? {}) },
     vertexShader: /* glsl */ `
-      ${GLSL_COMMON}
+      ${GLSL_COMMON}${pogoed(GLSL_POGO)}${fallsed(GLSL_FALLS_V)}
       precision highp sampler2D;
       uniform sampler2D uPaint;
       uniform float uPaintW;
@@ -100,7 +118,10 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       out vec3 vWorldPos;
       out vec3 vWorldNormal;
       out vec3 vViewNormal;
-      out float vYRest;
+      out float vYRest;${lifted(`
+      ${GLSL_LIFT}
+      flat out float vLift;
+      out vec3 vLiftD;`)}
 
       void main() {
         float idx = aBld.x;
@@ -131,15 +152,18 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float tb = uTime - paint.b;
           if (tb >= 0.0) {
             // squash & stretch pop about the base, volume-preserving-ish
-            float pop = 0.0;
-            if (tb < uBloom.x * 1.6) {
-              float k = tb / uBloom.x;
+            float pop = 0.0;${pogoed(`
+            // (a Bomb's stage: the house hops first, and lands in the pop's squash. world/pogo.ts)
+            float tr;
+            float hop = sbPogo(vec2(aBld.y, aBld.w), paint.b, hgt, tb, tr);`)}
+            if (${pogoedOr('tr >= 0.0 && tr', 'tb')} < uBloom.x * 1.6) {
+              float k = ${pogoedOr('tr', 'tb')} / uBloom.x;
               pop = -uBloom.y * exp(-7.0 * k) * cos(10.5 * k) + uBloom.z * exp(-5.0 * k) * sin(10.5 * k);
             }
             float sy = 1.0 + pop;
             float sxz = 1.0 / sqrt(max(sy, 0.4));
             vec2 c = vec2(aBld.y, aBld.w);
-            p.y = baseY + (p.y - baseY) * sy;
+            p.y = baseY + (p.y - baseY) * sy${pogoed(' + hop')};
             p.xz = c + (p.xz - c) * sxz;
             // gentle wobble: a continuous world-space field, so parts of one building never crack apart
             float h01 = clamp((vYRest - baseY) / hgt, 0.0, 1.0);
@@ -149,7 +173,15 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             p.x += w * sin(vYRest * 0.33 + position.z * 0.21 + t + seed);
             p.z += w * sin(vYRest * 0.29 + position.x * 0.23 + t * 0.87 + seed * 1.7);
           }
-        }
+        }${lifted(`
+        // ?lift: the whole house (walls, roof, bays, its gardens and domes) crouches, leaps and floats about its base, and rides the swell, heaving,
+        // pitching and rolling about its belly's middle, as one (liftGlsl.ts). vLiftD takes the frame's patterns back to where they rest on it
+        vec4 lT2;
+        vec4 lf = sbLift(idx, vec2(aBld.y, aBld.w), lT2);
+        vec3 lp = p;
+        p = sbLiftMove(p, baseY, lf, lT2);
+        vLiftD = p - lp;
+        vLift = lf.x;`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);
         vWorldPos = wp.xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * n);
@@ -158,10 +190,11 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vMeta = aMeta;
         vPaint = paint;
         vBld = aBld;
-        vBld2 = aBld2;
+        vBld2 = aBld2;${fallsed(`
+        vFall = sbFallSlot(idx);`)}
         // size of a game pixel at this building (m), from the nearest point of its vertical axis; the
         // facade LOD is decided per building with it (jittered per building, so no ring shows)
-        vec3 axis = (modelMatrix * vec4(aBld.y, clamp(cameraPosition.y, baseY, roofY), aBld.w, 1.0)).xyz;
+        vec3 axis = (modelMatrix * vec4(aBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, baseY, roofY) + vLift', 'clamp(cameraPosition.y, baseY, roofY)')}, aBld.w, 1.0)).xyz;
         float jit = 1.0 + uLodJitter * (fract(sin(aBld.x * 12.9898) * 43758.5453) - 0.5);
         vLodPx = length(axis - cameraPosition) * uPixelAngle * jit;
         gl_Position = projectionMatrix * viewMatrix * wp;
@@ -196,11 +229,20 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in vec3 vWorldPos;
       in vec3 vWorldNormal;
       in vec3 vViewNormal;
-      in float vYRest;
+      in float vYRest;${lifted(`
+      flat in float vLift;
+      in vec3 vLiftD;`)}${fallsed(GLSL_FALLS_F)}
       ${GLSL_OUT}
 
-      const float HUES[6] = float[6](${HUES});
-      float hueRamp(float h) { return HUES[int(mod(h + 60.0, 6.0))]; }
+      ${GLSL_FACTION}
+      // (whose paint this building is, from its texel's alpha: factionLook.ts's rows. A slot's own colour is its body, an offset from it an accent,
+      // and Rainbow's two are its six hues, so for it these are the hue table they replaced)
+      int gFac = 1;
+      float hueRamp(float h) { return sbFacHue(gFac, int(mod(h + 60.0, 6.0)), false); }
+      float bodyRamp(float h) { return sbFacHue(gFac, int(mod(h + 60.0, 6.0)), true); }
+      float glassRamp(float h) { return sbFacGlass(gFac, int(mod(h + 60.0, 6.0))); }
+      /** slot h's offset k: the body at k = 0 (and every sixth), an accent otherwise */
+      float cycleRamp(float h, float k) { return mod(k, 6.0) < 0.5 ? bodyRamp(h) : hueRamp(h + k); }
       float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }${held(`
       bool faceLit(float bIdx, vec3 n, float chance) { return h21(vec2(bIdx * 0.37, floor(n.x * 2.99) + 7.0 * floor(n.z * 2.99))) < chance; }`)}
 
@@ -503,7 +545,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         float bIdx = vBld.x;
         float roofY = vBld2.x;
         float frontW = vBld2.y;
-        vec3 n = normalize(vWorldNormal);
+        vec3 n = normalize(vWorldNormal);${lifted(`
+        // (?lift: where this point rests on its house: its roofs' patterns and its leaves ride the house as it leans, they don't swim over it)
+        vec3 lRest = vWorldPos - vLiftD;`)}
         vec2 f = vFacade;
         // one game pixel along the facade's u and v (taken before any branch: derivatives need uniform flow)
         vec2 dF = fwidth(f);
@@ -523,6 +567,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           if (tb < 0.0 || (roofY - vYRest) > flood - drip) painted = false;
         }
         float hue = vPaint.r;
+        gFac = sbFac(vPaint.a > ${PAINT_KEPT - 0.5} ? vPaint.a - ${PAINT_KEPT}.0 : vPaint.a);
 
         float tone = (fract(seed * 0.61803) - 0.5) * 0.12; // each house a slightly different grey
         float ramp = ${R(Ramp.GREY)};
@@ -620,7 +665,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           ramp = ${R(Ramp.GREY_LIGHT)};
           lo = (roofKind < 0.55 ? -0.06 : roofKind < 0.8 ? -0.34 : 0.0) + tone;
           // big flat roofs are patchworks of re-roofing: large, calm tone patches
-          vec2 pc = floor(vWorldPos.xz / vec2(9.0, 7.0) + vec2(bIdx * 0.37, 0.0));
+          vec2 pc = floor(${liftedOr('lRest', 'vWorldPos')}.xz / vec2(9.0, 7.0) + vec2(bIdx * 0.37, 0.0));
           lo += (h21(pc) - 0.5) * 0.09;
         }
         else if (part == ${R(Part.ROOF_SLOPE)}) { ramp = ${R(Ramp.GREY_LIGHT)}; lo = -0.36 + tone * 0.5; }
@@ -635,7 +680,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           // levels 1-2 are calm Painted Ladies (body, white or one accent trim, belts and cornices only);
           // level 3 is the riot (frames, neighboring hues on bays and gables, wavy bands)
           bool calm = level < 2.5;
-          float body = hueRamp(hue);
+          float body = bodyRamp(hue);
           float trimHue = calm ? (mod(seed, 3.0) < 2.0 ? -1.0 : hue + 3.0) : (mod(seed, 3.0) < 1.0 ? -1.0 : hue + 3.0); // -1 = white trim
           if (isWall) {
             ramp = body;
@@ -645,25 +690,25 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               float wave = 0.8 * sin(f.x * 0.85 + seed) + 0.45 * sin(f.x * 2.1 + seed * 3.1);
               float band = floor((f.y + wave) / 2.3);
               float off = mod(band + seed, 3.0);
-              ramp = hueRamp(hue + (off < 1.0 ? 0.0 : off < 2.0 ? 1.0 : 5.0));
+              ramp = off < 1.0 ? body : hueRamp(hue + (off < 2.0 ? 1.0 : 5.0));
             }
             if (part == ${R(Part.BAY)}) { if (calm) lo += 0.05; else ramp = hueRamp(hue + 1.0); }
             if (part == ${R(Part.GABLE)} && !calm) ramp = hueRamp(hue + 2.0);
-            if (trimMask > 0.5 && (!calm || beltMask > 0.5)) { ramp = trimHue < 0.0 ? ${R(Ramp.WHITE)} : hueRamp(trimHue); lo = trimHue < 0.0 ? 0.0 : 0.12; }
+            if (trimMask > 0.5 && (!calm || beltMask > 0.5)) { ramp = trimHue < 0.0 ? sbFacTrim(gFac) : hueRamp(trimHue); lo = trimHue < 0.0 ? 0.0 : 0.12; }
           } else if (part == ${R(Part.TRIM)} || part == ${R(Part.STOOP)}) {
-            ramp = trimHue < 0.0 ? ${R(Ramp.WHITE)} : hueRamp(trimHue);
+            ramp = trimHue < 0.0 ? sbFacTrim(gFac) : hueRamp(trimHue);
             lo = 0.08;
           } else if (part == ${R(Part.ROOF)}) {
             if (level > 1.5 && fam > 0.5) {
               // a tower's roofs and setbacks at level 2+: garden turf with flowers in its hue
-              ramp = ${R(Ramp.GREEN)};
-              vec2 q = floor(vWorldPos.xz / 1.3);
+              ramp = sbFacLeaf(gFac);
+              vec2 q = floor(${liftedOr('lRest', 'vWorldPos')}.xz / 1.3);
               float fh = h21(q + bIdx);
-              lo = -0.04 + (h21(floor(vWorldPos.xz / 5.0)) - 0.5) * 0.12;
-              if (fh > 0.86) { ramp = hueRamp(hue + (fh > 0.93 ? 1.0 : 0.0)); lo = 0.14; }
+              lo = -0.04 + (h21(floor(${liftedOr('lRest', 'vWorldPos')}.xz / 5.0)) - 0.5) * 0.12;
+              if (fh > 0.86) { ramp = fh > 0.93 ? hueRamp(hue + 1.0) : body; lo = 0.14; }
             } else {
               // the barf landed here: splat blotches + drips across the roof
-              vec2 q = vWorldPos.xz * 0.45;
+              vec2 q = ${liftedOr('lRest', 'vWorldPos')}.xz * 0.45;
               vec2 iq = floor(q);
               float bl = 0.0;
               for (int yy = -1; yy <= 1; yy++)
@@ -673,7 +718,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
                   float r = 0.25 + 0.45 * h21(g + 9.1);
                   bl = max(bl, 1.0 - smoothstep(r * 0.7, r, length(q - g - o)));
                 }
-              ramp = hueRamp(hue);
+              ramp = body;
               lo = bl > 0.5 ? 0.16 : -0.02; // wet, brighter splats of the same hue
             }
           } else if (part == ${R(Part.ROOF_SLOPE)}) {
@@ -689,13 +734,13 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           bool tree = (fl & 16) != 0;
           if (part > ${R(Part.DOME - 0.5)}) {
             // golden onion dome on a drum of the building's hue
-            ramp = f.y < 1.2 ? hueRamp(hue) : ${R(Ramp.YELLOW)};
+            ramp = f.y < 1.2 ? bodyRamp(hue) : sbFacGold(gFac);
             lo = 0.04;
           } else {
-            ramp = ${R(Ramp.GREEN)};
+            ramp = sbFacLeaf(gFac);
             lo = tree ? -0.08 : 0.0;
-            float bh = h21(floor(n.xz * 3.0 + 3.0) + vec2(bIdx * 0.11, floor(vWorldPos.y)));
-            if (bh > (tree ? 0.8 : 0.6)) { ramp = hueRamp(hue + (bh > 0.9 ? 0.0 : 1.0)); lo = 0.12; }
+            float bh = h21(floor(n.xz * 3.0 + 3.0) + vec2(bIdx * 0.11, floor(${liftedOr('lRest', 'vWorldPos')}.y)));
+            if (bh > (tree ? 0.8 : 0.6)) { ramp = bh > 0.9 ? bodyRamp(hue) : hueRamp(hue + 1.0); lo = 0.12; }
           }
         }
 
@@ -703,7 +748,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // aim glint: the building a tap would hit lifts a full ramp step (flat walls can't snap it away,
         // painted ones too), and a band of light sweeps up it, starting the moment it became the target
         bool tgt = abs(bIdx - uTarget) < 0.5;
-        float sweep = smoothstep(0.55, 1.0, fract((uTime - uTargetT) * uGlint.z - (vWorldPos.y - vBld.z) * 0.035));
+        float sweep = smoothstep(0.55, 1.0, fract((uTime - uTargetT) * uGlint.z - (${liftedOr('lRest', 'vWorldPos')}.y - vBld.z) * 0.035));
         if (famWall) {
           // ---- a tower facade, in whole ramp steps after the atmospheric perspective
           vec3 dv = normalize(vWorldPos - cameraPosition);
@@ -717,7 +762,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float bTop = roofY;
           float bH = max(bTop - vBld.z, 1.0);
           // the building's view direction (one per building, so each face is one decision)
-          vec3 vB = normalize(cameraPosition - vec3(vBld.y, clamp(cameraPosition.y, vBld.z, bTop), vBld.w));
+          vec3 vB = normalize(cameraPosition - vec3(vBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, vBld.z, bTop) + vLift', 'clamp(cameraPosition.y, vBld.z, bTop)')}, vBld.w));
           vec3 tU = normalize(vec3(-n.z, 0.0, n.x) + vec3(1e-5));
           float tv = dot(tU, vB);
           float fu = sqrt(max(1.0 - tv * tv, 0.0));
@@ -756,18 +801,18 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           glow = fglow;
           if (painted) {
             bool calm = level < 2.5;
-            float body = hueRamp(hue);
+            float body = bodyRamp(hue);
             // trims: white on 2 of 3 towers, the complementary accent on the third
-            float trimR = mod(seed, 3.0) < 2.0 ? ${R(Ramp.WHITE)} : hueRamp(hue + 3.0);
+            float trimR = mod(seed, 3.0) < 2.0 ? sbFacTrim(gFac) : hueRamp(hue + 3.0);
             lw = 0.2 + lw * 0.52;
             bool isGlass = fbase > 0.5 && fbase < 1.5;
             // level 3, Hundertwasser on a skyscraper: floor-tall wavy bands running through all six
             // hues, over the walls and the glass alike
             float wave = 1.6 * sin(f.x * 0.17 + seed) + 0.8 * sin(f.x * 0.47 + seed * 3.1);
-            float h3 = hue + mod(floor((f.y + wave) / 3.8) + floor(seed / 7.0), 6.0);
+            float r3 = cycleRamp(hue, mod(floor((f.y + wave) / 3.8) + floor(seed / 7.0), 6.0));
             if (isGlass && fd > 0.5 && fr != ${R(Ramp.WINDOW)}) {
               // the curtain wall's slab lines and mullions become the stained glass's lead
-              ramp = calm ? body : hueRamp(h3); fbase = 2.0; fd = 2.0; glow = 0.0;
+              ramp = calm ? body : r3; fbase = 2.0; fd = 2.0; glow = 0.0;
             } else if (isGlass) {
               if (calm) {
                 // stained glass: a rainbow ribbon of the tower's hue and its neighbors spiralling up
@@ -775,23 +820,23 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
                 float sf = (vYRest - vBld.z) / 11.7 + f.x / 19.0;
                 float k = mod(floor(sf), 4.0);
                 float off = k < 0.5 ? -1.0 : k < 1.5 ? 0.0 : k < 2.5 ? 1.0 : 0.0;
-                ramp = hueRamp(hue + off);
+                ramp = off == 0.0 ? body : hueRamp(hue + off);
                 fd = 4.0 + (fd < -0.5 ? -1.0 : fd > 0.5 ? 1.0 : 0.0) + (k > 2.5 ? 1.0 : 0.0);
                 glow = uGlassGlow;
               } else {
-                ramp = hueRamp(h3);
+                ramp = r3;
                 fd = 5.0 + (fd < -0.5 ? -1.0 : 0.0);
                 glow = uGlassGlow3;
               }
               fbase = 2.0;
             } else if (fr == ${R(Ramp.GLOW_WHITE)}) {
               // crowns turn gold; Salesforce's LED crown runs the rainbow
-              ramp = crownT == ${Crown.LATTICE} ? hueRamp(hue + floor(f.x / 1.5)) : ${R(Ramp.YELLOW)};
+              ramp = crownT == ${Crown.LATTICE} ? cycleRamp(hue, floor(f.x / 1.5)) : sbFacGold(gFac);
               fd = 5.0;
             } else if (fd > 0.5) {
               ramp = trimR; fd = 0.0; lw = 0.25 + lw * 0.75;
             } else {
-              ramp = calm ? body : hueRamp(h3);
+              ramp = calm ? body : r3;
               fd = min(fd, 0.0) + (calm ? 0.0 : -1.0);
             }
             // level 2+: hanging gardens on every third floor: a white planter rail under a band of green with
@@ -819,9 +864,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               }
               if (q >= 0.0) {
                 float fl2 = wide ? h21(floor(f * vec2(0.8, 1.0)) + bIdx) : 0.0;
-                if (q < rail) { ramp = ${R(Ramp.WHITE)}; fd = 1.0; }
+                if (q < rail) { ramp = sbFacTrim(gFac); fd = 1.0; }
                 else if (fl2 > 0.72) { ramp = hueRamp(hue + (fl2 > 0.86 ? 3.0 : 4.0)); fd = 1.0; }
-                else { ramp = ${R(Ramp.GREEN)}; fd = 0.0; }
+                else { ramp = sbFacLeaf(gFac); fd = 0.0; }
                 fbase = 0.0; glow = 0.0;
               }
             }
@@ -830,7 +875,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
               float colV = floor(f.x / 2.2);
               float drape = 1.5 + 7.0 * pow(h21(vec2(colV, bIdx)), 2.0);
               if (dTop > -0.5 && dTop < drape) {
-                ramp = h21(floor(f * vec2(1.1, 0.9)) + bIdx) > 0.84 ? hueRamp(hue + 1.0) : ${R(Ramp.GREEN)};
+                ramp = h21(floor(f * vec2(1.1, 0.9)) + bIdx) > 0.84 ? hueRamp(hue + 1.0) : sbFacLeaf(gFac);
                 fbase = 0.0; fd = 0.0; glow = 0.0;
               }
             }
@@ -852,7 +897,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             // every window its own hue with a soft halo at level 3 (Hundertwasser riot)
             float wh = level > 2.5 ? floor(h21(cell + vec2(bIdx * 0.13, 3.0)) * 6.0) : 0.0;
             float accent = mod(seed, 2.0) < 1.0 ? 2.0 : 4.0;
-            ramp = hueRamp(hue + accent + wh);
+            ramp = glassRamp(hue + accent + wh);
             light = (level > 2.5 ? 0.62 : 0.72) + 0.1 * h21(cell + 11.0);
             glow = level > 2.5 ? uGlassGlow3 : uGlassGlow;
           } else {
@@ -872,7 +917,15 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           // past the ribbons there is no window to see, so no dots: a face is lit or not, one tone, by a hash of the building and the way it looks
           else if (flatW && isWall && faceLit(bIdx, n, cover * uLit)) { ramp = ${R(Ramp.FARGLOW)}; light = 3.0 / 7.0; }`)}
         }
-        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;
+        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;${fallsed(`
+        // &falls: the runs down a struck tower's walls, in its paint's hue over whatever it had (falls.ts): a wet body a step darker than the wall there,
+        // darker still at its edges, and a bright head racing ahead, so a run reads on the tower's own new coat of its hue as on grey (the outside look)
+        if (vFall > -0.5 && abs(n.y) < 0.5) {
+          float fw = sbFall(vFall, f.x, vYRest, bIdx);
+          // (the step the wall had here, lit or in shade: the wet body one under it, its edges two, the head the ramp's top)
+          float cS = floor((light * max(1.0 - gAF, 0.08) + gAF * gSL) * 7.0 + 0.5);
+          if (fw > 0.5) { ramp = hueRamp(hue); light = lightAtStep(fw > 2.5 ? cS - 2.0 : fw > 1.5 ? 6.0 : cS - 1.0); glow = fw > 1.5 && fw < 2.5 ? 0.35 : 0.0; }
+        }`)}
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs
         float rr, rl, rg;

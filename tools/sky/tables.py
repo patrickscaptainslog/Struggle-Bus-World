@@ -6,6 +6,7 @@ The day is today's bytes and the blue hour (and night, LIVE.md decision 2) is S1
   BLUE_TABLE's FOG is round its own. Noon and morning draw the day's sky (the resolve's sky function), so their FOG and SKY_WARM are the day's bytes and SKY_LOW is FOG.
 - LIT and LAMP are the blue table's: a light has one colour at any hour.
 - Rows art has no colour for are named from their kin: between the day's row and the blue table's, as far as the table's city is from the day's toward blue.
+- The factions' rows (24-31, palette.ts's FACTION_RAMPS) are paint: art has no colour for them, so they take its paint rule for the hour (faction_row), as the six hues do.
 - World rows (all but paint and the bus) stop at 0.74 of the table's paint median chroma, steps 2-5 of the six hues: the one rule's 0.75, with room for the blend.
 - Then art's gate: a swatch that would read brown or taupe drops to neutral chroma, 0.016 (the run-time blend clamps the same way). Exit 1 if any swatch still fails.
 Last, index.html's first paint, which carries the page's colour off these tables: `node tools/sky/run.mjs firstpaint.ts --write` writes its rows again from them and
@@ -18,7 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 ART = sys.argv[1] if len(sys.argv) > 1 else 'C:/Users/Utku/sbw-main/shots/local/sky/work/sky-art-scripts'
 sys.path.insert(0, ART)
 import states, render  # noqa: E402
-from skylib import rgb2oklab, oklab2rgb  # noqa: E402
+from skylib import lab, rgb2oklab, oklab2rgb  # noqa: E402
 
 pal_src = open(os.path.join(ROOT, 'src/render/palette.ts'), encoding='utf8').read()
 RAMP = {m.group(1): int(m.group(2)) for m in re.finditer(r'^  (\w+): (\d+),', pal_src, re.M)}
@@ -42,6 +43,8 @@ BLUE = rows_of(open(os.path.join(ROOT, 'src/sky/SkyTable.ts'), encoding='utf8').
 NAMED = sorted(BLUE)
 PAINT = [RAMP[n] for n in ('RED', 'ORANGE', 'YELLOW', 'GREEN', 'BLUE', 'VIOLET')]
 HERO = [RAMP['BUS_YELLOW'], RAMP['BUS_BLACK']]
+FACTION = [RAMP[n] for n in re.findall(r'Ramp\.(\w+)', re.search(r'FACTION_RAMPS: readonly number\[\] = \[([^\]]+)\]', pal_src).group(1))]
+UNCAPPED = PAINT + FACTION + HERO
 
 
 def arr(hexes):
@@ -84,6 +87,19 @@ def clamp(rgb, cap):
     return from_lch(L, C, h)
 
 
+def faction_row(day, g):
+    """Art's paint rule (render.make_palette) on a row it has no colour for: the hour's lightness, chroma and hue turn, a warm hue that darkens slides to rose
+    (never brown), then a breath of the key's colour."""
+    L, C, h = lch(arr(day))
+    L2 = np.clip(L * g.get('L', 1) + g.get('Lo', 0), 0, 1)
+    h2 = h + g.get('rot', 0)
+    h2 = np.where((h2 > 28) & (h2 < 100) & (L2 < 0.62), 28 - (0.62 - L2) * 60, h2)
+    col = from_lch(L2, C * g.get('C', 1), h2)
+    if 'key' in g:
+        col = oklab2rgb(rgb2oklab(col) * (1 - g['keyw']) + lab(g['key']) * g['keyw'])
+    return col
+
+
 def paint_median(T):
     return float(np.median(np.concatenate([lch(arr(T[r][2:6]))[1] for r in PAINT])))
 
@@ -108,6 +124,8 @@ for const, name, bands in KEYS:
         T[RAMP[n]] = hexes(P[RAMP[n]])
     for n in ('LIT', 'LAMP'):
         T[RAMP[n]] = BLUE[RAMP[n]]
+    for r in FACTION:
+        T[r] = hexes(faction_row(DAY[r], st['pal']['paint']))
     T[RAMP['NIGHT_SKY']] = hexes(P[RAMP['NIGHT_SKY']][::-1])
     T[RAMP['TWILIGHT']] = hexes(P[RAMP['TWILIGHT']][::-1])  # (the bands' tables turn it toward the far horizon below)
     if bands:
@@ -142,14 +160,16 @@ for const, name, bands in KEYS:
     T[RAMP['DRY_LAND']] = T[RAMP['SAND']]
     cap = 0.74 * paint_median(T)
     for r in NAMED:
-        if r in PAINT or r in HERO:
+        if r in UNCAPPED:
             continue
         T[r] = hexes(clamp(arr(T[r]), cap))
     missing = [NAME[r] for r in NAMED if r not in T]
     if missing:
         sys.exit(f'{name}: no row for {missing}')
-    bad = [(NAME[r], s) for r in NAMED for s in range(8) if r not in PAINT and r not in HERO and brown(*[v[s] for v in lch(arr(T[r]))])]
-    peak = max(float(lch(arr(T[r]))[1].max()) for r in NAMED if r not in PAINT and r not in HERO)
+    bad = [(NAME[r], s) for r in NAMED for s in range(8) if r not in UNCAPPED and brown(*[v[s] for v in lch(arr(T[r]))])]
+    # (the factions' rows take no gate, as paint doesn't: their ramps shadow to indigo, wine or violet, and this says if a grade ever turned one brown)
+    bad += [(NAME[r], s) for r in FACTION for s in range(8) if brown(*[v[s] for v in lch(arr(T[r]))])]
+    peak = max(float(lch(arr(T[r]))[1].max()) for r in NAMED if r not in UNCAPPED)
     notes.append(f'{name}: kin {t:.2f}, paint median {cap / 0.74:.4f}, world peak {peak:.4f} ({peak / (cap / 0.74):.3f}), brown {len(bad)}')
     if bad:
         print(name, 'brown', bad)
@@ -166,7 +186,7 @@ DAYT[RAMP['DRY_LAND']] = DAY[RAMP['SAND']]
 # (and today's world rows take the cap: today's BRIDGE_ORANGE passes the one rule under today's sun and not under a higher one, LIVE.md stage A's noon)
 dcap = 0.74 * paint_median(DAYT)
 for r in NAMED:
-    if r not in PAINT and r not in HERO and r in DAY:
+    if r not in UNCAPPED and r in DAY:
         DAYT[r] = hexes(clamp(arr(DAYT[r]), dcap))
 extra = {r: DAYT[r] for r in NAMED if r not in DAY or DAYT[r] != DAY[r]}
 notes.insert(0, 'day: capped ' + (', '.join(NAME[r] for r in NAMED if r in DAY and DAYT[r] != DAY[r]) or 'none'))

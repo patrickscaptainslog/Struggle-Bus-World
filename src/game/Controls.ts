@@ -3,17 +3,21 @@ import { migratePrefs, type Prefs } from './controlPrefs';
 import type { Input, InputMode } from './Input';
 import { Shifter, type ShiftAnswer } from './Shifter';
 import { clamp } from './springs';
-import { TurboDrive, type TurboEvent } from './Turbo';
+import { config } from '../config';
+import { SCHOOL_ZONE, TurboDrive, type TurboEvent } from './Turbo';
 import type { Flight } from './Flight';
+import type { BoomPlan } from './Boom';
 import type { CameraRig } from './CameraRig';
 import type { AudioEngine } from '../audio/AudioEngine';
 import { LOOKAHEAD } from '../audio/dsp';
 import { TurboVoice } from '../audio/turboVoice';
 import type { Particles } from '../fx/Particles';
 import { TurboFx } from '../fx/Turbo';
+import { Balloons } from '../fx/Balloons';
+import { balloonPop, balloonSqueak } from '../audio/balloonSfx';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { Coach, TAUGHT, type CoachFrame } from '../ui/Coach';
+import { AIM_LINE, BOMB_LINES, Coach, hintLines, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the first run, the settings
@@ -35,10 +39,6 @@ import { Hud, type HudFrame } from '../ui/Hud';
 const ARMED = 'GEARS AFTER THE BRIDGE';
 const ARMED_OFF = 'GEAR OFF';
 const CLIMB_GATED = 'CLIMB AFTER THE BRIDGE';
-/** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
- *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
- *  the bus is the lane's half disc, and a drag up there is the yoke's nose-down, so the hint says HIGH UP, not ABOVE IT. It fits the toast at 116 of the screen's 131 px. */
-const hint = () => ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG HIGH UP TO LOOK'];
 const HINT_SECONDS = 6.5;
 /** A flick's answer in the bus's own body: it hiccups, once, on the breath's squash spring. */
 const FLICK_SQUASH = 0.84;
@@ -54,7 +54,7 @@ export interface ControlsDeps {
   pipeline: PixelPipeline;
   camera: THREE.PerspectiveCamera;
   scene: THREE.Scene;
-  bus: { root: THREE.Object3D; length: number; exhaustLocal: THREE.Vector3 };
+  bus: { root: THREE.Object3D; length: number; exhaustLocal: THREE.Vector3; hatchLocal: THREE.Vector3 };
   /** the city map [minX, minZ, maxX, maxZ] (m) */
   bounds: readonly number[];
   params: URLSearchParams;
@@ -65,11 +65,15 @@ export class Controls {
   /** what a flick means */
   readonly shifter: Shifter;
   readonly fx: TurboFx;
+  /** School Zone's paint balloons */
+  readonly balloons: Balloons;
   readonly hud: Hud;
   readonly voice = new TurboVoice();
   /** the fog is still lifting, and a building is glinting (main.ts, per frame) */
   opening = true;
   glinting = false;
+  /** the Bomb's hint may come: a painted building glints with a full belly under 300 m (main.ts, per frame, with &bomb) */
+  bombGlint = false;
   /** QA: the game holds (dt 0) while this is set: tools/shots.mjs --det stands the clock on it, tools/contextloss.mjs too */
   frozen = false;
   private readonly d: ControlsDeps;
@@ -87,9 +91,12 @@ export class Controls {
   private hiccup = false;
   /** the first run (null: off) */
   private readonly coach: Coach | null;
+  /** Curb's hint is off (?nohud, ?nocoach) */
+  private readonly curbHintOff: boolean;
   private readonly cf: CoachFrame = { glinting: false, openingOver: false, splats: 0, thumb: false, stillPress: 0, charged: false };
   private splats = 0;
   private chargedOnce = false;
+  private bombedOnce = false;
   private thumbOnce = false;
   private gestured = false;
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
@@ -104,6 +111,17 @@ export class Controls {
     this.shifter = new Shifter(this.turbo, d.flight);
     this.fx = new TurboFx(d.particles, d.bus.length, d.bus.exhaustLocal);
     d.scene.add(this.fx.object);
+    this.balloons = new Balloons(d.particles, {
+      squeak: (i) => {
+        const kit = d.audio.voiceKit();
+        if (kit) balloonSqueak(kit, kit.ctx.currentTime + LOOKAHEAD, 0.9 + 0.07 * (i % 4));
+      },
+      pop: (i) => {
+        const kit = d.audio.voiceKit();
+        if (kit) balloonPop(kit, kit.ctx.currentTime + LOOKAHEAD + i * 0.045);
+      },
+    });
+    d.scene.add(this.balloons.object);
     this.hud = new Hud(d.input, {
       onMute: (m) => {
         d.audio.setMuted(m);
@@ -130,8 +148,16 @@ export class Controls {
     this.hud.setSettings({ muted: !!this.prefs.muted, swap: !!this.prefs.swap });
     const nohud = d.params.has('nohud');
     if (nohud) this.hud.setVisible(false);
+    // MEGA is off (the producer, 2026-11-06: "lets just remove the mega splat for now, i dont think i like the function so much"): no button, no meter, no
+    // charge on any press, no cue for it. &mega on the link wakes all of it, as it was (src/game/SuperSplat.ts)
+    this.megaOn = d.params.has('mega');
+    d.input.megaOn = this.megaOn;
+    this.hud.megaOn = this.megaOn;
+    // the Bomb, a still hold on the bus and the lift (SHOTS.md, "The modes"), is behind &bomb, read as &mega is, until the producer's grip test (src/game/Bomb.ts)
+    this.bombOn = d.params.has('bomb');
     const off = nohud || d.params.has('nocoach') || (d.params.has('skipintro') && !d.params.has('coach'));
-    this.coach = off ? null : new Coach(this.prefs.taught ?? 0);
+    this.coach = off ? null : new Coach(this.prefs.taught ?? 0, this.megaOn, d.input.aimOn, this.bombOn);
+    this.curbHintOff = nohud || d.params.has('nocoach');
     this.start();
     if (!this.coach) this.hud.arrive();
     if (this.mode === 'keyboard' && !this.prefs.keysShown && !nohud && !d.params.has('skipintro')) this.keysIn = 2.5;
@@ -140,6 +166,25 @@ export class Controls {
       if (this.hud.settingsOpen) this.hud.closeSettings();
       else this.hud.openSettings();
     });
+  }
+
+  /** MEGA is awake on this page (&mega) */
+  readonly megaOn: boolean;
+  /** the Bomb is on this page (&bomb) */
+  readonly bombOn: boolean;
+  /** Every rung's event after its own looks and sounds (main.ts: &boom's flick into Turbo 3, src/game/Boom.ts) */
+  onRung: ((ev: TurboEvent, gear: number) => void) | null = null;
+
+  /** &boom (src/game/Boom.ts): the flick into Turbo 3 breaks the barrier again, Mach 1's set piece and its N-wave, the hoop landing as the ring `to` (null: the
+   *  crack alone), game clock `now`. */
+  crack(to: BoomPlan | null, now: number) {
+    const d = this.d;
+    this.fx.crack(d.bus.root, d.flight, d.rig, this.onFlash, to, now);
+    const kit = d.audio.voiceKit();
+    if (!kit) return;
+    const t = kit.ctx.currentTime + LOOKAHEAD;
+    if (!this.voice.attached) this.voice.attach(kit, t);
+    this.voice.boom(t);
   }
 
   get mode(): InputMode {
@@ -155,6 +200,11 @@ export class Controls {
   /** A breath left (main.ts). */
   splatted() {
     this.splats++;
+  }
+
+  /** A Bomb was let go: its hint is learned. */
+  bombed() {
+    this.bombedOnce = true;
   }
 
   /** The super charged: the HOLD cue (and the keyboard's line) are over. */
@@ -223,6 +273,28 @@ export class Controls {
     // (the rung went: the line that said it must wait is no longer true)
     if (waited && !this.shifter.armed) this.hud.clearToast();
     this.turbo.update(dt, this.d.flight);
+    // (School Zone brings the lens in: CameraRig eases it. Under Curb's own lens it's School Zone's, so the wheels going up crane back to it)
+    this.d.rig.zone = this.turbo.below > 0 ? 1 : 0;
+  }
+
+  /**
+   * Curb's one-time hint (src/game/CurbFlight.ts), the first time the bus is low over a road: LAND ON THE STREET, DIVE AND HOLD, once ever. Not a
+   * first-run cue: ?skipintro shows it, ?nohud and ?nocoach don't. `learn`: a flick landed, so it's known without it. True: it's done with.
+   */
+  curbHint(learn: boolean): boolean {
+    if (this.curbHintOff || ((this.prefs.taught ?? 0) & TAUGHT.curb)) return true;
+    // (the first run's hint has the slot: this one waits for another pass over a road)
+    if (!learn && this.hintLeft > 0) return false;
+    this.prefs.taught = (this.prefs.taught ?? 0) | TAUGHT.curb;
+    this.coach?.done(TAUGHT.curb);
+    savePrefs(this.prefs);
+    if (!learn) this.hud.toast(['LAND ON THE STREET', 'DIVE AND HOLD'], config.curb.hintFor);
+    return true;
+  }
+
+  /** Curb: no street there (FIND A STREET). */
+  noStreet() {
+    this.hud.toast(['FIND A STREET'], config.curb.noneFor);
   }
 
   /** Before bus.update: the bus strains (wheeze, squint) and goes wide-eyed at speed. */
@@ -247,6 +319,7 @@ export class Controls {
   frame(dt: number, realDt: number) {
     const d = this.d, T = this.turbo, f = d.flight;
     this.fx.update(dt, realDt, T, f, d.bus.root, d.camera, d.rig, d.pipeline.pixelWorldSize(1));
+    this.balloons.update(dt, T.below === SCHOOL_ZONE, f.ground, d.bus.root, d.bus.hatchLocal, f.obstacleUnder);
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
@@ -276,6 +349,9 @@ export class Controls {
     // (?moonland: the way out is a gear's floor lifting the bus, and that's no part of `speed`)
     h.mph = (T.top && f.turbo.floor > f.y ? Math.hypot(f.ground, f.vy) : f.speed) * 2.23694;
     h.armed = this.shifter.armed;
+    // (under Cruise the rung has a name and no gear's number)
+    h.name = T.below > 0 ? T.name : undefined;
+    h.tag = T.below > 0 ? '' : undefined;
     h.sinceShift = T.time - Math.max(T.shiftedAt, T.engagedAt);
     h.sinceLocked = T.time - T.lockedAt;
     this.firstRun(realDt);
@@ -298,13 +374,21 @@ export class Controls {
       cf.thumb = this.thumbOnce;
       cf.stillPress = input.stillFor(performance.now());
       cf.charged = this.chargedOnce;
+      cf.bombGlint = this.bombGlint;
+      cf.bombed = this.bombedOnce;
       c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.megaDue) hud.megaHoldCue();
       this.hintLeft = Math.max(0, this.hintLeft - dt);
       if (c.hintDue) {
         this.hintLeft = HINT_SECONDS;
-        hud.toast(hint(), HINT_SECONDS);
+        hud.toast(hintLines(input.aimOn), HINT_SECONDS);
+      } else if (c.aimHintDue) {
+        this.hintLeft = 3;
+        hud.toast([AIM_LINE], 3);
+      } else if (c.bombHintDue) {
+        this.hintLeft = 3;
+        hud.toast(BOMB_LINES, 3);
       }
     }
     if (c?.dirty) {
@@ -339,19 +423,19 @@ export class Controls {
   private onTurbo(ev: TurboEvent, gear: number) {
     const d = this.d;
     this.fx.event(ev, d.bus.root, d.flight, d.rig, this.onFlash);
-    if (ev === 'flick' || ev === 'back' || ev === 'turbo') this.hiccup = true;
+    if (ev === 'flick' || ev === 'back' || ev === 'turbo' || ev === 'zone' || ev === 'curb') this.hiccup = true;
     const kit = d.audio.voiceKit();
     if (kit) {
       const t = kit.ctx.currentTime + LOOKAHEAD;
       if (!this.voice.attached) this.voice.attach(kit, t);
-      if (ev === 'up' || ev === 'down') this.voice.shift(t, ev === 'up' ? 1 : -1);
+      if (ev === 'up' || ev === 'down' || ev === 'zone' || ev === 'unzone' || ev === 'curb' || ev === 'uncurb') this.voice.shift(t, ev === 'up' || ev === 'unzone' || ev === 'uncurb' ? 1 : -1);
       else if (ev === 'engage' || ev === 'turbo') this.voice.engage(t);
       else if (ev === 'turbo-down') this.voice.shift(t, -1);
       else if (ev === 'flick' || ev === 'back') this.voice.armed(t);
       else if (ev === 'boom') this.voice.boom(t);
       else if (ev === 'locked') this.voice.locked(t);
     }
-    void gear;
+    this.onRung?.(ev, gear);
   }
 
   /** QA: everything about the controls right now. */
@@ -359,7 +443,7 @@ export class Controls {
     const T = this.turbo, f = this.d.flight;
     return {
       mode: this.mode,
-      turbo: { gear: T.gear, level: T.level, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed },
+      turbo: { gear: T.gear, level: T.level, below: T.below, name: T.name, balloons: this.balloons.count, engaged: T.engaged, strain: T.strain, speedK: T.speedK, boosting: T.boosting, edge: T.edge, armed: this.shifter.armed },
       flight: { speed: f.speed, y: f.y, agl: f.y - f.groundBroad, mode: f.mode },
       camera: { pull: this.fx.lens.pull, fov: this.fx.lens.fov, hfov: this.d.rig.hfov, distance: this.d.rig.distance },
       hud: { settings: this.hud.settingsOpen },

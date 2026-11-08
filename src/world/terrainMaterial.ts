@@ -4,6 +4,9 @@ import { Ramp } from '../render/palette';
 import { held, heldOr, skyOn } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
+import { GLSL_LAKE, GLSL_LIFT, lifted } from './liftGlsl';
+import { liftUniforms, paintUniforms } from './buildingMaterial';
+import { GLSL_FACTION } from '../render/factionLook';
 
 // Ground: asphalt streets, lighter sidewalks, grey lawns, still water; with OpenStreetMap also pale
 // plazas and park paths, darker woods and garden yards, warm pale sand, dark rail beds, light rock.
@@ -64,7 +67,13 @@ const FS = /* glsl */ `
   uniform float uLamp;
   uniform vec2 uLampFar;`)}
   ${GLSL_GROUND_PAINT}
-  ${GLSL_BLAST_RING}
+  ${GLSL_BLAST_RING}${lifted(`
+  precision highp sampler2D;
+  uniform sampler2D uPaint;
+  uniform float uPaintW;
+  ${GLSL_FACTION}
+  ${GLSL_LIFT}
+  ${GLSL_LAKE}`)}
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -167,7 +176,10 @@ const FS = /* glsl */ `
       else light += 0.1 * pWet;
       glow = 0.55 * pFresh;
       light = max(light, glow);
-    }
+    }${lifted(`
+    // ?lift: the lake of paint a floating house leaves under it
+    float kr, kl, kg;
+    if (sbLake(vWorldPos, flatL, kr, kl, kg)) { ramp = kr; light = kl; glow = kg; }`)}
     float rr, rl, rg;
     if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
     float fog = sbFog(vWorldPos);
@@ -195,6 +207,7 @@ export function makeTerrainMaterial(
       uClassN: { value: classN },
       uTileRect: { value: new THREE.Vector4(originX, originZ, 1 / size, 0) },
       uLift: { value: lift },
+      ...(liftUniforms ? { ...liftUniforms, uPaint: paintUniforms.uPaint, uPaintW: paintUniforms.uPaintW } : {}),
     },
     vertexShader: VS,
     fragmentShader: FS,

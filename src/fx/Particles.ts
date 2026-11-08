@@ -33,6 +33,15 @@ import { registerTunables } from '../ui/tunables';
 // ribbon and lands exactly when that building blooms (travelTime + i *
 // cascadeStep). The primary stream lands travelTime after emission.
 
+/** The factions' rows (Ramp.MAGENTA to OBSIDIAN, 24-31) at the step their breath reads brightest without bleaching: Particles.palette's, SuperFx's. */
+export const FACTION_STEP: readonly number[] = [4, 4, 4, 3, 5, 3, 5, 6];
+
+/** A row of paint glowing over the world (the Bomb's ring, PixelPipeline): its step at rest and at its brightest, a faction's row a step under its FACTION_STEP and at it. */
+export function glowSteps(ramp: number): [number, number] {
+  const f = ramp - Ramp.MAGENTA;
+  return f >= 0 && f < FACTION_STEP.length ? [FACTION_STEP[f] - 1, FACTION_STEP[f]] : [5, 7];
+}
+
 /** Live-tunable look + feel numbers (read every spawn / frame). */
 export const fxTune = {
   // --- geyser ribbon
@@ -277,6 +286,11 @@ export interface GeyserLive {
   rate: number;
   /** width multiplier (replaces the geyser's own width while it pours) */
   width: number;
+  /**
+   * Set (the Hose): the stream lasts while this is true, however long past its duration (a pour paused on the sky comes back with its stream), with no thinning
+   * of its own (the caller thins it by `rate`), and ends on the frame it turns false. Unset: the duration is the stream's life.
+   */
+  open?: boolean;
 }
 
 interface Emitter {
@@ -360,9 +374,11 @@ flat out vec4 vB;  // N px, keep (dissolve), arm px, fog
 flat out vec4 vC;  // sprite light dir xy, sun shadow, flags
 flat out vec4 vD;  // smear dir xy (sprite space), smear half length px, blob radius px
 
+// (the factions' rows, 24-31, at the step their breath reads brightest without bleaching: Particles.palette)
+const float FAC_STEP[8] = float[8](${FACTION_STEP.map((v) => v.toFixed(1)).join(', ')});
 float hueStep(float ramp) {
   int i = int(ramp + 0.5) - ${Ramp.RED};
-  if (i < 0 || i > 5) return 6.0;
+  if (i < 0 || i > 5) return ramp > ${Ramp.MAGENTA - 0.5} && ramp < ${Ramp.OBSIDIAN + 0.5} ? FAC_STEP[int(ramp + 0.5) - ${Ramp.MAGENTA}] : 6.0;
   return uHueStep[i];
 }
 
@@ -697,6 +713,8 @@ export class Particles {
   private readonly uSpk = { value: new THREE.Vector4() };
   private readonly uPuff = { value: new THREE.Vector4() };
   private readonly emitters: Emitter[] = [];
+  /** The six rows a hue index draws in: Rainbow's six, or a faction's spray (factionLook.ts), the bus's breath and its blast's sparkles alike. */
+  palette: readonly number[] = HUE_RAMPS;
   // camera right axis captured at render time (horizontal)
   private readonly camRight = new THREE.Vector3(1, 0, 0);
   private readonly tS = new THREE.Vector3();
@@ -900,7 +918,10 @@ export class Particles {
 
   private updateEmitter(e: Emitter, t1: number, dt: number) {
     const T = fxTune;
-    const end = e.start + e.duration;
+    const held = e.live ? e.live.open : undefined;
+    const end = held === true ? t1 + 1 : held === false ? Math.min(t1 - dt, e.start + e.duration) : e.start + e.duration;
+    // (held open, the gush stays the opening's and no tail comes: the caller thins it)
+    const xMax = held === undefined ? Infinity : e.taper;
     if (e.live) {
       e.targets[0].copy(e.live.target);
       e.travel = Math.max(0.05, e.live.travel);
@@ -939,7 +960,7 @@ export class Particles {
     }
     if (b > a) {
       const span = t1 - e.lastT;
-      const xm = ((a + b) * 0.5 - e.start) / e.duration;
+      const xm = Math.min(xMax, ((a + b) * 0.5 - e.start) / e.duration);
       // gush at the start, thinning dribble at the end
       const gush = xm < 0.12 ? 1 - xm / 0.12 : 0;
       const tail = xm > e.taper ? (xm - e.taper) / (1 - e.taper) : 0;
@@ -950,7 +971,7 @@ export class Particles {
       for (let j = 0; j < count; j++) {
         const tj = a + ((j + rnd()) / count) * (b - a);
         const f = span > 1e-6 ? (tj - e.lastT) / span : 1;
-        this.emitRibbon(e, tj, f, S, V, (tj - e.start) / e.duration);
+        this.emitRibbon(e, tj, f, S, V, Math.min(xMax, (tj - e.start) / e.duration));
       }
       // droplets flicked off the flanks
       nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) * e.aimFlow * flow + e.carryFlick;
@@ -1008,7 +1029,7 @@ export class Particles {
       const vx = V.x * 0.55 + (rnd() - 0.5) * 1.2;
       const vy = Math.min(V.y, 0) * 0.5 - 1.5 - rnd() * 2;
       const vz = V.z * 0.55 + (rnd() - 0.5) * 1.2;
-      const ramp = HUE_RAMPS[wrapHue(e.hue0 + Math.round((rnd() - 0.5) * 2.4))];
+      const ramp = this.palette[wrapHue(e.hue0 + Math.round((rnd() - 0.5) * 2.4))];
       this.writeDrop(mx, my, mz, tj, vx, vy, vz, P1.y, 0, 1, ramp, T.splashSize * (0.7 + 0.6 * rnd()), F_SHADED);
       return;
     }
@@ -1075,7 +1096,7 @@ export class Particles {
       s[6] = s[14] = cdz / tt;
     }
     s[15] = K_RIBBON;
-    s[16] = HUE_RAMPS[hue];
+    s[16] = this.palette[hue];
     s[17] = size;
     s[18] = rnd();
     s[19] = flags;
@@ -1111,7 +1132,7 @@ export class Particles {
     const lz = mz + vz * th - P1.z;
     const ebounce = Math.hypot(lx, lz) > T.roofRadius ? -1 : rnd() < T.splashBounce ? T.restitution : 0;
     const k = side * e.bandSign * (rnd() < 0.6 ? 2 : rnd() < 0.5 ? 1 : 3);
-    const ramp = HUE_RAMPS[wrapHue(e.hue0 + k)];
+    const ramp = this.palette[wrapHue(e.hue0 + k)];
     const r2 = rnd();
     const flags = F_SHADED | (r2 < 0.08 ? F_GLINT : r2 < 0.3 ? F_BRIGHT : 0);
     this.writeDrop(mx, my, mz, tj, vx, vy, vz, P1.y, ebounce, 1, ramp, T.splashSize * (0.55 + 0.7 * rnd()), flags);
@@ -1158,7 +1179,7 @@ export class Particles {
     s[13] = vArr;
     s[14] = uz * chord * 0.35;
     s[15] = K_STREAM;
-    s[16] = HUE_RAMPS[e.hues[i]];
+    s[16] = this.palette[e.hues[i]];
     const roll = rnd();
     const glint = roll < T.glintFrac;
     // the head of each stream is a fat blorp, the body a glossy strand
@@ -1273,7 +1294,7 @@ export class Particles {
       // lands on, with a bright rim + highlight), a few neighbor hues, white foam
       const roll = rnd();
       const own = roll >= 0.1 && roll < 0.8;
-      const ramp = roll < 0.1 ? Ramp.GLOW_WHITE : HUE_RAMPS[own ? h0 : wrapHue(h0 + (roll < 0.86 ? 1 : roll < 0.92 ? -1 : roll < 0.96 ? 2 : -2))];
+      const ramp = roll < 0.1 ? Ramp.GLOW_WHITE : this.palette[own ? h0 : wrapHue(h0 + (roll < 0.86 ? 1 : roll < 0.92 ? -1 : roll < 0.96 ? 2 : -2))];
       let flags = F_SHADED;
       const r2 = rnd();
       if (r2 < 0.07) flags |= F_GLINT;
@@ -1297,7 +1318,7 @@ export class Particles {
     const vx = (to.x - from.x) / ft;
     const vz = (to.z - from.z) / ft;
     const vy = (to.y - from.y + 0.5 * g * ft * ft) / ft;
-    const ramp = HUE_RAMPS[wrapHue(hue)];
+    const ramp = this.palette[wrapHue(hue)];
     const sz = size * T.flingSize;
     this.writeDrop(from.x, from.y, from.z, this.time, vx, vy, vz, to.y, 0, gm, ramp, sz, F_SHADED | (rnd() < 0.25 ? F_BRIGHT : 0));
     // trail: same arc a beat later (lands on the same spot), smaller
@@ -1329,7 +1350,7 @@ export class Particles {
       const h = wrapHue(hue + Math.floor((ang / (Math.PI * 2)) * 6));
       const r2 = rnd();
       const glint = r2 < 0.07;
-      const ramp = glint ? Ramp.GLOW_WHITE : HUE_RAMPS[h];
+      const ramp = glint ? Ramp.GLOW_WHITE : this.palette[h];
       const flags = F_SHADED | (glint ? F_GLINT : r2 < 0.3 ? F_BRIGHT : 0);
       const delay = rnd() * 0.06;
       this.writeDrop(pos.x + Math.cos(a) * 0.8, pos.y + 0.4, pos.z + Math.sin(a) * 0.8, this.time + delay, Math.cos(a) * out, up, Math.sin(a) * out, floorY, 0, 1, ramp, T.burstSize * (0.6 + 0.8 * rnd()) * (glint ? 0.6 : 1), flags);
@@ -1379,7 +1400,7 @@ export class Particles {
       s[13] = 0;
       s[14] = 0;
       s[15] = K_SPARK;
-      s[16] = rnd() < T.sparkWhite || hues.length === 0 ? Ramp.GLOW_WHITE : HUE_RAMPS[wrapHue(hues[Math.floor(rnd() * hues.length)])];
+      s[16] = rnd() < T.sparkWhite || hues.length === 0 ? Ramp.GLOW_WHITE : this.palette[wrapHue(hues[Math.floor(rnd() * hues.length)])];
       s[17] = T.sparkSize * (0.7 + 0.6 * rnd());
       s[18] = rnd();
       s[19] = 0;
@@ -1412,7 +1433,7 @@ export class Particles {
     s[13] = 0;
     s[14] = 0;
     s[15] = K_TWINKLE;
-    s[16] = rnd() < 0.3 ? Ramp.GLOW_WHITE : HUE_RAMPS[wrapHue(hue)];
+    s[16] = rnd() < 0.3 ? Ramp.GLOW_WHITE : this.palette[wrapHue(hue)];
     s[17] = T.sparkSize * (0.65 + 0.3 * rnd());
     s[18] = rnd();
     s[19] = 0;
@@ -1421,6 +1442,37 @@ export class Particles {
     s[22] = 0;
     s[23] = 0;
     this.commit(this.time, life);
+    this.flush();
+  }
+
+  /** A homing shot's blob and trail (src/game/Hold.ts): one glowing mote at pos drifting at (vx, vy, vz), gone in `life` s, in a ramp (a faction's spray row, or GLOW_WHITE in its white window). */
+  comet(pos: THREE.Vector3, vx: number, vy: number, vz: number, ramp: number, size: number, life: number): void {
+    const s = this.s;
+    s[0] = pos.x;
+    s[1] = pos.y;
+    s[2] = pos.z;
+    s[3] = this.time;
+    s[4] = vx;
+    s[5] = vy;
+    s[6] = vz;
+    s[7] = Math.max(0.05, life);
+    s[8] = 2;
+    s[9] = 0;
+    s[10] = 0;
+    s[11] = 0;
+    s[12] = 1;
+    s[13] = 0;
+    s[14] = 0;
+    s[15] = K_TWINKLE;
+    s[16] = ramp;
+    s[17] = fxTune.sparkSize * size;
+    s[18] = rnd();
+    s[19] = 0;
+    s[20] = 0;
+    s[21] = 0;
+    s[22] = 0;
+    s[23] = 0;
+    this.commit(this.time, s[7]);
     this.flush();
   }
 
