@@ -12,7 +12,10 @@
 import { newCity, pump, ll, makeGame, makeCam, save, MODE, config } from './lib';
 import { Boom, boomLead, boomTune, hoopPose, type BoomPlan, type HoopPose } from '@src/game/Boom';
 import { JET, driveSpeed, TurboDrive } from '@src/game/Turbo';
-import { crackSky, TurboLens, turboFxTune } from '@src/fx/Turbo';
+import { crackSky, TurboFx, TurboLens, turboFxTune } from '@src/fx/Turbo';
+import { lookOf } from '@src/render/factionLook';
+import { Ramp } from '@src/render/palette';
+import { FACTION_ATLANTIS, FACTION_ELDERWOOD, FACTION_HYPERGLOW, FACTION_INFERNO, FACTION_RAINBOW } from '@src/game/factions';
 import { blastRadiusFor } from '@src/game/blastLayout';
 import { globals } from '@src/render/materials';
 import { PerformanceObserver } from 'node:perf_hooks';
@@ -217,6 +220,22 @@ for (const [place, lat, lon] of PLACES) {
   const w = await flick('bay', 37.8035, -122.372, 150, {});
   ok(w.row.kind === 'water' && w.row.wrong === 0 && w.row.gBand === 0, `the bay: a ring of spray, nothing painted (${w.row.kind}, ${w.row.wrong} changed, ${w.row.gBand} of the band's ground)`);
   ok(w.boom.last === -Infinity && w.plan?.crowned === true, `the bay: the 10 s unspent and its spray up (last ${w.boom.last}, ${w.plan?.crowned})`);
+}
+// the contrail's rows (not behind &boom): by the bus's faction its spray, and Rainbow's the hues its shader had as constants (Ramp.RED + band), so its every
+// pixel is as before; the shader reads them from the uniform
+{
+  const fx = new TurboFx({} as any, 12) as any, U = fx.trailU.uTrailRows.value as number[], src = String(fx.trail.material.fragmentShader);
+  const hues = [0, 1, 2, 3, 4, 5].map((k) => Ramp.RED + k);
+  ok(U.join() === hues.join() && src.includes('uTrailRows[int(band)]'), `the trail's rows before a faction: Rainbow's hues from the uniform (${U.join()})`);
+  const got: Record<string, string> = {};
+  for (const [name, id] of [['atlantis', FACTION_ATLANTIS], ['elderwood', FACTION_ELDERWOOD], ['hyperglow', FACTION_HYPERGLOW], ['inferno', FACTION_INFERNO], ['rainbow', FACTION_RAINBOW]] as const) {
+    fx.setTrailRows(lookOf(id).spray);
+    got[name] = U.join();
+    ok(U.join() === lookOf(id).spray.join(), `the trail's rows in ${name}: its spray (${U.join()})`);
+  }
+  ok(got.rainbow === hues.join(), `the trail's rows back in Rainbow: its hues, as the shader had them (${got.rainbow})`);
+  rows.push({ trail: got });
+  console.log(JSON.stringify({ trail: got }));
 }
 save('boom', rows);
 console.log(fails.length ? `[${MODE}] FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `[${MODE}] boom checks: all ${checks} passed (${rows.length} rows)`);
