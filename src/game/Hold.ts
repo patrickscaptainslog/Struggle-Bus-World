@@ -97,7 +97,8 @@ export interface HomingOpts {
   /**
    * The target's velocity now (world m/s, into `out`), where the caller knows it (a boat's on its lane, a rival's flight): the shot leads from its launch, its first
    * heading at where it meets the target if both hold their lines, and before the white it steers at that meeting. Without it the velocity is learnt from
-   * target()'s frames, so a shot fired from inside its white window (speed x white of the target) flies at where the target was. Called whenever target() is.
+   * target()'s frames, so a shot fired from inside its white window (speed x white of the target) flies at where the target was. Called after each target() that
+   * returns true.
    */
   vel?(out: THREE.Vector3): void;
   /** m/s along its path (a boat at 1.5 km: about 500; a plane 12 km out: 3,000 or more to arrive in under 4 s) */
@@ -106,7 +107,7 @@ export interface HomingOpts {
   turn: number;
   /** its last seconds (time to go = distance / speed): white-hot, and it no longer steers (SHOTS.md: 0.7, 0.45 at a full charge) */
   white: number;
-  /** a hit is within this of the target (m, default 6) */
+  /** a hit is within this of the target (m, default 6): this frame's target against the shot's path this frame, so at least the target's speed / 30, a frame of its travel at 30 fps */
   hitRadius?: number;
   /** it ends as a miss after this long (s, default 8) */
   maxTime?: number;

@@ -159,7 +159,7 @@ if (process.argv.includes('--review')) {
   // M80: a target crossing the shot's line at v m/s, d m from the mouth (0, 120, -6), at the bus's height (a boat: on the water, 2 m), on the line at the launch,
   // the caller giving its velocity (HomingOpts.vel). dodge: from 50 ms into the white, 'turn' breaks 40 m up off its line over 250 ms (the hard break row below),
   // 'flick' goes from its speed to Express's 112 m/s over 250 ms along it (a flick up; the flight's lunge isn't built)
-  type Cross = { d: number; v: number; speed: number; white: number; turn: number; r: number; boat?: boolean; captain?: boolean; fps?: number; dodge?: 'turn' | 'flick' };
+  type Cross = { d: number; v: number; speed: number; white: number; turn: number; r: number; boat?: boolean; captain?: boolean; fps?: number; dodge?: 'turn' | 'flick'; secs?: number };
   const cross = (c: Cross) => {
     const fps = c.fps ?? 60, h = fresh(fps);
     const y = c.boat ? 2 : 120, dz = Math.sqrt(c.d * c.d - (120 - y) ** 2);
@@ -186,7 +186,7 @@ if (process.argv.includes('--review')) {
     });
     // (its closest pass, the shot's end of each frame against the target then)
     const p = new THREE.Vector3();
-    for (let i = 0; i < 2.5 * fps && s && !s.done; i++) { h.wait(1000 / fps); if (!s.done) miss = Math.min(miss, s.pos.distanceTo(at(h.at() / 1000, p))); }
+    for (let i = 0; i < (c.secs ?? 2.5) * fps && s && !s.done; i++) { h.wait(1000 / fps); if (!s.done) miss = Math.min(miss, s.pos.distanceTo(at(h.at() / 1000, p))); }
     h.wait(600);
     const v = { fired: !!s, hit, why, whiteMs: Math.round(white), inWhite: white >= 0 && white <= 1000 / fps + 1, closest: hit ? 0 : +miss.toFixed(1) };
     h.input.dispose();
@@ -209,6 +209,15 @@ if (process.argv.includes('--review')) {
       const r = cross({ d, v, ...o, fps });
       line(`M80 @${fps}: the table, ${who} (${o.speed} m/s, white ${o.white}, turn ${o.turn}, r ${o.r}), crossing at ${v} m/s, ${d} m`, r);
       rok(r.fired && r.hit, `M80 @${fps}: the table, ${who} crossing at ${v} m/s from ${d} m, holding its line, hits (${JSON.stringify(r)})`);
+    }
+    // (the check of the fixes: a plane lock, HOOKS.md's 3,000 m/s, on a plane crossing at 250 m/s, 3 to 12 km, at eight launch phases each (the distance moved on
+    // by eighths of a frame of the shot). The hit test is the frame's target against the shot's segment, so the radius must cover a frame of the plane's travel,
+    // 250 / 30 = 8.3 m at 30 fps: with 6 m it hit 6, 7 and 6 of 8. 9 m here)
+    for (const d of [3000, 6000, 12000]) {
+      const rs = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => cross({ d: d + (k / 8) * (3000 / fps), v: 250, speed: 3000, white: 0.45, turn: 1.5, r: 9, fps, secs: d / 3000 + 1 }));
+      const r = { hits: rs.filter((x) => x.hit).length, of: rs.length, inWhite: rs.every((x) => x.inWhite), closest: Math.max(...rs.map((x) => x.closest)) };
+      line(`M80 @${fps}: a plane lock (3000 m/s, white 0.45, turn 1.5, r 9), a plane crossing at 250 m/s, ${d} m, eight phases`, r);
+      rok(r.hits === r.of, `M80 @${fps}: a plane lock from ${d} m on a plane crossing at 250 m/s, holding its line, hits at every phase (${JSON.stringify(r)})`);
     }
   }
   // m81: a target() that throws at the launch refuses the shot, with the cough, nothing spent

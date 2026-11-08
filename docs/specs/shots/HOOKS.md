@@ -7,8 +7,8 @@ It all lives in `src/game/Hold.ts`. `main.ts` makes one `Holds` and hands it now
 ## Since the second account's review of fd6d413
 
 What changed in the hook (feat/shots `0eb3e61`, `70bc61b`, `74d01fe`; BUILT.md, "The second account's review of fd6d413"):
-- **A homing shot leads from its launch (M80).** Give `holds.fire` a `vel(out)`, the target's velocity, for anything that moves: the shot leaves at where the two meet if both hold their lines, and before the white steers at that meeting. Fired from inside its white window it flies straight from its first frame, so without `vel` it flies at where the target was and misses anything moving (at 420 m/s and a white of 0.7 s, inside 294 m). With it, a target that holds its line is hit from any range, and a hard turn or a flick in the white still beats it. A captain's shot at the player takes `vel: (out) => holds.busVel(out)`, new beside `holds.bus`.
-- **`target` is asked first (m81).** `fire` calls `target` (and `vel`) before it spends anything; one that throws refuses the shot: `fire` returns null, the bus coughs, the belly is untouched, `holds.stats.errors` counts it.
+- **A homing shot leads from its launch (M80).** Give `holds.fire` a `vel(out)`, the target's velocity, for anything that moves: the shot leaves at where the two meet if both hold their lines, and before the white steers at that meeting. Fired from inside its white window it flies straight from its first frame, so without `vel` it flies at where the target was and misses anything moving (at 420 m/s and a white of 0.7 s, inside 294 m). With it, a target that holds its line is hit, as long as `hitRadius` covers a frame of the target's travel at 30 fps (its speed / 30: 9 m for a plane at 250 m/s, where the default 6 m missed 1 or 2 of 8; `hitRadius` below) and it's reached inside `maxTime` (8 s, 3.4 km at 420 m/s), and a hard turn or a flick in the white still beats it. A captain's shot at the player takes `vel: (out) => holds.busVel(out)`, new beside `holds.bus`.
+- **`target` is asked first (m81).** `fire` calls `target` (and `vel`) before it spends anything; one that throws refuses the shot: `fire` returns null, the belly is untouched, `holds.stats.errors` counts it, and the player's shot (`belly`) coughs; a captain's is refused silently.
 - **A target never there ends as `lost` (m82)**, false at the launch and on the first frame, after the same beat as one that goes. It flew on along the bus's heading for `maxTime`.
 - **A lock's shot refills as after a tap (m83)**, 1.6 s from empty, a shot that took a hold mid-pour too, where it took the Hose's 3 s.
 - **A release tells the one that had the hold (n80).** `holds.release(name)` calls its `lost`, as a claim does, so releasing the Hose's hold stops its pour. A handler releasing its own hold hears its own `lost`.
@@ -53,7 +53,7 @@ const off = holds.add({
 - **`move`** runs every frame for whoever has the hold. With `{ watch: true }` it runs for you on every hold, whoever has it: a lock that waits for a plane to come under the finger.
 - **`holds.claim(name)`** takes the hold under way. The one that had it gets `lost`, so the Hose stops pouring the moment you claim. `holds.release(name)` lets it go to nobody (the finger stays down and nothing pours): the one named, if it has the hold, gets `lost` too, as on a claim, so a release of the Hose's hold stops its pour (the review of fd6d413, n80). Releasing your own hold, expect your own `lost`.
 - **`end`** goes to whoever has the hold, and to every `{ watch: true }` handler. A watcher that doesn't have it sees `h.owner` naming someone else: reset what you kept for `h.id`, and don't fire. `cancelled` means the touch was lost, three fingers came down, or the page lost focus: don't fire on it.
-- **A handler that throws** doesn't stop the game. Every call into a handler, and every homing shot's `target`, `vel` and callbacks, is caught: the error is printed on the console once per handler (`Holds: handler 'name' threw`), `holds.stats.errors` counts them, and the Hose, the splats and the frame go on. A shot whose callback throws ends there. `fire` calls `target` (and `vel`) first, before anything is spent: one that throws there refuses the shot, `fire` returns null, the bus coughs and its belly is untouched (m81).
+- **A handler that throws** doesn't stop the game. Every call into a handler, and every homing shot's `target`, `vel` and callbacks, is caught: a handler's error is printed on the console once per handler (`Holds: handler 'name' threw`), a shot's every time (`Holds: a homing shot threw`), `holds.stats.errors` counts them all, and the Hose, the splats and the frame go on. A shot whose callback throws ends there. `fire` calls `target` (and `vel`) first, before anything is spent: one that throws there refuses the shot, `fire` returns null and the belly is untouched; the player's shot coughs, a captain's says nothing (m81).
 - **`tap`** is asked before every tap splats (in the order added). Return true and nothing splats: fire your own shot instead. That's how "the lock holds 4 s, so your next taps go to the same target" is built.
 
 Example, a lock on a ferry (the pick is yours; the numbers are SHOTS.md's):
@@ -95,11 +95,11 @@ holds.add({
 | Option | What it is |
 |---|---|
 | `target(out)` | required. Write where the target is now into `out` and return true; false: it's gone, and the shot flies on a beat and ends as a miss (`lost`). One false at the launch and on the shot's first frame, never there, ends the same way (m82). Called at the launch and every frame |
-| `vel(out)` | the target's velocity now, world m/s, into `out`. Give it for anything that moves (a boat on its lane, a rival's flight, the player's bus for a captain): the shot's first heading goes at where the two meet if both hold their lines, and before the white it steers at that meeting. Without it the shot learns the velocity from `target`'s frames, and one fired from inside its white window (closer than `speed` x `white`: 294 m at 420 m/s and 0.7 s) flies at where the target was and misses anything moving (the review of fd6d413, M80). Called whenever `target` is |
+| `vel(out)` | the target's velocity now, world m/s, into `out`. Give it for anything that moves (a boat on its lane, a rival's flight, the player's bus for a captain): the shot's first heading goes at where the two meet if both hold their lines, and before the white it steers at that meeting. Without it the shot learns the velocity from `target`'s frames, and one fired from inside its white window (closer than `speed` x `white`: 294 m at 420 m/s and 0.7 s) flies at where the target was and misses anything moving (the review of fd6d413, M80). Called after each `target` that returns true |
 | `speed` | m/s along its path. A boat at 1.5 km: about 500. A plane 12 km out: 3,000 or more to arrive in under 4 s |
 | `turn` | the most it turns, rad/s. The lower, the easier to beat before the white |
 | `white` | its last seconds (time to go = distance / speed): it goes white-hot and stops steering. SHOTS.md: 0.7, 0.45 at a full charge |
-| `hitRadius` | metres, default 6 |
+| `hitRadius` | metres, default 6. The hit test is the frame's target against the shot's path that frame, so a target moving fast misses by up to a frame of its travel: give at least its speed / 30, the floor's frame at 30 fps (a plane at 250 m/s: 9) |
 | `maxTime` | seconds before it ends as a miss, default 8 |
 | `from`, `dir` | where it leaves from (default the bus's mouth) and its first heading (default at the target: where it meets it with `vel`, where it is without) |
 | `faction`, `hue` | whose colours it flies in (default the player's) and which of the six |
@@ -112,7 +112,7 @@ holds.add({
 
 It returns a `HomingShot` (`id`, `pos`, `dir`, `t`, `ttg`, `white`, `done`, `cancel()`), or null. `holds.shots` lists those in flight: the incoming marker reads it. At most four of the player's (`belly`) fly at once, and eight of everyone else's, each count its own; a player's shot refused for that coughs too (`holds.stats.refused`).
 
-It leaves led, at where it meets the target (with `vel`). Before the white it leads the target (`vel`'s, or else its velocity learnt from its frames, smoothed), turning at most `turn`; a break before the white is followed, so too early fails, as SHOTS.md has it. In the white it flies straight, so a hard turn or a flick then beats it, and a target that holds its line is hit, from any range (`s_hold --review`: the review's table, 150 to 800 m, every cell). A dodge is the target moving out of `hitRadius` of a straight line; how far a flick lunges the bus is the flight's, and comes with the rival lock (not built).
+It leaves led, at where it meets the target (with `vel`). Before the white it leads the target (`vel`'s, or else its velocity learnt from its frames, smoothed), turning at most `turn`; a break before the white is followed, so too early fails, as SHOTS.md has it. In the white it flies straight, so a hard turn or a flick then beats it, and a target that holds its line is hit, with `hitRadius` at least its speed / 30 and within `maxTime` (`s_hold --review`: the review's table, 150 to 800 m, every cell, and a plane lock at 3,000 m/s and 9 m on a plane at 250 m/s, 3 to 12 km, at eight launch phases, at 30 and 60 fps). A dodge is the target moving out of `hitRadius` of a straight line; how far a flick lunges the bus is the flight's, and comes with the rival lock (not built).
 
 Example, the player's lock on a rival bus, and a captain's shot back:
 
@@ -120,7 +120,7 @@ Example, the player's lock on a rival bus, and a captain's shot back:
 holds.fire({
   target: (out) => rival.alive && (out.copy(rival.pos), true),
   vel: (out) => out.copy(rival.vel),                   // yours: the rival's velocity, world m/s
-  speed: 420, turn: 2.2, white: charged ? 0.45 : 0.7, hitRadius: 7, faction: crew.faction,
+  speed: 420, turn: 2.2, white: charged ? 0.45 : 0.7, hitRadius: Math.max(7, rival.vel.length() / 30), faction: crew.faction,   // a frame of its travel at 30 fps
   onHit: () => recess.possess(rival),
   onMiss: (_at, _s, why) => { if (why === 'dodged') recess.keepLock(rival, 2); },
 });
