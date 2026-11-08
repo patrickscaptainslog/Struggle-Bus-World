@@ -414,6 +414,13 @@ The second account's code review of `feat/shots` at fd6d413 (`docs/reviews/shots
 
 **For the second account** (HOOKS.md, "Since the second account's review of fd6d413"): give `holds.fire` a `vel` for anything that moves, a captain's at the player `holds.busVel`; `target` is asked first and one that throws refuses the shot; a target never there ends as `lost`; a lock's shot refills as a tap's; `holds.release` tells the one that had the hold.
 
+**The checks** (the laptop's `gate.sh all` on `2697445`'s tree, `sb-checks/shots/fixes/gates.txt`: the Lob merge's 29 rows, pointed at this tree, with `hold-review` and `hooks-doc` added; 31 of 31 exited 0):
+- `tsc` clean at each commit. Every sim, probe and check of the three-way's set (the gesture, layout, hold, turbo and Curb sims, the probe plain, `--bomb` and `--lob`, the seventeen feel sims, owner-check, life's two) byte for byte 06a3de6's own outputs, the Lob merge's run of that commit, with its masks for what varies run to run: "compare: 82 of 82 outputs pass", none changed by the fixes (the probe's exit 1 and s_bomb's wall-clock rows as 06a3de6's).
+- `s_hold --review` "review checks: all 73 passed"; `s_hold --late` 4 of 4; `s_lob` 1213 of 1213, its misfire, size and tower checks; `s_lob --street` 24 of 24; `s_shots --lob` 90 of 90.
+- `vite build` exit 0, `iosfloor` "iOS 15.0 parses every chunk".
+- On this laptop's GPU: `--det` against 06a3de6's code's views, 8 of 8 pixel for pixel with the sky off and 8 of 8 at golden hour; `warmcheck` plain, `--comet`, `--crew --bomb`, `--crew --lob` and on Curb's street passed; `controls.mjs lob`, its noon row (own draws 2), `bomb` and Curb's (zone, curb 15 of 15) passed; misfire at 20, 30 and 60 fps, every row its Lob; both budgets and the hint passed.
+- Not checked: an A15, the producer's phone, the sound of the new cough by ear, a homing shot on the page (nothing on this branch fires one), life's and Recess's callers of `vel`.
+
 ## The review of step 4, and what it came to
 
 Four checks of `a4909c2`: a review through input and play (its probes of the real Input, Flight, Aimer and Bomb), a review of the world and the frame (its probes against the real city, Splatter and GroundPaint, and a GPU run), an outside look at the frames by real touches, and `gate.sh all`. Each finding was read against the code first.
