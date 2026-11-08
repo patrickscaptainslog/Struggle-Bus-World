@@ -681,6 +681,12 @@ export class GroundPaint {
     return { cov: m.data[o] / 255, hue: Math.min(5, Math.floor(m.data[o + 1] / 32)), faction: m.data[o] ? texelOwner(m.data[o + 1]) : 0 };
   }
 
+  /** A wide blast is still drawing (begin() would finish it first, all of it in that frame). */
+  wideBusy(): boolean {
+    for (const j of this.jobs) if (j.wide) return true;
+    return false;
+  }
+
   /**
    * A projectile is in the air and will explode on spec at tImpact (game
    * clock): its paint is drawn by work() over the next frames, hidden.

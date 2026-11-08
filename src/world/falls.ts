@@ -27,7 +27,10 @@ export const fallTime = (h: number): number => Math.max(0, h) / (FALLS.speed * F
 
 /** A tower struck at height y (m) at game time t0 runs in slot i. Off the flag, only fallsLast. */
 export function setFall(i: number, index: number, y: number, t0: number): void {
-  Object.assign(fallsLast[i], { index, y, t0 });
+  const L = fallsLast[i];
+  L.index = index;
+  L.y = y;
+  L.t0 = t0;
   fallsUniforms?.uFalls.value[i].set(index, y, t0, FALLS.speed);
 }
 

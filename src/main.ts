@@ -608,8 +608,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const flashPos = new THREE.Vector3();
   /** Where a flung blob comes down: the roof it hits, else the ground (seen from fromY: never on a deck over it). */
   const landingY = (x: number, z: number, fromY: number) => city.roofAt(x, z, fromY) ?? city.groundAt(x, z);
-  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. */
-  const paintTrees = (b: Blast, freshOnly = false) => {
+  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. None
+   *  nearer its middle than `inner` m (&boom's ring: its bare hole, where older paint under a tree raised it) */
+  const paintTrees = (b: Blast, freshOnly = false, inner = 0) => {
     const ts = manifest.tileSize;
     const { x, z, r } = b.spec;
     const reach = r * b.spec.reach;
@@ -624,7 +625,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
           const d = Math.hypot(t.x - x, t.z - z);
-          if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
+          if (d > reach || d < inner || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) {
             if (wide) treesDue.push({ key, tf, i, x: t.x, z: t.z, at: b.t + arrival(d, r), jump: b.jump });
@@ -790,11 +791,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     for (const dot of b.dots) {
       if (!dot.blob) continue;
       const a = Math.atan2(dot.z - b.spec.z, dot.x - b.spec.x);
-      flingFrom.set(b.spec.x + Math.cos(a) * inner, b.pos.y + 1 + Math.random() * 2, b.spec.z + Math.sin(a) * inner);
+      // (from what stands at the band's inner edge there, a roof or the ground: from the middle's ground they started underground on a slope, or in a tower)
+      const sx = b.spec.x + Math.cos(a) * inner, sz = b.spec.z + Math.sin(a) * inner;
+      flingFrom.set(sx, landingY(sx, sz, Infinity) + 1 + Math.random() * 2, sz);
       flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y + 40) + 0.15, dot.z);
       particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
     }
-    paintTrees(b);
+    // (none in its hole, more than its inner edge's warp in: buildings wholly there are left out, Splat.ts)
+    paintTrees(b, false, inner - 2.2);
     audio.splatImpact(Math.max(1.4, b.strength));
     audio.cometBoom(1.2, false, false);
     audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);

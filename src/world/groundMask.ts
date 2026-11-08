@@ -1,4 +1,5 @@
-import { bandHue, LAYOUT_BANDS, SHAPE_LUT, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { bandHue, LAYOUT_BANDS, LAYOUT_RING, SHAPE_LUT, type BlastDot, type BlastSpec } from '../game/blastLayout';
+import { lookOf } from '../render/factionLook';
 import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 
 // A ground mask's texels and their code, and a blast's settled paint at a point: what GroundPaint.ts draws on a tile, and GeoPaint.ts into the Moon's pictures by place.
@@ -149,12 +150,17 @@ export function decodeMask(str: string, d: Uint8Array): boolean {
 export function splatAt(p: Prepared, x: number, z: number, out: { c: number; hue: number }): boolean {
   const s = p.spec, R = p.max + 3, wx = x - s.x, wz = z - s.z, d2 = wx * wx + wz * wz;
   if (d2 > R * R) return false;
-  const dist = Math.sqrt(d2), a = Math.atan2(wz, wx), lut = p.lut, warp = p.warp;
+  const dist = Math.sqrt(d2), banded = s.layout === LAYOUT_RING;
+  // (&boom's ring, as rows() has it: its hole bare, its inner edge as soft and warped as its outer; the Moon keeps it by place, and without these its hole
+  // filled in with the pinwheel when the place came back: the review's M70)
+  if (banded && dist < s.ring - 3.5) return false;
+  const a = Math.atan2(wz, wx), lut = p.lut, warp = p.warp;
   let f = a * (SHAPE_LUT / (Math.PI * 2));
   if (f < 0) f += SHAPE_LUT;
   const k = f | 0, t = f - k, k1 = k + 1 < SHAPE_LUT ? k + 1 : 0;
   const e = lut[k] * (1 - t) + lut[k1] * t;
-  const c = (e - dist) / 2.6 + 0.5;
+  let c = (e - dist) / 2.6 + 0.5;
+  if (banded) c = Math.min(c, (dist - s.ring - warp[k] * 2.2) / 2.6 + 0.5);
   if (c <= 0.02) return false;
   let hue = s.hue;
   if (s.layout === LAYOUT_BANDS) hue = bandHue(s, x, z);
@@ -165,6 +171,9 @@ export function splatAt(p: Prepared, x: number, z: number, out: { c: number; hue
     const S = s.sectors, sector = Math.floor(u * S + 0.5) % S, ring = Math.floor((dist + wd) / Math.max(1, s.ring));
     const off = s.layout === 1 ? ring : s.layout === 2 ? sector + ring : sector;
     hue = (((s.hue + off) % 6) + 6) % 6;
+    // (and in a faction with its strongest rows named, only those slots)
+    const strong = banded ? lookOf(s.faction ?? FACTION_RAINBOW).ring?.ground : undefined;
+    if (strong) hue = strong[hue % strong.length];
   }
   out.c = c > 1 ? 1 : c;
   out.hue = hue;
