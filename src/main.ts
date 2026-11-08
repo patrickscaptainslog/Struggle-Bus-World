@@ -2481,7 +2481,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       lobState: () => ({ plan: aimer.lobPlan ? { ...aimer.lobPlan, target: aimer.lobPlan.target ? aimer.lobPlan.target.index : null } : null, body: lob.body(flight, simTime), pitch: flight.pitch, ring: { ...lobRing }, stats: { ...lob.stats }, lobs: cometFx.stats.lobs }),
       cometState: () => ({ plan: aimer.planned ? { ...aimer.planned, target: aimer.planned.target ? aimer.planned.target.index : null } : null, gear: controls.turbo.name, speed: flight.ground, drive: flight.turbo.speed, ...cometFx.stats }),
       hoseState: () => ({ pouring: hose.pouring, tank: flight.fullness, stats: { ...hose.stats }, hold: holds.current ? { ...holds.current, point: holds.current.point.toArray() } : null, holds: { ...holds.stats } }),
-      forceReady: () => (flight.fullness = 1),
+      // (a breath under way ends at its refund, which empties the belly: forced full in one, it ends full too, so a probe needn't wait for it. The review of
+      // the picks, 6: controls.mjs's Bomb rows lost that race)
+      forceReady: () => ((flight.fullness = 1), flight.barfT >= 0 && (flight.refund = 1)),
       /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
       barfAtLatLon: (lat: number, lon: number, drop?: number) => {
         const [x, z] = latLonToLocal(lat, lon, manifest.origin);
