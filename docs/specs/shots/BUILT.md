@@ -920,6 +920,56 @@ Our review of `6a22c5a..0cc8491` (a Node probe, `sb-checks/shots/extras/review-x
 
 **Not checked**: an A15 or the producer's phone; a pull, a push or a carve after the flick by a real thumb (Node's rows, and the tower's still with no stick); a pull let go mid-stand on the page (how the hoop's fall back to the bus looks); the lift to a tower's hoop on a phone (how 220 m in a second feels); the earlier section's other open items.
 
+## The extras and feat/shots together
+
+`feat/shots` (`9646833`: steps 1 to 4, Curb, the Lob with its roofs pass, the second account's review fixes) merged `feat/extras` (`0359bae`: Sonic Boom behind `&boom`, the Waterfall behind `&falls`, their second pass and two reviews' fixes) at `b3b7a28`. Both start from `fd6d413`. The producer's one link now has every shot; without `&boom` or `&falls` nothing of the extras shows.
+
+**What conflicted, and how each was kept** (six files; every hunk was the two sides adding at one spot, and each keeps both, feat/shots' first):
+- `src/audio/AudioEngine.ts`: the imports (`lobSfx`'s and `fallsSfx`'s) and the methods (`lobLaunch` and `lobWhump`, then `fallsTrickle`, `fallsPlop` and `fallsSlap`).
+- `src/main.ts`: the map's slide (the Lob's, its ring and the Lobs up moved, then `boom.slide`); the frame (`boom.update` and `falls.update` before `moonPaint.update`, which keeps the Lob's landing distance as its `far`).
+- `tools/controls.mjs`: the header's modes and the modes' blocks, lob's then boom's and falls' (each its own block).
+- `tools/warmcheck.mjs`: the header's flags, their blocks after the Bomb's, and the report's `lob`, `boom` and `falls`.
+- HOOKS.md: "The Lob", then "Sonic Boom and the Waterfall (the extras)". BUILT.md: "The Lob and feat/shots together", then the extras' five sections.
+
+**Read where it merged clean, where the two meet:**
+- `CameraRig`: the Lob's `skyLiftRate` (its view tip) is in `update`, the Boom's `jolt` in `applyKick`: apart. The tip reads the camera as last drawn, so for the jolt's 0.45 s it follows a view up to 0.03 rad off, eased at its `tipRate`. Left as it is.
+- `Flight`: feat/shots' `rechargeSeconds` in `tryBarf`; the extras' `noseTo` and `hoopFloor` in `step`. The Lob's dip is main.ts's, on `bus.root` alone, which the hoop never reads.
+- `PixelPipeline`: the Lob's dotted ring (`uBombRing` under 0, `uLobY`) and the Boom's crack (`uCrack`, its sky and city rings, only with `&boom`) share no uniform. Under the crack's front the ring's dots go up its steps like everything else there.
+- `CraterPaint`: the Lob's `onto()` and `far`, the extras' ring hole and strokes: apart.
+- main.ts's impact: the extras' boom return and `falls.impact` come after `life.blast` and `lastBlast`, as on feat/extras. A Lob that strikes a tower 40 m up or more runs with paint, as any tap does.
+- `Controls` and `Coach`: the Lob's hint and Coach's bits, the extras' `onRung` and `crack`. `TAUGHT` has aim 64, curb 128, the Bomb 256 and the Lob 1024, with 512 left for Streak's lock; the extras add none.
+
+**The proof** (the laptop's `sb-checks/shots/final/`; `gates.txt` there, its rows run one at a time by `gate.sh`):
+- `tsc` is clean.
+- *The three-way rule*, the Lob merge's `three-way.py` pointed at these trees. It covers every Node sim, probe and check of both tables: the Lob merge's 29 with `s_hold --review` and `--late`, hooks-doc, `s_lob --street`, lob-check's three, `s_boom` and `s_falls` added. B0 is fd6d413's (the extras' base run, with tsc from the Lob merge's ref/C and hooks-doc run on fd6d413's two files); A and C were run for this, then M. Byte for byte, with what varies run to run masked: the Lob merge's masks, plus those found from two runs of A and three of C (`s_falls`' random drops and pool hue, `s_boom`'s frame times, `gOut` and the Moon ring's counts, `s_lob`'s aim timings). `s_boom`'s re-flights (a row over 8 ms a frame is flown again, so a run can have a row more) are taken out, and wall-clock rows are read apart.
+  - On M it printed "three-way: 103 of 105 outputs pass, 2 FAIL": 72 unchanged by all four, 21 A's own (`s_lob` plain and `--street`, lob-check's three, `s_shots --lob`, `s_hold --review` and `--late`), 6 C's own (`s_boom`, `s_falls`) and 4 A's change alone (`s_shots`' kind 'lob' rows, hooks-doc). No output was changed by both, and none of C's outside its own two sims: with no link the extras change nothing the other sims see.
+  - The 2 are `owner-check.mjs`'s row "the Moon's pictures ... Inferno by the journal": owners `[1,2,3,4,null]` where it wants 5. It flakes under load. Over twelve runs on M it failed 5, over ten on C (feat/extras alone) 1, and over B0's, A's and C's refs none. `GeoPaint.work` paints against `performance.now()` and the check gives it a fixed number of ticks. It's the second account's check and wasn't touched.
+- Run on their own: `s_hold --review` 80 of 80, `s_lob` 1,213 of 1,213 (misfire 21, size 194 and tower 5 of theirs), `s_hold --late` 4 of 4, `s_lob --street` 24 of 24, `s_shots --lob` 90 of 90, `s_falls` 201 of 201.
+  - `s_boom`: 199 of 199 when flown again. Its first run failed only "no frame over 8 ms", beside the GPU checks: 11.24 ms, then 167.12 ms when flown again.
+- *`vite build` and `iosfloor`:* main-ByICbvvv.js, 1,038 kB; "iOS 15.0 parses every chunk".
+- *The `--det` views*, sky off and golden hour: "det3: 8 of 8 views pass" each. The builds of B0 (`sb-build-extras-base`), A (`sb-build-fixes`) and C (`sb-build-extras`) were each checked to be their commit's: no src commit after the build, and views equal pixel for pixel to that commit's older runs. Seven views are alike in all four. `high` is the Lob's latch (351 px off B0), so M's equals A's and the Lob's R reference.
+
+*On this laptop's GPU* (the merge's build):
+- `warmcheck` plain, `--comet`, `--crew --bomb`, `--crew --lob`, `--curb` and `--crew --boom --falls`: 38 programs at ready (`--curb` 41), 0 after, each passed. The Bomb fired 20 of 20, the Lob 10 of 10, and Sonic Boom rang 5 of 5 with the Waterfall pouring 5 of 5.
+- `controls.mjs`:
+  - `lob` (evening): 27 ok.
+  - The noon row: own draws 2 at Cruise and Express, the frame 120 and 192.
+  - misfire 7 of 7, 6 of 6 at 30 fps and 6 of 6 at 60 fps.
+  - `bomb`: 38 ok. `zone curb`: 11 of 11 and 15 of 15. `boom`: 64 ok. `falls`: 15 ok. No FAIL in any.
+- `gardens/budget.mjs`, plain and `--bomb`: both pass. The Bomb's hint: due 2.4 s after the third splat.
+- *The two meeting live* (`meet` row, a link with `&boom&falls`), at Cruise and at Express. It was flown from the roofs over the Western Addition:
+  - A real pull, lift and tap threw a Lob (48 degrees up, 1,321 m and 1,580 m out).
+  - 0.3 s on, with the Lob still up and its ring showing, the bus was put at Turbo 2's 720 m/s by QA, the one shortcut.
+  - A real flick into Turbo 3 cracked once while the Lob was up. Its hoop threaded and rang, and the Lob landed with its pillar.
+  - The frame's worst was 93 and 101 draws, 0.57 M and 0.54 M triangles, and 5,470 and 3,922 particles. 0 programs were made after the warm-up. "meet checks: all 12 passed".
+  - The first three runs used `tools/flick.mjs`, whose events are stamped 2 s back. That flick came before the Lob's tap on the events' own clock, and in 3 of their 6 rows Input took it as no flick (no rung, no LOCKED). With the flick stamped 0.2 s back, after the tap as a thumb's would be, both rows took it the first time. This is the harness's, not the game's; `flick.mjs` is unchanged.
+
+*Not checked:*
+- the two on a real thumb, or the jolt beside the Lob's tip by eye;
+- a Lob and a Boom together on the Moon;
+- the sound of the two together;
+- anything on an A15 or the producer's phone.
+
 ## The gardens' budget (feat/gardens)
 
 The shots paint more and faster, so the rooftop gardens have a triangle budget first. Before it, 1,146 level-3 roofs in a Recess match drew 4.04 M triangles of gardens alone.
