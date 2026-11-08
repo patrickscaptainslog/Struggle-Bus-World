@@ -466,6 +466,139 @@ export const config = {
     rattle: 0.32,
   },
 
+  /** School Zone, the rung under Cruise (docs/specs/shots/SHOTS.md, "School Zone: lingering"; GEARS.md): a hover that bobs like a blimp. */
+  zone: {
+    /** Let go, the speed is ~95 % gone in this long (s): Cruise's 30 m/s eases to a hover. */
+    settle: 1.5,
+    /** The stick up noses down and drifts forward at up to this (m/s), sinking at up to `sink` (m/s) at the full push. */
+    drift: 8,
+    sink: 5,
+    /** The stick down climbs at up to this (m/s): here only, a gentler climb than the ruled 40 (SHOTS.md decision 15). */
+    climb: 15,
+    /** The stick sideways turns on the spot: a full turn in this long at the full stick (s). */
+    turn: 5,
+    /** A roof ahead that would lift the bus more than this (m) is a wall, not a step: the drift stops `wallGap` (m, the bus's middle to it)
+     *  short of it, easing in over about `wallEase` s, and the floor's look-ahead leaves it out. A pull climbs it. */
+    wall: 12,
+    wallGap: 10,
+    wallEase: 1.2,
+    /** The blimp's bob: its height (m) and rate (Hz), and its slow pitch and roll (deg). */
+    bobAmp: 0.9,
+    bobHz: 0.2,
+    swayPitch: 2,
+    swayRoll: 3,
+    /** The lean on the stick: nose down at the full push, up at the full pull (deg). */
+    leanDown: 14,
+    leanUp: 9,
+    /** The camera comes in this share of its distance (0..1), easing at this rate (1/s). */
+    camIn: 0.3,
+    camRate: 1.6,
+    /** Paint balloons out of the roof hatch while it hovers: at most this many, one every `every` s once the bus is under `still` m/s. */
+    balloons: 6,
+    every: 1.1,
+    still: 2.5,
+  },
+
+  /** Curb, the rung under School Zone (docs/specs/shots/SHOTS.md, "Curb: cruising beside the cars"; CURB.md): the wheels on the street beside
+   *  the cars, on life's lane (src/life/Curb.ts), with no steering. ?life only: with no life there's no Curb. */
+  curb: {
+    /** The band: low over a road at School Zone, Cruise or Express, at most `over` m over it (skimming, the floor over a street is 7 to 28 m, by
+     *  the trees and roofs beside it and the belly), the road going on `ahead` m (a street crossed square isn't one), the push past the dead band
+     *  at least `push`, held `hold` s (a crossing's cell may break it for `grace` s) lands. While it's held the floor comes down to `dip` m over
+     *  the road: the dive to the street. The first time the bus is in the band `hintAfter` s, the hint. */
+    over: 30,
+    ahead: 15,
+    dip: 5,
+    push: 0.25,
+    hold: 0.5,
+    grace: 0.15,
+    hintAfter: 0.3,
+    /** How long the hint and FIND A STREET stay up (s). */
+    hintFor: 3.2,
+    noneFor: 1.8,
+    /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's call on the phone. */
+    diveOnly: false,
+    /** In School Zone a flick down lands from at most this high over the ground (m); the lane is the worker's to find, within 80 m. From higher it
+     *  does nothing, as at any height before Curb (at 150 m the arc came down at 115 m/s: the review of feat/curb, M4). */
+    flickOver: 60,
+    /** No answer from life in this long is no street (s). */
+    askFor: 1.2,
+    /** The bus's middle over the lane (m): its tyres on the asphalt (BusModel's at its 1.6 scale stand 2.53 m under its middle; StreetCam's 4 m floats them). */
+    ride: 2.55,
+    /** The arc down onto the lane: T = clamp(arcBase + |offset| / arcPer, arcBase, arcMax) s, and never so short that the arc's own ease comes
+     *  faster than `arcTop` m/s (its peak is 1.5 |offset| / T): from higher up it takes longer, it doesn't come faster. */
+    arcBase: 0.45,
+    arcPer: 45,
+    arcMax: 1.8,
+    arcTop: 60,
+    /** The lane's end: life's lane stood still (under `stallSpeed` m/s) for `stallFor` s, a dead end's kerb or its last point, takes the wheels up. */
+    stallSpeed: 0.5,
+    stallFor: 1,
+    /** A deck's roadway 3 to `headroom` m over the lane (the Bay Bridge's lower deck, 5.5 m under its upper one) leaves the bus no room: no street
+     *  there, and rolling on, the wheels go up `coverAhead` m before it. */
+    headroom: 9,
+    coverAhead: 20,
+    /** The heading follows the lane's 4 m steps on a spring this fast (1/s), banking into the turns at this much per (rad/s * m/s), at most `bankMax` deg. */
+    turnRate: 6,
+    bankPer: 0.02,
+    bankMax: 9,
+    /** Off: the stick pulled past `pullOff` for `pullFor` s (a flick's stroke is shorter), or a flick up. Leaving lifts vy by `leaveVy` m/s and lands
+     *  nothing for `quiet` s; a bounce (no street) by `bounceVy`, `bounceQuiet` s. */
+    pullOff: 0.5,
+    pullFor: 0.25,
+    leaveVy: 3,
+    quiet: 1,
+    bounceVy: 5,
+    bounceQuiet: 2,
+    /** The look past `lookDeg` held `lookFor` s asks for the next junction its way, square (life turns only past 60 degrees from straight on),
+     *  and keeps asking `turnHold` s after it lets go. On the street the view turns at most `lookMax` deg either way. */
+    lookDeg: 20,
+    lookFor: 0.25,
+    turnHold: 1,
+    lookMax: 30,
+    /** The kerb chase: back, eye height over the road, how far ahead it looks and at what height (m), its width (deg), and `camSide` m toward the
+     *  traffic's side, so the bus doesn't stand on the road ahead. GEARS.md's chase lens, raised from 7.5 m and looking 40 m on, not 90, 4 degrees
+     *  wider (the outside look of feat/curb: its horizon stood mid-screen, half the phone sky). &curblens=wide the ride-along. In at `camIn`, out at
+     *  `camOut` (1/s); never under the road or the deck the bus is on + `camFloor` m, nor within `roofGap` m of a deck over it. Anything solid
+     *  between the bus and the lens (a front a look swings it into, the hill) pulls it in short of it at once, to no nearer than `armMin` m, and it
+     *  goes out again at `armOut` (1/s); first, a narrow street takes back as much of a look's swing as would bring it nearer than `armKeep` m. */
+    camBack: 34,
+    camEye: 11,
+    camAhead: 40,
+    camAt: 3.5,
+    camFov: 38,
+    camSide: 1.25,
+    wideBack: 16,
+    wideEye: 3.2,
+    wideAhead: 60,
+    wideAt: 3,
+    wideFov: 58,
+    camIn: 1.2,
+    camOut: 1.2,
+    camFloor: 2.5,
+    roofGap: 1,
+    armMin: 8,
+    armKeep: 20,
+    armOut: 2,
+    /** The lane paints itself: a dab every `dabEvery` m at the rear axle (so it comes out from under the bus), `dabR` m round, in rainbow rings
+     *  `dabRing` m wide round the landing. */
+    dabEvery: 3,
+    dabR: 2.2,
+    dabRing: 14,
+    /** The drive-by: the look past `sideDeg` picks its side, kept `sideHold` s after it lets go (one thumb can't hold a look and tap), else the
+     *  kerb's; the front `front` m that way and `frontAhead` m on (in the lens's view) within `frontR` m glints, and the breath there is `byR` m
+     *  round, on that side of the lane only, its flung blobs too. A street sign it raises stands no smaller than `signMin` of its size from the air. */
+    sideDeg: 25,
+    sideHold: 1,
+    front: 12,
+    frontAhead: 16,
+    frontR: 16,
+    byR: 24,
+    signMin: 0.4,
+    /** Two toots passing a car, at most every `tootEvery` s. */
+    tootEvery: 2,
+  },
+
   /** What height changes (src/game/Ascent.ts; docs/specs/flight/ASCENT.md for how it runs on to the Moon). */
   ascent: {
     /** From this height above the ground (m) the map's edge gives way: the bus may go this many metres further out per metre of height, up to reachMax (m)
@@ -529,6 +662,8 @@ export const config = {
     aimLatch: 0.5,
     /** ?life: how far along the nose the aim looks for a mover past the aim's own ray (m): a plane flown alongside or ahead */
     moverReach: 2500,
+    /** A mover this far over the floor under it (m) or nearer is on it, a car, a ferry, a person: a breath at it paints the block round it. Higher, a plane: its own hit */
+    moverFloor: 40,
     aimLatchCone: 0.2,
     /** Aim glint: light lift on the target (0.125 = one ramp step), the sweep's extra lift, sweeps per second. */
     glintLift: 0.13,
@@ -547,17 +682,20 @@ export const config = {
     breathSteerEase: 0.2,
     /** Authored rear-up while breathing (rad, nose up), its rise and its settle. */
     rearUp: 0.2,
-    /** Blast radius around the impact with no drop (m): every building inside blooms. */
-    blastRadius: 60,
+    /** Blast radius around the impact with no drop (m): every building inside blooms. 85 since the shots' rework (docs/specs/shots/SHOTS.md, "The
+     *  shot, reworked", approved 2026-11-06: "The splat grows from 60 m to 85 m"), from 60: the block, not one car. Each tap still climbs one level. */
+    blastRadius: 85,
     /** Radius multiplier at 300 m of drop (bus height above the impact); grows linearly with drop. */
     dropGain300: 2,
     /** Drop beyond this adds nothing (m). */
     dropMax: 600,
     /** Launch speed of the shockwave racing out of the impact (m/s); buildings bloom as it reaches them. */
     waveSpeed: 300,
-    /** Max buildings bloomed per blast at the base radius (scales with the radius, up to maxBuildingsCap). */
-    maxBuildings: 40,
-    maxBuildingsCap: 96,
+    /** Max buildings bloomed per blast at the base radius, and it grows with the blast's area (r squared, as the buildings in reach do), up to
+     *  maxBuildingsCap from up high. High enough that a tap from the rooftops paints every building in its 85 m (SHOTS.md: "It paints every car, person,
+     *  picnic and boat inside it"): it was 40 at 60 m, growing with r alone, which left grey houses inside a dense block's circle. */
+    maxBuildings: 140,
+    maxBuildingsCap: 240,
     /** A super's blast (mega, the firehose's closer): its cap grows with the blast's area, up to this: the buildings in
      *  reach grow with r squared, and the street grid under them is painted to the full radius either way. */
     megaBuildingsCap: 480,
@@ -656,6 +794,114 @@ export const config = {
     firehoseFinaleHitStop: 8,
     /** After a firehose the bus is spent (smoke, wheeze, dim belly, limping speed) for this long (s). */
     superSpent: 4,
+  },
+
+  /** The Comet (src/game/Comet.ts, docs/specs/shots/SHOTS.md "The modes", BUILT.md step 3): a tap while a gear drives the bus at `speed` or more flies ahead on
+   *  an arc through the sky and lands beside where the bus will be `pass` s after the impact, in view. Its looks are src/fx/CometFx.ts's. */
+  comet: {
+    /** A gear driving the bus at this or more (m/s): Nonstop engaged, Jet, Turbo 1-3. */
+    speed: 225,
+    /** Its flight after the inhale (s), and its arc's top over its chord (share of the chord), lowered to `arcMin` where its top would leave the frame: by the
+     *  lens moved on to its flight's middle, over `apexTop` of the frame (NDC, 1 its top edge). */
+    flight: 0.6,
+    arc: 0.17,
+    arcMin: 0.06,
+    apexTop: 0.8,
+    /** It lands this far off the bus's line (m), the side swapping with each Comet, on a building within `sidePick` of there (or of the other side's, or
+     *  of the line, where there's none; with none at all, on the ground): inside the splat and the drops' reach, never a beam out of the bus. */
+    side: 34,
+    sidePick: 12,
+    /** The ground standing more than this over the lens's line to the landing hides it (m): it lands on the ridge. */
+    hide: 4,
+    /** It lands where the bus will be this long after the impact (s)... */
+    pass: 1.5,
+    /** ...at most this far from the tap (m): config.city.loadRadiusHigh, how far the city loads. */
+    reach: 1900,
+    /** By this frame's lens moved on by the bus's travel to the impact it lands at least this share of the height above the bus; where it doesn't it
+     *  moves out along its line `outStep` m at a time, and where it never does by `reach` the tap is the classic shot. */
+    above: 0.05,
+    outStep: 20,
+    /** A wall standing into the arc less than this many s of the bus's travel ahead of it at the impact is lobbed over: the arc tops out higher, up to
+     *  `arcMax` of the chord. Farther, it takes the Comet on its face. */
+    wallAhead: 0.5,
+    arcMax: 0.3,
+    /** It lands in the middle of a stretch of its way this many s of the bus's travel either side, counted along the bus's travel and held for the stretch
+     *  (s): what glints holds while the bus crosses it, steering or not, so it doesn't strobe at Turbo 3, and a tap lands the same at 30 and 60 fps. */
+    hold: 0.12,
+    /** Its landing's tile isn't in at the tap (the edge of what's loaded): its blast is planned this long before the impact instead (s). */
+    late: 0.2,
+    // ---- its looks (src/fx/CometFx.ts)
+    /** The full show plays on the first Comet in this long (s), the lighter one on the rest. */
+    showEvery: 20,
+    /** The pillar of paint light: height (m), up in `rise` s, gone over `fade` s; the lighter one's height and fade. Its radius at the foot (m), and never
+     *  thinner than `pillarPx` game pixels on the screen. Its wall dithers away nearer the lens than `pillarWhole` (m), gone by `pillarNear`, so the bus
+     *  flying through it is never lost. */
+    pillar: 200,
+    pillarLight: 120,
+    rise: 0.12,
+    fade: 2.5,
+    fadeLight: 1.2,
+    pillarRadius: 20,
+    pillarPx: 2.5,
+    pillarNear: 35,
+    pillarWhole: 110,
+    /** The impact: a white-hot core over this radius at the landing (m, its share of the screen as far off as it is), held `flashFrames` rendered frames
+     *  and never reaching the bus on the screen; a ring of `ring` motes of paint racing out over the roofs to the blast's edge (the lighter show half). */
+    flashCore: 34,
+    flashFrames: 3,
+    ring: 64,
+    /** Into the water: a splash of `splash` motes thrown up to about `splashUp` m and a soft boom (the lighter show half); it doesn't use up the full show. */
+    splash: 220,
+    splashUp: 70,
+    /** Motes in the streak (the lighter one half of them), and in the crown. */
+    motes: 400,
+    crown: 420,
+    /** The bus within this of the pillar's axis (m), under its top: this many drops splat on the lens, run and fade in `dropLife` s (the full show). */
+    lensReach: 50,
+    dropsMin: 8,
+    dropsMax: 14,
+    dropLife: 0.5,
+    /** The boom comes when its sound would reach the bus (m/s, with the bus flying into it); the camera's kick then (m), the lighter one's. */
+    sound: 343,
+    kick: 3.2,
+    kickLight: 1.2,
+  },
+
+  /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */
+  bomb: {
+    /** The tiers (s from the charge's start, the still hold on the bus with a full belly): each shows inputTune.aimLagMs later, on a frame. */
+    two: 0.6,
+    three: 1.2,
+    /** A bank of 1 (ten caught drops) brings the tiers this much sooner (s), never before inputTune.aimHoldMs. */
+    bankGain: 1.2,
+    /** The stages each building climbs (never past 3), its circle x the tap's (blastRadiusFor(drop)), the breath's jet x, the hit-stop's frames, the belly's refill (s). */
+    jump2: 2,
+    jump3: 3,
+    radius2: 1.4,
+    radius3: 1.8,
+    width2: 1.5,
+    width3: 2.4,
+    hitStop2: 6,
+    hitStop3: 9,
+    recharge2: 3,
+    recharge3: 4.5,
+    /** The tell: the bus's swell at II and III (x 1 +, its look alone). */
+    swell2: 0.06,
+    swell3: 0.12,
+    /** MEGA's built look while it charges (SuperFx, in the faction's spray): its motes a second at III, a fifth of them before II and half at II (MEGA's floor);
+     *  and at III alone MEGA's halo orbiting the bus and its sparks, a second */
+    motes: 420,
+    halo: 110,
+    sparks: 70,
+    /** The stages: each its own write and pop this long apart (s) from the wave's arrival, the later ones written in bands this long ahead of their pops. */
+    stageGap: 0.4,
+    stageBand: 0.1,
+    /** The most buildings a Bomb paints: blastCap's, maxBuildings x (r / blastRadius)^2 up to this (a tap's stays maxBuildingsCap). At 900 a Bomb III from 600 m
+     *  (459 m) left 81-1,091 buildings grey inside its painted ground at 16 places, and 61-65 from 300 m over Excelsior and Bernal: San Francisco's densest
+     *  holds about 2,000 in 459 m */
+    cap: 2400,
+    /** A circle wider than this (m) has its wave reaching the rim as its ground's deadline, not its impact (groundDeadline). */
+    rimOver: 160,
   },
 
   facade: {

@@ -34,6 +34,9 @@ export interface HudLayout {
   swap: boolean;
   settings: Control;
   mega: Control;
+  /** the testers' faction crest (?crew, game/crew.ts): the top left, 44 px, and its picker's five swatches in a row under it. Off the screen without crew */
+  crew: Control;
+  swatches: Rect[];
   readout: Rect;
   /** the one slot for a toast and LOCKED: centered */
   toast: Rect;
@@ -53,7 +56,7 @@ export function isCompact(w: number, h: number): boolean {
   return Math.min(w, h) < 360;
 }
 
-export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, compact: boolean): HudLayout {
+export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, compact: boolean, crewOn = false): HudLayout {
   const safe = (inset: number, px: number) => Math.max(px, inset + Math.round(px / 2));
   const land = w > h;
   const margin = compact ? 8 : 12;
@@ -72,8 +75,15 @@ export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, c
   const seam = settingsX - (land && insets.right > 0 ? 4 : 8);
   const settings = { v: { x: settingsX, y: T, w: 40, h: 40 }, hit: clip(seam, T - 4, settingsX + 50, T + 44) };
 
-  // the gear readout: the top left corner, across from settings
-  const readout = { x: L, y: T + 2, w: 200, h: 48 };
+  // the faction crest (?crew): the top left corner, clear of the canvas's edge band and under the notch, the bus's lane far below it; its picker opens
+  // as a row under it, the crest's own size each
+  const CR = 44, gap = 6;
+  const crewX = Math.max(L, EDGE_BAND + 2);
+  const crew = crewOn ? { v: { x: crewX, y: T, w: CR, h: CR }, hit: clip(crewX - 2, T - 4, crewX + CR + 4, T + CR + 4) } : { v: { x: -999, y: -999, w: 0, h: 0 }, hit: { x: -999, y: -999, w: 0, h: 0 } };
+  const swatches = crewOn ? [0, 1, 2, 3, 4].map((k) => ({ x: crewX + k * (CR + gap), y: T + CR + gap + 4, w: CR, h: CR })) : [];
+
+  // the gear readout: the top left corner, across from settings (beside the crest when it's there)
+  const readout = { x: crewOn ? crewX + CR + 8 : L, y: T + 2, w: 200, h: 48 };
   const toast = { x: 0, y: T + 54, w, h: 44 };
 
   // MEGA: the middle of the right side, the top of what a thumb can hold for 10 s
@@ -89,7 +99,7 @@ export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, c
   // the cue: low, centered, clear of the thumbs' rest
   const cue = { x: Math.floor((w - 96) / 2), y: Math.round(0.64 * h), w: 96, h: 64 };
 
-  const out: HudLayout = { w, h, compact, swap, settings, mega: { v: megaV, hit: megaHit }, readout, toast, meterCharge, meterCool, cue };
+  const out: HudLayout = { w, h, compact, swap, settings, mega: { v: megaV, hit: megaHit }, crew, swatches, readout, toast, meterCharge, meterCool, cue };
   if (swap) {
     // left-handed: everything a thumb works mirrors; the top row stays
     mirror(out.mega.v, w);

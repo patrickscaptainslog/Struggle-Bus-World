@@ -37,6 +37,14 @@ import type { Flight } from './Flight';
 //
 // TurboDrive writes Flight.turbo before each flight step; effects (src/fx/
 // Turbo.ts), the HUD and the audio read its state and events.
+//
+// Under Cruise: School Zone, one flick down from it, a hover that bobs like a blimp
+// (Flight's hover, docs/specs/shots/GEARS.md); a flick up is Cruise again. It's a
+// rung under the gears, not a gear: `below` says it, and the gears' numbers stand.
+// Curb, the rung under it, is the street (src/game/CurbFlight.ts, ?life only): a flick
+// down in School Zone asks to land (onCurb), and the rung moves only when the wheels
+// are on a lane (curbIn); a flick up from it is School Zone again. With no onCurb (no
+// life) a flick down in School Zone is nothing, as before.
 
 export const GEAR_NAMES = ['CRUISE', 'EXPRESS', 'NONSTOP', 'JET', 'STRATOS', 'RAINBOW WARP'] as const;
 /** The gears above Cruise (0), by name: their places in GEAR_NAMES. */
@@ -46,6 +54,10 @@ export const JET = 3;
 export const STRATOS = 4;
 export const WARP = 5;
 export const SPEED_OF_SOUND = 343;
+/** The rungs under Cruise (TurboDrive.below): School Zone, and Curb under it (?life). */
+export const SCHOOL_ZONE = 1;
+export const CURB = 2;
+export const BELOW_NAMES = ['', 'SCHOOL ZONE', 'CURB'] as const;
 /** A gear is at its height this far under it (m). */
 const AT_HEIGHT = 12;
 
@@ -68,6 +80,12 @@ export type TurboEvent =
   | 'back'
   /** reached the gear's height: it engages and the speed spools up */
   | 'engage'
+  /** down into School Zone, and up out of it to Cruise */
+  | 'zone'
+  | 'unzone'
+  /** the wheels on the street (Curb), and up off it to School Zone */
+  | 'curb'
+  | 'uncurb'
   /** passed Mach 1 */
   | 'boom';
 
@@ -98,6 +116,10 @@ export class TurboDrive {
   gear = 0;
   /** the selected gear has reached its height and drives the speed */
   engaged = false;
+  /** the rung under Cruise it's on (0: none, SCHOOL_ZONE, CURB): only ever with gear 0 and no turbo */
+  below = 0;
+  /** Curb (src/game/CurbFlight.ts): a flick down in School Zone asks it to land. Null (no life): that flick is nothing */
+  onCurb: (() => void) | null = null;
   /** 0..1, eased: lifting to the gear's height (1), spooling up, boosting */
   strain = 0;
   /** turbo speed on a log scale: 0 at the surge, 1 at Jet's speed, more beyond */
@@ -130,6 +152,7 @@ export class TurboDrive {
   /** gear: the one it comes down in, from the Moon's sky (MoonTrip.rung): Jet, unless it's under Jet. level: turbo's over Jet, from Earth's sky (?earth). */
   arrive(gear = JET, level = 0): void {
     this.gear = Math.max(0, Math.min(JET, gear));
+    this.below = 0;
     this.level = this.gear === JET ? Math.max(0, Math.min(this.levels, level)) : 0;
     this.engaged = true;
     this.machArmed = false;
@@ -169,9 +192,15 @@ export class TurboDrive {
     return this.rungsLeft <= 0;
   }
 
-  /** One rung, up or down: up the gears, then turbo's levels over the top gear; down, turbo first. False when nothing changed: LOCKED, or already Cruise. */
+  /** The rung's name on the readout. */
+  get name(): string {
+    return this.below > 0 ? BELOW_NAMES[this.below] : rungName(this.gear, this.level);
+  }
+
+  /** One rung, up or down: up the gears, then turbo's levels over the top gear; down, turbo first, then under Cruise. False when nothing changed: LOCKED, or already the bottom. */
   rung(dir: 1 | -1, f: Flight): boolean {
-    if (dir < 0) return this.boostDown() || this.shift(-1, f);
+    if (dir < 0) return this.boostDown() || this.shift(-1, f) || this.under(1);
+    if (this.below > 0) return this.under(-1);
     if (this.topped) {
       // (a world's own last gear isn't locked, it's the last)
       if (this.top || this.quietTop) return false;
@@ -180,6 +209,44 @@ export class TurboDrive {
       return false;
     }
     return this.gear < this.maxGear ? this.shift(1, f) : this.boostUp();
+  }
+
+  /** Down (1) a rung under Cruise, or up (-1) one. Down from School Zone asks Curb to land (the rung moves when it does: curbIn), and nothing is under Curb. */
+  private under(dir: 1 | -1): boolean {
+    const to = this.below + dir;
+    if (to === CURB && dir > 0) {
+      this.onCurb?.();
+      return false;
+    }
+    if (to < 0 || to > SCHOOL_ZONE) return false;
+    const was = this.below;
+    this.below = to;
+    this.shiftedAt = this.t;
+    this.lastDir = dir > 0 ? -1 : 1;
+    this.onEvent?.(dir > 0 ? 'zone' : was === CURB ? 'uncurb' : 'unzone', 0);
+    return true;
+  }
+
+  /** Curb: the wheels are on a lane (CurbFlight). From School Zone, Cruise or Express, it's the rung under School Zone: Express is let go, as a surge is. */
+  curbIn(): void {
+    this.gear = 0;
+    this.level = 0;
+    this.engaged = false;
+    this.braking = false;
+    this.gearFloor = -Infinity;
+    this.below = CURB;
+    this.shiftedAt = this.t;
+    this.lastDir = -1;
+    this.onEvent?.('curb', 0);
+  }
+
+  /** Curb: the wheels up without a flick (a pull, the lane's end): School Zone again, as a flick up would leave it. */
+  curbOut(): void {
+    if (this.below !== CURB) return;
+    this.below = SCHOOL_ZONE;
+    this.shiftedAt = this.t;
+    this.lastDir = 1;
+    this.onEvent?.('uncurb', 0);
   }
 
   private boostUp(): boolean {
@@ -208,6 +275,8 @@ export class TurboDrive {
   shift(dir: 1 | -1, f: Flight): boolean {
     if (dir > 0) {
       if (this.gear >= this.maxGear) return false;
+      // (a gear put in from outside the ladder leaves the hover: nothing drives the bus there)
+      this.below = 0;
       this.gear++;
       // (Express has no height to reach: it is in on the shift, and 'engage' stays the sound of a height reached)
       this.engaged = !this.lifts;
@@ -266,6 +335,7 @@ export class TurboDrive {
     // (what fades is the speed over the ground: a bus going straight up keeps its gear)
     if (v > F.surgeSpeed) v = Math.min(v, (F.surgeSpeed + (v - F.surgeSpeed) * this.edge) / Math.max(0.01, f.ground / Math.max(1, f.speed)));
     Tb.speed = v;
+    Tb.hover = this.below === SCHOOL_ZONE ? 1 : 0;
     this.boosting = lv > 0;
 
     // speed: spool up into a gear; brake smoothly out of one (until the classic flight can take over); either

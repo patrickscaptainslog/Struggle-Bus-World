@@ -38,10 +38,19 @@ export interface BlastSpec {
   oz?: number;
   /** the hitter's faction (game/factions.ts): what it paints is that faction's. None: Rainbow, as every blast before factions */
   faction?: number;
+  /** layout POOL (&falls): the tower's walls' distance from (x, z) by angle, SHAPE_LUT steps from +x toward +z (src/fx/Falls.ts's footLut): its edge keeps
+   *  to the walls' shape, `r` less the farthest of them past each, and it's revealed outward from them. Not saved: a pool redrawn from a save is a circle */
+  foot?: Float32Array;
 }
 
 /** BlastSpec.layout: hue by distance from (ox, oz), not from the impact, so many overlapping blasts paint one picture. */
 export const LAYOUT_BANDS = 3;
+/** BlastSpec.layout: &boom's ring (src/game/Boom.ts), the pinwheel's hues on a band from `ring` m out to its edge; the ground inside it is left bare. */
+export const LAYOUT_RING = 4;
+/** BlastSpec.layout: &falls's pool (src/fx/Falls.ts), its one hue revealed outward from the tower's walls (`foot`, or `ring` m without it) at POOL_SPREAD m/s,
+ *  not by the wave. */
+export const LAYOUT_POOL = 5;
+export const POOL_SPREAD = 6;
 
 /** A spatter dot beyond the edge (a flung blob lands on it, or it sits still). */
 export interface BlastDot {
@@ -92,6 +101,23 @@ export function blastRadiusFor(drop = 0): number {
   return S.blastRadius * (1 + ((S.dropGain300 - 1) * d) / 300);
 }
 
+/**
+ * The most buildings a blast of radius r paints: config.splat.maxBuildings at the tap's 85 m, growing with the circle's area (the buildings in reach do), up
+ * to `most`: a tap's maxBuildingsCap, a super's megaBuildingsCap, a Bomb's config.bomb.cap (900: a Bomb III from 300 m reaches 540-750 over dense housing).
+ */
+export function blastCap(r: number, most: number): number {
+  const rk = r / config.splat.blastRadius;
+  return Math.min(most, Math.max(1, Math.round(config.splat.maxBuildings * rk * rk)));
+}
+
+/**
+ * When a blast's ground must be drawn by, s after its impact: at the impact, or for a circle wider than `over` m (config.bomb.rimOver), when its wave reaches
+ * the rim, arrival(r, r) (0.9-1.6 s for a Bomb III): drawn in flight to the impact, a 306 m circle is a 24-37 ms frame. Streak's wide taps take it too.
+ */
+export function groundDeadline(r: number, over = config.bomb.rimOver): number {
+  return r > over ? arrival(r, r) : 0;
+}
+
 export function makeBlastSpec(x: number, z: number, r: number, hue: number, seed: number): BlastSpec {
   const S = config.splat;
   return {
@@ -112,6 +138,12 @@ export function arrival(d: number, r: number): number {
   const R = waveMax(r);
   const v0 = Math.max(1, config.splat.waveSpeed);
   return -(R / v0) * Math.log(1 - Math.min(Math.max(d, 0), 0.985 * R) / R);
+}
+
+/** How far the shockwave has gone t s after the impact (m): arrival's inverse. */
+export function waveAt(t: number, r: number): number {
+  const R = waveMax(r);
+  return t > 0 ? R * (1 - Math.exp((-Math.max(1, config.splat.waveSpeed) * t) / R)) : 0;
 }
 
 export const wrapHue = (h: number) => ((Math.round(h) % HUE_COUNT) + HUE_COUNT) % HUE_COUNT;

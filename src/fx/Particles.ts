@@ -33,6 +33,15 @@ import { registerTunables } from '../ui/tunables';
 // ribbon and lands exactly when that building blooms (travelTime + i *
 // cascadeStep). The primary stream lands travelTime after emission.
 
+/** The factions' rows (Ramp.MAGENTA to OBSIDIAN, 24-31) at the step their breath reads brightest without bleaching: Particles.palette's, SuperFx's. */
+export const FACTION_STEP: readonly number[] = [4, 4, 4, 3, 5, 3, 5, 6];
+
+/** A row of paint glowing over the world (the Bomb's ring, PixelPipeline): its step at rest and at its brightest, a faction's row a step under its FACTION_STEP and at it. */
+export function glowSteps(ramp: number): [number, number] {
+  const f = ramp - Ramp.MAGENTA;
+  return f >= 0 && f < FACTION_STEP.length ? [FACTION_STEP[f] - 1, FACTION_STEP[f]] : [5, 7];
+}
+
 /** Live-tunable look + feel numbers (read every spawn / frame). */
 export const fxTune = {
   // --- geyser ribbon
@@ -277,6 +286,11 @@ export interface GeyserLive {
   rate: number;
   /** width multiplier (replaces the geyser's own width while it pours) */
   width: number;
+  /**
+   * Set (the Hose): the stream lasts while this is true, however long past its duration (a pour paused on the sky comes back with its stream), with no thinning
+   * of its own (the caller thins it by `rate`), and ends on the frame it turns false. Unset: the duration is the stream's life.
+   */
+  open?: boolean;
 }
 
 interface Emitter {
@@ -361,7 +375,7 @@ flat out vec4 vC;  // sprite light dir xy, sun shadow, flags
 flat out vec4 vD;  // smear dir xy (sprite space), smear half length px, blob radius px
 
 // (the factions' rows, 24-31, at the step their breath reads brightest without bleaching: Particles.palette)
-const float FAC_STEP[8] = float[8](4.0, 4.0, 4.0, 3.0, 5.0, 3.0, 5.0, 6.0);
+const float FAC_STEP[8] = float[8](${FACTION_STEP.map((v) => v.toFixed(1)).join(', ')});
 float hueStep(float ramp) {
   int i = int(ramp + 0.5) - ${Ramp.RED};
   if (i < 0 || i > 5) return ramp > ${Ramp.MAGENTA - 0.5} && ramp < ${Ramp.OBSIDIAN + 0.5} ? FAC_STEP[int(ramp + 0.5) - ${Ramp.MAGENTA}] : 6.0;
@@ -904,7 +918,10 @@ export class Particles {
 
   private updateEmitter(e: Emitter, t1: number, dt: number) {
     const T = fxTune;
-    const end = e.start + e.duration;
+    const held = e.live ? e.live.open : undefined;
+    const end = held === true ? t1 + 1 : held === false ? Math.min(t1 - dt, e.start + e.duration) : e.start + e.duration;
+    // (held open, the gush stays the opening's and no tail comes: the caller thins it)
+    const xMax = held === undefined ? Infinity : e.taper;
     if (e.live) {
       e.targets[0].copy(e.live.target);
       e.travel = Math.max(0.05, e.live.travel);
@@ -943,7 +960,7 @@ export class Particles {
     }
     if (b > a) {
       const span = t1 - e.lastT;
-      const xm = ((a + b) * 0.5 - e.start) / e.duration;
+      const xm = Math.min(xMax, ((a + b) * 0.5 - e.start) / e.duration);
       // gush at the start, thinning dribble at the end
       const gush = xm < 0.12 ? 1 - xm / 0.12 : 0;
       const tail = xm > e.taper ? (xm - e.taper) / (1 - e.taper) : 0;
@@ -954,7 +971,7 @@ export class Particles {
       for (let j = 0; j < count; j++) {
         const tj = a + ((j + rnd()) / count) * (b - a);
         const f = span > 1e-6 ? (tj - e.lastT) / span : 1;
-        this.emitRibbon(e, tj, f, S, V, (tj - e.start) / e.duration);
+        this.emitRibbon(e, tj, f, S, V, Math.min(xMax, (tj - e.start) / e.duration));
       }
       // droplets flicked off the flanks
       nf = T.flickRate * (b - a) * (1 + gush - 0.5 * tail) * e.aimFlow * flow + e.carryFlick;
@@ -1425,6 +1442,37 @@ export class Particles {
     s[22] = 0;
     s[23] = 0;
     this.commit(this.time, life);
+    this.flush();
+  }
+
+  /** A homing shot's blob and trail (src/game/Hold.ts): one glowing mote at pos drifting at (vx, vy, vz), gone in `life` s, in a ramp (a faction's spray row, or GLOW_WHITE in its white window). */
+  comet(pos: THREE.Vector3, vx: number, vy: number, vz: number, ramp: number, size: number, life: number): void {
+    const s = this.s;
+    s[0] = pos.x;
+    s[1] = pos.y;
+    s[2] = pos.z;
+    s[3] = this.time;
+    s[4] = vx;
+    s[5] = vy;
+    s[6] = vz;
+    s[7] = Math.max(0.05, life);
+    s[8] = 2;
+    s[9] = 0;
+    s[10] = 0;
+    s[11] = 0;
+    s[12] = 1;
+    s[13] = 0;
+    s[14] = 0;
+    s[15] = K_TWINKLE;
+    s[16] = ramp;
+    s[17] = fxTune.sparkSize * size;
+    s[18] = rnd();
+    s[19] = 0;
+    s[20] = 0;
+    s[21] = 0;
+    s[22] = 0;
+    s[23] = 0;
+    this.commit(this.time, s[7]);
     this.flush();
   }
 

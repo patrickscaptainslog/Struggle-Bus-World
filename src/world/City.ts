@@ -316,7 +316,7 @@ function farTowerMesh(looks: Float32Array, n: number, material: THREE.Material):
 }
 
 /** Point-in-ring test for record k of a building tile. */
-function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
+export function ringContains(b: BuildingTile, k: number, x: number, z: number): boolean {
   const s = b.vertStart[k], e = b.vertStart[k + 1];
   let inside = false;
   for (let i = s, j = e - 1; i < e; j = i++) {
@@ -2374,6 +2374,19 @@ export class City {
     if (!list) this.hash.set(hk, (list = []));
     list.push(ref);
     this.areaCells(ref, true);
+  }
+
+  /** A bridge deck's roadway under (x, z), below fromY (m: a deck post's hard floor, less its 1.5 m), or -Infinity. Curb lands on a deck as on a street. */
+  roadwayAt(x: number, z: number, fromY: number): number {
+    const l = this.posts.size ? this.posts.get((Math.floor(x / 64) + 4096) * 8192 + (Math.floor(z / 64) + 4096)) : undefined;
+    let road = -Infinity;
+    if (l)
+      for (const p of l) {
+        if (p.hard === undefined) continue;
+        const r = p.hard - 1.5;
+        if (r < fromY && r > road && (x - p.x) * (x - p.x) + (z - p.z) * (z - p.z) < p.r * p.r) road = r;
+      }
+    return road;
   }
 
   /** Lowest underside of a deck overhead (above fromY) at a point, or Infinity: a climb stops under it. */

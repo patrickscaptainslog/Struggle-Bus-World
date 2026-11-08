@@ -10,6 +10,8 @@ import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
 import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
+import { GLSL_POGO, pogoed, pogoedOr, pogoUniforms } from './pogo';
+import { fallsed, fallsUniforms, GLSL_FALLS_F, GLSL_FALLS_V } from './falls';
 
 /**
  * ?lift: the Lift's uniforms (world/Lift.ts fills them), spread into every material that moves with a floating house. Null with the flag off, and
@@ -93,9 +95,9 @@ const R = (r: number) => r.toFixed(1);
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}) },
+    uniforms: { ...globals, ...paintUniforms, ...facadeUniforms, uBlastRing: blastUniforms.uBlastRing, uBlastRing2: blastUniforms.uBlastRing2, ...(liftUniforms ?? {}), ...(pogoUniforms ?? {}), ...(fallsUniforms ?? {}) },
     vertexShader: /* glsl */ `
-      ${GLSL_COMMON}
+      ${GLSL_COMMON}${pogoed(GLSL_POGO)}${fallsed(GLSL_FALLS_V)}
       precision highp sampler2D;
       uniform sampler2D uPaint;
       uniform float uPaintW;
@@ -150,15 +152,18 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float tb = uTime - paint.b;
           if (tb >= 0.0) {
             // squash & stretch pop about the base, volume-preserving-ish
-            float pop = 0.0;
-            if (tb < uBloom.x * 1.6) {
-              float k = tb / uBloom.x;
+            float pop = 0.0;${pogoed(`
+            // (a Bomb's stage: the house hops first, and lands in the pop's squash. world/pogo.ts)
+            float tr;
+            float hop = sbPogo(vec2(aBld.y, aBld.w), paint.b, hgt, tb, tr);`)}
+            if (${pogoedOr('tr >= 0.0 && tr', 'tb')} < uBloom.x * 1.6) {
+              float k = ${pogoedOr('tr', 'tb')} / uBloom.x;
               pop = -uBloom.y * exp(-7.0 * k) * cos(10.5 * k) + uBloom.z * exp(-5.0 * k) * sin(10.5 * k);
             }
             float sy = 1.0 + pop;
             float sxz = 1.0 / sqrt(max(sy, 0.4));
             vec2 c = vec2(aBld.y, aBld.w);
-            p.y = baseY + (p.y - baseY) * sy;
+            p.y = baseY + (p.y - baseY) * sy${pogoed(' + hop')};
             p.xz = c + (p.xz - c) * sxz;
             // gentle wobble: a continuous world-space field, so parts of one building never crack apart
             float h01 = clamp((vYRest - baseY) / hgt, 0.0, 1.0);
@@ -185,7 +190,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vMeta = aMeta;
         vPaint = paint;
         vBld = aBld;
-        vBld2 = aBld2;
+        vBld2 = aBld2;${fallsed(`
+        vFall = sbFallSlot(idx);`)}
         // size of a game pixel at this building (m), from the nearest point of its vertical axis; the
         // facade LOD is decided per building with it (jittered per building, so no ring shows)
         vec3 axis = (modelMatrix * vec4(aBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, baseY, roofY) + vLift', 'clamp(cameraPosition.y, baseY, roofY)')}, aBld.w, 1.0)).xyz;
@@ -225,7 +231,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in vec3 vViewNormal;
       in float vYRest;${lifted(`
       flat in float vLift;
-      in vec3 vLiftD;`)}
+      in vec3 vLiftD;`)}${fallsed(GLSL_FALLS_F)}
       ${GLSL_OUT}
 
       ${GLSL_FACTION}
@@ -911,7 +917,15 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           // past the ribbons there is no window to see, so no dots: a face is lit or not, one tone, by a hash of the building and the way it looks
           else if (flatW && isWall && faceLit(bIdx, n, cover * uLit)) { ramp = ${R(Ramp.FARGLOW)}; light = 3.0 / 7.0; }`)}
         }
-        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;
+        if (tgt && !famWall) light += uGlint.x + uGlint.y * sweep;${fallsed(`
+        // &falls: the runs down a struck tower's walls, in its paint's hue over whatever it had (falls.ts): a wet body a step darker than the wall there,
+        // darker still at its edges, and a bright head racing ahead, so a run reads on the tower's own new coat of its hue as on grey (the outside look)
+        if (vFall > -0.5 && abs(n.y) < 0.5) {
+          float fw = sbFall(vFall, f.x, vYRest, bIdx);
+          // (the step the wall had here, lit or in shade: the wet body one under it, its edges two, the head the ramp's top)
+          float cS = floor((light * max(1.0 - gAF, 0.08) + gAF * gSL) * 7.0 + 0.5);
+          if (fw > 0.5) { ramp = hueRamp(hue); light = lightAtStep(fw > 2.5 ? cS - 2.0 : fw > 1.5 ? 6.0 : cS - 1.0); glow = fw > 1.5 && fw < 2.5 ? 0.35 : 0.0; }
+        }`)}
         if (!gl_FrontFacing) n = -n;
         // the blast's shockwave ring races across the roofs
         float rr, rl, rg;

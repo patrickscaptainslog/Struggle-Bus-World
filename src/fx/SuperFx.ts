@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { HUE_COUNT, HUE_RAMPS, Ramp } from '../render/palette';
+import { FACTION_STEP } from './Particles';
 import { registerTunables } from '../ui/tunables';
 
 // The super splat's own pixel effects (src/game/SuperSplat.ts drives them):
@@ -102,6 +103,8 @@ in vec4 aD;
 flat out vec4 vA; // ramp, step, glow, fog
 flat out vec4 vB; // N px, smear dir xy, smear half length
 flat out float vR;
+// (the factions' rows, 24-31, at the step they read brightest without bleaching: Particles' FACTION_STEP)
+const float FAC_STEP[8] = float[8](${FACTION_STEP.map((v) => v.toFixed(1)).join(', ')});
 
 float h1(float x) { return fract(sin(x * 127.1 + 311.7) * 43758.5453); }
 
@@ -208,6 +211,8 @@ void main() {
     size *= sin(3.14159 * x);
   }
   if ((flags & ${F_BRIGHT}) != 0) st = 6.0;
+  // (a faction's rows, 24-31, the Bomb's under &bomb: bright at the step they read brightest at without bleaching, a step under it else)
+  if (ramp > ${Ramp.MAGENTA - 0.5} && ramp < ${Ramp.OBSIDIAN + 0.5}) st = FAC_STEP[int(ramp + 0.5) - ${Ramp.MAGENTA}] - (st > 5.5 ? 0.0 : 1.0);
   if ((flags & ${F_GLINT}) != 0) { ramp = ${Ramp.GLOW_WHITE}.0; st = 7.0; glow = 1.0; }
   if (size <= 0.0) { cull(); return; }
   vec4 wp = modelMatrix * vec4(p, 1.0);
@@ -254,6 +259,8 @@ export class SuperFx {
   readonly object: THREE.Points;
   /** 0..1: share of the arcs lit (set by the game every frame) */
   arcs = 0;
+  /** The six rows its motes, halo and sparks draw in: Rainbow's, or under &bomb the bus's faction's spray (factionLook.ts), as Particles.palette */
+  palette: readonly number[] = HUE_RAMPS;
   private readonly cap: number;
   private readonly data: Float32Array;
   private readonly buf: THREE.InterleavedBuffer;
@@ -377,7 +384,7 @@ export class SuperFx {
       s[8] = T.moteEase * (0.85 + 0.3 * rnd());
       s[9] = s[10] = s[11] = 0;
       const r = rnd();
-      s[12] = HUE_RAMPS[this.hue];
+      s[12] = this.palette[this.hue];
       s[13] = T.moteSize * (0.75 + 0.5 * rnd());
       s[14] = r < 0.06 ? F_GLINT : r < 0.5 ? F_BRIGHT : 0;
       s[15] = 0;
@@ -410,7 +417,7 @@ export class SuperFx {
       s[10] = vel.z + Math.sin(a) * speed;
       s[11] = 2.5;
       const r = rnd();
-      s[12] = r < 0.55 ? Ramp.GLOW_WHITE : r < 0.8 ? Ramp.YELLOW : HUE_RAMPS[Math.floor(rnd() * HUE_COUNT)];
+      s[12] = r < 0.55 ? Ramp.GLOW_WHITE : r < 0.8 ? Ramp.YELLOW : this.palette[Math.floor(rnd() * HUE_COUNT)];
       s[13] = T.sparkSize * (0.7 + 0.6 * rnd());
       s[14] = F_BRIGHT;
       s[15] = 0;
@@ -418,7 +425,7 @@ export class SuperFx {
     }
   }
 
-  /** `count` rainbow motes orbiting the bus for about `life` s. */
+  /** `count` motes orbiting the bus for about `life` s, in its palette's rows. */
   halo(count: number, life: number, radius = 6): void {
     const s = this.s;
     const T = superFxTune;
@@ -435,7 +442,7 @@ export class SuperFx {
       s[8] = 0.6 + rnd();
       s[9] = s[10] = s[11] = 0;
       this.hue = (this.hue + 1) % HUE_COUNT;
-      s[12] = HUE_RAMPS[this.hue];
+      s[12] = this.palette[this.hue];
       s[13] = T.moteSize * 0.8 * (0.7 + 0.6 * rnd());
       s[14] = rnd() < 0.2 ? F_GLINT : F_BRIGHT;
       s[15] = 0;

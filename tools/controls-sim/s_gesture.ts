@@ -21,6 +21,8 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode(mode);
+  // (the rows test MEGA as it is with &mega on the link; MEGA's off rows below set megaAsleep)
+  input.megaOn = !megaAsleep;
   const flight = new Flight();
   flight.y = 400;
   const drive = new TurboDrive(BOUNDS);
@@ -38,6 +40,13 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
     shifter.flick(d, flew);
   };
   input.onTripleFinger = () => evs.push(`tuner@${at()}`);
+  // (hold to aim, SHOTS.md decision 4: a still finger off the lane aims from aimHoldMs, and its lift is the hold's release)
+  input.onAimStart = () => evs.push(`aim@${at()}`);
+  input.onAimEnd = (c) => evs.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`);
+  // (the Bomb, behind &bomb: a still hold on the bus charges, its tiers show, and its end is a Bomb, the tap that follows, or a fizzle)
+  input.onBombCharge = () => evs.push(`charge@${at()}`);
+  input.onBombTier = (t) => evs.push(`bomb${t}@${at()}`);
+  input.onBombEnd = (t, c) => evs.push(`bombEnd${t}${c ? '(cancelled)' : ''}@${at()}`);
   shifter.onAnswer = (a) => evs.push(`${a}@${at()}`);
   drive.onEvent = (ev, g) => evs.push(`${ev}${g}@${at()}`);
   let maxCharge = 0, sawDrag = false, sawThumb = false;
@@ -94,11 +103,13 @@ function harness(mode: 'touch' | 'keyboard', fps = 60, world: any = null) {
       this.up(id, x + dx, y + dy);
     },
     wait, frame,
-    result() { return { events: [...evs], maxChargeHeld: +maxCharge.toFixed(2), dragging: sawDrag, thumb: sawThumb, look: lookFrom < 0 ? null : { from: lookFrom, to: lookTo, max: Math.round(lookMax) }, gear: drive.gear, level: drive.level }; },
+    result() { return { events: [...evs], maxChargeHeld: +maxCharge.toFixed(2), dragging: sawDrag, thumb: sawThumb, look: lookFrom < 0 ? null : { from: lookFrom, to: lookTo, max: Math.round(lookMax) }, gear: drive.gear, level: drive.level, below: drive.below }; },
   };
 }
 type H = ReturnType<typeof harness>;
 
+/** the next rows run with MEGA off, as every page without &mega (2026-11-06) */
+let megaAsleep = false;
 const rows: Array<{ mode: string; gesture: string; events: string[]; note?: unknown } & ReturnType<H['result']>> = [];
 function row(mode: 'touch' | 'keyboard', gesture: string, fn: (h: H) => unknown, fps = 60) {
   const h = harness(mode, fps);
@@ -188,10 +199,17 @@ row('touch', 'second: drag that stays down: looks, the stick untouched', (h) => 
   return { early, L, same, back, after, stillSteering };
 });
 row('touch', 'second: a tap with the first hand while the other looks', (h) => { const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 60, 0, 200); const a = newId(); h.down(a, RX, RY, false); h.wait(90); h.up(a, RX, RY); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 60, LY); return { on }; });
-row('touch', 'second: rests 500 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
+row('touch', 'second: rests 300 ms, then drags (a look at once)', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(300); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return { on }; });
+row('touch', 'second: rests 500 ms off the lane, then drags: an aim, and its drag drags the aim, never the view', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const s = h.input.state, v = { look: s.look.on, aim: s.aim.on, ax: s.aim.x, thumb: s.thumb }; h.up(b, LX + 30, LY); h.up(a, RX + 30, RY); return v; });
 row('touch', 'second: a look does not count as a thumb', (h) => { const a = newId(); h.down(a, X, Y); h.wait(40); const b = newId(); h.down(b, LX, LY, false); h.slide(b, LX, LY, 40, 0, 200); const thumb = h.input.state.thumb; h.up(b, LX + 40, LY); h.up(a, X, Y); return { thumb }; });
 row('touch', 'second: flick up: answered on the lift, the gear with it', (h) => { const a = steer(h); flickUp(h); h.wait(500); h.up(a, RX + 30, RY); });
-row('touch', 'second: flick down at G0 (nothing to do)', (h) => { const a = steer(h); flickDown(h); h.up(a, RX + 30, RY); });
+row('touch', 'second: flick down at G0 (School Zone)', (h) => { const a = steer(h); flickDown(h); h.up(a, RX + 30, RY); });
+row('touch', 'zone: a flick down in School Zone is nothing yet (Curb is not built)', (h) => { const a = steer(h); flickDown(h); h.wait(300); const at = h.evs.length; flickDown(h); h.wait(300); const after = h.evs.slice(at); h.up(a, RX + 30, RY); return { after }; });
+row('touch', 'zone: a flick up out of School Zone is Cruise', (h) => { const a = steer(h); flickDown(h); h.wait(300); flickUp(h); h.up(a, RX + 30, RY); });
+row('touch', 'zone: two flicks up out of School Zone are Express', (h) => { const a = steer(h); flickDown(h); h.wait(300); flicks(h, 2); h.up(a, RX + 30, RY); });
+row('touch', 'zone: under the gate a flick down at Cruise is nothing', (h) => { h.shifter.locked = true; const a = steer(h); flickDown(h); h.wait(100); h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); });
+row('touch', 'zone: under the gate a flick up out of School Zone goes at once', (h) => { const a = steer(h); flickDown(h); h.wait(300); h.shifter.locked = true; flickUp(h); h.wait(100); const below = h.drive.below, armed = h.shifter.armed; h.shifter.locked = false; h.wait(100); h.up(a, RX + 30, RY); return { below, armed }; });
+row('touch', 'zone: one right thumb flicks down into it and up out', (h) => { h.stroke(RX, 500, 0, 74, 85); h.wait(300); const b = h.drive.below; h.stroke(RX, 600, 0, -74, 85); return { b }; });
 row('touch', 'second: flick down at G1', (h) => { const a = steer(h); h.drive.shift(1, h.flight); h.wait(50); flickDown(h); h.up(a, RX + 30, RY); });
 row('touch', 'second: flick sideways (nothing)', (h) => { const a = steer(h); h.stroke(LX, LY, 74, 0, 85, false); h.wait(400); h.up(a, RX + 30, RY); });
 row('touch', 'second: slow 60 px in 300 ms (a look, no gear)', (h) => { const a = steer(h); h.stroke(LX, LY, 0, -60, 300, false); h.wait(400); h.up(a, RX + 30, RY); });
@@ -286,7 +304,17 @@ for (const [who, stroke] of [['right', (h: H) => h.stroke(RX, 500, 0, 74, 85)], 
   flown(`flown, ${who}: a turbo level down: on Jet's floor as it was`, (h) => { toJet(h); h.wait(9000); h.drive.rung(1, h.flight); h.wait(3000); const y0 = h.flight.y; stroke(h); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
   flown(`flown, ${who}: a turbo level down, holding: the same hold`, (h) => { holdAt(h, 900); toJet(h); h.wait(6000); h.drive.rung(1, h.flight); h.wait(3000); stroke(h); h.wait(8000); return { ...flying(h), level: h.drive.level }; });
 }
-flown('flown: with nothing to do a quick pull is a quick pull', (h) => { h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return flying(h); });
+flown('flown: a flick down at the rooftops is School Zone, hovering where it skimmed', (h) => { const y0 = h.flight.y, f0 = h.flight.floorY, m0 = h.flight.mode; let top = 0; h.stroke(RX, 500, 0, 74, 85); for (let i = 0; i < 80; i++) { h.wait(100); top = Math.max(top, h.flight.y - y0); } return { ...flying(h), y0: +y0.toFixed(2), floor0: +f0.toFixed(2), m0, rose: +top.toFixed(2), off: +(h.flight.y - y0).toFixed(2), speed: +h.flight.speed.toFixed(2), below: h.drive.below }; });
+// School Zone (GEARS.md): its hover, flown. Each from the rooftops at Cruise, flicked down by one right thumb
+const zoneIn = (h: H) => { h.stroke(RX, 500, 0, 74, 85); h.wait(3000); };
+const stick = (h: H, dx: number, dy: number, ms: number) => { const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, dx, dy, 150); h.wait(ms); h.up(a, RX + dx, 600 + dy); };
+flown('zone flown: let go, it eases to a hover', (h) => { const v: number[] = []; h.stroke(RX, 500, 0, 74, 85); for (let i = 0; i < 6; i++) { h.wait(500); v.push(+h.flight.speed.toFixed(2)); } const ys: number[] = []; for (let i = 0; i < 40; i++) { h.wait(250); ys.push(h.flight.y); } return { v, bob: +(Math.max(...ys) - Math.min(...ys)).toFixed(2), below: h.drive.below }; });
+flown('zone flown: the stick sideways turns on the spot', (h) => { zoneIn(h); const x0 = h.flight.x, z0 = h.flight.z, h0 = h.flight.heading; stick(h, 120, 0, 2500); const turned = h.flight.heading - h0; return { degPerS: +((turned * 180) / Math.PI / 2.5).toFixed(1), moved: +Math.hypot(h.flight.x - x0, h.flight.z - z0).toFixed(1) }; });
+flown('zone flown: the stick up drifts forward', (h) => { zoneIn(h); holdAt(h, 120); h.wait(2000); const y0 = h.flight.y; let vmax = 0; const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, 0, -200, 150); for (let i = 0; i < 40; i++) { h.wait(100); vmax = Math.max(vmax, h.flight.ground); } const sink = (y0 - h.flight.y) / 4.15; h.up(a, RX, 400); return { vmax: +vmax.toFixed(2), sink: +sink.toFixed(2), pitchDeg: +((h.flight.pitch * 180) / Math.PI).toFixed(1) }; });
+flown('zone flown: the stick down climbs gently', (h) => { zoneIn(h); const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, 0, 200, 150); let vmax = 0, gmax = 0; for (let i = 0; i < 50; i++) { h.wait(100); vmax = Math.max(vmax, h.flight.vy); gmax = Math.max(gmax, h.flight.ground); } h.up(a, RX, 800); const y1 = h.flight.y; h.wait(4000); return { vmax: +vmax.toFixed(2), ground: +gmax.toFixed(2), settled: +(h.flight.y - y1).toFixed(1), vy: +h.flight.vy.toFixed(2), mode: h.flight.mode }; });
+flown('zone flown: a flick down in it gives its pull back', (h) => { zoneIn(h); h.wait(2000); const h0 = h.flight.holdY; h.stroke(RX, 500, 0, 74, 85); h.wait(4000); return { h0: +h0.toFixed(2), hold: +h.flight.holdY.toFixed(2), below: h.drive.below, mode: h.flight.mode }; });
+flown('zone flown: a flick up is Cruise again, skimming', (h) => { zoneIn(h); h.stroke(RX, 600, 0, -74, 85); h.wait(5000); return { ...flying(h), speed: +h.flight.speed.toFixed(1), below: h.drive.below }; });
+flown('zone flown: a flick up from a held height holds it', (h) => { zoneIn(h); const a = newId(); h.down(a, RX, 600); h.slide(a, RX, 600, 0, 200, 150); h.wait(4000); h.up(a, RX, 800); h.wait(2000); const y = h.flight.y; h.stroke(RX, 600, 0, -74, 85); h.wait(5000); return { ...flying(h), y0: +y.toFixed(1), y: +h.flight.y.toFixed(1), below: h.drive.below }; });
 flown('flown: a stick that moves first has chosen for itself', (h) => { h.drive.shift(1, h.flight); h.wait(3000); h.stroke(RX, 500, 0, 74, 85); h.wait(40); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1000); h.up(a, RX, 580); h.wait(4000); return flying(h); });
 flown('flown: a hard dive let go, a flick down inside its arc: no rebound', (h) => { holdAt(h, 3000); toJet(h); h.wait(9000); h.drive.rung(1, h.flight); h.wait(3000); const a = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, -120, 200); h.wait(1500); h.up(a, RX, 380); h.wait(120); const y0 = h.flight.y; h.stroke(RX, 500, 0, 74, 85); h.wait(8000); return { ...flying(h), y0, y: h.flight.y, level: h.drive.level }; });
 flown('flown: a second thumb flicks down as a long pull lets go: the climb stands', (h) => { h.drive.shift(1, h.flight); h.wait(1000); const a = newId(), b = newId(); h.down(a, RX, 500); h.slide(a, RX, 500, 0, 80, 100); h.wait(1500); h.down(b, LX, 500, false); h.slide(b, LX, 500, 0, 74, 85); h.up(a, RX, 580); h.up(b, LX, 574); h.wait(4000); return flying(h); });
@@ -371,11 +399,13 @@ row('touch', 'left zone: a drag looks, the second thumb\'s wait and all, and the
   return { early, L, back, after: { ...h.input.state.look } };
 });
 row('touch', 'left zone: a slow drag up looks, no command', (h) => { h.stroke(LX, LY, 0, -90, 400); h.wait(400); });
-row('touch', 'left zone: rests 500 ms, then drags (a look at once)', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); return { on }; });
+row('touch', 'left zone: rests 300 ms, then drags (a look at once)', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(300); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const on = h.input.state.look.on; h.up(b, LX + 30, LY); return { on }; });
+row('touch', 'left zone: rests 500 ms, then drags: an aim, never a look', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(500); h.slide(b, LX, LY, 30, 0, 100); h.wait(30); const s = h.input.state, v = { look: s.look.on, aim: s.aim.on, ax: s.aim.x }; h.up(b, LX + 30, LY); return v; });
 row('touch', 'left zone: a look dragged over the line is still a look', (h) => { const b = newId(); h.down(b, LX, LY); h.slide(b, LX, LY, 200, 0, 300); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, sx: s.stretch.x, x: Math.round(s.look.x) }; h.up(b, LX + 200, LY); return v; });
 row('touch', 'left zone: two touches there: neither flies, the one that drags looks', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(300); h.down(b, 140, 500, false); h.slide(b, 140, 500, 50, 0, 200); h.wait(30); const s = h.input.state, v = { thumb: s.thumb, look: s.look.on, x: Math.round(s.look.x) }; h.up(b, 190, 500); h.up(a, LX, LY); return v; });
 row('touch', 'left zone: two fingers tapped together there: one splat', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(80); h.up(a, LX, LY); h.up(b, 140, 500); });
-row('touch', 'left zone: two fingers, both lift at 400 ms: one splat, as anywhere', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(370); h.up(a, LX, LY); h.up(b, 140, 500); });
+row('touch', 'left zone: two fingers, both lift at 330 ms: one splat, as anywhere', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(300); h.up(a, LX, LY); h.up(b, 140, 500); });
+row('touch', 'left zone: two fingers, both lift at 400 ms: one splat, as anywhere (two fingers together never aim)', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(370); h.up(a, LX, LY); h.up(b, 140, 500); });
 row('touch', 'left zone: two fingers, both lift at 470 ms: none, as anywhere', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(30); h.down(b, 140, 500, false); h.wait(440); h.up(a, LX, LY); h.up(b, 140, 500); });
 row('touch', 'left zone: a tap there while the other looks fires on its lift', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.slide(a, LX, LY, 60, 0, 200); h.down(b, 140, 500, false); h.wait(90); h.up(b, 140, 500); h.wait(30); const on = h.input.state.look.on, tapped = h.evs.length; h.up(a, LX + 60, LY); return { on, tapped }; });
 row('touch', 'left zone: three fingers there: the tuner', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, LX, LY); h.down(b, 140, 500, false); h.down(c, 60, 500, false); h.wait(100); h.up(a, LX, LY); h.up(b, 140, 500); h.up(c, 60, 500); });
@@ -535,7 +565,7 @@ row('touch', 'two thumbs: a touch elsewhere while something flies flicks', (h) =
 row('touch', 'two thumbs: a flick from the left beside the flying thumb', (h) => { const a = steer(h); flickUp(h); h.wait(500); const v = both(h); h.up(a, RX + 30, RY); return v; });
 row('touch', 'two thumbs: a right flick beside a resting left thumb steers and never shifts', (h) => { const b = newId(); h.down(b, LX, LY); h.wait(300); h.stroke(RX, RY, 0, -74, 85, false); h.wait(500); h.up(b, LX, LY); });
 row('touch', 'two thumbs: a two-finger tap, the left finger first: one splat, then the right thumb flies', (h) => { const a = newId(), b = newId(); h.down(a, LX, LY); h.wait(40); h.down(b, RX, RY, false); h.wait(60); h.up(a, LX, LY); h.up(b, RX, RY); h.wait(600); return dragAt(h, RX, RY); });
-row('touch', 'two thumbs: a resting left thumb, a tap on the right: on its lift', (h) => { const b = newId(), a = newId(); h.down(b, LX, LY); h.wait(300); h.down(a, RX, RY, false); h.wait(100); h.up(a, RX, RY); h.wait(30); const fired = h.evs.length; h.wait(300); h.up(b, LX, LY); return { fired }; });
+row('touch', 'two thumbs: a resting left thumb, a tap on the right: on its lift', (h) => { const b = newId(), a = newId(); h.down(b, LX, LY); h.wait(300); h.down(a, RX, RY, false); h.wait(100); h.up(a, RX, RY); h.wait(30); const fired = h.evs.filter((e) => e.startsWith('tap')).length; h.wait(300); h.up(b, LX, LY); return { fired }; });
 row('touch', 'a lone right flick flies until its lift', (h) => { const a = newId(); h.down(a, RX, RY); h.slide(a, RX, RY, 0, -74, 85); const thumb = h.input.state.thumb, look = h.input.state.look.on; h.up(a, RX, RY - 74); h.wait(400); return { thumb, look }; });
 row('touch', 'a stray out of the zone during a lone right flick flies, and the next lone touch is a flick', (h) => { const b = flickWith(h, 250, 600, 350, 650); h.wait(100); h.up(b, 350, 650); h.wait(500); h.stroke(RX, RY, 0, -74, 85); h.wait(400); });
 row('touch', 'a fingertip in the far side band during a lone right flick is no thumb: the next one flies', (h) => { const b = flickWith(h, RX, RY, 385, 500); h.wait(100); h.up(b, 385, 500); h.wait(600); return dragAt(h, RX, RY); });
@@ -550,6 +580,13 @@ row('touch', 'button: hold 600 ms', (h) => { h.input.splatButton(true); h.wait(6
 row('touch', 'button: hold 10 s (full charge)', (h) => { h.input.splatButton(true); h.wait(10000); h.input.splatButton(false); });
 row('touch', 'button: hold 1.5 s then slide off', (h) => { h.input.splatButton(true); h.wait(1500); h.input.splatButton(false, true); });
 row('touch', 'button: 200 ms then slide off (no tap)', (h) => { h.input.splatButton(true); h.wait(200); h.input.splatButton(false, true); });
+// MEGA off (no &mega): a press held any length is a tap on its lift, and never charges
+megaAsleep = true;
+row('touch', 'mega off: button held 600 ms', (h) => { h.input.splatButton(true); h.wait(600); h.input.splatButton(false); });
+row('touch', 'mega off: button held 10 s', (h) => { h.input.splatButton(true); h.wait(10000); h.input.splatButton(false); });
+row('keyboard', 'mega off: Space held 2 s', (h) => { win.dispatch('keydown', key('Space')); h.wait(2000); win.dispatch('keyup', key('Space')); });
+row('touch', 'mega off: canvas held 1 s still', (h) => { const id = newId(); h.down(id, X, Y); h.wait(1000); h.up(id, X, Y); });
+megaAsleep = false;
 row('touch', 'button hold 1 s while steering with the other thumb', (h) => { const a = newId(); h.down(a, X, Y); h.slide(a, X, Y, 70, 0, 200); h.input.splatButton(true); h.wait(1000); h.input.splatButton(false); h.up(a, X + 70, Y); });
 // (the HUD's slide rule, run here against the real adoptThumb)
 const MX = 339, MY = 383;
@@ -606,7 +643,8 @@ row('keyboard', 'E: a gear, at once', (h) => { win.dispatch('keydown', key('KeyE
 row('keyboard', 'E twice: two rungs', (h) => { press(h, 'KeyE'); press(h, 'KeyE'); });
 row('keyboard', 'E seven times: the top rung, then LOCKED', (h) => { for (let i = 0; i < 7; i++) press(h, 'KeyE'); });
 row('keyboard', 'E held: auto-repeat is one press', (h) => { win.dispatch('keydown', key('KeyE')); for (let i = 0; i < 5; i++) { h.wait(100); win.dispatch('keydown', key('KeyE', true)); } win.dispatch('keyup', key('KeyE')); });
-row('keyboard', 'Q steps down the ladder, a rung a press', (h) => { for (let i = 0; i < 6; i++) press(h, 'KeyE'); const seen: string[] = []; for (let i = 0; i < 7; i++) { press(h, 'KeyQ'); seen.push(rungName(h.drive.gear, h.drive.level)); } return { seen }; });
+row('keyboard', 'Q steps down the ladder, a rung a press', (h) => { for (let i = 0; i < 6; i++) press(h, 'KeyE'); const seen: string[] = []; for (let i = 0; i < 8; i++) { press(h, 'KeyQ'); seen.push(h.drive.name); } return { seen }; });
+row('keyboard', 'E out of School Zone: Cruise', (h) => { press(h, 'KeyQ'); const a = h.drive.name; press(h, 'KeyE'); return { seen: [a, h.drive.name] }; });
 row('keyboard', 'Shift is no key now', (h) => { win.dispatch('keydown', key('ShiftLeft')); h.wait(300); const boosting = h.drive.boosting; win.dispatch('keyup', key('ShiftLeft')); return { boosting }; });
 const mouse = { pointerType: 'mouse', button: 2 };
 const mouseL = { pointerType: 'mouse', button: 0 };
@@ -615,6 +653,45 @@ row('keyboard', 'right mouse click: no tap', (h) => { const id = newId(); h.down
 row('keyboard', 'left mouse: a quick drag on the left is no flick', (h) => { const id = newId(); h.down(id, LX, LY, true, mouseL); h.slide(id, LX, LY, 0, -74, 85); h.up(id, LX, LY - 74, mouseL); h.wait(400); });
 row('keyboard', 'left mouse: a quick drag on the right is no flick', (h) => { const id = newId(); h.down(id, RX, RY, true, mouseL); h.slide(id, RX, RY, 0, -74, 85); h.up(id, RX, RY - 74, mouseL); h.wait(400); });
 row('keyboard', 'middle mouse: nothing', (h) => { const id = newId(); h.down(id, RX, RY, true, { pointerType: 'mouse', button: 1 }); h.wait(60); h.up(id, RX, RY, mouse); });
+
+// ---- hold to aim (docs/specs/shots/SHOTS.md, "The rulings it changes", the first row, and decision 4): a finger off the lane that moves still looks; held still for
+// 0.35 s it aims, and a tap is up to 0.3 s with 0.3 to 0.35 counting as one. The lane and the flicks are untouched. While it aims nobody steers, so the bus flies straight,
+// and a thumb landing in the lane still flies. Off the lane here is over the bus's line out of the half disc (laned), or the left zone (no bus on the screen)
+const AX = 330, AY = 250;
+const pressFor = (h: H, x: number, y: number, ms: number, primary = true) => { const id = newId(); h.down(id, x, y, primary); h.wait(ms); h.up(id, x, y); };
+row('touch', 'aim: a tap off the lane at 120 ms splats', laned((h) => pressFor(h, AX, AY, 120)));
+row('touch', 'aim: lifted at 300 ms off the lane splats', laned((h) => pressFor(h, AX, AY, 300)));
+row('touch', 'aim: lifted at 340 ms off the lane (in between) splats', laned((h) => pressFor(h, AX, AY, 340)));
+row('touch', 'aim: held still 380 ms off the lane, lifted before its aim began, splats', laned((h) => pressFor(h, AX, AY, 380)));
+row('touch', 'aim: held still 450 ms off the lane aims, and its lift is the release, no splat', laned((h) => pressFor(h, AX, AY, 450)));
+row('touch', 'aim: held 1.2 s off the lane, dragged 120 px: the aim follows, no look, nobody steers', laned((h) => {
+  const id = newId(); h.down(id, AX, AY); h.wait(500);
+  const at = { ...h.input.state.aim };
+  h.slide(id, AX, AY, -120, 60, 600); h.wait(200);
+  const s = h.input.state, v = { at, now: { ...s.aim }, look: s.look.on, dragging: s.dragging, sx: s.stretch.x, sy: s.stretch.y };
+  h.up(id, AX - 120, AY + 60); return v;
+}));
+row('touch', 'aim: a hold that ends in a quick stroke up is no gear', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(500); h.slide(id, AX, AY, 0, -80, 60); h.up(id, AX, AY - 80); }));
+row('touch', 'aim: moved 20 px before 350 ms off the lane: a look, never an aim', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(150); h.slide(id, AX, AY, 20, 0, 60); h.wait(600); const on = h.input.state.look.on; h.up(id, AX + 20, AY); return { on }; }));
+row('touch', 'aim: a thumb landing in the lane while it aims flies, and the aim holds', laned((h) => {
+  const a = newId(); h.down(a, AX, AY); h.wait(500);
+  const b = newId(); h.down(b, 196, 720, false); h.slide(b, 196, 720, 50, 0, 200); h.wait(50);
+  const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb, sx: +s.stretch.x.toFixed(2) };
+  h.up(b, 246, 720); h.wait(50); const after = h.input.state.aim.on; h.up(a, AX, AY); return { ...v, after };
+}));
+row('touch', 'aim: beside a flying thumb, a still thumb off the lane aims and the bus flies on', (h) => { const a = steer(h); const b = newId(); h.down(b, LX, LY, false); h.wait(500); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(b, LX, LY); h.up(a, RX + 30, RY); return v; });
+row('touch', 'aim: in the lane a still thumb never aims: it steers at neutral', laned((h) => { const id = newId(); h.down(id, 196, 720); h.wait(700); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(id, 196, 720); return v; }));
+row('touch', 'aim: under the opening gate (lookOff) every touch flies, none aims', laned((h) => { h.input.lookOff = true; const id = newId(); h.down(id, AX, AY); h.wait(700); const s = h.input.state, v = { aim: s.aim.on, thumb: s.thumb }; h.up(id, AX, AY); return v; }));
+row('touch', 'aim: off (aimOn false, the Moon): a still finger off the lane rests, and its lift at 400 ms splats as before', laned((h) => { h.input.aimOn = false; pressFor(h, AX, AY, 400); }));
+row('touch', 'aim: a cancelled touch ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(500); h.cancel(id, AX, AY); }));
+row('touch', 'aim: the page losing focus ends the aim cancelled', laned((h) => { const id = newId(); h.down(id, AX, AY); h.wait(500); win.dispatch('blur', {}); h.wait(30); h.up(id, AX, AY); }));
+row('touch', 'aim: one aims at a time: a second still finger off the lane rests', laned((h) => { const a = newId(), b = newId(); h.down(a, AX, AY); h.wait(500); h.down(b, 60, 200, false); h.wait(500); const v = { aim: h.input.state.aim.x0 }; h.up(b, 60, 200); h.up(a, AX, AY); return v; }));
+// (a 450 ms frame with the lift at 150 ms queued behind it: the frame arms the aim, and the lift, by its own time, is the tap it was)
+row('touch', 'aim: a tap lifted at 150 ms behind one 450 ms frame is a tap, not an aim', laned((h) => { const id = newId(); h.down(id, AX, AY); const t = clock.ms; clock.ms += 450; h.frame(); h.up(id, AX, AY, { timeStamp: t + 150 } as any); }));
+row('touch', 'aim: at 30 fps, held 480 ms aims, lifted at 330 splats', laned((h) => { pressFor(h, AX, AY, 480); h.wait(500); pressFor(h, AX, AY, 330); }), 30);
+row('touch', 'aim: at 30 fps, held 370 ms splats (its aim had not begun)', laned((h) => pressFor(h, AX, AY, 370)), 30);
+// (the GPU flight's tap: down 337 ms by its own time, its lift reaching the page 69 ms late, two frames at 30 fps)
+row('touch', 'aim: at 30 fps, a tap lifted at 337 ms reaching the page at 406 ms is a tap, not a pour', laned((h) => { const id = newId(); h.down(id, AX, AY); const t = clock.ms; h.wait(406); h.up(id, AX, AY, { timeStamp: t + 337 } as any); }), 30);
 
 // ---- the table's checks
 const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
@@ -669,14 +746,18 @@ ok(taps('second: two taps') === 2, 'each tap while steering is a tap');
   const v = note('second: a look held dead still');
   ok(v.at9.on && v.at60.on && Math.round(v.at60.x) === 60 && !v.after.on, `a still look holds until the lift: ${JSON.stringify(v)}`);
 }
-ok(note('second: rests 500').on, 'a rest, then a drag: a look at once');
+ok(note('second: rests 300').on, 'a rest under the hold, then a drag: a look at once');
+{
+  const v = note('second: rests 500 ms off the lane');
+  ok(!v.look && v.aim && v.ax === LX + 30 && v.thumb && n('second: rests 500 ms off the lane', 'aim@') === 1 && taps('second: rests 500 ms off the lane') === 0, `a rest past 350 ms off the lane aims, its drag is the aim's, and the other thumb flies on: ${JSON.stringify(v)}`);
+}
 ok(taps('second: a tap with the first hand') === 1 && note('second: a tap with the first hand').on, 'a tap while the other thumb looks, and the look holds');
 ok(!note('second: a look does not count').thumb, 'a look is never st.thumb');
 ok(atOf('second: flick up', 'go') === atOf('second: flick up', 'flick+'), 'a flick answers on its lift');
 ok(atOf('second: flick up', 'up') === atOf('second: flick up', 'flick+'), 'and its gear goes with it: there is nothing to wait for');
 ok(by('second: flick up').gear === 1 && taps('second: flick up') === 0, 'a gear, no tap');
 ok(by('second: flick up').look === null, 'a flick inside the look\'s delay never swings the view');
-ok(by('second: flick down at G0').gear === 0 && n('second: flick down at G0', 'down') === 0, 'nothing to drop');
+ok(by('second: flick down at G0').gear === 0 && by('second: flick down at G0').below === 1 && n('second: flick down at G0', 'zone') === 1 && n('second: flick down at G0', 'down') === 0, 'a flick down at Cruise is School Zone');
 ok(by('second: flick down at G1').gear === 0 && n('second: flick down at G1', 'down') === 1, 'a gear down');
 quiet('second: flick sideways');
 ok(by('second: slow 60').gear === 0 && by('second: slow 60').look !== null, 'slow is a look');
@@ -742,7 +823,13 @@ ok(note('undo: a gear still').lifting && by('undo: a gear still').gear === EXPRE
   ok(v.armed && v.g0 === 0, 'it waits behind the gate');
   ok(by('the gate: a flick is answered').gear === 1, 'and fires when the gate clears');
 }
-ok(by('the gate: a flick down').gear === 0 && n('the gate: a flick down', 'back') === 1, 'taken back behind the gate');
+ok(by('the gate: a flick down').gear === 0 && by('the gate: a flick down').below === 0 && n('the gate: a flick down', 'back') === 1, 'taken back behind the gate');
+ok(by('zone: a flick down in School Zone').below === 1 && note('zone: a flick down in School Zone').after.join() === 'flick-@' + note('zone: a flick down in School Zone').after[0]?.split('@')[1], `a flick down in School Zone does nothing but be read: ${JSON.stringify(note('zone: a flick down in School Zone'))}`);
+ok(by('zone: a flick up out of School Zone is Cruise').below === 0 && by('zone: a flick up out of School Zone is Cruise').gear === 0 && n('zone: a flick up out of School Zone is Cruise', 'unzone') === 1 && n('zone: a flick up out of School Zone is Cruise', 'go') === 1, 'a flick up out of School Zone is Cruise, answered');
+ok(by('zone: two flicks up').below === 0 && by('zone: two flicks up').gear === EXPRESS, 'two flicks up out of School Zone: Cruise, then Express');
+ok(by('zone: under the gate a flick down').below === 0 && n('zone: under the gate a flick down', 'zone') === 0, 'under the gate a flick down at Cruise is nothing: the low shot keeps its glide');
+ok(note('zone: under the gate a flick up').below === 0 && !note('zone: under the gate a flick up').armed, 'under the gate a flick up out of School Zone is Cruise at once: Cruise lifts nothing');
+ok(note('zone: one right thumb').b === 1 && by('zone: one right thumb').below === 0, 'one right thumb, a lone flick each way: into School Zone and out');
 ok(note('the gate: two flicks are one').g0 === 0 && by('the gate: two flicks are one').gear === EXPRESS && n('the gate: two flicks are one', 'gated') === 2, 'behind the gate one rung waits, however many flicks, and each is answered');
 ok(by('the gate: six flicks').gear === EXPRESS && by('the gate: six flicks').level === 0 && n('the gate: six flicks', 'locked') === 0 && n('the gate: six flicks', 'gated') === 6, `six flicks under the gate are Express at the bridge, and say nothing of LOCKED: ${rungName(by('the gate: six flicks').gear, by('the gate: six flicks').level)}`);
 ok(!note('the gate: two flicks and a flick down').armed && by('the gate: two flicks and a flick down').gear === 0 && n('the gate: two flicks and a flick down', 'back') === 1, 'a flick down takes back the one that waits, and nothing is left');
@@ -828,8 +915,22 @@ for (const who of ['right', 'left', 'second']) {
   { const v = note(g('a turbo level down, holding')); ok(v.hold === 900 && v.level === 0, `${who}: and a hold stands: ${JSON.stringify(v)}`); }
 }
 {
-  const v = note('flown: with nothing to do');
-  ok(Number.isFinite(v.hold) && v.mode === 1, `a flick down with nothing to do is the quick pull it looks like: ${JSON.stringify(v)}`);
+  const v = note('flown: a flick down at the rooftops is School Zone');
+  ok(v.below === 1 && Number.isFinite(v.hold) && v.mode === 1 && Math.abs(v.over) < 1.6 && v.rose < 1 && v.speed < 0.5, `a flick down at the rooftops is School Zone, hovering where it skimmed, not where the stroke's pull lifted it: ${JSON.stringify(v)}`);
+  const e = note('zone flown: let go');
+  ok(e.below === 1 && e.v[2] < 30 * 0.12 && e.v[5] < 0.5 && e.bob > 0.6 && e.bob < 3, `School Zone eases to a hover in about 1.5 s and bobs: ${JSON.stringify(e)}`);
+  const t = note('zone flown: the stick sideways');
+  ok(t.degPerS > 55 && t.degPerS < 80 && t.moved < 3, `the stick sideways turns on the spot, a full turn in about 5 s: ${JSON.stringify(t)}`);
+  const u = note('zone flown: the stick up');
+  ok(u.vmax > 6 && u.vmax <= 8.05 && u.sink > 0.5 && u.sink < 5.5 && u.pitchDeg < -5, `the stick up noses down and drifts forward at up to 8 m/s: ${JSON.stringify(u)}`);
+  const c2 = note('zone flown: the stick down');
+  ok(c2.vmax > 12 && c2.vmax <= 15.5 && c2.ground < 1 && c2.settled > 0 && c2.settled < 12 && Math.abs(c2.vy) < 1.5 && c2.mode === 1, `the stick down climbs at about 15 m/s, and let go it coasts to a hold, as every climb does: ${JSON.stringify(c2)}`);
+  const k2 = note('zone flown: a flick down in it');
+  ok(k2.below === 1 && k2.mode === 1 && Math.abs(k2.hold - k2.h0) < 0.05, `a flick down in School Zone gives the stroke's pull back: the hover holds where it was: ${JSON.stringify(k2)}`);
+  const f2 = note('zone flown: a flick up is Cruise');
+  ok(f2.below === 0 && f2.hold === -Infinity && f2.speed > 25 && Math.abs(f2.over) < 4.5, `a flick up is Cruise, skimming the rooftops again: ${JSON.stringify(f2)}`);
+  const g2 = note('zone flown: a flick up from a held');
+  ok(g2.below === 0 && Number.isFinite(g2.hold) && g2.y0 > 60 && Math.abs(g2.y - g2.y0) < 6, `a flick up from a height holds it, at Cruise: ${JSON.stringify(g2)}`);
   const w = note('flown: a stick that moves first');
   ok(Number.isFinite(w.hold) && w.over > 20, `a pull after the flick stands: ${JSON.stringify(w)}`);
   const d = note('flown: a hard dive let go');
@@ -889,7 +990,11 @@ ok(taps('left zone: a quick slight wander') === 1, 'the same quick wander as the
 }
 quiet('left zone: a slow drag up');
 ok(by('left zone: a slow drag up').look !== null, 'slow is a look');
-ok(note('left zone: rests 500').on, 'a rest, then a drag: a look at once');
+ok(note('left zone: rests 300').on, 'a rest under the hold, then a drag: a look at once');
+{
+  const v = note('left zone: rests 500');
+  ok(!v.look && v.aim && v.ax === LX + 30 && by('left zone: rests 500').look === null, `a rest past 350 ms aims, and its drag never looks: ${JSON.stringify(v)}`);
+}
 {
   const v = note('left zone: a look dragged over');
   ok(v.look && !v.thumb && v.sx === 0 && v.x === 200, `only the landing counts: ${JSON.stringify(v)}`);
@@ -897,7 +1002,8 @@ ok(note('left zone: rests 500').on, 'a rest, then a drag: a look at once');
   ok(w.look && !w.thumb && w.x === 50, `two touches in the zone, and neither flies: ${JSON.stringify(w)}`);
 }
 ok(taps('left zone: two fingers tapped') === 1, 'two fingers tapped there: one splat');
-ok(taps('left zone: two fingers, both lift at 400') === 1, 'at 400 ms: one splat, as anywhere');
+ok(taps('left zone: two fingers, both lift at 330') === 1, 'at 330 ms: one splat, as anywhere');
+ok(taps('left zone: two fingers, both lift at 400') === 1 && n('left zone: two fingers, both lift at 400', 'aim@') === 0, 'at 400 ms: one splat, as anywhere: two fingers together are a tap, never an aim');
 ok(taps('left zone: two fingers, both lift at 470') === 0, 'at 470 ms: none, as anywhere');
 ok(note('left zone: a tap there while the other').on && note('left zone: a tap there while the other').tapped === 1 && taps('left zone: a tap there while the other') === 1, 'a tap beside a look fires on its own lift, and once');
 for (const g of ['left zone: three fingers', 'left zone: one finger there', 'left zone: two fingers there']) ok(n(g, 'tuner') === 1 && taps(g) === 0, `three fingers are the tuner in any order: ${g}`);
@@ -1076,6 +1182,8 @@ ok(taps('button: tap') === 1, 'MEGA tap');
 ok(taps('button: 280') === 1, 'just under the threshold');
 ok(n('button: hold 600', 'chargeEnd') === 1 && taps('button: hold 600') === 0, 'MEGA hold');
 ok(taps('button: 200 ms then slide') === 0, 'slide off: no tap');
+for (const g of ['mega off: button held 600', 'mega off: button held 10 s', 'mega off: Space held 2 s']) ok(taps(g) === 1 && !by(g).events.some((e) => e.startsWith('charge')) && !by(g).maxChargeHeld, `${g}: one tap, no charge`);
+ok(taps('mega off: canvas held 1 s') === 0 && !by('mega off: canvas held 1 s').events.some((e) => e.startsWith('charge')), 'mega off: a still press on the canvas neither taps nor charges');
 ok(n('button hold 1 s while steering', 'chargeEnd') === 1, 'charging while steering');
 
 // three fingers
@@ -1102,7 +1210,8 @@ ok(by('E: a gear').gear === 1, 'E is a gear');
 ok(by('E twice:').gear === NONSTOP && by('E twice:').level === 0, 'E twice is two rungs');
 ok(by('E seven').gear === JET && by('E seven').level === 3 && n('E seven', 'locked') === 1, 'E climbs the ladder, then LOCKED');
 ok(n('E held', 'flick+') === 1, 'auto-repeat is one press');
-ok(note('Q steps').seen.join() === 'TURBO 2,TURBO,JET,NONSTOP,EXPRESS,CRUISE,CRUISE', `Q steps down it: ${note('Q steps').seen}`);
+ok(note('Q steps').seen.join() === 'TURBO 2,TURBO,JET,NONSTOP,EXPRESS,CRUISE,SCHOOL ZONE,SCHOOL ZONE', `Q steps down it, into School Zone, and Curb isn't built: ${note('Q steps').seen}`);
+ok(note('E out of School Zone').seen.join() === 'SCHOOL ZONE,CRUISE', `E is Cruise again: ${note('E out of School Zone').seen}`);
 ok(!note('Shift is no key').boosting && by('Shift is no key').level === 0, 'Shift is no key: a held boost has nothing to sit on at Cruise');
 {
   const v = note('right mouse drag');
@@ -1143,7 +1252,155 @@ ok(readFlick(36, 0, 80, 36, 200, 0.4, 40) === 0, 'sideways is none');
   ok(migratePrefs(null).prefs !== null && !migratePrefs('x').changed && !migratePrefs([1]).changed, 'junk in the save is no save');
 }
 
+// hold to aim
+{
+  const aims = (g: string) => n(g, 'aim@');
+  for (const g of ['aim: a tap off the lane at 120', 'aim: lifted at 300', 'aim: lifted at 340', 'aim: held still 380', 'aim: at 30 fps, held 370', 'aim: at 30 fps, a tap lifted at 337']) ok(taps(g) === 1 && aims(g) === 0, `${g}: one splat, no aim`);
+  const g = 'aim: held still 450';
+  ok(aims(g) === 1 && n(g, 'aimEnd@') === 1 && taps(g) === 0 && atOf(g, 'aim@') >= 420 && atOf(g, 'aim@') <= 440, `held still past 350 ms it aims, begun at ${atOf(g, 'aim@')} ms (aimLagMs past the hold), and its lift releases it with no splat`);
+  const v = note('aim: held 1.2 s');
+  ok(v.at.on && v.now.on && Math.round(v.now.x) === AX - 120 && Math.round(v.now.y) === AY + 60 && v.now.x0 === AX && !v.look && !v.dragging && v.sx === 0 && v.sy === 0 && by('aim: held 1.2 s').look === null && taps('aim: held 1.2 s') === 0, `the aim follows its drag, never looks, nobody steers: ${JSON.stringify(v)}`);
+  quiet('aim: a hold that ends in a quick stroke up');
+  ok(taps('aim: a hold that ends in a quick stroke up') === 0 && by('aim: a hold that ends in a quick stroke up').gear === 0, 'a hold that lifts fast is a release, not a flick');
+  ok(note('aim: moved 20 px').on && aims('aim: moved 20 px') === 0, 'a finger that moved first looks, and never aims');
+  const w = note('aim: a thumb landing in the lane');
+  ok(w.aim && w.thumb && w.sx > 0 && w.after && aims('aim: a thumb landing in the lane') === 1 && taps('aim: a thumb landing in the lane') === 0, `a thumb in the lane flies beside the aim: ${JSON.stringify(w)}`);
+  const x = note('aim: beside a flying thumb');
+  ok(x.aim && x.thumb, `a second thumb aims beside the flying one, which flies on: ${JSON.stringify(x)}`);
+  ok(!note('aim: in the lane').aim && note('aim: in the lane').thumb && aims('aim: in the lane') === 0, 'in the lane a still thumb steers, and never aims');
+  ok(!note('aim: under the opening gate').aim && note('aim: under the opening gate').thumb, 'under the opening gate every touch flies');
+  ok(taps('aim: off (aimOn false') === 1 && aims('aim: off (aimOn false') === 0, 'with hold to aim off, a still 400 ms lift splats as it did');
+  ok(n('aim: a cancelled touch', 'aimEnd(cancelled)') === 1 && taps('aim: a cancelled touch') === 0, 'a cancelled touch ends the aim cancelled');
+  ok(n('aim: the page losing focus', 'aimEnd(cancelled)') === 1 && taps('aim: the page losing focus') === 0, 'focus lost ends the aim cancelled');
+  ok(aims('aim: one aims at a time') === 1 && note('aim: one aims at a time').aim === AX, 'one aims at a time');
+  ok(taps('aim: a tap lifted at 150 ms behind') === 1 && aims('aim: a tap lifted at 150 ms behind') === 0, 'a tap queued behind one slow frame is still a tap');
+  ok(aims('aim: at 30 fps') === 1 && taps('aim: at 30 fps') === 1, 'at 30 fps the same lines hold');
+  for (const r of rows) if (r.gesture.startsWith('the lane')) ok(!r.events.some((e) => e.startsWith('aim')), `the lane never aims: ${r.gesture}`);
+}
+
 for (const r of rows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.maxChargeHeld ? ` | chargeHeld max ${r.maxChargeHeld}` : ''}${r.thumb ? ' | steering' : ''}${r.look ? ` | look ${r.look.from}-${r.look.to} ms, ${r.look.max} px` : ''}${r.gear ? ` | G${r.gear}` : ''}${r.level ? ` | turbo ${r.level}` : ''}`);
 void doc;
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `gesture checks: all ${checks} passed (${rows.length} rows)`);
-process.exit(fails.length ? 1 : 0);
+
+// ---- the Bomb (docs/specs/shots/SHOTS.md, "The modes"), behind &bomb: its rows in a table of their own (gestures-bomb.json), so the one above stays byte for byte
+// what it was. The bus as Cruise draws it at 393 x 852, 26 x 71 px about (197, 502), grown 10 px a side: Input.busBox. A full belly unless a row says not
+const BOX = { x0: 173, y0: 457, x1: 221, y1: 548 };
+const BX = 197, BY = 500;
+const bombRows: typeof rows = [];
+function bombRow(gesture: string, fn: (h: H) => unknown, fps = 60, full = true) {
+  const h = harness('touch', fps);
+  Object.assign(h.input, { busZone: LANE, busBox: BOX, bombOn: true, bombFull: full });
+  h.wait(100);
+  h.reset();
+  const note = fn(h);
+  h.wait(600);
+  bombRows.push({ mode: 'touch', gesture, ...h.result(), note });
+  h.input.dispose();
+}
+const onBus = (h: H, ms: number, x = BX, y = BY) => { const id = newId(); h.down(id, x, y); h.wait(ms); h.up(id, x, y); };
+bombRow('bomb: a tap on the bus at 120 ms splats', (h) => onBus(h, 120));
+bombRow('bomb: still on the bus, lifted at 300 ms: a tap', (h) => onBus(h, 300));
+bombRow('bomb: still on the bus, lifted at 500 ms: charging, a tap', (h) => onBus(h, 500));
+bombRow('bomb: still on the bus, lifted at 620 ms: a tap', (h) => onBus(h, 620));
+bombRow('bomb: still on the bus, lifted at 700 ms: Bomb II', (h) => onBus(h, 700));
+bombRow('bomb: still on the bus, lifted at 1.3 s: Bomb III', (h) => onBus(h, 1300));
+bombRow('bomb: still on the bus 3 s: III, never by itself', (h) => onBus(h, 3000));
+bombRow('bomb: at 30 fps, lifted at 650 ms reaching the page at 720 ms: a tap', (h) => { const id = newId(); h.down(id, BX, BY); const t = clock.ms; h.wait(720); h.up(id, BX, BY, { timeStamp: t + 650 } as any); }, 30);
+bombRow('bomb: at 30 fps, held 750 ms: Bomb II', (h) => onBus(h, 750), 30);
+bombRow('bomb: at 30 fps, held 1.35 s: Bomb III', (h) => onBus(h, 1350), 30);
+bombRow('bomb: a 20 px slide before II never bombs', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(400); h.slide(id, BX, BY, 20, 0, 100); h.wait(600); h.up(id, BX + 20, BY); });
+bombRow('bomb: a 20 px slide after II keeps it', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.slide(id, BX, BY, 20, 0, 100); h.wait(100); h.up(id, BX + 20, BY); });
+bombRow('bomb: a 40 px slide after II never bombs', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.slide(id, BX, BY, 40, 0, 150); h.wait(100); h.up(id, BX + 40, BY); });
+bombRow('bomb: a landing under the bus never charges', (h) => onBus(h, 1500, BX, 640));
+bombRow('bomb: off the lane over the bus it aims, never charges', (h) => onBus(h, 800, BX, 300));
+bombRow('bomb: an empty belly: no tier, its lift a tap', (h) => onBus(h, 500), 60, false);
+// (after the review: a rest with the belly refilling, past when II would have shown, does nothing, as a resting thumb off the link: it was a tap and its "not yet")
+bombRow('bomb: an empty belly, a 1.3 s rest: no tier and no tap', (h) => onBus(h, 1300), 60, false);
+bombRow('bomb: an empty belly, a 4 s rest: no tier and no tap', (h) => onBus(h, 4000), 60, false);
+bombRow('bomb: the belly full at 500 ms: II from 1.17 s', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(500); h.input.bombFull = true; h.wait(900); h.up(id, BX, BY); }, 60, false);
+bombRow('bomb: the belly gone mid-charge fizzles it', (h) => { const id = newId(); h.down(id, BX, BY); h.wait(800); h.input.bombFull = false; h.wait(100); h.up(id, BX, BY); });
+bombRow("bomb: another thumb's tap fizzles it, and splats", (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(800); h.down(b, 330, 250, false); h.wait(80); h.up(b, 330, 250); h.wait(300); h.up(a, BX, BY); });
+bombRow("bomb: another thumb's look doesn't stop it", (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(400); h.down(b, 330, 250, false); h.slide(b, 330, 250, -60, 20, 300); h.wait(700); const look = h.input.state.look.on; h.up(b, 270, 270); h.up(a, BX, BY); return { look }; });
+bombRow("bomb: another thumb's flick doesn't stop it", (h) => { const a = newId(); h.down(a, BX, BY); h.wait(500); h.stroke(330, 300, 0, -74, 85, false); h.wait(800); h.up(a, BX, BY); });
+bombRow('bomb: two fingers landing together, lifted fast: one splat, no charge', (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(30); h.down(b, 330, 250, false); h.wait(90); h.up(a, BX, BY); h.up(b, 330, 250); });
+bombRow('bomb: two fingers landing together: no charge while the other could still tap', (h) => { const a = newId(), b = newId(); h.down(a, BX, BY); h.wait(30); h.down(b, 60, 250, false); h.wait(400); const on = h.input.state.bomb.on; h.wait(700); h.up(b, 60, 250); h.up(a, BX, BY); return { on }; });
+bombRow('bomb: a second thumb on the bus never charges', (h) => { const a = steer(h); const b = newId(); h.down(b, BX, BY, false); h.wait(1400); h.up(b, BX, BY); h.up(a, RX + 30, RY); });
+// (three fingers are the tuner only within tapMs of the first, before any charge: two more fingers on a charge are two thumbs' taps, and the first fizzles it)
+bombRow('bomb: three fingers on a charge: two taps, a fizzle', (h) => { const a = newId(), b = newId(), c = newId(); h.down(a, BX, BY); h.wait(380); h.down(b, 60, 250, false); h.down(c, 330, 250, false); h.wait(60); h.up(b, 60, 250); h.up(c, 330, 250); h.wait(400); h.up(a, BX, BY); });
+bombRow('bomb: a lost touch fizzles it', (h) => { const a = newId(); h.down(a, BX, BY); h.wait(800); h.cancel(a, BX, BY); });
+bombRow('bomb: the page losing focus fizzles it', (h) => { const a = newId(); h.down(a, BX, BY); h.wait(800); win.dispatch('blur', {}); h.wait(30); h.up(a, BX, BY); });
+bombRow('bomb: a hand-over fizzles it', (h) => { const a = newId(); h.down(a, BX, BY); h.wait(800); h.input.endPress(); h.wait(30); h.up(a, BX, BY); });
+bombRow('bomb: a gift is III at 420 ms', (h) => { h.input.bombGift = 3; onBus(h, 500); });
+bombRow('bomb: a bank of 0.1: II at 550 ms, III at 1.15 s', (h) => { Object.assign(h.input, { bombTwoMs: 480, bombThreeMs: 1080 }); onBus(h, 1300); });
+bombRow('bomb: a bank of 1: never before 0.35 s', (h) => { Object.assign(h.input, { bombTwoMs: 350, bombThreeMs: 350 }); onBus(h, 600); });
+bombRow('bomb: off (no link): 1.3 s still on the bus does what it did', (h) => { h.input.bombOn = false; onBus(h, 1300); });
+// (the stick and the path: a thumb on the bus moving 8 px and held to 1.4 s, the Flight under it, identical charging or not)
+const path = (on: boolean) => {
+  const h = harness('touch', 60, ROOFS);
+  Object.assign(h.flight, { y: 26.5, groundBroad: 10, fullness: 1, glideSpeed: 0 });
+  Object.assign(h.input, { busZone: LANE, busBox: BOX, bombOn: on, bombFull: true });
+  h.wait(1000);
+  h.reset();
+  const id = newId(), out: number[] = [];
+  h.down(id, BX, BY);
+  for (let i = 0; i < 84; i++) {
+    if (i < 18) h.move(id, BX + (8 * i) / 18, BY);
+    h.wait(16.7);
+    out.push(+h.input.state.stretch.x.toFixed(6), +h.input.state.stretch.y.toFixed(6), +h.flight.x.toFixed(4), +h.flight.y.toFixed(4), +h.flight.z.toFixed(4));
+  }
+  h.up(id, BX + 8, BY);
+  const ev = [...h.evs];
+  h.input.dispose();
+  return { out, ev };
+};
+const pOn = path(true), pOff = path(false);
+
+const bf: string[] = [];
+let bchecks = 0;
+const bok = (c: boolean, m: string) => { bchecks++; if (!c) bf.push(m); };
+const bby = (g: string) => { const r = bombRows.find((x) => x.gesture.startsWith(g)); if (!r) throw new Error(`no row: ${g}`); return r; };
+const bn = (g: string, k: string) => bby(g).events.filter((e) => e.startsWith(k)).length;
+const bat = (g: string, k: string) => { const e = bby(g).events.find((x) => x.startsWith(k)); return e ? Number(e.slice(e.indexOf('@') + 1, -2)) : NaN; };
+const fired = (g: string) => bby(g).events.filter((e) => /^bombEnd[23]@/.test(e)).length;
+const fizzled = (g: string) => bby(g).events.filter((e) => /^bombEnd\d\(cancelled\)/.test(e)).length;
+for (const g of ['bomb: a tap on the bus at 120', 'bomb: still on the bus, lifted at 300']) bok(bn(g, 'tap') === 1 && bn(g, 'charge') === 0, `${g}: one splat, no charge`);
+for (const g of ['bomb: still on the bus, lifted at 500', 'bomb: still on the bus, lifted at 620']) bok(bn(g, 'tap') === 1 && bn(g, 'charge@') === 1 && bn(g, 'bombEnd1@') === 1 && !fired(g), `${g}: charging, and its lift is a tap`);
+{
+  const g1 = 'bomb: still on the bus, lifted at 500';
+  bok(bat(g1, 'charge@') >= 350 && bat(g1, 'charge@') <= 370, `the charge begins at 0.35 s (${bat(g1, 'charge@')} ms)`);
+  const g = 'bomb: still on the bus, lifted at 700';
+  bok(bn(g, 'bomb2@') === 1 && bat(g, 'bomb2@') >= 670 && bat(g, 'bomb2@') <= 690 && bn(g, 'bombEnd2@') === 1 && bn(g, 'tap') === 0, `${g}: II shows at ${bat(g, 'bomb2@')} ms (0.6 s and aimLagMs), its lift a Bomb II, no splat`);
+  const g3 = 'bomb: still on the bus, lifted at 1.3';
+  bok(bat(g3, 'bomb3@') >= 1270 && bat(g3, 'bomb3@') <= 1290 && bn(g3, 'bombEnd3@') === 1 && bn(g3, 'tap') === 0, `${g3}: III shows at ${bat(g3, 'bomb3@')} ms, its lift a Bomb III`);
+  const gl = 'bomb: still on the bus 3 s';
+  bok(bn(gl, 'bomb3@') === 1 && bn(gl, 'bombEnd3@') === 1 && bat(gl, 'bombEnd3@') >= 3000 && bn(gl, 'tap') === 0, `${gl}: it stays III and lets go only at the lift`);
+}
+bok(bn('bomb: at 30 fps, lifted at 650', 'tap') === 1 && !fired('bomb: at 30 fps, lifted at 650'), 'at 30 fps a lift at 650 ms that reaches the page at 720 is the tap its own time says');
+bok(bn('bomb: at 30 fps, held 750', 'bombEnd2@') === 1, 'at 30 fps 750 ms is a Bomb II');
+bok(bn('bomb: at 30 fps, held 1.35', 'bombEnd3@') === 1, 'at 30 fps 1.35 s is a Bomb III');
+bok(!fired('bomb: a 20 px slide before II') && bn('bomb: a 20 px slide before II', 'tap') === 0 && bn('bomb: a 20 px slide before II', 'bomb2') === 0, 'a 20 px slide before II never bombs, and is no tap');
+bok(fired('bomb: a 20 px slide after II') === 1, 'a 20 px slide after II keeps the Bomb');
+bok(!fired('bomb: a 40 px slide after II') && fizzled('bomb: a 40 px slide after II') === 1 && bn('bomb: a 40 px slide after II', 'tap') === 0, 'a 40 px slide after II fizzles, no splat');
+bok(bn('bomb: a landing under the bus', 'charge') === 0, 'a landing under the bus never charges');
+bok(bn('bomb: off the lane over the bus', 'charge') === 0 && bn('bomb: off the lane over the bus', 'aim@') === 1, 'over the bus, off the lane, it aims');
+bok(bn('bomb: an empty belly: no tier', 'charge') === 0 && bn('bomb: an empty belly: no tier', 'tap') === 1, 'an empty belly: no tier, and a lift at 0.5 s is a tap');
+for (const k of ['bomb: an empty belly, a 1.3 s', 'bomb: an empty belly, a 4 s']) bok(bn(k, 'charge') === 0 && bn(k, 'tap') === 0, `${k.slice(6)} rest: no tier and no tap, as a resting thumb`);
+bok(bat('bomb: the belly full at 500', 'bomb2@') >= 1170 && bat('bomb: the belly full at 500', 'bomb2@') <= 1190, `the clock starts with the belly: II at ${bat('bomb: the belly full at 500', 'bomb2@')} ms`);
+bok(fizzled('bomb: the belly gone mid-charge') === 1 && !fired('bomb: the belly gone mid-charge'), 'a belly gone mid-charge fizzles it');
+bok(fizzled("bomb: another thumb's tap") === 1 && bn("bomb: another thumb's tap", 'tap') === 1 && !fired("bomb: another thumb's tap"), "another thumb's tap: a fizzle, and that tap splats");
+bok(fired("bomb: another thumb's look") === 1 && (bby("bomb: another thumb's look").note as any).look, "another thumb's look doesn't stop it");
+bok(fired("bomb: another thumb's flick") === 1 && bn("bomb: another thumb's flick", 'flick+') === 1, "another thumb's flick shifts and doesn't stop it");
+bok(bn('bomb: two fingers landing together, lifted fast', 'tap') === 1 && bn('bomb: two fingers landing together, lifted fast', 'charge') === 0, 'two fingers tapped together: one splat');
+bok(!(bby('bomb: two fingers landing together: no charge').note as any).on, 'no charge while it could be one of a two-finger tap');
+bok(bn('bomb: a second thumb on the bus', 'charge') === 0, 'a second thumb on the bus never charges');
+for (const g of ['bomb: a lost touch', 'bomb: the page losing focus', 'bomb: a hand-over']) bok(fizzled(g) === 1 && !fired(g) && bn(g, 'tap') === 0, `${g}: a fizzle, no splat`);
+bok(fizzled('bomb: three fingers') === 1 && !fired('bomb: three fingers') && bn('bomb: three fingers', 'tap') === 2, 'three fingers on a charge: two taps, and the first fizzles it');
+bok(bn('bomb: a gift', 'bomb3@') === 1 && bn('bomb: a gift', 'bomb2') === 0 && bat('bomb: a gift', 'bomb3@') >= 420 && bat('bomb: a gift', 'bomb3@') <= 440 && bn('bomb: a gift', 'bombEnd3@') === 1, `a gift is III at ${bat('bomb: a gift', 'bomb3@')} ms`);
+bok(bat('bomb: a bank of 0.1', 'bomb2@') >= 550 && bat('bomb: a bank of 0.1', 'bomb2@') <= 570 && bat('bomb: a bank of 0.1', 'bomb3@') >= 1150 && bat('bomb: a bank of 0.1', 'bomb3@') <= 1170, `a bank of 0.1: II at ${bat('bomb: a bank of 0.1', 'bomb2@')}, III at ${bat('bomb: a bank of 0.1', 'bomb3@')} ms`);
+bok(bat('bomb: a bank of 1', 'bomb3@') >= 420 && bat('bomb: a bank of 1', 'bomb3@') <= 440, `a bank of 1: never before 0.35 s (III at ${bat('bomb: a bank of 1', 'bomb3@')} ms)`);
+bok(bn('bomb: off (no link)', 'charge') === 0 && bn('bomb: off (no link)', 'tap') === 0, 'without the link a still 1.3 s on the bus is what it was: nothing');
+bok(JSON.stringify(pOn.out) === JSON.stringify(pOff.out) && pOn.ev.some((e) => e.startsWith('bomb3')) && !pOff.ev.some((e) => e.startsWith('charge')), `the stick and the path are the same, charging or not (${pOn.out.length / 5} frames)`);
+writeFileSync(`${OUT}/gestures-bomb.json`, JSON.stringify({ box: BOX, rows: bombRows }, null, 1));
+for (const r of bombRows) console.log(`${r.mode.padEnd(8)} | ${r.gesture.padEnd(76)} | ${r.events.join(', ') || '-'}${r.thumb ? ' | steering' : ''}${r.note ? ` | ${JSON.stringify(r.note)}` : ''}`);
+console.log(bf.length ? `BOMB FAILED ${bf.length} of ${bchecks}:\n  ${bf.join('\n  ')}` : `bomb checks: all ${bchecks} passed (${bombRows.length} rows)`);
+process.exit(fails.length || bf.length ? 1 : 0);

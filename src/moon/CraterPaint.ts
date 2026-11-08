@@ -5,7 +5,7 @@ import { blastUniforms } from '../world/GroundPaint';
 import type { Flight } from '../game/Flight';
 import type { Shot } from '../game/Aim';
 import type { Blast, BarfOpts } from '../game/Splat';
-import type { BlastSpec } from '../game/blastLayout';
+import { layoutHue, type BlastSpec } from '../game/blastLayout';
 import { HUE_COUNT } from '../render/palette';
 import { FACTION_RAINBOW, ownerOf } from '../game/factions';
 import { craterById, cratersNear, mix32, type Age } from './craters';
@@ -571,7 +571,13 @@ export class CraterPaint {
     shot.y = y + 0.5;
     shot.exact = true;
     shot.drop = Math.max(0, f.y - y);
-    shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
+    // (a Comet keeps its flight and its arc, onto the crater: src/game/Comet.ts. Every other shot lobs, longer the farther it goes)
+    if (shot.comet) {
+      shot.comet.x = x;
+      shot.comet.y = y + 0.5;
+      shot.comet.z = z;
+      shot.comet.drop = shot.drop;
+    } else shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
     shot.crater = t;
   }
 
@@ -615,19 +621,22 @@ export class CraterPaint {
   impact(b: Blast): Target | null {
     const S = config.splat, t = (b.tag as Target | null) ?? null, now = b.t;
     this.hitName = t?.name ?? null;
-    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * 0.8;
+    const cx = b.spec.x, cz = b.spec.z, big = !!b.super, base = t ? t.r + (big ? b.spec.r * 0.9 : 40) : b.spec.r * (b.super?.inner ? 1 : 0.8);
     // the wave a crater's size: it crosses the bowl in half a second, whatever the bowl
     const R = (t && !big ? t.r * 1.25 + 30 : Math.max(b.spec.r, t?.r ?? 0)) * S.ringReach, v = Math.max(S.waveSpeed, R / 0.5);
     blastUniforms.uBlastRing2.value.set(b.spec.hue, S.ringWidth * Math.sqrt(Math.max(1, R / 100)), v, R);
     const hits: Array<{ i: number; d: number; ang: number }> = [];
     const D = this.data;
     const maxR = t ? Math.max(30, t.r * 1.4) : base;
+    const hole = b.super?.inner ?? 0;
     for (let i = 0; i < this.n; i++) {
       const o = i * CRATER_FLOATS, r = D[o + 2];
       if (r > maxR || r < 8) continue;
       const dx = D[o] - cx, dz = D[o + 1] - cz, d = Math.hypot(dx, dz);
       if (d - r > base) continue;
       if (t && Math.abs(D[o] - t.x) < 0.5 && Math.abs(D[o + 1] - t.z) < 0.5) continue;
+      // (&boom's ring, src/game/Boom.ts: a crater wholly in its hole is out of it)
+      if (hole > 0 && d + r < hole) continue;
       if (this.sites.length && this.inSite(D[o], D[o + 1])) continue;
       // (a firehose lands a dozen times a second: a crater goes up once a second at most)
       const was = this.listRec[i];
@@ -642,15 +651,18 @@ export class CraterPaint {
     if (!was) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     // (what it paints is its hitter's: the blast carries it)
     const faction = ownerOf(b.spec.faction);
+    // (a Bomb's jump, BarfOpts.jump: the crater it hit and each neighbour climb two or three levels at a blow, never past their tops, landing with the
+    // wave as one level does. Craters don't hop: that's the street's houses, src/world/pogo.ts)
+    const jump = b.jump > 1 ? b.jump : 1;
     if (t) {
-      this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
+      this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction, jump);
       // (a super's worth: two levels at a blow)
-      if (big) this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
+      if (big && jump === 1) this.paint(t, hue, now, cx - t.x, cz - t.z, 3, faction);
     } else if (!b.hose) this.stroke(b);
     for (let k = 0; k < hits.length; k++) {
       const { i, d } = hits[k], o = i * CRATER_FLOATS, I = i * CRATER_INTS;
       const c: Target = { id: `${this.ids[I]}.${this.ids[I + 1]}.${this.ids[I + 2]}.${this.ids[I + 3]}`, x: D[o], z: D[o + 1], r: D[o + 2], age: D[o + 3] as Age, a: D[o + 4], b: D[o + 5], c: D[o + 6], kind: 0, name: null, wob: null, turn: 0, rec: null };
-      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP, faction);
+      const rec = this.paint(c, this.listRec[i]?.hue ?? (hue + k + 1) % HUE_COUNT, now + d / v, 0, 0, NEIGHBOUR_TOP, faction, jump);
       this.listRec[i] = rec;
     }
     if (t) {
@@ -670,6 +682,19 @@ export class CraterPaint {
     const sp = b.spec;
     // (nothing stays on a crewed site, nor grows there)
     if (this.inSite(sp.x, sp.z)) return;
+    const hole = b.super?.inner ?? 0;
+    if (hole > 0) {
+      // (&boom's ring: eighteen strokes round its band, overlapping into an unbroken ring, each in the pinwheel's hue there as the near band has it, and
+      // none in its hole past 0.04 of the radius)
+      const m = (sp.r + hole) * 0.5, w = (sp.r - hole) * 0.66;
+      for (let k = 0; k < 18; k++) {
+        const a = (k / 18) * Math.PI * 2, dx = Math.cos(a) * m, dz = Math.sin(a) * m;
+        if (!this.inSite(sp.x + dx, sp.z + dz)) this.markStroke(sp.x + dx, sp.z + dz, w, layoutHue(sp, dx, dz), (sp.seed % 6283) / 1000 + k, b.t, ownerOf(sp.faction));
+      }
+      this.strokesDirty = true;
+      this.saveAt = 1;
+      return;
+    }
     this.markStroke(sp.x, sp.z, sp.r, sp.hue, (sp.seed % 6283) / 1000, b.t, ownerOf(sp.faction));
     this.strokesDirty = true;
     this.saveAt = 1;
@@ -683,8 +708,8 @@ export class CraterPaint {
     if (t0 > 0) this.live.push(rec);
   }
 
-  /** A crater goes up a level, or takes its first: either way it's the hitter's (faction), at its top too, as a house at level 3 is (Splatter.update). */
-  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3, faction = FACTION_RAINBOW): Rec {
+  /** A crater goes up a level (a Bomb's: `levels`), or takes its first: either way it's the hitter's (faction), at its top too, as a house at level 3 is (Splatter.update). */
+  private paint(c: Target, hue: number, t0: number, ix: number, iz: number, top = 3, faction = FACTION_RAINBOW, levels = 1): Rec {
     const key = keyOfId(c.id);
     let rec = this.recs.get(key);
     if (rec) {
@@ -697,7 +722,7 @@ export class CraterPaint {
         }
         return rec;
       }
-      rec.level = Math.min(top, rec.level + 1);
+      rec.level = Math.min(top, rec.level + levels);
       rec.faction = faction;
       rec.t0 = t0;
       rec.ix = ix;
@@ -709,7 +734,8 @@ export class CraterPaint {
         this.file(rec);
       }
     } else {
-      rec = { id: c.id, name: c.name, key, x: c.x, z: c.z, r: c.r, reach: reachOf(c.r, 1), kind: c.kind, a: c.a, b: c.b, c: c.c, level: 1, hue, t0, T: landTime(c.r), seed: (mix32(key) % 6283) / 1000, ix, iz, wob: c.wob, turn: c.turn, order: this.order++, faction };
+      const level = Math.max(1, Math.min(top, levels));
+      rec = { id: c.id, name: c.name, key, x: c.x, z: c.z, r: c.r, reach: reachOf(c.r, level), kind: c.kind, a: c.a, b: c.b, c: c.c, level, hue, t0, T: landTime(c.r), seed: (mix32(key) % 6283) / 1000, ix, iz, wob: c.wob, turn: c.turn, order: this.order++, faction };
       this.recs.set(key, rec);
       this.file(rec);
     }

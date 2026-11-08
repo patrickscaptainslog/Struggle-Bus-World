@@ -6,7 +6,8 @@ import { registerWarm } from '../../render/warmup';
 import { GLSL_MOON_CURVE, moonLow, moonOnly } from '../../sky/flag';
 import { DEPTH_FS, GLSL_PROPS, PartKit, propsTune, rng, tuneUniform, unitSphere } from './common';
 import { GLSL_LIFT, lifted, liftOn } from '../liftGlsl';
-import { liftUniforms } from '../buildingMaterial';
+import { liftUniforms, paintUniforms } from '../buildingMaterial';
+import { GLSL_POGO, pogoed, pogoOn, pogoUniforms } from '../pogo';
 
 // Rooftop sprouts: what painted buildings grow. Level 1 = flower tufts along
 // the roof edge, level 2 = a rooftop garden (turf, bushes, a little tree,
@@ -57,6 +58,8 @@ interface TypeDef {
   tune: 'sproutSway' | 'flagFlutter';
   /** initial instances per city cell (grows) */
   capacity: number;
+  /** where its small growth has shrunk away (x propsTune.sproutCull) and its far form takes over: about 2 game pixels, a head or a blossom, at 24 degrees (street only) */
+  core?: number;
 }
 
 // ---------------------------------------------------------------- geometry
@@ -65,8 +68,32 @@ let _octa0: THREE.BufferGeometry | null = null;
 const octa0 = () => (_octa0 ??= unitSphere('octa0'));
 const swayY = (h: number) => (_x: number, y: number) => Math.max(0, Math.min(1, y / h)) ** 2;
 
+/** A small-growth piece's part, as the vertices carry it: the part plus this (the shader takes it off) */
+const EXTRA = 16;
+
+/**
+ * A kit whose pieces made in x() are a garden's small growth: past its type's core reach they shrink away into their own middles, and the
+ * far form (userData.core: the triangles left, the same vertices) is drawn without them. The near form's triangles are the kit's as ever.
+ */
+class CoreKit extends PartKit {
+  private ex: Array<[number, number, number, number]> = [];
+  x(fn: () => void) {
+    const v0 = this.pos.length / 3, i0 = this.idx.length;
+    fn();
+    this.ex.push([v0, this.pos.length / 3, i0, this.idx.length]);
+  }
+  build(): THREE.BufferGeometry {
+    for (const [v0, v1] of this.ex) for (let v = v0; v < v1; v++) this.part[v] += EXTRA;
+    const g = super.build();
+    const core: number[] = [];
+    for (let i = 0; i < this.idx.length; i += 3) if (!this.ex.some(([, , a, b]) => i >= a && i < b)) core.push(this.idx[i], this.idx[i + 1], this.idx[i + 2]);
+    g.userData.core = core;
+    return g;
+  }
+}
+
 function tuftGeo(): THREE.BufferGeometry {
-  const k = new PartKit();
+  const k = new CoreKit();
   const s = swayY(0.85);
   k.blob(octa0(), 0, 0.2, 0, 0.64, 0.5, 0.64, Part.FOLIAGE, s);
   const heads: Array<[number, number, number, number, number]> = [
@@ -75,17 +102,18 @@ function tuftGeo(): THREE.BufferGeometry {
     [0.02, 0.62, -0.3, 0.28, Part.BLOSSOM],
     [0.04, 0.76, 0.04, 0.24, Part.BLOSSOM],
   ];
-  for (const [x, y, z, r, p] of heads) k.blob(octa0(), x, y, z, r, r, r, p, s);
+  // (the far form keeps its leaves and two heads, both its hues)
+  heads.forEach(([x, y, z, r, p], i) => (i === 1 || i === 3 ? k.blob(octa0(), x, y, z, r, r, r, p, s) : k.x(() => k.blob(octa0(), x, y, z, r, r, r, p, s))));
   return k.build();
 }
 
 function bushGeo(): THREE.BufferGeometry {
-  const k = new PartKit();
+  const k = new CoreKit();
   const s = swayY(1.7);
   k.blob(octa0(), 0, 0.72, 0, 1.0, 0.82, 1.0, Part.FOLIAGE, s);
   k.blob(octa0(), 0.8, 0.5, 0.3, 0.72, 0.6, 0.72, Part.FOLIAGE, s);
   k.blob(octa0(), -0.62, 0.55, -0.44, 0.74, 0.62, 0.74, Part.FOLIAGE, s);
-  k.blob(octa0(), -0.22, 0.45, 0.72, 0.62, 0.52, 0.62, Part.FOLIAGE, s);
+  k.x(() => k.blob(octa0(), -0.22, 0.45, 0.72, 0.62, 0.52, 0.62, Part.FOLIAGE, s));
   const b: Array<[number, number, number, number]> = [
     [0.45, 1.3, 0.2, Part.BLOSSOM],
     [-0.42, 1.24, -0.3, Part.BLOSSOM2],
@@ -94,16 +122,17 @@ function bushGeo(): THREE.BufferGeometry {
     [-0.72, 0.98, 0.32, Part.BLOSSOM2],
     [-0.2, 0.8, 1.05, Part.BLOSSOM],
   ];
-  for (const [x, y, z, p] of b) k.blob(octa0(), x, y, z, 0.24, 0.24, 0.24, p, s);
+  // (the far form: three clumps and two blossoms, both hues)
+  b.forEach(([x, y, z, p], i) => (i < 2 ? k.blob(octa0(), x, y, z, 0.24, 0.24, 0.24, p, s) : k.x(() => k.blob(octa0(), x, y, z, 0.24, 0.24, 0.24, p, s))));
   return k.build();
 }
 
 function treeGeo(): THREE.BufferGeometry {
-  const k = new PartKit();
+  const k = new CoreKit();
   const s = swayY(4.4);
   k.box(0, 1.3, 0, 0.42, 2.6, 0.42, Part.WOOD, s);
   k.blob(octa0(), 0, 3.05, 0, 1.45, 1.25, 1.45, Part.FOLIAGE, s);
-  k.blob(octa0(), 0.85, 2.72, 0.35, 1.02, 0.9, 1.02, Part.FOLIAGE, s);
+  k.x(() => k.blob(octa0(), 0.85, 2.72, 0.35, 1.02, 0.9, 1.02, Part.FOLIAGE, s));
   k.blob(octa0(), -0.7, 3.32, -0.48, 1.06, 0.95, 1.06, Part.FOLIAGE, s);
   k.blob(octa0(), 0.12, 3.98, 0.1, 0.92, 0.82, 0.92, Part.FOLIAGE, s);
   const b: Array<[number, number, number, number]> = [
@@ -114,19 +143,23 @@ function treeGeo(): THREE.BufferGeometry {
     [-0.5, 2.6, 1.1, Part.BLOSSOM2],
     [0.0, 3.2, -1.35, Part.BLOSSOM],
   ];
-  for (const [x, y, z, p] of b) k.blob(octa0(), x, y, z, 0.26, 0.26, 0.26, p, s);
+  // (the far form: the trunk, three clumps and two blossoms, both hues)
+  b.forEach(([x, y, z, p], i) => (i < 2 ? k.blob(octa0(), x, y, z, 0.26, 0.26, 0.26, p, s) : k.x(() => k.blob(octa0(), x, y, z, 0.26, 0.26, 0.26, p, s))));
   return k.build();
 }
 
 function planterGeo(): THREE.BufferGeometry {
-  const k = new PartKit();
+  const k = new CoreKit();
   const s = (_x: number, y: number) => (y > 0.5 ? 0.6 : 0);
   k.box(0, 0.27, 0, 2.4, 0.56, 0.72, Part.BODY2, () => 0);
   k.box(0, 0.58, 0, 2.5, 0.08, 0.8, Part.WHITE, () => 0);
   k.blob(octa0(), 0, 0.68, 0, 1.15, 0.26, 0.33, Part.FOLIAGE, s);
+  // (the far form: the box, its leaves and two flowers, both hues)
   for (let i = 0; i < 6; i++) {
     const x = -0.95 + i * 0.38;
-    k.blob(octa0(), x, 0.84 + (i % 2) * 0.06, (i % 2 ? -0.1 : 0.12), 0.22, 0.22, 0.22, i % 2 ? Part.BLOSSOM2 : Part.BLOSSOM, s);
+    const put = () => k.blob(octa0(), x, 0.84 + (i % 2) * 0.06, (i % 2 ? -0.1 : 0.12), 0.22, 0.22, 0.22, i % 2 ? Part.BLOSSOM2 : Part.BLOSSOM, s);
+    if (i === 2 || i === 3) put();
+    else k.x(put);
   }
   return k.build();
 }
@@ -221,10 +254,10 @@ function crystalGeo(): THREE.BufferGeometry {
 }
 
 const TYPES: TypeDef[] = [
-  { geo: tuftGeo, cast: false, freq: 1.9, dir: [1, 0.6], cull: 0.45, tune: 'sproutSway', capacity: 256 },
-  { geo: bushGeo, cast: true, freq: 1.3, dir: [1, 0.6], cull: 0.75, tune: 'sproutSway', capacity: 64 },
-  { geo: treeGeo, cast: true, freq: 1.05, dir: [1, 0.6], cull: 1.0, tune: 'sproutSway', capacity: 32 },
-  { geo: planterGeo, cast: false, freq: 1.7, dir: [0.3, 1], cull: 0.45, tune: 'sproutSway', capacity: 32 },
+  { geo: tuftGeo, cast: false, freq: 1.9, dir: [1, 0.6], cull: 0.45, tune: 'sproutSway', capacity: 256, core: 0.25 },
+  { geo: bushGeo, cast: true, freq: 1.3, dir: [1, 0.6], cull: 0.75, tune: 'sproutSway', capacity: 64, core: 0.3 },
+  { geo: treeGeo, cast: true, freq: 1.05, dir: [1, 0.6], cull: 1.0, tune: 'sproutSway', capacity: 32, core: 0.35 },
+  { geo: planterGeo, cast: false, freq: 1.7, dir: [0.3, 1], cull: 0.45, tune: 'sproutSway', capacity: 32, core: 0.25 },
   { geo: domeGeo, cast: true, freq: 0.8, dir: [1, 0.7], cull: 1.6, tune: 'sproutSway', capacity: 16 },
   { geo: spireGeo, cast: true, freq: 0.9, dir: [1, 0.7], cull: 1.6, tune: 'sproutSway', capacity: 32 },
   { geo: flagGeo, cast: false, doubleSide: true, freq: 4.6, dir: [0.25, 1], cull: 0.5, tune: 'flagFlutter', capacity: 128 },
@@ -235,15 +268,20 @@ const TYPES: TypeDef[] = [
 // ---------------------------------------------------------------- shaders
 
 const SPROUT_VERTEX = /* glsl */ `${lifted(`
-${GLSL_LIFT}
-in vec2 aLiftB;  // ?lift: the building it grows on, and its roof over that building's ground (-1: none)`)}
+${GLSL_LIFT}`)}${liftOn || pogoOn ? `
+in vec2 aLiftB;  // ?lift and &bomb: the building it grows on, and its roof over that building's ground (-1: none)` : ''}${pogoed(`${GLSL_POGO}
+uniform sampler2D uPaint;
+uniform float uPaintW;`)}
 in float aPart;
 in float aSway;
 in vec4 aBlobC;
 in vec3 aBlobR;
 uniform vec4 uKind;    // freq, dirX, dirZ, cull distance factor (0 = never cull)
 uniform float uAmpMul;
-uniform float uCull;${moonOnly(`
+uniform float uCull;${moonLow ? '' : `
+uniform vec3 uEye;     // the view's lens, both passes: a garden's shadow goes as it does (RoofSprouts.update)
+uniform float uReach;  // the budget's hold on every reach (1: as tuned)
+uniform float uCore;   // where the small growth has shrunk away (x uCull; 0: none), and the far form takes over`}${moonOnly(`
 uniform vec2 uSlide;   // the map's slides so far: a plant's sway is where it stands, not where the map's middle is`)}
 struct SproutV { vec4 world; vec3 normal; vec3 local; vec3 blobC; vec3 blobR; float hue; float seed; float part; bool hidden; };
 SproutV sproutVertex() {
@@ -255,18 +293,37 @@ SproutV sproutVertex() {
   #endif
   o.hue = floor(ic.x);
   o.seed = clamp(fract(ic.x) / 0.9, 0.0, 1.0);
-  o.part = aPart;
+  // (a small-growth piece carries its part plus ${EXTRA}: CoreKit)
+  bool extra = aPart > ${EXTRA - 0.5};
+  o.part = extra ? aPart - ${EXTRA}.0 : aPart;
   o.normal = normal;
   float t = uTime - ic.z;
   vec3 ipos = instanceMatrix[3].xyz;
-  o.hidden = t <= 0.0 || (uKind.w > 0.0 && distance(cameraPosition, ipos) > uCull * uKind.w${moonOnly(' * max(1.0, length(instanceMatrix[1].xyz))')});
+${
+    moonLow
+      ? `o.hidden = t <= 0.0 || (uKind.w > 0.0 && distance(cameraPosition, ipos) > uCull * uKind.w * max(1.0, length(instanceMatrix[1].xyz)));`
+      : `// (out at its reach it has shrunk away, over the last fifth: nothing pops at the edge, and past it the CPU stops drawing it)
+  float fade = 1.0, fx = 1.0;
+  if (uKind.w > 0.0) {
+    float R = uCull * uKind.w * uReach, dd = distance(uEye, ipos);
+    fade = 1.0 - smoothstep(R * 0.8, R, dd);
+    if (extra && uCore > 0.0) {
+      float Rc = uCull * uCore * uReach;
+      fx = 1.0 - smoothstep(Rc * 0.8, Rc, dd);
+    }
+  }
+  o.hidden = t <= 0.0 || fade <= 0.0;`
+  }
   if (!o.hidden) {
   // spring up out of the roof: grow with overshoot, stretch while growing, squash on landing
-  float g = propGrow(t);
+  float g = propGrow(t);${moonLow ? '' : `
+  if (fade < 1.0) g *= fade;`}
   float st = 0.34 * exp(-5.0 * t) * sin(11.0 * t);
   vec3 sc = vec3(g * (1.0 - 0.5 * st), g * (1.0 + st), g * (1.0 - 0.5 * st));
   vec3 p = position * sc;
-  vec3 c = aBlobC.xyz * sc;
+  vec3 c = aBlobC.xyz * sc;${moonLow ? '' : `
+  // (a small-growth piece shrinks into its own middle, and is gone before the far form takes over)
+  if (fx < 1.0) p = c + (p - c) * fx;`}
   // painted things move: gentle sway (plants), flutter (bunting), wobble (domes)
   float ph = dot(ipos.xz${moonOnly(' + uSlide')}, vec2(0.11, 0.07)) + o.seed * 6.283;
   float a = ic.y * uAmpMul * smoothstep(0.15, 0.9, t);
@@ -275,7 +332,7 @@ SproutV sproutVertex() {
   c += sw * aBlobC.w;
   o.local = p;
   o.blobC = c;
-  o.blobR = aBlobR * sc;
+  o.blobR = aBlobR * sc${moonLow ? '' : ' * fx'};
   o.world = modelMatrix * (instanceMatrix * vec4(p, 1.0));${lifted(`
   // (a garden rides its floating house: the house's lift, its stretch at the roof's height, and its lean about its belly's middle)
   if (aLiftB.x >= 0.0) {
@@ -284,6 +341,13 @@ SproutV sproutVertex() {
     o.world.y += lf.x + aLiftB.y * lf.y;
     vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
     o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
+  }`)}${pogoed(`
+  // (&bomb: a Bomb's stage hops its house, world/pogo.ts, and the garden rides the hop. Its paint is read only in the Bomb's circle while its pops last, not by
+  // every garden every frame)
+  if (aLiftB.x >= 0.0 && uBombPogo.w > 0.0 && uTime <= uBombPogoT.x + uBombPogoT.y + 0.05 && distance(ipos.xz, uBombPogo.xy) <= uBombPogo.z) {
+    vec4 pt = texelFetch(uPaint, ivec2(int(mod(aLiftB.x, uPaintW)), int(floor(aLiftB.x / uPaintW))), 0);
+    float tr;
+    if (pt.g > 0.5 && uTime >= pt.b) o.world.y += sbPogo(ipos.xz, pt.b, aLiftB.y, uTime - pt.b, tr);
   }`)}
   }
   return o;
@@ -423,16 +487,30 @@ void main() {
 
 // ---------------------------------------------------------------- batches
 
-const ZERO16 = new Float32Array(16);
+/** Who holds a batch's slots: `at[k]` is the slot of its element k (-1: not drawn). A slot moves when another goes, and its holder is told. */
+interface Holder {
+  at: Int32Array;
+}
 
+/** One element's instance data, packed: its matrix (16), its colour (hue + seed, sway, start) and, ?lift, its building and roof height (2). */
+const STRIDE = 21;
+const _tmp = new Float32Array(STRIDE);
+
+/**
+ * One element type's instances in one city cell, kept dense: what's drawn is slots 0 to `live`, so an element that goes takes its triangles
+ * with it (a hole drew its zeroed instance, and an element the shader hid still cost its triangles in the vertex stage). The sun pass draws
+ * the first `sun` of them, the ones whose shadow can land in the sun's window: the rest are drawn in the view only.
+ */
 class Batch {
   mesh: THREE.InstancedMesh;
   caster: THREE.InstancedMesh | null = null;
   capacity: number;
-  hwm = 0;
   /** slots in use: none, and it draws nothing */
   live = 0;
-  private free: number[] = [];
+  /** of them, the first this many cast (a caster type only) */
+  sun = 0;
+  private owner: Array<Holder | null>;
+  private ownerK: Int32Array;
   /** ?lift: each slot's building and roof height over its ground (aLiftB), on a geometry of this batch's own that shares the type's buffers. Null with the flag off */
   lift: THREE.InstancedBufferAttribute | null = null;
   private liftGeo: THREE.BufferGeometry | null = null;
@@ -446,12 +524,15 @@ class Batch {
     readonly sphere: THREE.Sphere,
   ) {
     this.capacity = capacity;
+    this.owner = new Array(capacity).fill(null);
+    this.ownerK = new Int32Array(capacity);
     this.mesh = this.makeMesh(capacity, null, null);
   }
 
   private makeMesh(cap: number, oldM: Float32Array | null, oldC: Float32Array | null): THREE.InstancedMesh {
     let geo = this.geo;
-    if (liftOn) {
+    // (the building each garden grows on: the Lift's, and the Bomb's pogo, which it rides)
+    if (liftOn || pogoOn) {
       // (a per-instance attribute lives on the geometry, and the type's geometry is every cell's: this batch's own shares its buffers, never disposed
       // as it would take them with it)
       const old = this.lift?.array as Float32Array | undefined;
@@ -479,17 +560,17 @@ class Batch {
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(c, 3);
     mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-    mesh.count = this.hwm;
+    mesh.count = this.live;
     mesh.boundingSphere = this.sphere; // one city cell: frustum culled as a whole
-    mesh.visible = this.hwm > 0; // no empty draws
+    mesh.visible = this.live > 0; // no empty draws
     this.group.add(mesh);
     if (this.depth) {
       const cs = new THREE.InstancedMesh(geo, this.depth, 0);
       cs.instanceMatrix = mesh.instanceMatrix;
       cs.instanceColor = mesh.instanceColor;
-      cs.count = this.hwm;
+      cs.count = this.sun;
       cs.boundingSphere = this.sphere;
-      cs.visible = this.hwm > 0;
+      cs.visible = this.sun > 0;
       cs.layers.set(SHADOW_LAYER);
       this.group.add(cs);
       this.caster = cs;
@@ -501,6 +582,12 @@ class Batch {
     const old = this.mesh;
     const oldCaster = this.caster;
     this.capacity *= 2;
+    const owner: Array<Holder | null> = new Array(this.capacity).fill(null);
+    for (let i = 0; i < this.live; i++) owner[i] = this.owner[i];
+    this.owner = owner;
+    const k = new Int32Array(this.capacity);
+    k.set(this.ownerK);
+    this.ownerK = k;
     this.mesh = this.makeMesh(this.capacity, old.instanceMatrix.array as Float32Array, old.instanceColor!.array as Float32Array);
     old.removeFromParent();
     old.dispose();
@@ -510,65 +597,122 @@ class Batch {
     }
   }
 
-  alloc(): number {
-    this.live++;
-    if (this.free.length) return this.free.pop()!;
-    if (this.hwm >= this.capacity) this.grow();
-    const s = this.hwm++;
-    this.mesh.count = this.hwm;
-    this.mesh.visible = true;
+  private counts() {
+    this.mesh.count = this.live;
+    this.mesh.visible = this.live > 0;
     if (this.caster) {
-      this.caster.count = this.hwm;
-      this.caster.visible = true;
+      this.caster.count = this.sun;
+      this.caster.visible = this.sun > 0;
     }
+  }
+
+  private touch(s: number) {
+    const im = this.mesh.instanceMatrix;
+    im.addUpdateRange(s * 16, 16);
+    im.needsUpdate = true;
+    const ic = this.mesh.instanceColor!;
+    ic.addUpdateRange(s * 3, 3);
+    ic.needsUpdate = true;
+    if (this.lift) {
+      this.lift.addUpdateRange(s * 2, 2);
+      this.lift.needsUpdate = true;
+    }
+  }
+
+  /** Slot `from`'s instance goes to `to`, and its holder is told. */
+  private move(from: number, to: number) {
+    if (from === to) return;
+    (this.mesh.instanceMatrix.array as Float32Array).copyWithin(to * 16, from * 16, from * 16 + 16);
+    (this.mesh.instanceColor!.array as Float32Array).copyWithin(to * 3, from * 3, from * 3 + 3);
+    if (this.lift) (this.lift.array as Float32Array).copyWithin(to * 2, from * 2, from * 2 + 2);
+    const h = this.owner[from], k = this.ownerK[from];
+    this.owner[to] = h;
+    this.ownerK[to] = k;
+    if (h) h.at[k] = to;
+    this.owner[from] = null;
+    this.touch(to);
+  }
+
+  /** A slot's whole instance, packed as a record. */
+  read(s: number, out: Float32Array, o = 0) {
+    out.set((this.mesh.instanceMatrix.array as Float32Array).subarray(s * 16, s * 16 + 16), o);
+    out.set((this.mesh.instanceColor!.array as Float32Array).subarray(s * 3, s * 3 + 3), o + 16);
+    if (this.lift) out.set((this.lift.array as Float32Array).subarray(s * 2, s * 2 + 2), o + 19);
+    else out.fill(-1, o + 19, o + 21);
+  }
+
+  private swap(a: number, b: number) {
+    if (a === b) return;
+    const h = this.owner[a], k = this.ownerK[a];
+    this.read(a, _tmp);
+    this.move(b, a);
+    this.owner[b] = h;
+    this.ownerK[b] = k;
+    if (h) h.at[k] = b;
+    this.put(b, _tmp, 0);
+  }
+
+  /** A slot for element `k` of `h`, casting when `sun` (a caster type only): the end of the drawn ones, or of the casting ones. */
+  alloc(h: Holder, k: number, sun = true): number {
+    if (this.live >= this.capacity) this.grow();
+    let s = this.live++;
+    if (this.caster && sun) {
+      // (the first that doesn't cast steps to the end: its place is the casting ones' new last)
+      this.move(this.sun, s);
+      s = this.sun++;
+    }
+    this.owner[s] = h;
+    this.ownerK[s] = k;
+    h.at[k] = s;
+    this.counts();
     return s;
   }
 
+  /** Slot `s` goes: the casting ones' last and then the drawn ones' last fill it, so both stay whole. */
+  release(s: number) {
+    const h = this.owner[s];
+    if (h) h.at[this.ownerK[s]] = -1;
+    this.owner[s] = null;
+    if (this.caster && s < this.sun) {
+      const ls = --this.sun;
+      this.move(ls, s);
+      s = ls;
+    }
+    this.move(--this.live, s);
+    this.owner[this.live] = null;
+    this.counts();
+  }
+
+  /** Slot `s` casts, or stops (a caster type only): it crosses into the casting ones, or out of them. */
+  setSun(s: number, on: boolean) {
+    if (!this.caster) return;
+    if (on && s >= this.sun) this.swap(s, this.sun++);
+    else if (!on && s < this.sun) this.swap(s, --this.sun);
+    else return;
+    this.counts();
+  }
+
+  /** Its holder's element `k` is now the one in slot `s` (a holder renumbered its elements). */
+  rekey(s: number, k: number) {
+    this.ownerK[s] = k;
+  }
+
   write(slot: number, m: THREE.Matrix4, hue: number, seed: number, amp: number, start: number) {
-    const im = this.mesh.instanceMatrix;
-    (im.array as Float32Array).set(m.elements, slot * 16);
-    im.addUpdateRange(slot * 16, 16);
-    im.needsUpdate = true;
-    const ic = this.mesh.instanceColor!;
-    const c = ic.array as Float32Array;
+    (this.mesh.instanceMatrix.array as Float32Array).set(m.elements, slot * 16);
+    const c = this.mesh.instanceColor!.array as Float32Array;
     c[slot * 3] = hue + 0.9 * seed;
     c[slot * 3 + 1] = amp;
     c[slot * 3 + 2] = start;
-    ic.addUpdateRange(slot * 3, 3);
-    ic.needsUpdate = true;
+    if (this.lift) (this.lift.array as Float32Array).fill(-1, slot * 2, slot * 2 + 1);
+    this.touch(slot);
   }
 
-  /** ?lift: the slot grows on building `index`, its roof `h` m over that building's ground (-1: on no building). */
-  setLift(slot: number, index: number, h: number) {
-    const a = this.lift;
-    if (!a) return;
-    (a.array as Float32Array)[slot * 2] = index;
-    (a.array as Float32Array)[slot * 2 + 1] = h;
-    a.addUpdateRange(slot * 2, 2);
-    a.needsUpdate = true;
-  }
-
-  release(slot: number) {
-    this.setLift(slot, -1, 0);
-    const im = this.mesh.instanceMatrix;
-    (im.array as Float32Array).set(ZERO16, slot * 16);
-    im.addUpdateRange(slot * 16, 16);
-    im.needsUpdate = true;
-    const ic = this.mesh.instanceColor!;
-    (ic.array as Float32Array)[slot * 3 + 2] = 1e9;
-    ic.addUpdateRange(slot * 3, 3);
-    ic.needsUpdate = true;
-    this.free.push(slot);
-    // (the last gone, as a slide takes a cell's sprouts to the cells they're in now: it draws nothing, where it drew its zeroed instances. The first review's minor)
-    if (--this.live > 0) return;
-    this.hwm = 0;
-    this.free.length = 0;
-    this.mesh.count = 0;
-    this.mesh.visible = false;
-    if (this.caster) {
-      this.caster.count = 0;
-      this.caster.visible = false;
-    }
+  /** A slot's whole instance from a packed record (STRIDE floats at `o`). */
+  put(slot: number, d: Float32Array, o: number) {
+    (this.mesh.instanceMatrix.array as Float32Array).set(d.subarray(o, o + 16), slot * 16);
+    (this.mesh.instanceColor!.array as Float32Array).set(d.subarray(o + 16, o + 19), slot * 3);
+    if (this.lift) (this.lift.array as Float32Array).set(d.subarray(o + 19, o + 21), slot * 2);
+    this.touch(slot);
   }
 
   dispose() {
@@ -618,6 +762,8 @@ export interface RoofRect {
   w: number;
   d: number;
   yaw: number;
+  /** its building's ground (world y): a low sun throws its garden's shadow from the roof down to it */
+  foot?: number;
 }
 
 const AMP: Record<T, number> = {
@@ -820,12 +966,34 @@ function layoutRoof(seed: number, roof: RoofRect, hue: number): Elem[] {
 
 // ---------------------------------------------------------------- RoofSprouts
 
-interface Rec {
+interface Rec extends Holder {
   level: number;
   hue: number;
   times: [number, number, number];
-  slots: number[]; // type, slot pairs
   cell: number;
+  /** its elements, the farthest-reaching first (so what's drawn is always the first `drawn`): each one's type, and its packed instance (STRIDE floats) */
+  type: Uint8Array;
+  data: Float32Array;
+  /** of them, the first this many are in the batches */
+  drawn: number;
+  /** its casters are in the sun pass */
+  sun: boolean;
+  /** the element types drawn in their far form (bits by type), and this frame's want */
+  cm: number;
+  wantCm: number;
+  /** the garden's bounds: its middle (world), its radius and how high it stands over the roof (m) */
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  top: number;
+  /** this frame's want (RoofSprouts.update) */
+  want: number;
+  far: number;
+  /** ?lift: its house has leapt, and its bounds stand LIFT_TALL taller (makeTall) */
+  tall: boolean;
+  /** how high its roof stands over its ground (m): its shadow can fall that much farther, to the street */
+  fall: number;
 }
 
 /** One element of a garden laid out by hand: where it stands (world), its turn, size and hue; when it springs up (game clock). */
@@ -849,12 +1017,21 @@ const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
+const _vp = new THREE.Matrix4();
+const _frustum = new THREE.Frustum();
 
 interface TypeRes {
   geo: THREE.BufferGeometry;
   mat: THREE.ShaderMaterial;
   depth: THREE.ShaderMaterial | null;
   capacity: number;
+  /** triangles per instance, and its reach (x propsTune.sproutCull) */
+  tris: number;
+  cull: number;
+  /** its far form (the near one's vertices, fewer triangles), their count, and where it takes over (x propsTune.sproutCull; 0: none) */
+  coreGeo: THREE.BufferGeometry | null;
+  coreTris: number;
+  core: number;
 }
 
 /** Sprouts are bucketed into city cells so off-screen gardens are frustum culled. */
@@ -863,16 +1040,73 @@ const CELL = 768;
 const CELL_TALL = 220;
 const CELL_TALL_PLACED = 1000;
 
+/**
+ * The gardens' budget (docs/specs/gardens/BUDGET.md). Every frame each garden is drawn as far as the view can see it and no farther: an
+ * element its reach has shrunk away, or a garden whose body and shadow are both out of the view, isn't in the batches at all; a caster whose
+ * shadow can't land in the sun's window draws in the view only. Nothing changes on the screen for it: the shader shrinks an element over
+ * the last fifth of its reach before it goes, and one comes back already shrunk. Over `tris` (both passes) every reach is held in a little,
+ * the farthest going first, until it's under.
+ */
+export const GARDEN_BUDGET = {
+  /** triangles, the view's and the sun's: the floor's 1.5 M, less the city's own ~0.85 M and some room */
+  tris: 450_000,
+  /** the least the reaches are held to (of what's tuned) */
+  hold: 0.35,
+  /** (m) a reach's hysteresis, and the view's slack past its edges (of the distance, and metres): the lens is this frame's, so only a frame's
+   * moves running out on a look behind need it */
+  hyst: 12,
+  slack: 0.03,
+  slackM: 4,
+  /** elements in per frame at most, and out: each its own, so what goes never holds up what comes (a look behind adds the nearest first) */
+  moves: 12000,
+  outs: 6000,
+  /** the hold lets out (half a hundredth a frame) when what this much more reach would add still fits, and not for this many frames after it held in */
+  probe: 1.01,
+  calm: 30,
+};
+/** a lifted house's garden rides up to ~125 m over its roof (LIFT.md's highest rest and its heave): its bounds stand that tall, from its leap
+ * on (shed()). One on its ground only crouches (0.35 m): its bounds are a roof's, so ?lift draws no more than the street does */
+const LIFT_TALL = 130;
+/** A garden's bounds made tall: its middle up half of LIFT_TALL, and its radius over the same roof that much taller. */
+function makeTall(rec: Rec) {
+  if (rec.tall) return;
+  const flat = Math.max(0, (2 * (rec.r - 1)) ** 2 - rec.top ** 2);
+  rec.y += LIFT_TALL / 2;
+  rec.r = 0.5 * Math.sqrt(flat + (rec.top + LIFT_TALL) ** 2) + 1;
+  rec.tall = true;
+}
+
 export class RoofSprouts {
   readonly object: THREE.Object3D;
   private readonly types: TypeRes[];
   private readonly cells = new Map<number, Batch[]>();
   private readonly recs = new Map<number, Rec>();
   private readonly maxBuildings: number;
-  /** gardens laid out by hand: the batch and slot of each element */
-  private readonly placed = new Map<number, Array<[Batch, number]>>();
+  /** gardens laid out by hand: the batch of each element, and its slot */
+  private readonly placed = new Map<number, { h: Holder; b: Batch[] }>();
   /** top of each element type's template geometry (m at scale 1): what the flight must clear */
   private readonly typeTop: number[] = [];
+  /** the view's lens (both passes read it: an element's shadow shrinks as it does) and the budget's hold on the reaches */
+  private readonly uEye = { value: new THREE.Vector3() };
+  private readonly uReach = { value: 1 };
+  /** the street: drawn by the budget. The Moon draws every element, as before */
+  private readonly lod = !moonLow;
+  /** a lens has been seen (before the first, every garden is drawn whole) */
+  private seen = false;
+  private readonly last = { tris: 0, sunTris: 0, moved: 0, outed: 0, elements: 0, pending: 0, grow: 0 };
+  // (update()'s own, kept from frame to frame: the gardens coming in, going and changing their sun; what more reach would add; the hold's rest)
+  private readonly ins: Rec[] = [];
+  private readonly outs: Rec[] = [];
+  private readonly suns: Rec[] = [];
+  private grow = 0;
+  private probe = false;
+  private calm = 0;
+  /** QA: the budget (tools/gardens/budget.mjs sets it) */
+  readonly budget = GARDEN_BUDGET;
+  private readonly coreAt: number[] = [];
+  private readonly batchTris: number[] = [];
+  /** the types that have a far form */
+  private readonly coreTypes: number[] = [];
 
   constructor(maxBuildings = 4096, private readonly cell = CELL) {
     this.maxBuildings = Math.max(1, maxBuildings);
@@ -886,13 +1120,16 @@ export class RoofSprouts {
       if (!geo.boundingBox) geo.computeBoundingBox();
       this.typeTop.push(geo.boundingBox ? geo.boundingBox.max.y : 1);
       const kind = new THREE.Vector4(def.freq, def.dir[0], def.dir[1], def.cull);
+      const reach = { uEye: this.uEye, uReach: this.uReach, uCore: { value: moonLow ? 0 : (def.core ?? 0) } };
       const uniforms: Record<string, THREE.IUniform> = {
         ...globals,
         uKind: { value: kind },
         uAmpMul: tuneUniform(def.tune),
         uCull: tuneUniform('sproutCull'),
         uLeafEdge: tuneUniform('treeLump'),
+        ...reach,
         ...(liftUniforms ?? {}),
+        ...(pogoUniforms ? { uPaint: paintUniforms.uPaint, uPaintW: paintUniforms.uPaintW, ...pogoUniforms } : {}),
       };
       const mat = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3,
@@ -903,24 +1140,46 @@ export class RoofSprouts {
       });
       let depth: THREE.ShaderMaterial | null = null;
       if (def.cast) {
-        // (no distance cull in the sun pass: its camera is far away by design)
+        // (the sun pass shrinks an element by its distance from the view's lens, as the view does: its shadow goes with it. The Moon's never
+        // culls in the sun pass, whose camera is far away by design)
         noCull.set(def.freq, def.dir[0], def.dir[1], 0);
         depth = new THREE.ShaderMaterial({
           glslVersion: THREE.GLSL3,
-          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: { value: noCull.clone() }, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull, ...(liftUniforms ?? {}) },
+          uniforms: { uTime: globals.uTime, uSlide: globals.uSlide, uKind: moonLow ? { value: noCull.clone() } : uniforms.uKind, uAmpMul: uniforms.uAmpMul, uCull: uniforms.uCull, ...reach, ...(liftUniforms ?? {}), ...(pogoUniforms ? { uPaint: paintUniforms.uPaint, uPaintW: paintUniforms.uPaintW, ...pogoUniforms } : {}) },
           vertexShader: SPROUT_DEPTH_VS,
           fragmentShader: DEPTH_FS,
         });
         depth.allowOverride = false;
       }
-      return { geo, mat, depth, capacity: def.capacity };
+      const tris = (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
+      // the far form: the same vertices (so the same programs), the small growth's triangles left out
+      let coreGeo: THREE.BufferGeometry | null = null;
+      if (!moonLow && def.core && geo.userData.core) {
+        coreGeo = new THREE.BufferGeometry();
+        for (const k in geo.attributes) coreGeo.setAttribute(k, geo.attributes[k]);
+        coreGeo.setIndex(geo.userData.core as number[]);
+        coreGeo.boundingBox = geo.boundingBox;
+        coreGeo.boundingSphere = geo.boundingSphere;
+      }
+      return { geo, mat, depth, capacity: def.capacity, tris, cull: def.cull, coreGeo, coreTris: coreGeo ? coreGeo.index!.count / 3 : 0, core: coreGeo ? def.core! : 0 };
     });
+    // a cell's batches: every type's, then the far forms' (coreAt: a type's far form's place in them, -1 none)
+    let nb = this.types.length;
+    this.types.forEach((t, i) => {
+      this.coreAt.push(t.coreGeo ? nb++ : -1);
+      this.batchTris.push(t.tris);
+      if (t.coreGeo) this.coreTypes.push(i);
+    });
+    for (const t of this.types) if (t.coreGeo) this.batchTris.push(t.coreTris);
     // shader warm-up (render/warmup.ts): every element type's batch and its sun-pass twin, made by
     // the same code as a garden's (gardens only grow in flight, at the first escalation)
     registerWarm('roof sprouts', () => {
       const g = new THREE.Group();
       const sphere = new THREE.Sphere();
-      for (const t of this.types) new Batch(t.geo, t.mat, t.depth, 1, g, sphere);
+      for (const t of this.types) {
+        new Batch(t.geo, t.mat, t.depth, 1, g, sphere);
+        if (t.coreGeo) new Batch(t.coreGeo, t.mat, t.depth, 1, g, sphere);
+      }
       return g;
     });
   }
@@ -932,6 +1191,7 @@ export class RoofSprouts {
       const sphere = new THREE.Sphere(new THREE.Vector3((cx + 0.5) * S, y ?? 120, (cz + 0.5) * S), S * 0.71 + (y === undefined ? CELL_TALL : CELL_TALL_PLACED));
       const group = this.object as THREE.Group;
       b = this.types.map((t) => new Batch(t.geo, t.mat, t.depth, t.capacity, group, sphere));
+      for (const t of this.types) if (t.coreGeo) b.push(new Batch(t.coreGeo, t.mat, t.depth, t.capacity, group, sphere));
       this.cells.set(key, b);
     }
     return b;
@@ -950,24 +1210,35 @@ export class RoofSprouts {
     const rec = this.recs.get(buildingIndex);
     const cell = rec ? this.cells.get(rec.cell) : undefined;
     if (!rec || !cell) return 0;
-    let n = 0;
-    const keep: number[] = [];
-    for (let i = 0; i < rec.slots.length; i += 2) {
-      const type = rec.slots[i], slot = rec.slots[i + 1];
-      if (type > T.PLANTER) {
-        keep.push(type, slot);
+    // (it rides up from now: its bounds stand tall)
+    makeTall(rec);
+    let n = 0, kept = 0, drawn = 0;
+    const N = rec.type.length;
+    const type = new Uint8Array(N), data = new Float32Array(N * STRIDE), at = new Int32Array(N);
+    for (let k = 0; k < N; k++) {
+      const t = rec.type[k], s = rec.at[k];
+      if (t > T.PLANTER) {
+        type[kept] = t;
+        data.set(rec.data.subarray(k * STRIDE, (k + 1) * STRIDE), kept * STRIDE);
+        at[kept] = s;
+        if (s >= 0) {
+          this.batchOf(cell, rec, t).rekey(s, kept);
+          drawn++;
+        }
+        kept++;
         continue;
       }
-      const b = cell[type];
       if (out && n < out.length / 2) {
-        const m = b.mesh.instanceMatrix.array as Float32Array;
-        out[n * 2] = m[slot * 16 + 12];
-        out[n * 2 + 1] = m[slot * 16 + 14];
+        out[n * 2] = rec.data[k * STRIDE + 12];
+        out[n * 2 + 1] = rec.data[k * STRIDE + 14];
         n++;
       }
-      b.release(slot);
+      if (s >= 0) this.batchOf(cell, rec, t).release(s);
     }
-    rec.slots = keep;
+    rec.type = type.slice(0, kept);
+    rec.data = data.slice(0, kept * STRIDE);
+    rec.at = at.slice(0, kept);
+    rec.drawn = drawn;
     return n;
   }
 
@@ -1002,13 +1273,14 @@ export class RoofSprouts {
     const ccx = Math.floor(roof.cx / CELL), ccz = Math.floor(roof.cz / CELL);
     const cellKey = (ccx + 4096) * 8192 + (ccz + 4096);
     const batches = this.cellBatches(cellKey, ccx, ccz);
-    const rec: Rec = { level: Math.max(lvl, prev?.level ?? 0), hue: h, times, slots: [], cell: cellKey };
     const elems = layoutRoof(buildingIndex + 1, roof, h);
     const sinY = Math.sin(roof.yaw), cosY = Math.cos(roof.yaw);
     // roof frame: U along the street (w), N toward the street (d)
     const ux = sinY, uz = cosY, nx = cosY, nz = -sinY;
     const delay0 = propsTune.sproutDelay;
-    const showLevel = rec.level;
+    const showLevel = Math.max(lvl, prev?.level ?? 0);
+    const list: Array<[number, number]> = [];
+    const data = new Float32Array(elems.length * STRIDE);
     let top = 0;
     for (let i = 0; i < elems.length; i++) {
       const e = elems[i];
@@ -1034,17 +1306,354 @@ export class RoofSprouts {
         _s.set(e.sx, e.sy, e.sz);
         _m.compose(_p, _q, _s);
       }
-      const b = batches[e.type];
-      const slot = b.alloc();
+      const o = list.length * STRIDE;
       const seed = fract(Math.sin((buildingIndex + 1) * 12.9898 + i * 78.233) * 43758.5453);
-      const start = times[e.level - 1] + delay0 + e.delay;
-      b.write(slot, _m, e.hue + owner, seed, e.amp, start);
-      if (ground !== undefined) b.setLift(slot, buildingIndex, roof.y - ground);
-      rec.slots.push(e.type, slot);
+      data.set(_m.elements, o);
+      data[o + 16] = e.hue + owner + 0.9 * seed;
+      data[o + 17] = e.amp;
+      data[o + 18] = times[e.level - 1] + delay0 + e.delay;
+      data[o + 19] = ground !== undefined ? buildingIndex : -1;
+      data[o + 20] = ground !== undefined ? roof.y - ground : 0;
+      list.push([e.type, o]);
     }
+    // (the farthest-reaching first: what a garden draws is always its first so many)
+    list.sort((a, b) => this.types[b[0]].cull - this.types[a[0]].cull || a[1] - b[1]);
+    const n = list.length;
+    const rec: Rec = {
+      level: showLevel,
+      hue: h,
+      times,
+      cell: cellKey,
+      type: new Uint8Array(n),
+      data: new Float32Array(n * STRIDE),
+      at: new Int32Array(n).fill(-1),
+      drawn: 0,
+      sun: true,
+      cm: 0,
+      wantCm: 0,
+      x: roof.cx,
+      y: roof.y + top / 2,
+      z: roof.cz,
+      r: 0.5 * Math.hypot(Math.max(roof.w, 1.2), Math.max(roof.d, 1.2), top) + 1,
+      tall: false,
+      fall: Math.max(0, roof.y - (roof.foot ?? ground ?? roof.y)),
+      top,
+      want: 0,
+      far: 0,
+    };
+    for (let k = 0; k < n; k++) {
+      rec.type[k] = list[k][0];
+      rec.data.set(data.subarray(list[k][1], list[k][1] + STRIDE), k * STRIDE);
+    }
+    if (shed) makeTall(rec);
     this.recs.set(buildingIndex, rec);
+    // (drawn as the last frame's lens sees it: before the first, whole)
+    if (this.lod && this.seen) {
+      this.judge(rec);
+      rec.cm = rec.wantCm;
+      rec.sun = rec.far === 1;
+      this.fit(rec, batches, rec.want);
+    } else this.fit(rec, batches, n);
     // (the pop overshoots ~15% while it grows, and the sway leans it a little)
     return top > 0 ? top * 1.15 + 0.4 : 0;
+  }
+
+  /** The batch element type `t` of a garden is drawn in: its far form's, or its own. */
+  private batchOf(cell: Batch[], rec: Rec, t: number): Batch {
+    return (rec.cm >> t) & 1 ? cell[this.coreAt[t]] : cell[t];
+  }
+
+  /** Draw the first `want` of a garden's elements, and no more. */
+  private fit(rec: Rec, cell: Batch[], want: number) {
+    while (rec.drawn < want) {
+      const k = rec.drawn++, b = this.batchOf(cell, rec, rec.type[k]);
+      b.put(b.alloc(rec, k, rec.sun), rec.data, k * STRIDE);
+    }
+    while (rec.drawn > want) {
+      const k = --rec.drawn;
+      this.batchOf(cell, rec, rec.type[k]).release(rec.at[k]);
+    }
+  }
+
+  /** The garden's types in their far form or not, as it wants (rec.wantCm): each drawn element of a type that changes goes over. Its moves. */
+  private reform(rec: Rec, cell: Batch[]): number {
+    const diff = rec.wantCm ^ rec.cm;
+    if (!diff) return 0;
+    let n = 0;
+    for (let k = 0; k < rec.drawn; k++) if ((diff >> rec.type[k]) & 1) this.batchOf(cell, rec, rec.type[k]).release(rec.at[k]);
+    rec.cm = rec.wantCm;
+    for (let k = 0; k < rec.drawn; k++)
+      if ((diff >> rec.type[k]) & 1) {
+        const b = this.batchOf(cell, rec, rec.type[k]);
+        b.put(b.alloc(rec, k, rec.sun), rec.data, k * STRIDE);
+        n++;
+      }
+    return n;
+  }
+
+  // (this frame's lens, for judge())
+  private eye = new THREE.Vector3();
+  private sunDir = new THREE.Vector3(0, 1, 0);
+  private sunScale = 0;
+  private sunOn = false;
+
+  /** What one element of type `t` costs drawn, both passes: in its far form or not (`cm`), casting or not. */
+  private cost(t: number, cm: number, sun: boolean): number {
+    const ty = this.types[t];
+    return ((cm >> t) & 1 ? ty.coreTris : ty.tris) * (sun && ty.depth && this.sunOn ? 2 : 1);
+  }
+
+  /** How far a shadow from `h` m over its roof can fall: the pipeline's sun goes as low as 0.02 over the horizon, and none lands past its window. */
+  private shadowLen(h: number): number {
+    return this.sunOn ? Math.min(1 / Math.max(this.sunScale, 1e-6), h / Math.max(0.02, this.sunDir.y)) : 0;
+  }
+
+  /**
+   * How many of its elements a garden wants drawn this frame (rec.want), and whether its casters cast (rec.sun's want, in rec.far: 1 cast, 0 not).
+   * While the hold is in, what letting it out would add goes on `grow`.
+   */
+  private judge(rec: Rec) {
+    const dx = rec.x - this.eye.x, dy = rec.y - this.eye.y, dz = rec.z - this.eye.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const B = GARDEN_BUDGET;
+    // its shadow: from its middle down the sun's way, as far as its top's can fall. The view sees a garden whose body or shadow it sees: a
+    // capsule from the one to the other, so a low sun's long shadow is in, and a garden it doesn't fall from isn't. It can fall past its roof to
+    // the street, and a leapt house's falls from as high as it rides
+    const L = this.shadowLen(rec.top + rec.fall + (rec.tall ? LIFT_TALL : 0));
+    const ox = -this.sunDir.x * L, oy = -this.sunDir.y * L, oz = -this.sunDir.z * L;
+    // (in the view: and the slack round the edges; once in, a little more slack to go out)
+    const slack = rec.r + B.slackM + B.slack * dist + (rec.drawn > 0 ? B.hyst + 0.05 * dist : 0);
+    const planes = _frustum.planes;
+    let seen = true;
+    for (let i = 0; i < 6; i++) {
+      const n = planes[i].normal, a = n.x * rec.x + n.y * rec.y + n.z * rec.z + planes[i].constant;
+      if (a < -slack && a + n.x * ox + n.y * oy + n.z * oz < -slack) {
+        seen = false;
+        break;
+      }
+    }
+    let want = 0;
+    const lo = Math.max(0, dist - rec.r), reach = propsTune.sproutCull * this.uReach.value;
+    const N = rec.type.length;
+    if (seen) {
+      want = rec.drawn;
+      while (want < N && this.types[rec.type[want]].cull * reach > lo) want++;
+      while (want > 0 && this.types[rec.type[want - 1]].cull * reach < lo - B.hyst) want--;
+    }
+    rec.want = want;
+    // the far forms: one takes over once the garden's nearest point is past where the small growth has shrunk away, and gives back before it's
+    // in again (a garden drawn by none of it can take either)
+    let cm = rec.cm;
+    for (const t of this.coreTypes) {
+      const Rc = this.types[t].core * reach;
+      const far = (cm >> t) & 1 ? lo >= Rc : lo > Rc + B.hyst;
+      cm = far ? cm | (1 << t) : cm & ~(1 << t);
+    }
+    rec.wantCm = cm;
+    // the sun's window, last frame's (globals.uShadowMatrix: the window as 0..1), and a tenth of it round
+    rec.far = rec.sun ? 1 : 0;
+    if (this.sunOn) {
+      const e = globals.uShadowMatrix.value.elements;
+      const u = e[0] * rec.x + e[4] * rec.y + e[8] * rec.z + e[12], v = e[1] * rec.x + e[5] * rec.y + e[9] * rec.z + e[13];
+      const mg = 0.1 + (rec.r + L + 20) * this.sunScale;
+      rec.far = u > -mg && u < 1 + mg && v > -mg && v < 1 + mg ? 1 : 0;
+    }
+    // what letting the hold out would add: the elements the probe's longer reach takes in, and the far forms it gives back
+    if (seen && this.probe) {
+      const r2 = reach * B.probe, sun = rec.far === 1;
+      let g = 0;
+      for (let w = want; w < N && this.types[rec.type[w]].cull * r2 > lo; w++) g += this.cost(rec.type[w], cm, sun);
+      for (const t of this.coreTypes)
+        if ((cm >> t) & 1 && lo < this.types[t].core * r2) {
+          const more = this.cost(t, 0, sun) - this.cost(t, 1 << t, sun);
+          for (let k = 0; k < want; k++) if (rec.type[k] === t) g += more;
+        }
+      this.grow += g;
+    }
+  }
+
+  /** A garden's casters into the sun pass, or out of it. */
+  private resun(rec: Rec, on: boolean) {
+    rec.sun = on;
+    const cell = this.cells.get(rec.cell)!;
+    for (let k = 0; k < rec.drawn; k++) this.batchOf(cell, rec, rec.type[k]).setSun(rec.at[k], on);
+  }
+
+  /**
+   * Once a frame, before the render: the view's lens. Each garden is drawn as far as it's seen (the budget, above), the nearest first when
+   * more come in than a frame takes, and the reaches held in while the gardens' triangles are over the budget. What comes in goes first, from
+   * its own moves; what goes, from its own: until it's gone it only costs, and on a look behind it never holds up what's coming.
+   */
+  update(camera: THREE.Camera): void {
+    this.uEye.value.copy(camera.position);
+    if (!this.lod) return;
+    this.seen = true;
+    this.eye.copy(camera.position);
+    camera.updateMatrixWorld();
+    _vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_vp);
+    // the sun: its way (from the window's own matrix: its depth row runs along the sun), the window's scale (0..1 a metre), and whether it draws
+    const e = globals.uShadowMatrix.value.elements;
+    this.sunOn = globals.uShadowOn.value > 0;
+    if (this.sunOn) {
+      this.sunDir.set(-e[2], -e[6], -e[10]).normalize();
+      if (this.sunDir.y < 0) this.sunDir.negate();
+      this.sunScale = Math.sqrt(e[0] * e[0] + e[4] * e[4] + e[8] * e[8]);
+    }
+    const B = GARDEN_BUDGET;
+    let moves = B.moves, outs = B.outs;
+    const ins = this.ins, gone = this.outs, suns = this.suns;
+    ins.length = gone.length = suns.length = 0;
+    this.grow = 0;
+    this.probe = this.uReach.value < 1;
+    for (const rec of this.recs.values()) {
+      this.judge(rec);
+      if (rec.drawn === 0) {
+        // (none of it drawn: it takes its far forms and its sun as it wants them, and nothing moves)
+        rec.cm = rec.wantCm;
+        rec.sun = rec.far === 1;
+      }
+      if (rec.want < rec.drawn) {
+        gone.push(rec);
+        continue;
+      }
+      // (a far form gives back first of all: past its edge the small growth would be missing)
+      if (rec.wantCm !== rec.cm) moves -= this.reform(rec, this.cells.get(rec.cell)!);
+      if ((rec.far === 1) !== rec.sun) suns.push(rec);
+      if (rec.want > rec.drawn) ins.push(rec);
+    }
+    // 1. what comes in, the nearest first when there's more than a frame takes (a look behind)
+    let need = 0;
+    for (const r of ins) need += r.want - r.drawn;
+    if (need > moves) ins.sort(this.nearer);
+    for (const rec of ins) {
+      if (moves <= 0) break;
+      const to = Math.min(rec.want, rec.drawn + moves);
+      moves -= to - rec.drawn;
+      this.fit(rec, this.cells.get(rec.cell)!, to);
+    }
+    // 2. what goes, from its own moves, and then its far forms and its sun as it wants them
+    for (const rec of gone) {
+      const cell = this.cells.get(rec.cell)!;
+      if (outs > 0) {
+        const to = Math.max(rec.want, rec.drawn - outs);
+        outs -= rec.drawn - to;
+        this.fit(rec, cell, to);
+      }
+      if (rec.wantCm !== rec.cm) outs -= this.reform(rec, cell);
+      if ((rec.far === 1) !== rec.sun) suns.push(rec);
+    }
+    // 3. the sun pass: a caster coming into its window from what's left of the moves in, one leaving it from what's left of the moves out
+    for (const rec of suns) {
+      const on = rec.far === 1;
+      if (on ? moves <= 0 : outs <= 0) continue;
+      this.resun(rec, on);
+      if (on) moves -= rec.drawn;
+      else outs -= rec.drawn;
+    }
+    // what's drawn now, both passes, and what's still to come in or go (a frame's moves ran out): the hold goes by what it comes to
+    let tris = 0, sunTris = 0, elements = 0;
+    for (const cell of this.cells.values())
+      for (let i = 0; i < cell.length; i++) {
+        const b = cell[i];
+        if (!b.live) continue;
+        elements += b.live;
+        tris += b.live * this.batchTris[i];
+        if (b.caster) sunTris += b.sun * this.batchTris[i];
+      }
+    let pending = 0;
+    for (const rec of ins) for (let k = rec.drawn; k < rec.want; k++) pending += this.cost(rec.type[k], rec.cm, rec.sun);
+    for (const rec of gone) for (let k = rec.want; k < rec.drawn; k++) pending -= this.cost(rec.type[k], rec.cm, rec.sun);
+    // the hold: in by a hundredth a frame while it's over; out by half that once it's been under for a second and what the longer reach
+    // would add still fits (so it lets out wherever there's room, at the street after a climb too)
+    const all = tris + (this.sunOn ? sunTris : 0) + pending;
+    const k = this.uReach.value;
+    if (all > B.tris) {
+      this.uReach.value = Math.max(B.hold, k * 0.99);
+      this.calm = B.calm;
+    } else if (k < 1 && --this.calm <= 0 && all + this.grow <= B.tris) this.uReach.value = Math.min(1, k * 1.005);
+    const last = this.last;
+    last.tris = tris;
+    last.sunTris = sunTris;
+    last.moved = B.moves - moves;
+    last.outed = B.outs - outs;
+    last.elements = elements;
+    last.pending = pending;
+    last.grow = this.grow;
+  }
+
+  /** (the nearer garden first, on the ground) */
+  private readonly nearer = (a: Rec, b: Rec) => {
+    const e = this.eye;
+    return (a.x - e.x) ** 2 + (a.z - e.z) ** 2 - ((b.x - e.x) ** 2 + (b.z - e.z) ** 2);
+  };
+
+  /**
+   * QA (tools/gardens/budget.mjs): against this lens, each element one by one. `missing`: not drawn, though it stands in the view and inside the
+   * part of its reach where it's whole (it would have popped in). `early`: drawn in its far form while its own distance is inside the core reach
+   * (its small growth would have popped out). `shadow`: a caster inside the sun's window whose shadow falls in the view, not drawn or not in
+   * the sun pass, its body in the view or not. A garden whose house has leapt (?lift) rides where the CPU doesn't follow it: it's taken as
+   * anywhere up to LIFT_TALL over its rest, as its bounds stand, and its far forms aren't judged (`lifted`: how many of those were checked).
+   * One on its ground is judged as any (its crouch sinks it 0.35 m).
+   */
+  audit(camera: THREE.Camera): { missing: number; early: number; shadow: number; checked: number; lifted: number } {
+    const out = { missing: 0, early: 0, shadow: 0, checked: 0, lifted: 0 };
+    if (!this.lod) return out;
+    camera.updateMatrixWorld();
+    const f = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const eye = camera.position, reach = propsTune.sproutCull * this.uReach.value, sd = this.sunDir;
+    // (the hull of n points, r round: in the view unless it's all past one plane)
+    const P = new Float32Array(12);
+    const hull = (n: number, r: number) => {
+      for (const p of f.planes) {
+        let i = 0;
+        while (i < n && p.normal.x * P[i * 3] + p.normal.y * P[i * 3 + 1] + p.normal.z * P[i * 3 + 2] + p.constant < -r) i++;
+        if (i === n) return false;
+      }
+      return true;
+    };
+    for (const rec of this.recs.values()) {
+      for (let k = 0; k < rec.type.length; k++) {
+        const t = rec.type[k], o = k * STRIDE, d = rec.data;
+        // (a lifted one: anywhere on the column from its rest up LIFT_TALL, and its shadow anywhere its height on that column throws it)
+        const lifted = rec.tall;
+        const up = lifted ? LIFT_TALL : 0;
+        const x = d[o + 12], y = d[o + 13], z = d[o + 14];
+        const top = this.typeTop[t] * Math.hypot(d[o + 4], d[o + 5], d[o + 6]), rad = top + 1;
+        // its distance: the column's nearest point
+        const cy = Math.max(y, Math.min(y + up, eye.y));
+        const dist = Math.hypot(x - eye.x, cy - eye.y, z - eye.z);
+        const cast = !!this.types[t].depth && this.sunOn && rec.far === 1;
+        P.set([x, y, z, x, y + up, z]);
+        const body = hull(2, rad);
+        let shade = false;
+        if (cast && !body) {
+          const roof = rec.y - rec.top / 2 - up / 2, h = y - roof + top + rec.fall, L0 = this.shadowLen(h), L1 = this.shadowLen(h + up);
+          P.set([x - sd.x * L0, y - sd.y * L0, z - sd.z * L0, x - sd.x * L1, y + up - sd.y * L1, z - sd.z * L1], 6);
+          shade = hull(4, rad);
+        }
+        if (!body && !shade) continue;
+        out.checked++;
+        if (lifted) out.lifted++;
+        if (rec.at[k] < 0) {
+          if (dist < 0.8 * this.types[t].cull * reach) {
+            if (body) out.missing++;
+            else out.shadow++;
+          }
+          continue;
+        }
+        if (!lifted && (rec.cm >> t) & 1 && dist < this.types[t].core * reach) out.early++;
+        if (cast && !rec.sun) out.shadow++;
+      }
+    }
+    return out;
+  }
+
+  /** QA: what the gardens drew last frame: triangles in the view and the sun pass, elements, gardens drawn, the reaches' hold, the frame's moves in and out, what was still to come or go, and what letting the hold out would add. */
+  stats() {
+    let drawn = 0;
+    for (const r of this.recs.values()) if (r.drawn > 0) drawn++;
+    return { ...this.last, gardens: this.recs.size, drawn, hold: this.uReach.value };
   }
 
   /**
@@ -1053,7 +1662,8 @@ export class RoofSprouts {
    */
   place(index: number, items: SproutItem[]): void {
     this.unplace(index);
-    const held: Array<[Batch, number]> = [];
+    const h: Holder = { at: new Int32Array(items.length).fill(-1) };
+    const held: Batch[] = [];
     for (let i = 0; i < items.length; i++) {
       const e = items[i];
       const ccx = Math.floor(e.x / this.cell), ccz = Math.floor(e.z / this.cell);
@@ -1071,11 +1681,11 @@ export class RoofSprouts {
         _s.set(e.sx, e.sy, e.sz);
         _m.compose(_p, _q, _s);
       }
-      const slot = b.alloc();
+      const slot = b.alloc(h, i);
       b.write(slot, _m, e.hue, fract(Math.sin((index + 1) * 12.9898 + i * 78.233) * 43758.5453), e.amp, e.start);
-      held.push([b, slot]);
+      held.push(b);
     }
-    this.placed.set(index, held);
+    this.placed.set(index, { h, b: held });
   }
 
   /**
@@ -1084,9 +1694,10 @@ export class RoofSprouts {
    */
   slide(dx: number, dz: number): void {
     const e = _m.elements;
-    for (const [index, held] of this.placed) {
-      const moved: Array<[Batch, number]> = [];
-      for (const [b, slot] of held) {
+    for (const { h, b: held } of this.placed.values()) {
+      for (let i = 0; i < held.length; i++) {
+        const b = held[i], slot = h.at[i];
+        if (slot < 0) continue;
         const type = this.types.findIndex((t) => t.geo === b.geo);
         const c = b.mesh.instanceColor!.array as Float32Array, hue = c[slot * 3], amp = c[slot * 3 + 1], start = c[slot * 3 + 2];
         _m.fromArray(b.mesh.instanceMatrix.array as Float32Array, slot * 16);
@@ -1095,12 +1706,10 @@ export class RoofSprouts {
         e[14] -= dz;
         const ccx = Math.floor(e[12] / this.cell), ccz = Math.floor(e[14] / this.cell);
         const nb = this.cellBatches((ccx + 4096) * 8192 + (ccz + 4096), ccx, ccz, e[13])[type];
-        const to = nb.alloc();
         // (hue and seed are one number in the colour: it goes as it was)
-        nb.write(to, _m, hue, 0, amp, start);
-        moved.push([nb, to]);
+        nb.write(nb.alloc(h, i), _m, hue, 0, amp, start);
+        held[i] = nb;
       }
-      this.placed.set(index, moved);
     }
     // (and the cells left with nothing in them go)
     for (const [key, bs] of this.cells)
@@ -1111,9 +1720,9 @@ export class RoofSprouts {
   }
 
   unplace(index: number): void {
-    const held = this.placed.get(index);
-    if (!held) return;
-    for (const [b, slot] of held) b.release(slot);
+    const p = this.placed.get(index);
+    if (!p) return;
+    for (let i = 0; i < p.b.length; i++) if (p.h.at[i] >= 0) p.b[i].release(p.h.at[i]);
     this.placed.delete(index);
   }
 
@@ -1144,8 +1753,8 @@ export class RoofSprouts {
 
   private release(rec: Rec) {
     const cell = this.cells.get(rec.cell);
-    if (cell) for (let i = 0; i < rec.slots.length; i += 2) cell[rec.slots[i]].release(rec.slots[i + 1]);
-    rec.slots.length = 0;
+    if (cell) this.fit(rec, cell, 0);
+    rec.drawn = 0;
   }
 }
 

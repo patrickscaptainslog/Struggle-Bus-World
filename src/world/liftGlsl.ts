@@ -517,6 +517,8 @@ export interface LiftHooks {
   noteTop(index: number, top: number): void;
   /** Splat's question for a building a blast reaches: 0 no, 1 it lifts now (Rainbow on Rainbow at level 3), 2 it's lifting or up already */
   wants(ref: { index: number }, level: number, faction: number): 0 | 1 | 2;
+  /** a Bomb's question: is it lifting, up or staged already (wants' 2), with nothing asked to lift and nothing counted */
+  aloft(ref: { index: number }): boolean;
   /** a hit lifts it: it crouches at `at`, its bloom's arrival (game clock) */
   start(ref: { index: number }, at: number, hose?: boolean): void;
 }

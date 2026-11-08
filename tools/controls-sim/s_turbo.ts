@@ -7,7 +7,7 @@ import { newCity, pump, ll } from '../feel-sim/lib';
 import { config } from '@src/config';
 import { Flight } from '@src/game/Flight';
 import { CameraRig } from '@src/game/CameraRig';
-import { EXPRESS, JET, NONSTOP, STRATOS, TurboDrive, WARP } from '@src/game/Turbo';
+import { EXPRESS, JET, NONSTOP, SCHOOL_ZONE, STRATOS, TurboDrive, WARP } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
 import * as THREE from 'three';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -297,6 +297,95 @@ console.log('hop:');
 for (const r of res.hop as any[]) console.log('  ', JSON.stringify(r));
 console.log('world travel:', JSON.stringify({ ...(res.worldTravel as any), log: undefined }));
 
+// ---- 10. School Zone (docs/specs/shots/GEARS.md) on the real city: down a rung from Cruise over Alamo Square's roofs, the hover, the
+// lens coming in 30 %, a full turn on the spot, a drift with the stick up over the blocks, a climb, and a flick up back to Cruise.
+// (Controls sets rig.zone from the drive each frame; here the session does it.)
+{
+  const out: Record<string, unknown> = {};
+  const Z = await session(37.7763, -122.4352, 88);
+  const camDist = () => Z.rig.distance;
+  await Z.run(3, free, 'cruise');
+  const d0 = camDist(), y0 = Z.f.y;
+  out.flick = Z.drive.rung(-1, Z.f);
+  Z.rig.zone = Z.drive.below === SCHOOL_ZONE ? 1 : 0;
+  const v: number[] = [];
+  for (let i = 0; i < 4; i++) { await Z.run(0.5, free, 'zone'); v.push(r1(Z.f.speed)); }
+  await Z.run(3, free, 'zone');
+  out.settle = { below: Z.drive.below, speedEvery05s: v, heldFromCruise: r1(Z.f.y - y0), camIn: +(1 - camDist() / d0).toFixed(3), d0: r1(d0), d1: r1(camDist()) };
+  const h0 = Z.f.heading, x0 = Z.f.x, z0 = Z.f.z;
+  await Z.run(5, () => ({ sx: 1, sy: 0, dragging: true }), 'zone turn');
+  out.turn = { degIn5s: r1(((Z.f.heading - h0) * 180) / Math.PI), moved: r1(Math.hypot(Z.f.x - x0, Z.f.z - z0)) };
+  await Z.run(2, free, 'zone');
+  let vmax = 0, low = Infinity, lowFloor = Infinity;
+  const yd = Z.f.y, xd = Z.f.x, zd = Z.f.z;
+  for (let i = 0; i < 160; i++) {
+    await Z.run(0.1, push, 'zone drift');
+    vmax = Math.max(vmax, Z.f.ground);
+    low = Math.min(low, Z.f.y - Z.f.obstacleUnder);
+    lowFloor = Math.min(lowFloor, Z.f.y - Z.f.floorY);
+  }
+  out.drift = { vmax: r1(vmax), metresIn16s: r1(Math.hypot(Z.f.x - xd, Z.f.z - zd)), fell: r1(yd - Z.f.y), lowestOverRoofs: r1(low), lowestUnderFloor: r1(lowFloor) };
+  await Z.run(2, free, 'zone');
+  let up = 0;
+  const yc = Z.f.y;
+  for (let i = 0; i < 60; i++) { await Z.run(0.1, pull, 'zone climb'); up = Math.max(up, Z.f.vy); }
+  await Z.run(4, free, 'zone');
+  out.climb = { vmax: r1(up), rose: r1(Z.f.y - yc), forward: r1(Z.f.ground), mode: Z.f.mode };
+  out.out = Z.drive.rung(1, Z.f);
+  Z.rig.zone = Z.drive.below === SCHOOL_ZONE ? 1 : 0;
+  await Z.run(5, free, 'cruise again');
+  out.back = { below: Z.drive.below, gear: Z.drive.gear, speed: r1(Z.f.speed), mode: Z.f.mode, lensIn: +Z.rig.zoneIn.toFixed(3) };
+  out.events = Z.events;
+  res.zone = out;
+  console.log('school zone:', JSON.stringify(out));
+}
+
+// ---- 11. School Zone at a wall (review of feat/gears, 1): drifting into Salesforce Tower from ~200 m west at the hover's height, the
+// drift stops short of it with nothing thrown up its face; a pull climbs it, and a drift on goes over its top. Then a tap's breath
+// halves the turn on the spot, as in every gear.
+{
+  const out: Record<string, unknown> = {};
+  const W = await session(37.78977, -122.39914, 90);
+  await W.run(3, free, 'cruise');
+  W.drive.rung(-1, W.f);
+  await W.run(3, free, 'zone');
+  const tower = (() => { let h = 0; for (let d = 0; d < 400; d += 4) h = Math.max(h, city.obstacleAt(W.f.x + W.f.fx * d, W.f.z + W.f.fz * d, 0)); return h; })();
+  let vyMax = 0, vyMin = 0, minOver = Infinity;
+  const watch = async (secs: number, inp: () => { sx: number; sy: number; dragging: boolean }, tag: string) => {
+    for (let i = 0; i < Math.round(secs / 0.1); i++) {
+      await W.run(0.1, inp, tag);
+      vyMax = Math.max(vyMax, W.f.vy); vyMin = Math.min(vyMin, W.f.vy);
+      minOver = Math.min(minOver, W.f.y - city.obstacleAt(W.f.x, W.f.z, W.f.y));
+    }
+  };
+  const x0 = W.f.x, z0 = W.f.z, y0 = W.f.y;
+  await watch(30, push, 'zone wall drift');
+  const ahead = (() => { for (let d = 0; d < 60; d += 0.5) if (city.obstacleAt(W.f.x + W.f.fx * d, W.f.z + W.f.fz * d, 0) > tower - 30) return d; return Infinity; })();
+  out.stop = { tower: r1(tower), y0: r1(y0), y: r1(W.f.y), went: r1(Math.hypot(W.f.x - x0, W.f.z - z0)), toWall: r1(ahead), ground: +W.f.ground.toFixed(2), vyMax: r1(vyMax), minOver: r1(minOver) };
+  vyMax = 0;
+  await watch(Math.ceil((tower + 20 - W.f.y) / 14) + 2, pull, 'zone wall climb');
+  await W.run(2, free, 'zone');
+  out.climb = { y: r1(W.f.y), vyMax: r1(vyMax) };
+  vyMax = 0; vyMin = 0; minOver = Infinity;
+  const xc = W.f.x, zc = W.f.z;
+  await watch(20, push, 'zone wall over');
+  out.over = { went: r1(Math.hypot(W.f.x - xc, W.f.z - zc)), y: r1(W.f.y), vyMax: r1(vyMax), vyMin: r1(vyMin), minOver: r1(minOver) };
+  // the breath's plant on the turn
+  const T = await session(37.7763, -122.4352, 88);
+  await T.run(3, free, 'cruise');
+  T.drive.rung(-1, T.f);
+  await T.run(4, free, 'zone');
+  const right = () => ({ sx: 1, sy: 0, dragging: true });
+  await T.run(2, right, 'zone turn');
+  const steady = T.f.yawRate;
+  T.f.fullness = 1;
+  const breathed = T.f.tryBarf();
+  await T.run(0.4, right, 'zone turn, breathing');
+  out.breath = { breathed, steadyDegPerS: r1((steady * 180) / Math.PI), breathingDegPerS: r1((T.f.yawRate * 180) / Math.PI) };
+  res.zoneWall = out;
+  console.log('school zone at a wall:', JSON.stringify(out));
+}
+
 // ---- the verdicts
 const fails: string[] = [];
 let checks = 0;
@@ -319,5 +408,19 @@ for (const r of res.edgeLevels as any[]) ok(r.maxOutsideM < 760, `the map's edge
 for (const r of res.hop as any[]) ok(r.speedGivenBackMax < 0.5, `no speed given back on the way up, ${r.gap} s apart: ${JSON.stringify(r)}`);
 for (const r of res.takenBack as any[]) ok(r.gear === (r.name === 'nonstop' ? EXPRESS : NONSTOP), `a gear still lifting goes back a rung: ${JSON.stringify(r)}`);
 ok((res.worldTravel as any).isStratos && (res.worldTravel as any).topIsWarp, 'world travel: the gears go on, turbo over Rainbow Warp');
+{
+  const Z = res.zone as any;
+  ok(Z.flick === true && Z.settle.below === SCHOOL_ZONE && Z.settle.speedEvery05s[2] < 2 && Z.settle.speedEvery05s[3] < 1, `School Zone: a flick down from Cruise eases to a hover in about 1.5 s: ${JSON.stringify(Z.settle)}`);
+  ok(near(Z.settle.camIn, 0.3, 0.06), `School Zone: the lens comes in 30 %: ${JSON.stringify(Z.settle)}`);
+  ok(near(Z.turn.degIn5s, 360, 40) && Z.turn.moved < 3, `School Zone: a full turn on the spot in about 5 s: ${JSON.stringify(Z.turn)}`);
+  ok(Z.drift.vmax <= 8.05 && Z.drift.vmax > 6 && Z.drift.lowestUnderFloor > -3 && Z.drift.lowestOverRoofs > 3, `School Zone: the stick up drifts at up to 8 m/s, over the roofs, never into one: ${JSON.stringify(Z.drift)}`);
+  ok(near(Z.climb.vmax, 15, 1) && Z.climb.forward < 1, `School Zone: the stick down climbs at about 15 m/s: ${JSON.stringify(Z.climb)}`);
+  ok(Z.out === true && Z.back.below === 0 && Z.back.gear === 0 && Z.back.speed > 25 && Z.back.lensIn < 0.01, `School Zone: a flick up is Cruise again, the lens back out: ${JSON.stringify(Z.back)}`);
+  const Wl = res.zoneWall as any;
+  ok(Wl.stop.tower > 250 && Wl.stop.ground < 0.3 && Wl.stop.toWall > 4 && Wl.stop.toWall < 14 && Wl.stop.vyMax < 3 && Wl.stop.y < Wl.stop.y0 + 3, `School Zone: a drift into a tower stops short of its wall, nothing thrown up its face: ${JSON.stringify(Wl.stop)}`);
+  ok(Wl.climb.y > Wl.stop.tower && Wl.climb.vyMax < 15.5, `School Zone: a pull climbs the tower at 15 m/s: ${JSON.stringify(Wl.climb)}`);
+  ok(Wl.over.went > 60 && Wl.over.vyMax < 25 && Wl.over.minOver > 2, `School Zone: a drift on from its height goes over its top: ${JSON.stringify(Wl.over)}`);
+  ok(Wl.breath.breathed && Wl.breath.steadyDegPerS > 60 && Wl.breath.breathingDegPerS < Wl.breath.steadyDegPerS * 0.7, `School Zone: a tap's breath slows the turn on the spot, as in every gear: ${JSON.stringify(Wl.breath)}`);
+}
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `turbo checks: all ${checks} passed`);
 process.exit(fails.length ? 1 : 0);

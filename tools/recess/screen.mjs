@@ -18,6 +18,7 @@
 //   edges     a captain behind the player: its chevron points down, under the clock and over the thumb, its name level (M46); the clock's row under the words' (M61)
 //   rings     each god's ring round its heart: whole when the next hit counts, closing again from a hit; a tap on your own god too soon says so (M47)
 //   B21       a stand-in saved city in the paint stores' own keys is the same after a match, nothing was saved for it, and the next match starts with none painted
+//   hooks     the shots' (HOOKS.md): no Comet in a match, back at the bell; a Bomb's breath on grey jumps its square to 3 and spills the grey round it at 1
 //   flag off  the same page without ?recess has no match and no captains
 // A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
@@ -137,7 +138,10 @@ try {
   await page.evaluate(() => {
     const S = window.__recess.sim, me = S.buses[0];
     me.state = 'free';
-    S.breaths.push({ id: 9999, from: 2, target: 0, x: me.x, z: me.z, tx: me.x, tz: me.z, vx: 0, vz: 0, arrive: S.t + 0.04, born: S.t - 1, white: true });
+    // (on the next step where the bus will be then, and a fresh pair: an earlier hit may have it at Nonstop already, and Inferno may have ridden it twice)
+    S.pairs.clear();
+    const nx = me.x + Math.cos(me.heading) * me.speed * S.dt, nz = me.z + Math.sin(me.heading) * me.speed * S.dt;
+    S.breaths.push({ id: 9999, from: 2, target: 0, x: nx, z: nz, tx: nx, tz: nz, vx: 0, vz: 0, arrive: S.t + S.dt * 0.5, born: S.t - 1, white: true });
   });
   await frames(3);
   const p0 = await page.evaluate(() => {
@@ -252,6 +256,28 @@ try {
   const fall = await page.evaluate(() => ({ topples: window.__recess.counts.topple ?? 0, heart: (() => { const A = window.__recess.sim.areas, a = A.all.get(A.realm.heart(1)); return { faction: a.faction, stage: a.stage }; })() }));
   row('gods: each camp\'s standing at its heart from the bell, painted there; five hits topple one, said, the heart the attacker\'s', gods.every((h) => h.stage === 5 && h.painted > 0) && fell.at(-1) === 'topple' && fall.topples === 1 && fall.heart.faction === 1 && fall.heart.stage === 1,
     { gods, fell, ...fall });
+  // ---- HOOKS.md: no Comet while the match is on; a Bomb III on a grey square jumps it to 3 at once and spills the grey squares its circle reaches ----
+  const bomb = await page.evaluate(() => {
+    const R = window.__recess, A = R.sim.areas, g = window.__game;
+    // (a grey square inside the arena, with its neighbours grey too)
+    let at = null;
+    for (let r = 200; r < 640 && !at; r += 64)
+      for (let k = 0; k < 24 && !at; k++) {
+        const x = Math.cos(k / 3.82) * r, z = Math.sin(k / 3.82) * r, kx = Math.floor(x / 128), kz = Math.floor(z / 128);
+        let grey = true;
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) grey &&= !(A.get((kx + dx + 0.5) * 128, (kz + dz + 0.5) * 128)?.faction);
+        if (grey) at = { x: (kx + 0.5) * 128, z: (kz + 0.5) * 128 };
+      }
+    if (!at) return { at: null };
+    R.playerPaint(R.cx + at.x, R.cz + at.z, g.clock(), { jump: 3, superId: 99001, r: 150 });
+    return { at, clampPlaying: g.comet.clamp ? g.comet.clamp({ x: 0, z: 0 }) : null };
+  });
+  await frames(3);
+  const bombAfter = await page.evaluate((at) => {
+    if (!at) return null;
+    const A = window.__recess.sim.areas, s = A.get(at.x, at.z), n = A.get(at.x + 128, at.z);
+    return { stage: s?.stage ?? 0, faction: s?.faction ?? 0, neighbour: n ? [n.faction, n.stage] : null, bombs: window.__recess.counts.bomb ?? 0 };
+  }, bomb.at);
   // ---- the bell ----
   for (let k = 0; k < 20 && (await page.evaluate(() => window.__recess.phase)) !== 'over'; k++) await frames(30);
   await frames(75);
@@ -260,6 +286,9 @@ try {
     return { phase: R.phase, simT: +R.sim.t.toFixed(1), camAGL: Math.round(c.y - g.city.groundAt(R.cx, R.cz)), camFromMiddle: Math.round(Math.hypot(c.x - R.cx, c.z - R.cz)), score: R.sim.score().filter((_, i) => [1, 2, 5].includes(i)), hud: document.querySelector('[data-hud=recess]')?.childElementCount ?? 0 };
   });
   await page.screenshot({ path: join(dir, 'scoreboard.png') });
+  const clampOver = await page.evaluate(() => (window.__game.comet.clamp ? window.__game.comet.clamp({ x: 0, z: 0 }) : null));
+  row('hooks: no Comet while the match is on, back at the bell; a Bomb III on grey jumps its square to 3 and spills the grey round it at 1', bomb.clampPlaying === false && clampOver === true && bombAfter?.stage === 3 && bombAfter.faction === 1 && bombAfter.neighbour?.[0] === 1 && bombAfter.neighbour?.[1] === 1,
+    { clampPlaying: bomb.clampPlaying, clampOver, at: bomb.at, ...bombAfter });
   row('bell: the brain stops, the camera at 1,500 m over the arena, the score up', bell.phase === 'over' && bell.simT <= 45.1 && Math.abs(bell.camAGL - 1500) < 60 && bell.camFromMiddle < 700 && bell.hud === 1, bell);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiled after the warm-up, the whole match on', programs1 === programs0, { atFirst: programs0, atTheEnd: programs1 });

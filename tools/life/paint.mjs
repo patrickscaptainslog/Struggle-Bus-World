@@ -4,10 +4,13 @@
 //   hit       a breath's hit takes at its impact, not before: grey until then, then the breath's hue at level 1; a second hit goes up a level and keeps the hue
 //   contrail  the painted plane streams a ribbon of its paint behind it (O6)
 //   tap       the bus put behind a plane with its nose on it: a real tap's breath paints it, and nothing under it
+//   0930      Dolores at 09:30 on a Friday: a few picnics out, the parks awake from 9 am, and one takes paint from a real tap
+//   C15       five movers painted one by each faction read back their own through a reload, and a record kept before factions, naming none, reads back Rainbow's
 //   kept      the page again at the same moment: the plane is still painted, from the test store, and the real store has nothing
 //   picnics   in Mission Dolores Park on a Saturday afternoon, the bus low behind a group with its aim on it: it glints, a real tap paints it, none of it is kept
 //             (picnic:); painted, its people get up and dance (LIVING.md: "stop, look up, wave, dance")
-//   cars      the same with a car on the road: it glints, a tap paints it, none of it kept (car:); painted, it bounces and lays rainbow tyre tracks
+//   cars      the same with a car on the road: it glints, a tap paints it, none of it kept (car:); painted, it bounces and lays rainbow tyre tracks; flown along
+//             its street at 15, 45 and 150 m, a building the line of fire lands on keeps the shot
 // Frames as a player sees them (the first account's GPU review, M1): each glint once the camera has followed the bus, the dance and the car once the spray is gone, the
 // plane's streak three seconds after its hit, the bus following it.
 // Exit 1 if any fails.
@@ -150,6 +153,25 @@ try {
     const dn = got?.dance;
     row('picnics: painted, its people get up and dance, every one of them, a hop with their arms up on its up-beat', !!dn && dn.frames >= 20 && dn.people >= 1 && dn.dancers >= dn.people && dn.hop > 0.15 && dn.poses.length === 2, dn);
   }
+  {
+    // (the parks wake up from 9 am: Dolores on a Friday at 09:30 has a few groups out, and one of them takes paint as at the afternoon's peak)
+    await open(true, `${BASE}?life&nohud&skipintro&fixeddt=0.033333&t=2026-11-06T17:30:00Z&lat=37.7605&lon=-122.4262`);
+    let out = 0;
+    for (let i = 0; i < 12; i++) {
+      out = await page.evaluate(() => { const s = window.__game.life.snap; let k = 0; for (let i = 0; i < s.u32[2]; i++) if (s.rows[i * 16 + 1] === 8) k++; return k; });
+      if (out >= 1) break;
+      await frames(30);
+    }
+    const a = await aimAt(8, 0.5, 'picnic-0930.png');
+    let painted = null;
+    if (a.key) {
+      await page.evaluate(() => window.__game.tapSplat());
+      await frames(60);
+      painted = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, a.key);
+    }
+    await page.evaluate(() => delete window.__qa.pin);
+    row('picnics at 09:30 on a Friday: a few groups out, one glints, and a real tap paints it', out > 0 && !!painted && painted.level >= 1, { groups: out, tries: a.tries, key: a.key, painted });
+  }
   // (the rest at the Ferry Building on a Thursday morning)
   await open(true);
   {
@@ -166,7 +188,10 @@ try {
         return { key, was: window.__game.life.glintKey, dx: +(-uz * 5).toFixed(2), dz: +(ux * 5).toFixed(2), busY: Math.round(f.y) };
       }, a.key);
       await frames(2);
-      beside.now = await page.evaluate(() => window.__game.life.glintKey);
+      Object.assign(beside, await page.evaluate(() => {
+        const m = window.__game.aimer.mover;
+        return { now: window.__game.life.glintKey, missM: m ? +m.miss.toFixed(2) : null, halfM: m ? +m.half.toFixed(2) : null };
+      }));
       // (back on it for the tap)
       await page.evaluate(([dx, dz]) => { const p = window.__qa.pin; window.__qa.pin = { ...p, x: p.x - dx, z: p.z - dz }; }, [beside.dx, beside.dz]);
       await frames(2);
@@ -208,13 +233,56 @@ try {
     await frames(10);
     const carKept = await testStore('car:');
     row('cars: the bus low behind one, its aim on it: it glints, a real tap paints it, none of it kept', !!got?.painted && got.painted.level >= 1 && carKept === 0, { cars: a.near, tries: a.tries, key: got?.key, painted: got?.painted, carKept });
-    row('cars: the bus put 5 m to one side, its line of fire missing the car: it still glints, in the aim\'s cone', !!beside && beside.now === beside.key, beside);
+    // (the same car, or another the line now passes nearer: the aim's cone takes the one nearest its line)
+    row('cars: the bus put 5 m to one side, its line of fire missing the car: a car still glints, in the aim\'s cone', !!beside && (beside.now === beside.key || (/^car:/.test(beside.now ?? '') && beside.missM <= 5 + beside.halfM)), beside);
     const b = got?.bounce;
     row('cars: painted, it bounces, squashed as it lands, and lays two rainbow tyre tracks flat on the road', !!b && b.frames >= 20 && b.hop > 0.15 && b.squash < 0.9 && b.tracks >= 1 && b.marks >= 2 && b.hues >= 4 && b.edgesM < 0.01 && b.overRoadM < 1, b);
   }
   {
+    // (B1, the first account's life review: aimed at a house by a busy street, the car beside it took the shot, and along the nose a car 1.7 km down the road. The bus
+    // flown level along the street the nearest car is on, at 15, 45 and 150 m, 40 frames each, its aim wherever the game puts it: on the frames the line of fire lands
+    // on a building (a few at least, or the row hasn't tried it), nothing on the ground glints but what the line runs right over; and nothing on the ground glints past the line's end)
+    const street = await page.evaluate(() => {
+      const g = window.__game, l = g.life, s = l.snap, rows = s.rows, f = g.flight;
+      let best = null;
+      for (let i = 0; i < s.u32[2]; i++) {
+        const o = i * 16, k = rows[o + 1], v = Math.hypot(rows[o + 5], rows[o + 7]);
+        if ((k !== 5 && k !== 9) || v < 3) continue;
+        const d = Math.hypot(rows[o + 2] - f.x, rows[o + 4] - f.z);
+        if (!best || d < best.d) best = { d, x: rows[o + 2], y: rows[o + 3], z: rows[o + 4], ux: rows[o + 5] / v, uz: rows[o + 7] / v };
+      }
+      return best;
+    });
+    const seen = {};
+    if (street)
+      for (const h of [15, 45, 150]) {
+        const heading = Math.atan2(street.ux, -street.uz);
+        let onRoof = 0, stolen = 0, past = 0, groundGlints = 0;
+        for (let k = 0; k < 40; k++) {
+          const back = 120 - k * 3;
+          await page.evaluate((p) => (window.__qa.pin = p), { x: street.x - street.ux * back, y: street.y + h, z: street.z - street.uz * back, heading, nose: 0 });
+          await frames(1);
+          const r = await page.evaluate(() => {
+            const a = window.__game.aimer, m = a.mover, f = window.__game.flight, aim = a.aim;
+            const L = Math.hypot(aim.x - f.x, aim.y - f.y, aim.z - f.z), md = m ? Math.hypot(m.x - f.x, m.y - f.y, m.z - f.z) : 0;
+            return { roof: a.landsOnBuilding(), ground: !!m && m.onLine, over: !!m && m.miss <= m.half, past: !!m && m.onLine && md > L + 60 };
+          });
+          if (r.ground) groundGlints++;
+          if (r.roof) onRoof++;
+          if (r.roof && r.ground && !r.over) stolen++;
+          if (r.past) past++;
+        }
+        seen[h] = { onRoof, stolen, past, groundGlints };
+      }
+    await page.evaluate(() => delete window.__qa.pin);
+    await frames(4);
+    const ok = !!street && Object.values(seen).every((v) => v.stolen === 0 && v.past === 0) && Object.values(seen).reduce((n, v) => n + v.onRoof, 0) >= 3;
+    row("aim: flown along a busy street at 15, 45 and 150 m, a building the line lands on keeps the shot, and nothing on the ground past the line's end", ok, seen);
+  }
+
+  {
     // (a ferry: the bus 40 m up behind the nearest one underway, nose along its way, as a player chasing it holds; tried from 150, 250 and 400 m back. It glints, a
-    // real tap paints it, and painted it lays a wake on the water behind it in every hue; its paint is kept, by vessel. A frame of it three seconds on, following it)
+    // real tap paints it, and painted it lays a wake on the water behind it in every hue; its paint is kept, by vessel. A frame of it six seconds on, following it)
     const ferry = () => page.evaluate(() => {
       const g = window.__game, l = g.life, s = l.snap, rows = s.rows, dt = (l.utc - s.f64[0]) / 1000;
       let best = null;
@@ -238,7 +306,7 @@ try {
         if ((await page.evaluate(() => window.__game.life.glintKey)) !== f.key) continue;
         await page.screenshot({ path: join(dir, 'ferry-glint.png') });
         await page.evaluate(() => window.__game.tapSplat());
-        for (let k = 0; k < 9; k++) {
+        for (let k = 0; k < 18; k++) {
           const a = await now(f.key);
           if (a) await page.evaluate((p) => (window.__qa.pin = p), { x: a.x - f.ux * back, y: 40, z: a.z - f.uz * back, heading, nose: 0 });
           await frames(10);
@@ -284,12 +352,12 @@ try {
   {
     const r = await page.evaluate((key) => {
       const l = window.__game.life, g = window.__game, now = g.clock();
-      const fresh = l.hit(key, 2, window.__game.life.utc, now + 1);
+      const fresh = l.hit(key, 2, window.__game.life.utc, now + 1, 1);
       return { fresh, before: l.painted.has(window.__game.life.keyHash(key)) };
     }, p.key);
     await frames(40);
     const after = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
-    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, window.__game.life.utc, window.__game.clock() + 0.2), p.key);
+    const again = await page.evaluate((key) => window.__game.life.hit(key, 5, window.__game.life.utc, window.__game.clock() + 0.2, 1), p.key);
     await frames(20);
     const twice = await page.evaluate((key) => window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null, p.key);
     row('hit: grey until the impact, then its hue at level 1; again, level 2 and the same hue', r.fresh && !r.before && after?.hue === 2 && after.level === 1 && !again && twice?.hue === 2 && twice.level === 2, { ...r, after, again, twice });
@@ -364,9 +432,37 @@ try {
     row('tap: the bus behind a plane, nose on it: the plane glints, and a real tap paints it', !!tapped && tapped.glint === tapped.key && !!tapped.painted && tapped.painted.level >= 1, tapped);
   }
   await page.screenshot({ path: join(dir, 'painted.png') });
+  // (C15: five kept movers painted one by each faction, and a record kept before factions, naming none, written to the test store as it was)
+  const five = await page.evaluate(() => {
+    const l = window.__game.life, out = [];
+    for (const key of l.keys.values()) {
+      if (out.length >= 5) break;
+      if (!/^(ferry|plane|sail):/.test(key) || l.painted.has(l.keyHash(key))) continue;
+      out.push(key);
+    }
+    out.forEach((key, i) => l.hit(key, (i + 1) % 6, l.utc, window.__game.clock() + 0.1, i + 1));
+    return out;
+  });
+  await page.evaluate(() => new Promise((ok) => {
+    const r = indexedDB.open('strugglebus.life.test.v1', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('paint', { keyPath: 'key' });
+    r.onsuccess = () => {
+      const tx = r.result.transaction('paint', 'readwrite');
+      tx.objectStore('paint').put({ key: 'ferry:before-factions:0:20261107', hue: 3, level: 2, until: 9e15, ns: 'sf' });
+      tx.oncomplete = () => ok(true);
+      tx.onerror = () => ok(false);
+    };
+    r.onerror = () => ok(false);
+  }));
   await frames(30);
   await open(false);
   await frames(30);
+  const owners = await page.evaluate((keys) => {
+    const l = window.__game.life, got = (k) => l.painted.get(l.keyHash(k)) ?? null;
+    return { five: keys.map((k) => got(k)?.faction ?? null), old: got('ferry:before-factions:0:20261107') };
+  }, five);
+  row('C15: five movers painted by each faction read back their own after a reload; a record naming none reads back Rainbow\'s, as it was',
+    five.length === 5 && owners.five.every((f, i) => f === i + 1) && owners.old?.faction === 1 && owners.old.hue === 3 && owners.old.level === 2, { keys: five.length, ...owners });
   const kept = await page.evaluate((key) => ({ painted: window.__game.life.painted.get(window.__game.life.keyHash(key)) ?? null }), p.key);
   const real = await page.evaluate(() => new Promise((ok) => {
     const r = indexedDB.open('strugglebus.life.v1');

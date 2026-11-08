@@ -119,6 +119,16 @@ const R = Faction.RAINBOW, A = Faction.ATLANTIS, I = Faction.INFERNO;
   const s = new Areas();
   const a1 = s.hit(0, 0, R, 0, { superId: 7 }).outcome, a2 = s.hit(0, 0, R, 6, { superId: 7 }).outcome, a3 = s.hit(0, 0, R, 6, { superId: 8 }).outcome;
   row('areas: one super counts once an area', a1 === 'claim' && a2 === 'none' && a3 === 'up', { a1, a2, a3 });
+  // (a Bomb's jump, HOOKS.md: its own square, or grey, climbs at once past the wait, to 3 at most; a rival's takes its one hit; a god its usual)
+  const j = new Areas();
+  j.hit(0, 0, R, 0);
+  const own = j.hit(0, 0, R, 1, { superId: 21, jump: 2, cap: 3 }), ownStage = own.area.stage;
+  const top = j.hit(0, 0, R, 2, { superId: 22, jump: 3, cap: 3 }), topStage = top.area.stage;
+  const grey = j.hit(400, 0, R, 2, { superId: 23, jump: 3, cap: 3 }), greyStage = grey.area.stage;
+  j.hit(800, 0, A, 0);
+  const rival = j.hit(800, 0, R, 6, { superId: 24, jump: 3, cap: 3 });
+  row('areas: a Bomb jumps its own square or grey at once to 3 at most; a rival\'s takes one hit', own.outcome === 'up' && ownStage === 3 && top.outcome === 'encore' && topStage === 3 && grey.outcome === 'claim' && greyStage === 3 && rival.outcome === 'flip' && rival.area.faction === R && rival.area.stage === 1,
+    { own: [own.outcome, ownStage], atTop: [top.outcome, topStage], grey: [grey.outcome, greyStage], rival: [rival.outcome, rival.area.stage] });
   // (changes on their beats; stage 5 never)
   const b = new Areas();
   let onBeat = true, most = 0;

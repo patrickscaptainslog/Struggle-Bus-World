@@ -132,6 +132,10 @@ export interface HitOptions {
   superId?: number;
   /** epoch s now, for `tended` */
   now?: number;
+  /** a Bomb's jump (HOOKS.md, the producer's fourth call): the hitter's own square, or a grey one, climbs this many stages at once, past the five seconds'
+   *  wait, to `cap` at most (3) and its top; a rival's takes the one hit it always would */
+  jump?: number;
+  cap?: number;
 }
 
 /** Where a neighbourhood stands, for the host's ring, sky mark, borders and street sign. */
@@ -207,6 +211,20 @@ export class Areas {
     if (o.superId) {
       if (a.superId === o.superId) return { area: a, outcome: 'none', at: t };
       a.superId = o.superId;
+    }
+    if (o.jump && o.jump > 1 && (a.faction === 0 || a.faction === faction) && a.stage < godTune.stage) {
+      const from = a.faction === faction ? a.stage : 0, to = Math.min(o.cap ?? 3, this.topOf(a.key), from + o.jump);
+      if (to > from) {
+        const out: Outcome = from === 0 ? 'claim' : 'up';
+        if (o.now !== undefined) a.tended = o.now;
+        a.faction = faction;
+        a.stage = to;
+        a.cracks = 0;
+        a.hits++;
+        a.last = t;
+        this.onChange?.(a);
+        return { area: a, outcome: out, at: this.slots.book(t) };
+      }
     }
     const out = this.outcomeOf(a, faction, t);
     return { area: a, outcome: out, at: this.apply(a, out, faction, t, o.now) };

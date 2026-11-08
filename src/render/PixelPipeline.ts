@@ -23,6 +23,26 @@ import type { WarmPipeline } from './warmup';
 
 const MARGIN = 2;
 
+/**
+ * The render camera's vertical fov (deg) and aspect for a w x h game-pixel view at the horizontal portrait fov `hfov` (deg), its margin included, and
+ * the share of its height that's on the screen (`inner`): updateProjection's, so a lens outside the pipeline (tools/controls-sim/s_shots.ts) projects as the page's.
+ */
+export function lensFov(w: number, h: number, hfov: number): { fov: number; aspect: number; inner: number } {
+  const W = w + MARGIN * 2;
+  const H = h + MARGIN * 2;
+  let vfov: number;
+  if (h >= w) {
+    // portrait: hold the horizontal fov, derive vertical
+    const hf = THREE.MathUtils.degToRad(hfov);
+    vfov = 2 * Math.atan(Math.tan(hf / 2) / (w / h));
+  } else {
+    vfov = THREE.MathUtils.degToRad(config.camera.vfovLandscape * (hfov / Math.max(1, config.camera.hfovPortrait)));
+  }
+  // widen to include the margin pixels so the visible center stays exact
+  vfov = 2 * Math.atan(Math.tan(vfov / 2) * (H / h));
+  return { fov: THREE.MathUtils.radToDeg(vfov), aspect: W / H, inner: h / H };
+}
+
 export interface PixelFrameInfo {
   /** Size of the visible low-res image (without margin). */
   width: number;
@@ -142,6 +162,11 @@ export class PixelPipeline implements WarmPipeline {
   private readonly heroShadow = new THREE.Vector4();
   private readonly heroShadowAxes = new THREE.Vector4(0, 1, 1, 1);
   private readonly heroCircle = new THREE.Vector4();
+  /** the Bomb's ring where it will land (center x, z, radius m, strength; 0 = off) and its heartbeat's pulse */
+  private readonly bombRing = new THREE.Vector4();
+  private bombPulse = 0;
+  /** ...its six rows of paint, each (ramp, its step at rest, its brightest): Rainbow's, or the bus's faction's spray (setBombRows) */
+  private readonly bombRows = HUE_RAMPS.map((r) => new THREE.Vector3(r, 5, 7));
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -198,6 +223,9 @@ export class PixelPipeline implements WarmPipeline {
         uHeroShadow: { value: new THREE.Vector4() },
         uHeroShadowAxes: { value: new THREE.Vector4(0, 1, 1, 1) },
         uHeroCircle: { value: new THREE.Vector4() },
+        uBombRing: { value: new THREE.Vector4() },
+        uBombPulse: { value: 0 },
+        uBombRows: { value: HUE_RAMPS.map((r) => new THREE.Vector3(r, 5, 7)) },
         uFlash: { value: new THREE.Vector4() },
         uSkyCut: { value: this.skyCut },
         ...(skyOn ? heldResolveUniforms : {}),
@@ -318,22 +346,9 @@ export class PixelPipeline implements WarmPipeline {
   /** Recomputes the camera projection for the current aspect (call after changing fov settings). */
   updateProjection() {
     const { width: w, height: h } = this.info;
-    const W = w + MARGIN * 2;
-    const H = h + MARGIN * 2;
-    const aspect = W / H;
-    let vfov: number;
-    const hfov = this.hfov ?? config.camera.hfovPortrait;
-    if (h >= w) {
-      // portrait: hold the horizontal fov, derive vertical
-      const hf = THREE.MathUtils.degToRad(hfov);
-      vfov = 2 * Math.atan(Math.tan(hf / 2) / (w / h));
-    } else {
-      vfov = THREE.MathUtils.degToRad(config.camera.vfovLandscape * (hfov / Math.max(1, config.camera.hfovPortrait)));
-    }
-    // widen to include the margin pixels so the visible center stays exact
-    vfov = 2 * Math.atan(Math.tan(vfov / 2) * (H / h));
-    this.camera.fov = THREE.MathUtils.radToDeg(vfov);
-    this.camera.aspect = aspect;
+    const lens = lensFov(w, h, this.hfov ?? config.camera.hfovPortrait);
+    this.camera.fov = lens.fov;
+    this.camera.aspect = lens.aspect;
     this.camera.updateProjectionMatrix();
   }
 
@@ -405,6 +420,23 @@ export class PixelPipeline implements WarmPipeline {
    */
   setHeroCircle(charge: number, spin: number, halfLength: number, halfWidth: number) {
     this.heroCircle.set(charge, spin, Math.max(0.1, halfLength), Math.max(0.1, halfWidth));
+  }
+
+  /**
+   * The Bomb's ring (src/game/Bomb.ts): where it will land, its whole circle (m), on whatever faces up there, the hero circle's way: in the resolve, a band of
+   * paint's colours stippled in as `k` grows (0 = off), wider and a step brighter on each heartbeat (`pulse` 0-1). No decal, no draw, no program of its own.
+   */
+  setBombRing(x: number, z: number, r: number, k: number, pulse: number) {
+    this.bombRing.set(x, z, Math.max(1, r), k);
+    this.bombPulse = pulse;
+  }
+
+  /** The ring's six rows of paint, each (ramp, its step at rest, its brightest on a heartbeat): the bus's faction's spray under &bomb (main.ts), Rainbow's else. */
+  setBombRows(rows: ReadonlyArray<readonly [number, number, number]>) {
+    for (let i = 0; i < 6; i++) {
+      const r = rows[i % rows.length];
+      this.bombRows[i].set(r[0], r[1], r[2]);
+    }
   }
 
   /** The far plane moves (?farfade): the sky is the clear flag alone from here on, or the far fade ends in a hard cut. */
@@ -690,6 +722,9 @@ export class PixelPipeline implements WarmPipeline {
     ru.uHeroShadow.value.copy(this.heroShadow);
     ru.uHeroShadowAxes.value.copy(this.heroShadowAxes);
     ru.uHeroCircle.value.copy(this.heroCircle);
+    ru.uBombRing.value.copy(this.bombRing);
+    ru.uBombPulse.value = this.bombPulse;
+    for (let i = 0; i < 6; i++) (ru.uBombRows.value as THREE.Vector3[])[i].copy(this.bombRows[i]);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
@@ -871,6 +906,9 @@ uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, 
 uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
+uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off)
+uniform float uBombPulse;     // ...its heartbeat, 0-1
+uniform vec3 uBombRows[6];    // ...its six rows of paint: ramp, its step at rest, its brightest
 uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
 uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}${space(GLSL_SPACE_UNIFORMS)}
 in vec2 vUv;
@@ -1018,11 +1056,12 @@ void main() {
   float z = texelFetch(tDepth, p, 0).r;
   vec4 a = sbAux(p);
   bool layerView = uFogLayer2.w > 0.001 && uCamPos.y > uFogLayer.x && dir.y < -0.001;
-  // impact flash: k = 1 at the blast, falling off over the screen
+  // impact flash: k = 1 at the blast, falling off over the screen (a strength under 0, a Comet's far off: only round it, the rest of the frame as it is)
   float flashK = 0.0;
-  if (uFlash.z > 0.0) {
+  bool flashAll = uFlash.z > 0.0;
+  if (uFlash.z != 0.0) {
     vec2 fd = (vUv - uFlash.xy) * vec2(uSize.x / uSize.y, 1.0);
-    flashK = uFlash.z * (1.0 - smoothstep(uFlash.w, uFlash.w * 4.0, length(fd)));
+    flashK = abs(uFlash.z) * (1.0 - smoothstep(uFlash.w, uFlash.w * 4.0, length(fd)));
   }
   // The sky is what nothing wrote: every sbWrite has flags >= 0.5, the clear is 0. A depth can't say that: with the near plane
   // at 1.5 m, z >= 0.99999 is a distance, 25 km at a 30 km far plane, 29 km at 36 km. uSkyCut keeps that distance while the far
@@ -1066,7 +1105,7 @@ void main() {
     // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)
     float skyA = 0.0;
     if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
-    if (uFlash.z > 0.0) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
+    if (flashAll || flashK > 0.45) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
     outColor = vec4(sc, skyA);
     return;
   }
@@ -1255,6 +1294,23 @@ void main() {
       col = pal(oRamp, oStep);
     }
   }
+  // the Bomb's ring where it will land, the circle it paints: a band of its faction's paint on whatever faces up there, its arcs turning, stippled in as it
+  // comes and a step brighter and a little wider on each of III's heartbeats, never past its row's brightest. The hero's own pixels and fog are left alone
+  if (uBombRing.w > 0.01 && outlineable && !fogged && !heroRamp) {
+    vec3 cfb = -normalize(vec3(uCamWorld[2].xyz));
+    vec3 Pb = uCamPos + dir * (depth / max(dot(dir, cfb), 0.05));
+    vec2 bq = (Pb.xz - uBombRing.xy) / uBombRing.z;
+    float br = length(bq);
+    if (abs(br - 0.985) < 0.03 + 0.02 * uBombPulse && (mat3(uCamWorld) * octDecode(a.rg)).y > 0.5) {
+      float bs = atan(bq.y, bq.x) * 1.909859 + uTime * 0.8;
+      if (uBombRing.w > 0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0) {
+        vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
+        oRamp = brow.x;
+        oStep = min(brow.z, brow.y + floor(1.6 * uBombPulse + 0.5));
+        col = pal(oRamp, oStep);
+      }
+    }
+  }
   // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
   // ramp; a lift, not a drawn shape, so it reads as light in the haze. Only the grey world: paint and
   // glow are already the brightest things around (the bloom right after a hit is the money shot). A
@@ -1282,10 +1338,10 @@ void main() {
     }
   }
   // impact flash: white-hot near the blast (shapes kept by their own light),
-  // everything else jumps two or three steps up its own ramp
-  if (uFlash.z > 0.0) {
+  // everything else jumps two or three steps up its own ramp (a Comet's: only round it)
+  if (flashK > 0.0 || flashAll) {
     if (flashK > 0.5 + 0.3 * d) col = pal(${Ramp.GLOW_WHITE}.0, floor(4.5 + 2.6 * light));
-    else col = pal(oRamp, min(oStep + 1.0 + floor(flashK * 3.0 + d), 7.0));
+    else if (flashAll || flashK > 0.04) col = pal(oRamp, min(oStep + 1.0 + floor(flashK * 3.0 + d), 7.0));
   }
   outColor = vec4(col, 1.0);
 }

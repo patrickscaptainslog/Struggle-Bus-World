@@ -1,8 +1,11 @@
+import { crew } from '../game/crew';
+import { FACTIONS } from '../game/factions';
 import { inputTune, type Input, type InputMode } from '../game/Input';
 import { GEAR_NAMES, rungName } from '../game/Turbo';
 import { Ramp, rampColor } from '../render/palette';
 import type { Cue } from './Coach';
 import { isCompact, layoutHud, type Control, type HudLayout, type Insets, type Rect } from './hudLayout';
+import { CREST, drawCrest } from './crest';
 import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelUi';
 
 // The HUD: as little as possible, pixel-styled in palette colors, safe-area
@@ -12,7 +15,10 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 //
 //  - MEGA (the middle of the right side): tap = splat, hold = charge. The meter
 //    (slot('super'), src/ui/SuperMeter.ts) stands above it and docks on its face
-//    for the cooldown.
+//    for the cooldown. Asleep unless megaOn (&mega on the link): MEGA is off, the
+//    producer's ruling of 2026-11-06, and then neither it nor its meter shows.
+//  - top left, on phones that have seen ?crew (game/crew.ts): the player's faction
+//    crest. A tap opens the five under it; a tap on one switches the bus's faction.
 //  - top right: settings. It fades out after a few seconds untouched; a tap in
 //    that corner brings it back.
 //  - the gear readout, only for a moment: while a gear lifts and just after it
@@ -23,7 +29,7 @@ import { C, HUD_FONT, HUD_SMALL, PixelCanvas, textWidth, uiText } from './pixelU
 //  - a desktop has no buttons at all: Esc opens the settings (src/game/Controls.ts).
 //  - setCredits(lines): the data credits, one tap away in settings (MAP DATA), never on the play screen.
 //
-// Only these catch touches: MEGA, settings. Everything else is pointer-events
+// Only these catch touches: MEGA, settings, the crest. Everything else is pointer-events
 // none. Hit wrappers are the rects from hudLayout, and the visuals inside them
 // are pointer-events none, so the 14 px band at the screen's edges stays the
 // canvas's. There is no gear strip and no button for a gear: a flick is the
@@ -58,8 +64,10 @@ export interface HudFrame {
   /** seconds since the last shift / LOCKED attempt (Infinity = never) */
   sinceShift: number;
   sinceLocked: number;
-  /** the rung's name, where it isn't rungName's (the flight over Earth, whose two faster gears are over turbo's levels) */
+  /** the rung's name, where it isn't rungName's (the flight over Earth, whose two faster gears are over turbo's levels; School Zone) */
   name?: string;
+  /** what stands before the name, where it isn't the rung's G number ('': nothing, School Zone's) */
+  tag?: string;
 }
 
 export interface HudCallbacks {
@@ -106,6 +114,8 @@ export class Hud {
   L: HudLayout;
   /** MEGA has arrived (fog end or first touch) */
   private arrived = false;
+  /** MEGA is awake (&mega: Controls sets it before the HUD arrives). Off, its button and its meter never show */
+  private megaAwake = false;
 
   private readonly topRight: HTMLDivElement;
   private readonly settingsBtn: PixelCanvas;
@@ -119,6 +129,19 @@ export class Hud {
   private readonly cueCanvas: PixelCanvas;
   private readonly cueWrap: HTMLDivElement;
   private readonly superSlot: HTMLDivElement;
+  // the faction crest (?crew) and its picker
+  private readonly crest: PixelCanvas;
+  private readonly crestWrap: HTMLElement;
+  private readonly picker: HTMLDivElement;
+  private readonly swatches: PixelCanvas[] = [];
+  private readonly swatchWraps: HTMLElement[] = [];
+  private crestKey = -1;
+  private pickerOpen = false;
+  private readonly onAway = (e: PointerEvent) => {
+    const t = e.target as Node | null;
+    if (t && (this.picker.contains(t) || this.crestWrap.contains(t))) return;
+    this.closePicker();
+  };
   private panel: HTMLDivElement | null = null;
   private toastEl: HTMLDivElement | null = null;
   /** wall-clock ms when the toast goes (UI time: a slow frame rate must not stretch it) */
@@ -128,6 +151,7 @@ export class Hud {
   // last rendered state (re-render only on change; numbers, not string keys: this runs every frame)
   private gearOn = false;
   private gGear = -1;
+  private gName: string | undefined = undefined;
   private gMax = -1;
   private gMph = -1;
   private gEngaged = false;
@@ -228,8 +252,28 @@ export class Hud {
     this.slots.set('super', this.superSlot);
     root.append(this.superSlot);
 
+    // ---- the faction crest (?crew): the top left, its picker under it
+    crew.init(new URLSearchParams(location.search));
+    this.crest = new PixelCanvas(CREST, CREST, S);
+    css(this.crest.el, { position: 'absolute', pointerEvents: 'none' });
+    this.crestWrap = this.hit(this.crest.el, () => this.tapCrest(), 'crew');
+    css(this.crestWrap, { position: 'absolute', display: 'none' });
+    root.append(this.crestWrap);
+    this.picker = div({ position: 'absolute', left: '0', top: '0', width: '0', height: '0', display: 'none' });
+    this.picker.dataset.hud = 'crew-picker';
+    for (const f of FACTIONS) {
+      const c = new PixelCanvas(CREST, CREST, S);
+      css(c.el, { position: 'absolute', pointerEvents: 'none' });
+      const w = this.hit(c.el, () => this.pick(f.id), `crew-${f.key}`);
+      css(w, { position: 'absolute' });
+      this.swatches.push(c);
+      this.swatchWraps.push(w);
+      this.picker.append(w);
+    }
+    root.append(this.picker);
+
     document.body.append(root);
-    this.L = layoutHud(w0, h0, this.readInsets(), false, this.compact);
+    this.L = layoutHud(w0, h0, this.readInsets(), false, this.compact, crew.on);
     this.layout();
     window.addEventListener('resize', this.onResize);
     window.addEventListener('orientationchange', this.onTurned);
@@ -287,7 +331,20 @@ export class Hud {
   private showChrome() {
     const on = this.arrived && this.mode === 'touch';
     this.show(this.topRight, on);
-    this.show(this.megaWrap, on);
+    this.show(this.megaWrap, on && this.megaAwake);
+    this.show(this.superSlot, this.megaAwake);
+    // (the crest is a tester's: on a desktop too, which has no other button)
+    this.show(this.crestWrap, this.arrived && crew.on);
+    if (!(this.arrived && crew.on)) this.closePicker();
+  }
+
+  /** MEGA wakes (&mega on the link) or sleeps: its button and its meter show or don't. */
+  set megaOn(v: boolean) {
+    this.megaAwake = v;
+    this.showChrome();
+  }
+  get megaOn(): boolean {
+    return this.megaAwake;
   }
 
   /** The settings button shows for a few seconds more. */
@@ -309,9 +366,11 @@ export class Hud {
   }
 
   private layout() {
-    const L = layoutHud(window.innerWidth, window.innerHeight, this.readInsets(), this.settings.swap, this.compact);
+    const L = layoutHud(window.innerWidth, window.innerHeight, this.readInsets(), this.settings.swap, this.compact, crew.on);
     this.L = L;
     this.place(this.settingsWrap, this.settingsBtn, L.settings);
+    this.place(this.crestWrap, this.crest, L.crew);
+    L.swatches.forEach((r, k) => this.place(this.swatchWraps[k], this.swatches[k], { v: r, hit: r }));
     this.place(this.megaWrap, this.mega, L.mega);
     this.box(this.gearWrap, L.readout);
     this.lockedWrap.style.top = `${L.toast.y}px`;
@@ -359,7 +418,8 @@ export class Hud {
     }
     if (showGear) {
       const mph = f.mph >= 100 ? Math.round(f.mph / 10) * 10 : Math.round(f.mph);
-      if (f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.level !== this.gLevel || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
+      if (f.name !== this.gName || f.gear !== this.gGear || f.maxGear !== this.gMax || f.engaged !== this.gEngaged || f.level !== this.gLevel || mph !== this.gMph || f.armed !== this.gArmed || blink !== this.gBlink) {
+        this.gName = f.name;
         this.gArmed = f.armed;
         this.gBlink = blink;
         this.gGear = f.gear;
@@ -389,7 +449,8 @@ export class Hud {
     }
     if (f.armed || f.sinceShift < 0.3) this.wakeButtons();
     const rest = now >= this.restAt && this.megaId < 0 && !f.armed;
-    if (this.mode === 'touch' && this.arrived) this.frameMega(dt, now, rest);
+    if (this.mode === 'touch' && this.arrived && this.megaAwake) this.frameMega(dt, now, rest);
+    if (crew.on && this.arrived) this.frameCrest();
     this.frameCue(now);
     if (this.toastEl && now >= this.toastUntil) this.clearToast();
   }
@@ -410,6 +471,55 @@ export class Hud {
       this.megaKey = key;
       this.drawMega(rest, fire === 1, hold);
     }
+  }
+
+  private frameCrest() {
+    const key = crew.faction * 2 + (crew.locked ? 1 : 0);
+    if (key === this.crestKey) return;
+    this.crestKey = key;
+    this.crest.clear();
+    drawCrest(this.crest, crew.faction, 0, 0, false, crew.locked);
+    this.crest.flush();
+    if (crew.locked) this.closePicker();
+  }
+
+  /** The crest: the picker opens, or closes. In a match it's locked: it says so. */
+  private tapCrest() {
+    if (crew.locked) {
+      this.toast(['AFTER THE MATCH'], 1.4);
+      return;
+    }
+    if (this.pickerOpen) this.closePicker();
+    else this.openPicker();
+  }
+
+  private openPicker() {
+    if (this.pickerOpen) return;
+    this.pickerOpen = true;
+    FACTIONS.forEach((f, k) => {
+      const c = this.swatches[k];
+      c.clear();
+      drawCrest(c, f.id, 0, 0, f.id === crew.faction);
+      c.flush();
+    });
+    this.picker.style.display = 'block';
+    // (a touch anywhere else closes it, and still does what it does)
+    window.addEventListener('pointerdown', this.onAway, true);
+  }
+
+  private closePicker() {
+    if (!this.pickerOpen) return;
+    this.pickerOpen = false;
+    this.picker.style.display = 'none';
+    window.removeEventListener('pointerdown', this.onAway, true);
+  }
+
+  /** A swatch: the bus is that faction's from the next shot on (game/crew.ts tells the painters), and the picker closes with its name. */
+  private pick(faction: number) {
+    this.closePicker();
+    const was = crew.faction;
+    crew.set(faction);
+    if (crew.faction !== was) this.toast([FACTIONS[faction - 1].name], 1.6);
   }
 
   private frameCue(now: number) {
@@ -821,9 +931,9 @@ export class Hud {
     // a rung's number is its place on the ladder: the gears, then turbo's levels over the top gear
     const rung = f.gear + f.level;
     const shown = rung + (f.armed ? 1 : 0);
-    const g = `G${shown}`;
-    this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
-    const x = 2 + textWidth(g) + 5;
+    const g = f.tag ?? `G${shown}`;
+    if (g) this.outlineOver(p, g, 2, 2, f.armed ? (blink ? C.yellow : C.dim) : C.yellow);
+    const x = g ? 2 + textWidth(g) + 5 : 2;
     this.outlineOver(p, f.name ?? rungName(f.gear + (f.armed ? 1 : 0), f.level), x, 2, !f.armed && (f.engaged || f.gear === 0) ? C.cream : C.dim);
     // pips: one per rung; lit up to the rung, dim if usable, dark if locked (what's over the top gear in reach comes last)
     const levels = f.levels;

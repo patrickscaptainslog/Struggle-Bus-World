@@ -142,11 +142,11 @@ export class RecessGame implements MoverAim {
   private readonly ys: number[] = [];
   private readonly blobs: THREE.Mesh[] = [];
   private readonly blobMats: Map<number, THREE.ShaderMaterial> = new Map();
-  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: true };
+  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: true, miss: 0, half: 12 };
   private glintKey: string | null = null;
   private now = 0;
   private acc = 0;
-  private readonly pending: { x: number; z: number; at: number }[] = [];
+  private readonly pending: { x: number; z: number; at: number; bomb?: { jump: number; superId: number; r: number } }[] = [];
   private hopLeft = 0;
   private hopWay = 1;
   private bubbleAt: { x: number; z: number } | null = null;
@@ -304,10 +304,19 @@ export class RecessGame implements MoverAim {
     this.sim.fireAt(0, Number(key.slice(7)), this.simAt(arrive));
   }
 
-  /** The player's breath on the city, landing at (x, z) at game time `arrive`: the square there takes Rainbow's hit then, inside the circle (as a captain's). */
-  playerPaint(x: number, z: number, arrive: number): void {
+  /**
+   * The player's breath on the city, landing at (x, z) at game time `arrive`: the square there takes Rainbow's hit then, inside the circle (as a captain's). A
+   * Bomb's (`bomb`: its jump, its SuperTag's id, its circle) jumps the square it's aimed at, its own or grey, `jump` stages at once to 3 at most, a rival's taking
+   * its one hit, and the grey squares in its circle spill Rainbow's at stage 1 (HOOKS.md, the producer's fourth call).
+   */
+  playerPaint(x: number, z: number, arrive: number, bomb?: { jump: number; superId: number; r: number }): void {
     if (this.phase !== 'play' || !Recess.inside(x - this.cx, z - this.cz)) return;
-    this.pending.push({ x: x - this.cx, z: z - this.cz, at: this.simAt(arrive) });
+    this.pending.push({ x: x - this.cx, z: z - this.cz, at: this.simAt(arrive), bomb });
+  }
+
+  /** The match is on: between the first bell's words and the last bell (main.ts: no Comet meanwhile). */
+  get playing(): boolean {
+    return this.phase === 'play';
   }
 
   /**
@@ -381,8 +390,19 @@ export class RecessGame implements MoverAim {
         for (let i = this.pending.length - 1; i >= 0; i--) {
           const p = this.pending[i];
           if (this.sim.t < p.at) continue;
-          const o = this.sim.areas.hit(p.x, p.z, Faction.RAINBOW, this.sim.t).outcome, a = this.sim.areas.get(p.x, p.z);
+          const A = this.sim.areas, b = p.bomb;
+          const o = A.hit(p.x, p.z, Faction.RAINBOW, this.sim.t, b ? { superId: b.superId, jump: b.jump, cap: 3 } : {}).outcome, a = A.get(p.x, p.z);
           this.pending.splice(i, 1);
+          if (b) {
+            this.count('bomb');
+            // (the grey squares its circle reaches, inside the arena: Rainbow's at stage 1, nobody else's ground changed)
+            const s = areaTune.size, n = Math.ceil(b.r / s);
+            for (let dz = -n; dz <= n; dz++)
+              for (let dx = -n; dx <= n; dx++) {
+                const c = squareCentre(squareKey(p.x + dx * s, p.z + dz * s)), ex = Math.max(0, Math.abs(c.x - p.x) - s / 2), ez = Math.max(0, Math.abs(c.z - p.z) - s / 2);
+                if ((dx || dz) && Math.hypot(ex, ez) <= b.r && Recess.inside(c.x, c.z)) A.spill(c.x, c.z, Faction.RAINBOW, this.sim.t);
+              }
+          }
           // (on a god: a tap before its ring closes is wasted, and says so; a whole god's ring only starts again. The seal is said with the heart's watch)
           if (a?.stage === 5) {
             if (o === 'encore' || o === 'parry') this.count('tooSoon');

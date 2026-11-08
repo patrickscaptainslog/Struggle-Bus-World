@@ -1,5 +1,7 @@
 import { SoundGraph } from './SoundGraph';
-import { synthAll, type Kit, type SynthData } from './dsp';
+import { LOOKAHEAD, synthAll, type Kit, type SynthData } from './dsp';
+import { cometBoom, cometLaunch } from './cometSfx';
+import { fallsPlop, fallsSlap, fallsTrickle } from './fallsSfx';
 import { audioTune, registerAudioTunables } from './tune';
 
 // Struggle Bus audio: a fully synthesized WebAudio engine (no sample files).
@@ -228,6 +230,32 @@ export class AudioEngine {
     if (g) g.splatImpact(g.now(), strength);
   }
 
+  /** The Comet leaves the mouth (src/audio/cometSfx.ts): its whoosh, k ~1 for the full show. */
+  cometLaunch(k = 1): void {
+    const g = this.live();
+    if (g) cometLaunch(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k);
+  }
+
+  /** The Comet's boom, late: when the sound of its landing reaches the bus (k ~ its strength; soft: the lighter show's; moon: a ground thump, no air). */
+  cometBoom(k: number, soft: boolean, moon: boolean): void {
+    const g = this.live();
+    if (g) cometBoom(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, soft, moon);
+  }
+
+  /** &falls (src/audio/fallsSfx.ts): the runs' trickle for `secs`, a drop's plop `delay` s on, the pool's slap and its falling notes. */
+  fallsTrickle(secs: number): void {
+    const g = this.live();
+    if (g) fallsTrickle(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, secs);
+  }
+  fallsPlop(delay = 0): void {
+    const g = this.live();
+    if (g) fallsPlop(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD + Math.max(0, delay));
+  }
+  fallsSlap(): void {
+    const g = this.live();
+    if (g) fallsSlap(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD);
+  }
+
   /** A whole blast blooms: one capped, fast arpeggio of the next chord (count = buildings, hue 0..5, level 1..3). */
   bloomBurst(count: number, hue: number, level: number): void {
     const g = this.live();
@@ -282,6 +310,62 @@ export class AudioEngine {
   superHoseHit(): void {
     const g = this.live();
     if (g) g.superFx.hoseHit(g.now());
+  }
+
+  // ---- the Hose (src/game/Hose.ts) and the homing shot (src/game/Hold.ts)
+  /** The Hose opens: a pressurised hiss over a low drone, until hoseStop. */
+  hosePour(): void {
+    const g = this.live();
+    if (g) g.superFx.pour(g.now());
+  }
+
+  /** How full the tank is (0..1): the hiss and the drone climb as it empties. Every frame or so while it pours. */
+  hoseLevel(tank: number): void {
+    const g = this.live();
+    if (g) g.superFx.pourLevel(g.now(), tank);
+  }
+
+  /** The Hose closes: let go (a quick tail), or run dry (it sputters and gulps). */
+  hoseStop(dry: boolean): void {
+    const g = this.live();
+    if (g) g.superFx.pourStop(g.now(), dry);
+  }
+
+  /** A homing shot's last second: a whistle that rises until it lands. */
+  homingWhistle(seconds: number): void {
+    const g = this.live();
+    if (g) g.superFx.whistle(g.now(), seconds);
+  }
+
+  // ---- the Bomb (src/game/Bomb.ts): MEGA's sounds
+  /** The charge begins (III in `full` s): the riser and an inhale. */
+  bombCharge(full: number): void {
+    const g = this.live();
+    if (g) g.superFx.bombStart(g.now(), full);
+  }
+
+  /** A tier shows: its clunk (and III's bell). */
+  bombTier(tier: number): void {
+    const g = this.live();
+    if (g) g.superFx.bombTier(g.now(), tier);
+  }
+
+  /** One of III's heartbeats. */
+  bombBeat(): void {
+    const g = this.live();
+    if (g) g.superFx.bombBeat(g.now());
+  }
+
+  /** The charge ends: fired (cut into the blast, or the tap that follows) or a fizzle (the power-down). */
+  bombStop(fired: boolean): void {
+    const g = this.live();
+    if (g) g.superFx.chargeStop(g.now(), fired);
+  }
+
+  /** The charge ends before II, with nothing shown but the riser: it fades out, no power-down. */
+  bombFade(): void {
+    const g = this.live();
+    if (g) g.superFx.chargeFade(g.now());
   }
 
   /** Held while cooling down: "not yet". */
