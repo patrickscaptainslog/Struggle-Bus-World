@@ -10,6 +10,8 @@ import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
 import type { LifeCurbAnswer, LifeLawn, LifeTick } from './lifeWorker';
 import { Curb, type CurbPose } from './Curb';
+import type { Holds } from '../game/Hold';
+import { LifeLock, type LockHost, type LockPick, lockTune } from './Lock';
 import { LAWN_CELL } from './sim/parks';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
@@ -141,6 +143,12 @@ export class LifeHost {
   private sim = 0;
   /** the mover glinting (its key's hash, 0: none), and the aim's answer, one object reused */
   private glintHash = 0;
+  /** lock-on (Lock.ts): its target's glint, over the aim's; the target's row last found, by its key's hash; the lock itself */
+  private lockHash = 0;
+  private lockRow = -1;
+  lock: LifeLock | null = null;
+  private readonly lockS = { x: 0, y: 0 };
+  private readonly lockV = new THREE.Vector3();
   private glintKey: string | null = null;
   private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false, miss: 0, half: 0 };
   /** hits on their way: each takes at its impact's game time */
@@ -209,6 +217,7 @@ export class LifeHost {
   frame(_dt: number, simTime: number, utcMs: number, bus: { x: number; y: number; z: number }, camera: THREE.Camera): void {
     this.utc = utcMs;
     this.sim = simTime;
+    this.lock?.tick(_dt);
     if (this.home && this.pools.group.parent !== this.home) this.home.add(this.pools.group);
     this.land(simTime);
     const ll = localToLatLon(bus.x, bus.z, this.origin, this.ll);
@@ -529,7 +538,7 @@ export class LifeHost {
     this.m.toArray(pool.mesh.instanceMatrix.array as Float32Array, k * 16);
     pool.kind[k] = rows[o + Col.KIND];
     pool.ramp[k] = ramp;
-    pool.glint[k] = key === this.glintHash ? config.splat.glintLift * (KINDS[rows[o + Col.KIND]]?.onLine ? GROUND_GLINT : 1) : 0;
+    pool.glint[k] = key === this.glintHash || key === this.lockHash ? config.splat.glintLift * (KINDS[rows[o + Col.KIND]]?.onLine ? GROUND_GLINT : 1) : 0;
     pool.surf[k] = (key & 0xffff) / 65536;
     pool.look[k] = rows[o + Col.LOOK];
   }
@@ -893,6 +902,89 @@ export class LifeHost {
   /** A key's hash, as the rows carry it (QA). */
   keyHash(key: string): number {
     return fnv1a(key);
+  }
+
+  /** Lock-on for boats and planes (Lock.ts; SHOTS.md, "Lock-on"): its handler on the shots' holds. main.ts's life block calls it once. */
+  lockOn(host: LockHost): LifeLock {
+    this.lock = new LifeLock(this, host);
+    return this.lock;
+  }
+
+  /**
+   * Lock-on's pick: the ferry or sailboat within 1.5 km of the bus, or the plane out to 12 km (`planes`: planes only), on the screen, in sight, nearest screen
+   * point (sx, sy) within 48 px or its drawn size's half and 16 px more. Its key and where it is into `out`.
+   */
+  pickLock(sx: number, sy: number, holds: Holds, planes: boolean, out: LockPick): boolean {
+    const s = this.snap;
+    if (!s) return false;
+    const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000, ang = Math.max(1e-6, globals.uPixelAngle.value as number), T = lockTune;
+    const bus = holds.bus(this.lockV.set(0, 0, 0)), bx = bus.x, by = bus.y, bz = bus.z;
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < n; i++) {
+      const o = i * ROW, kind = rows[o + Col.KIND], plane = kind === Kind.AIRLINER || kind === Kind.SMALL_PLANE;
+      if (!plane && (planes || (kind !== Kind.FERRY && kind !== Kind.SAILBOAT))) continue;
+      const v = this.lockV.set(rows[o + Col.X] + rows[o + Col.VX] * dt, rows[o + Col.Y] + rows[o + Col.VY] * dt, rows[o + Col.Z] + rows[o + Col.VZ] * dt);
+      const range = Math.hypot(v.x - bx, v.y - by, v.z - bz);
+      if (range > (plane ? T.planeReach : T.boatReach) || !holds.screenOf(v, this.lockS)) continue;
+      const info = KINDS[kind]!, cam = Math.max(1, range), size = (this.sizeOf(o, info) * rows[o + Col.SCALE]) / (cam * ang);
+      const d = Math.hypot(this.lockS.x - sx, this.lockS.y - sy);
+      if (d > Math.max(T.pickPx, size / 2 + T.sizePx) || d >= bestD || !holds.inSight(v)) continue;
+      best = i;
+      bestD = d;
+    }
+    if (best < 0) return false;
+    const o = best * ROW, key = this.keys.get(u32[o + Col.KEY]);
+    if (!key) return false;
+    out.key = key;
+    out.plane = rows[o + Col.KIND] === Kind.AIRLINER || rows[o + Col.KIND] === Kind.SMALL_PLANE;
+    out.at.set(rows[o + Col.X] + rows[o + Col.VX] * dt, rows[o + Col.Y] + rows[o + Col.VY] * dt, rows[o + Col.Z] + rows[o + Col.VZ] * dt);
+    this.lockRow = best;
+    return true;
+  }
+
+  /** Where the mover keyed `key` is now (world m into `out`), from the snapshot as it moves; false: it's gone from it. */
+  moverAt(key: string, out: THREE.Vector3): boolean {
+    const s = this.snap;
+    if (!s) return false;
+    const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], h = fnv1a(key);
+    let r = this.lockRow;
+    if (r < 0 || r >= n || u32[r * ROW + Col.KEY] !== h) {
+      r = -1;
+      for (let i = 0; i < n; i++)
+        if (u32[i * ROW + Col.KEY] === h) {
+          r = i;
+          break;
+        }
+      this.lockRow = r;
+    }
+    if (r < 0) return false;
+    const o = r * ROW, dt = (this.utc - s.f64[0]) / 1000;
+    out.set(rows[o + Col.X] + rows[o + Col.VX] * dt, rows[o + Col.Y] + rows[o + Col.VY] * dt, rows[o + Col.Z] + rows[o + Col.VZ] * dt);
+    return true;
+  }
+
+  /** The lock's glint on `key`, or none: it shows over whatever the aim glints. */
+  lockGlint(key: string | null): void {
+    this.lockHash = key ? fnv1a(key) : 0;
+  }
+
+  /** A lock's homing shot reached `key`: its paint at once, as a breath's (hit). True if it was fresh. */
+  lockHit(key: string, hue: number, faction: number): boolean {
+    return this.hit(key, hue, this.utc, this.sim, faction);
+  }
+
+  /** A ferry or sailboat within 1.5 km of the bus, on the screen (the HOLD TO LOCK hint). */
+  boatInReach(holds: Holds): boolean {
+    const s = this.snap;
+    if (!s) return false;
+    const rows = s.rows, n = s.u32[2], bus = holds.bus(this.lockV.set(0, 0, 0)), bx = bus.x, bz = bus.z;
+    for (let i = 0; i < n; i++) {
+      const o = i * ROW, kind = rows[o + Col.KIND];
+      if (kind !== Kind.FERRY && kind !== Kind.SAILBOAT) continue;
+      if (Math.hypot(rows[o + Col.X] - bx, rows[o + Col.Z] - bz) > lockTune.boatReach) continue;
+      if (holds.screenOf(this.lockV.set(rows[o + Col.X], rows[o + Col.Y], rows[o + Col.Z]), this.lockS)) return true;
+    }
+    return false;
   }
 
   /** The mover glinting now, or none (the aim, each frame). */

@@ -1423,6 +1423,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     : null;
   // (and the aim asks it for a mover on the line of fire)
   if (life) aimer.life = life;
+  // (lock-on for boats and planes, life's: a still hold on one within reach locks it, the lift fires a shot that homes in, and the lock holds 4 s for taps:
+  // src/life/Lock.ts, SHOTS.md "Lock-on". The clack borrows the Bomb's II until it has a sound of its own)
+  if (life) life.lockOn({ holds, faction: () => splatter.faction, hue: () => splatter.hueNext, dealHue: () => splatter.dealHue(), clack: () => audio.bombTier(2), hint: (l) => controls.hud.toast(l, 2.4) });
   if (life) {
     // (Curb, on life's lane: the landing, the roll and its paint, src/game/CurbFlight.ts. Off under the opening's gate, the street preview, a match, the Moon)
     let curbHue = 0, curbSeed = 0x6a09e667;
