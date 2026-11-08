@@ -420,20 +420,20 @@ for (const r of rows) {
     // (a wall that takes it at the floor, downtown or where Turbo's reach gets there from the Western Addition, at least 0.5 s ahead of the bus at the impact)
     // (the pass is the margin's, config.comet.above, the producer's pick of 3 %: where the line 1.5 s ahead shows less over the bus the landing moves out
     // to the first stretch that shows it, at the floor up to Jet's 2.1 s (Nonstop's 1.84), so 1.3 to 2.2 s there. At 300 m the bus may not reach it in
-    // the run's 6 s: what's ahead of it at the impact says how long it has, 1.3 s or more, the far end the margin's within the reach (Nonstop's 1.26 km,
-    // about 5.6 s, the review of step 3, 7, which the 3 % pick took))
+    // the run's 6 s: what's ahead of it at the impact says how long it has, 1.3 to 3 s. The review of step 3, 7: a Nonstop Comet 1.26 km ahead, about
+    // 5.6 s, passed with no bound; it is 1.26 km at 5 % and at 3 %, so not the pick's, and still fails here)
     const p300 = r.pass ?? r.ahead / Math.max(1, v);
-    const passOk = r.on === 'wall' ? r.ahead >= 0.5 * v : r.pose === 'wa-300' ? p300 >= 1.3 : r.pass !== null && r.pass >= 1.3 && r.pass <= 2.2;
+    const passOk = r.on === 'wall' ? r.ahead >= 0.5 * v : r.pose === 'wa-300' ? p300 >= 1.3 && p300 <= 3 : r.pass !== null && r.pass >= 1.3 && r.pass <= 2.2;
     ok(r.kind === 'comet', `${r.key}@${r.fps}: a Comet (${r.kind})`);
     ok(r.tImpact !== null && r.tImpact >= 0.6 && r.tImpact <= 0.8, `${r.key}@${r.fps}: lands 0.6-0.8 s after the tap (${r.tImpact})`);
-    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? '1.3 or more' : '1.3-2.2'} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
+    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? '1.3-3' : '1.3-2.2'} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
     // (off the bus's line, inside the drops' reach: never a beam out of the bus, the outside look of step 3. A wall's face is where the arc meets it)
     if (r.kind === 'comet' && r.on !== 'wall') ok(r.off >= 12 && r.off <= config.comet.lensReach, `${r.key}@${r.fps}: lands 12-${config.comet.lensReach} m off the bus's line (${r.off})`);
     ok(r.from <= config.city.loadRadiusHigh + 1, `${r.key}@${r.fps}: within ${config.city.loadRadiusHigh} m of the tap (${r.from})`);
     ok(!!r.impactScreen && r.impactScreen.above >= config.comet.above && r.impactScreen.clear, `${r.key}@${r.fps}: at the impact ${config.comet.above * 100} % or more above the bus, clear of the HUD band (${JSON.stringify(r.impactScreen)})`);
-    // (on a tower's face downtown its circle holds few buildings: as many as today's tap there paints at least, 6 to 22 in step 3's probe)
-    const fewest = r.on === 'wall' ? 6 : 20;
-    ok(r.painted >= fewest && r.raisedTwo === 0, `${r.key}@${r.fps}: ${fewest} or more buildings${r.on === 'wall' ? ' (on a wall)' : ''}, none raised two (${r.painted}, ${r.raisedTwo})`);
+    // (on a tower's face downtown too: Nonstop's there paints 10 at 5 % and at 3 %, so not the pick's, and still fails here. Fewer on a wall is the
+    // producer's call, not the probe's)
+    ok(r.painted >= 20 && r.raisedTwo === 0, `${r.key}@${r.fps}: 20 or more buildings, none raised two (${r.painted}, ${r.raisedTwo})`);
     ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${r.key}@${r.fps}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
   }
   if (isComet && r.pose === 'water-floor') ok(r.kind === 'comet' && r.cometMiss && r.refund >= config.splat.missRefund - 0.02 && r.refund < 0.9, `${r.key}@${r.fps}: over water a Comet's miss, with its refund (${r.kind}, miss ${r.cometMiss}, belly after ${r.refund})`);
