@@ -26,7 +26,7 @@ Your two calls are in `CLAUDE.md`: every pick of the first account's report (que
 
 **What went wrong, or isn't right yet**
 - Nothing ran on a phone or a GPU: software graphics here, at a fixed step.
-- Recess's screen check, 20 rows at a fixed step: on the last full run 19 passed. The one short was the strict new paint row: 196 of 204 buildings a captain's blast painted stood in its own square (96 %, where I'd set 97 %), so its margin went from 6 m to 10 m inside the square's edges; the rerun with it is running as I write.
+- Recess's screen check, 20 rows at a fixed step: on the last full run 19 passed. The one short was the strict new paint row: 196 of 204 buildings a captain's blast painted stood in its own square (96 %, where I'd set 97 %), so its margin went from 6 m to 10 m inside the square's edges, and the rerun passed all 20 (190 of 194 in square as each blast landed, and at the bell 202 of 203 captain-painted buildings stand in a square of theirs).
 - Veterans defending more means they hunt you less: in 3,000 test duels a Veteran now rides you only just more often than a Rival (1.56 against 1.55 a minute). It still passes, but it's close. The fix, if it shows on the phone, is a Veteran that defends by hunting the raider more.
 - When a rival takes one of your squares, your old paint stays on its buildings until the new owner's blast reaches them: at the bell about 87 % of painted buildings match the score.
 - The lock's clack borrows the Bomb's clunk until it has its own sound, and its glint is a brightening, not your colour yet.
