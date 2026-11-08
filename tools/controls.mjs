@@ -1027,6 +1027,9 @@ if (modes.has('bomb')) {
         await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
         await runFor(page, 1);
       }
+      // (a breath still under way first: forced full in it, its end empties the belly again as any breath does, and the Bomb's clock waits the 1.6 s
+      // recharge, 0.5-0.6 s of the wall here, past the touch. The page's first row: the lane tap's breath, answered a frame or two into runFor's second)
+      await page.waitForFunction(() => window.__game.flight.barfT < 0, null, { timeout: 20000, polling: 50 });
       await page.evaluate(() => window.__game.forceReady());
       await runFor(page, 0.5);
       const a = await page.evaluate(() => {
