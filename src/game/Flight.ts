@@ -157,6 +157,9 @@ export class Flight {
   /** Curb's dive (CurbFlight, ?life): the road under the bus while the stick is held pushed low over it (m ASL), and the floor comes down to it,
    *  config.curb.dip over it, whatever holds it up ahead. NaN: none, the floor as ever */
   street = NaN;
+  /** &boom's hoop standing over a tower in its way (src/game/Boom.ts): the floor it lifts the bus to as it closes on it (m ASL), as a turbo gear's floor
+   *  does. -Infinity: none */
+  hoopFloor = -Infinity;
 
   get fx() {
     return Math.sin(this.heading);
@@ -349,7 +352,7 @@ export class Flight {
     // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof; nothing, not a gear and not a tower
     // in the look-ahead, lifts it into a deck: what it can't climb under one, underDeck() steers it around)
     // (and Curb's dive held over a road takes it down to the street)
-    const floor = Math.min(Math.max(roofFloor, Tb.floor), over - DECK_GAP, Number.isNaN(this.street) ? Infinity : this.street + config.curb.dip);
+    const floor = Math.min(Math.max(roofFloor, Tb.floor, this.hoopFloor), over - DECK_GAP, Number.isNaN(this.street) ? Infinity : this.street + config.curb.dip);
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
     // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
