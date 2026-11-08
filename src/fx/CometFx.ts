@@ -573,8 +573,15 @@ export class CometFx {
     if (M.on && k < MAX_PILLARS) {
       this.m.makeTranslation(M.x, M.y, M.z);
       this.pillars.setMatrixAt(k, this.m);
-      A.set([M.t, config.lob.beacon, C.pillarRadius * 0.6, 1e6], k * 4);
-      B.set([M.faction, M.hue, 2, 0.5], k * 4);
+      // (element by element, as above: no array made a frame while the ring shows)
+      A[k * 4] = M.t;
+      A[k * 4 + 1] = config.lob.beacon;
+      A[k * 4 + 2] = C.pillarRadius * 0.6;
+      A[k * 4 + 3] = 1e6;
+      B[k * 4] = M.faction;
+      B[k * 4 + 1] = M.hue;
+      B[k * 4 + 2] = 2;
+      B[k * 4 + 3] = 0.5;
       k++;
     }
     this.pillars.count = k;

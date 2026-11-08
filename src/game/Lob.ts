@@ -398,9 +398,15 @@ export class Lob {
   }
 }
 
+/** Where along its flight a Lob tops its arc (0 the mouth, 1 the landing: it flies its chord at an even pace, CometFx.at). */
+export function lobTop(p: CometPlan): number {
+  const rise = p.y - p.y0;
+  return p.arc > 0 ? clamp(0.5 + rise / (8 * p.arc), 0, 1) : rise > 0 ? 1 : 0;
+}
+
 /** How far a Lob falls from its arc's top onto where it lands (m): the parabola's highest point over its landing. */
 export function lobFall(p: CometPlan): number {
-  const rise = p.y - p.y0, u = p.arc > 0 ? clamp(0.5 + rise / (8 * p.arc), 0, 1) : rise > 0 ? 1 : 0;
+  const rise = p.y - p.y0, u = lobTop(p);
   return Math.max(0, p.y0 + rise * u + p.arc * 4 * u * (1 - u) - p.y);
 }
 

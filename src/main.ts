@@ -48,7 +48,7 @@ import { Bomb } from './game/Bomb';
 import { SuperFx } from './fx/SuperFx';
 import { CometFx } from './fx/CometFx';
 import { Comet } from './game/Comet';
-import { Lob, lobRadius } from './game/Lob';
+import { Lob, lobRadius, lobTop } from './game/Lob';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
 import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
@@ -1165,8 +1165,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (shot.comet?.kind === 'lob') {
       controls.lobbed();
       // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
-      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, hue: 0 }) - 1] : lobsUp[0]);
-      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, hue });
+      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, top: 0.5, hue: 0 }) - 1] : lobsUp[0]);
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, top: lobTop(shot.comet), hue });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -1320,12 +1320,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   bombLook(splatter.faction);
   /** the Lob's ring where it will land, eased in and out (main.ts's frame), and the landings of those thrown, each until it lands */
   const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
-  const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; hue: number }> = [];
+  const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; top: number; hue: number }> = [];
   const lobOnto = { x: 0, y: 0, z: 0 };
   /** when the last Lob left the mouth (game s): the bus's dip under its throw */
   let lobDipAt = -1e9;
   /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
   const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3();
+  /** how far over the lens's middle a point shows (degrees, the sky lift's own taken off: where it would be with the view untipped); p is moved into the lens's space */
+  const lobUpDeg = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), (Math.atan2(p.y, -p.z) * 180) / Math.PI + rig.skyLift);
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1816,9 +1818,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // onto its ring. From the roofs the star left the frame by 0.3 of its flight, its top 13-25 degrees over the frame, and nothing showed for 1.4 s)
     rig.skyLiftRate = 0;
     if (cometFx.lobFrame(simTime, lobSeen)) {
-      const L = config.lob, half = camera.fov / 2, D = 180 / Math.PI;
-      const up = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), Math.atan2(p.y, -p.z) * D + rig.skyLift);
-      const star = up(lobSeen), busUp = up(lobBusSeen.set(flight.x, flight.y, flight.z));
+      const L = config.lob, half = camera.fov / 2;
+      const star = lobUpDeg(lobSeen), busUp = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
       const want = Math.min(star - half + L.tipTop, busUp + half * L.tipBus);
       rig.skyLiftTarget = Math.max(rig.skyLiftTarget, cometFx.lobClimbing(simTime) ? L.tip : 0, want);
       rig.skyLiftRate = L.tipRate;
@@ -2035,8 +2036,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const L = input.state.aim.on ? null : aimer.lobPlan, flying = first !== null;
       lobRing.k = (L || flying) && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
       if (first) {
-        // (its dots close in as it falls from its top, a countdown on the ground, to a quarter of its circle as it lands: the blast then blooms out to it)
-        const u = clamp((simTime - first.from) / Math.max(0.05, first.until - first.from), 0, 1), c = clamp((u - 0.5) / 0.5, 0, 1);
+        // (its dots close in as it falls from its top, a countdown on the ground, to a quarter of its circle as it lands: the blast then blooms out to it. From
+        // its top, lobTop's share of its flight: half way only where it lands as high as it left)
+        const u = clamp((simTime - first.from) / Math.max(0.05, first.until - first.from), 0, 1), c = clamp((u - first.top) / Math.max(0.05, 1 - first.top), 0, 1);
         Object.assign(lobRing, { x: first.x, y: first.y, z: first.z, r: first.r * (1 - config.lob.close * c * c * (3 - 2 * c)), until: first.until });
       } else if (L && R.k < 0.01) {
         // (on the Moon's ground, on the crater the tap will move it onto: CraterPaint.aim's rule)
