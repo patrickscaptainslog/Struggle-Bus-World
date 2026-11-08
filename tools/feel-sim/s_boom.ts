@@ -186,7 +186,7 @@ for (const [place, lat, lon] of PLACES) {
     // 22 ms once, the machine's, not the ring's)
     const again = row.worstMs > 8 ? (await flick(place, lat, lon, over, { dt })).row.worstMs : null;
     const st = row.stand, th = row.thr, sl = row.slam, X = turboFxTune;
-    ok(row.cracks === 1 && row.flashFrames >= Math.floor(X.crackFlash / dt) && row.flashEnd < X.crackFlash && row.frontFrames > 0 && row.frontMax > 1.5, `${L}: the crack fired once, its flash held ${X.crackFlash} s and its pressure ring raced out (${row.cracks} cracks, ${row.flashFrames} frames of flash to ${row.flashEnd} s, the front to ${row.frontMax} rad over ${row.frontFrames} frames)`);
+    ok(row.cracks === 1 && row.flashFrames >= Math.floor(X.crackFlash / dt) && row.flashEnd < X.crackFlash && row.frontFrames > 0 && row.frontMax > 0.9 * X.crackFrontMax, `${L}: the crack fired once, its flash held ${X.crackFlash} s and its pressure ring raced out (${row.cracks} cracks, ${row.flashFrames} frames of flash to ${row.flashEnd} s, the front to ${row.frontMax} rad over ${row.frontFrames} frames)`);
     ok(!!st && st.flat === 0 && st.ahead >= 0.4 && st.ahead <= 1.1 && Math.abs(st.dy) <= 12, `${L}: the hoop stands upright across the path at the bus's height ahead (${JSON.stringify(st)}: s of flight ahead, m over the bus)`);
     ok(!!th && row.threaded === true && th.flat === 0 && th.age >= 0.8 && th.age <= 1.3, `${L}: the bus threads it, upright, about a second on (${JSON.stringify(th)}, threaded ${row.threaded})`);
     ok(!!sl && sl.flat === 1 && Math.hypot(sl.dx, sl.dz) < 1 && sl.r >= 1 && sl.r < 1.06, `${L}: the hoop flat as the ring as its inner edge blooms (${JSON.stringify(sl)})`);

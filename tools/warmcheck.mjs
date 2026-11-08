@@ -605,12 +605,14 @@ if (opt.boom || opt.falls) {
       const a = await page.evaluate(() => ((window.__qa = null), { ...window.__game.boomState().stats, level: window.__game.controls.turbo.level }));
       await run(0.2);
       await flick(cdp, 1);
-      await run(3);
+      // (4.2 s: the crack's flash and pressure ring, the hoop out from the nose and standing, threaded about a second on, slammed onto the band and lying
+      // there 2 s, the ring's band in the faction's rows and its crown, the contrail in its spray)
+      await run(4.2);
       const b = await page.evaluate(() => {
         const g = window.__game, s = g.boomState();
-        return { stats: s.stats, kind: s.plan?.kind ?? null, level: g.controls.turbo.level, faction: g.splatter.faction };
+        return { stats: s.stats, kind: s.plan?.kind ?? null, threaded: s.plan?.threaded ?? null, level: g.controls.turbo.level, faction: g.splatter.faction };
       });
-      boomRun.push({ key, faction: b.faction, level: [a.level, b.level], kind: b.kind, rings: b.stats.rings - a.rings, flicks: b.stats.flicks - a.flicks });
+      boomRun.push({ key, faction: b.faction, level: [a.level, b.level], kind: b.kind, threaded: b.threaded, rings: b.stats.rings - a.rings, cracks: b.stats.cracks - a.cracks, flicks: b.stats.flicks - a.flicks });
       // (the 10 s run out before the next faction's)
       await page.evaluate(() => (window.__game.boom.last = -Infinity));
     }

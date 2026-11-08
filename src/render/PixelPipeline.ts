@@ -1128,7 +1128,7 @@ void main() {
     if (uCrack.w >= 0.0) {
       float cAng = acos(clamp(dot(dir, uCrack.xyz), -1.0, 1.0)) - uCrack.w;
       float cW = 0.035 + 0.045 * uCrack.w;
-      float cF = 1.0 - smoothstep(1.1, 1.9, uCrack.w);
+      float cF = 1.0 - smoothstep(0.9, 1.5, uCrack.w);
       if (abs(cAng) < cW && dsk < 0.3 + 0.7 * cF) { sc = pal(${Ramp.GLOW_WHITE}.0, 7.0); skyA = 1.0; }
       else if (cAng < 0.0 && cAng > -5.0 * cW && dsk < cF * (1.0 + cAng / (5.0 * cW))) { sc = pal(${Ramp.GLOW_WHITE}.0, 6.0); skyA = 1.0; }
     }`)}
@@ -1367,7 +1367,7 @@ ${boomed(`  // &boom's crack: its pressure ring rolls on over the city, everythi
   if (uCrack.w >= 0.0) {
     float cAng = acos(clamp(dot(dir, uCrack.xyz), -1.0, 1.0)) - uCrack.w;
     float cW = 0.035 + 0.045 * uCrack.w;
-    float cF = 1.0 - smoothstep(1.1, 1.9, uCrack.w);
+    float cF = 1.0 - smoothstep(0.9, 1.5, uCrack.w);
     if (abs(cAng) < cW && dsk < 0.3 + 0.7 * cF) { oStep = min(oStep + 2.0, 7.0); col = pal(oRamp, oStep); }
     else if (cAng < 0.0 && cAng > -4.0 * cW && dsk < 0.8 * cF * (1.0 + cAng / (4.0 * cW))) { oStep = min(oStep + 1.0, 7.0); col = pal(oRamp, oStep); }
   }

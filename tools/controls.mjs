@@ -21,10 +21,11 @@
 //            ground. Each: its tier and stages, every building it raised at min(3, before + jump) and none past 3 (?moon: the craters), the frame's draws
 //            and triangles each frame from the lift through its stages and the pogo (at most 200 and 1.5 M), no program made after ready, and a still
 //            as it lands. Exits 1 when a row fails                                                                     -> bomb.json
-//   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 m over the Western Addition and downtown, a real
-//            flick into Turbo 3, in Rainbow, Atlantis and Inferno (&paintas). Each: a ring, every building it raised one level up, the bus over its hole, the
-//            frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M and 8,000), no program made after ready, and stills at the
-//            crack, the band blooming and the bus over it (SB_STILLS=0 leaves them out). Exits 1 when a row fails               -> boom.json
+//   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 and 300 m over the Western Addition and 150 over
+//            downtown, a real flick into Turbo 3, in Rainbow, Atlantis, Hyperglow and Inferno (&paintas). Each: one crack, the hoop threaded, a ring, every
+//            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
+//            and 8,000), no program made after ready, and stills held on the Boom's clock at the crack, the hoop standing ahead, the bus at its plane, the
+//            slam, the band blooming and the band behind (SB_STILLS=0 leaves them out). Exits 1 when a row fails                 -> boom.json
 //   falls    the Waterfall (&falls; src/fx/Falls.ts; not in the default list): at Cruise 60 m over a Financial District tower's roof, 300 m west of it, a
 //            real tap off the lane, in Rainbow, Hyperglow and the Elderwood, the next tower if it didn't pour. Each: its drops and its pool landed round its
 //            foot, the draws, triangles and particles each frame (200, 1.5 M, 8,000), nothing compiled, and stills of the runs, the drops and the pool.
@@ -1168,9 +1169,9 @@ if (modes.has('boom') || modes.has('falls')) {
       if (mode === 'boom') {
         for (const [where, lat, lon, over] of [['western-addition', 37.7795, -122.4335, 150], ['western-addition', 37.7795, -122.4335, 300], ['downtown', 37.7905, -122.4035, 150]]) {
           const key = `${fk}-${where}-${over}`;
-          // (held short of the place at Turbo 2 while the city streams in, heading east, `over` m over the ground there (950 m short from 150, 1,400 from 300,
-          // as the ring lands farther on); let go, a flick 0.2 s on)
-          const back = over > 200 ? 1400 : 950;
+          // (held short of the place at Turbo 2 while the city streams in, heading east, `over` m over the ground there, by about where the ring lands from
+          // there (Boom's boomLead: 1,400 m short from 150, 2,050 from 300); let go, a flick 0.2 s on)
+          const back = over > 200 ? 2050 : 1400;
           const at = await page.evaluate(([lat, lon, over, back]) => {
             const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r) - back + 950, z = -(lat - o[0]) * r * 6378137;
             const y = g.city.groundAt(x - 950, z) + over;
@@ -1199,7 +1200,8 @@ if (modes.has('boom') || modes.has('falls')) {
               await page.evaluate((p) => (window.__xAt = [p.x, p.z]), plan);
               const t0 = plan.t0;
               await stillAt(page, t0 + 0.05, `${out}/boom-${key}-1-crack.png`);
-              await stillAt(page, t0 + 0.5, `${out}/boom-${key}-2-hoop.png`);
+              // (the hoop just standing, the sky's pressure ring rolling through the frame)
+              await stillAt(page, t0 + 0.35, `${out}/boom-${key}-2-hoop.png`);
               // (the frame before the bus's crossing: its plane hoopAhead s on, a frame early at fixeddt's 0.05 s)
               await stillAt(page, t0 + 0.92, `${out}/boom-${key}-3-thread.png`);
               const p2 = await page.evaluate(() => window.__game.boomState().plan);
@@ -1207,7 +1209,8 @@ if (modes.has('boom') || modes.has('falls')) {
               await stillAt(page, th + 0.2, `${out}/boom-${key}-4-slam.png`);
               const p3 = await page.evaluate(() => window.__game.boomState().plan);
               await stillAt(page, p3.bloom + 0.05, `${out}/boom-${key}-5-bloom.png`);
-              await stillAt(page, p3.bloom + 1.0, `${out}/boom-${key}-6-behind.png`);
+              // (the band spreading under the bus and behind it: a second on, it's out of the chase's frame)
+              await stillAt(page, p3.bloom + 0.35, `${out}/boom-${key}-6-behind.png`);
               await page.evaluate(() => (window.__qa = null));
               await runFor(page, 1);
             } else await page.evaluate(() => (window.__qa = null));
