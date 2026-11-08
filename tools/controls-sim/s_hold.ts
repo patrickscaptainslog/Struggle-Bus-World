@@ -329,6 +329,31 @@ if (process.argv.includes('--review')) {
     rok(fired === -side0 && back === side0 && next === -side0 && said.join() === 'fire,unfire,fizzle' && v.fizzles === 1, `n82: unshot puts the side back, and a Bomb that fizzles on tryBarf unfires (${JSON.stringify(v)})`);
     h.input.dispose();
   }
+  // n82, the real Aimer (the check of the fixes): fire() and unfire() as the tap's refusal and the Bomb's fizzle call them, on the real Comet, each shot the
+  // tap can choose: the Comet's puts its side back, the Lob's, the aim's own and a second unfire leave it, and a Bomb's Comet under a Lob puts it back
+  {
+    const { Comet } = await import('@src/game/Comet');
+    const { Aimer } = await import('@src/game/Aim');
+    const comet = new Comet({} as any, {} as any) as any;
+    const plan = { target: null, x: 0, y: 0, z: -900, wall: false, drop: 120, travel: 1.2 } as any;
+    const aimer = new Aimer({} as any, {} as any) as any;
+    let own = 0;
+    aimer.comet = comet;
+    aimer.lob = { fired: () => {} };
+    aimer.fireAim = () => (own++, {});
+    // (what this frame planned: the Comet's plan, the Lob's over it, or neither, and for a Bomb under a Lob the Comet's alone)
+    const as = (lobbing: boolean, cometPlan: unknown, cometOnly: unknown = null) => Object.assign(aimer, { lobbing, cometPlan, cometOnly });
+    const side0 = comet.side;
+    const sides: Record<string, number> = {};
+    as(false, plan); aimer.fire({}); sides.cometFired = comet.side; aimer.unfire(); sides.cometUnfired = comet.side;
+    aimer.unfire(); sides.again = comet.side;
+    as(false, plan); aimer.fire({}); as(true, plan); aimer.fire({}); aimer.unfire(); sides.lobAfterComet = comet.side;
+    as(false, null); aimer.fire({}); aimer.unfire(); sides.aimOwn = comet.side;
+    as(true, plan, plan); aimer.fire({}, true); sides.bombFired = comet.side; aimer.unfire(); sides.bombUnfired = comet.side;
+    const v = { side0, ...sides, ownShots: own };
+    line("n82, the real Aimer: unfire puts back the Comet's side after its shot alone", v);
+    rok(v.cometFired === -side0 && v.cometUnfired === side0 && v.again === side0 && v.lobAfterComet === -side0 && v.aimOwn === -side0 && v.bombFired === side0 && v.bombUnfired === -side0 && own === 1, `n82: the real Aimer's unfire puts the side back after the Comet's shot alone (${JSON.stringify(v)})`);
+  }
   const OUTR = process.env.SB_OUT ?? 'shots/controls/sim';
   mkdirSync(OUTR, { recursive: true });
   writeFileSync(`${OUTR}/holds-review.json`, JSON.stringify(out, null, 1));
