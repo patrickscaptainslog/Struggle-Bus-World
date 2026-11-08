@@ -52,6 +52,8 @@ const BY_WAVE = 0, BY_HIT = 1, BY_HOSE = 2;
 const STAGE_STEP = 50;
 /** nearPlaced's index: its cells (m) */
 const NEAR_CELL = 32;
+/** roofNear's cells (m) */
+const ROOF_CELL = 16;
 const NONE: readonly number[] = [];
 
 /** How far (x, z) is from a house's footprint bounds (m; 0 over it). */
@@ -499,22 +501,44 @@ export class Lift implements LiftHooks, FieldHouses {
    * or its garden's noted top), its rest with the overshoot (14 %) and its heave and lean (its margin), as the flight's slab counts it.
    */
   roofNear(x: number, z: number, r: number): number {
-    this.plan();
     let top = -Infinity;
-    const each = (i: number) => {
-      if (this.state[i] === ST_GROUND && !this.planned.has(i)) return;
-      const o = this.refs.get(i);
-      if (o && nearRef(o, x, z) <= r) top = Math.max(top, Math.max(o.roofY + 6, this.extra[i]) + this.H[i] * 1.14 + this.margin[i]);
-    };
-    // (a wide one, as the Hellmouth's smoke, looks at every house; a narrow one at the cells round it)
-    if (r > 300) for (const i of this.refs.keys()) each(i);
-    else {
-      const g = r + this.nearRad;
-      for (let qz = Math.floor((z - g) / NEAR_CELL); qz <= Math.floor((z + g) / NEAR_CELL); qz++)
-        for (let qx = Math.floor((x - g) / NEAR_CELL); qx <= Math.floor((x + g) / NEAR_CELL); qx++) for (const i of this.nearGrid.get(squareKey(qx, qz)) ?? NONE) each(i);
+    // (a wide one, as the Hellmouth's smoke, looks at every house; a narrow one at the ROOF_CELL cells under the square round it, a little more
+    // than it asked: the Skyway asks once a lane, and by the houses' own cells that was up to 50 ms on a big neighbourhood)
+    if (r > 300) {
+      this.plan();
+      for (const [i, o] of this.refs) if (this.floats(i) && nearRef(o, x, z) <= r) top = Math.max(top, this.topOf(i, o));
+    } else {
+      const g = this.roofGrid();
+      for (let qz = Math.floor((z - r) / ROOF_CELL); qz <= Math.floor((z + r) / ROOF_CELL); qz++)
+        for (let qx = Math.floor((x - r) / ROOF_CELL); qx <= Math.floor((x + r) / ROOF_CELL); qx++) top = Math.max(top, g.get(squareKey(qx, qz)) ?? -Infinity);
     }
     return top;
   }
+  /** a house up, lifting, or placed for the wave (plan()) */
+  private floats(i: number) {
+    return this.state[i] !== ST_GROUND || this.planned.has(i);
+  }
+  /** the highest a floating house can reach (roofNear) */
+  private topOf(i: number, o: BuildingRef) {
+    return Math.max(o.roofY + 6, this.extra[i]) + this.H[i] * 1.14 + this.margin[i];
+  }
+  /** roofNear's cells: each ROOF_CELL m cell's highest reach among the floating houses whose footprints' bounds touch it, after the plan (once a sky piece's build) */
+  private roofGrid(): Map<number, number> {
+    if (this.roofCells) return this.roofCells;
+    this.plan();
+    const g = (this.roofCells = new Map<number, number>());
+    for (const [i, o] of this.refs) {
+      if (!this.floats(i)) continue;
+      const t = this.topOf(i, o);
+      for (let qz = Math.floor(o.z0 / ROOF_CELL); qz <= Math.floor(o.z1 / ROOF_CELL); qz++)
+        for (let qx = Math.floor(o.x0 / ROOF_CELL); qx <= Math.floor(o.x1 / ROOF_CELL); qx++) {
+          const k = squareKey(qx, qz);
+          if (!(t <= (g.get(k) ?? -Infinity))) g.set(k, t);
+        }
+    }
+    return g;
+  }
+  private roofCells: Map<number, number> | null = null;
 
   /**
    * the house's near neighbours (their footprints' bounds within LIFT_NEAR m) already lifting or up, as liftPlace reads them. From the Lift's own
@@ -608,6 +632,8 @@ export class Lift implements LiftHooks, FieldHouses {
   /** Starts the faction's sky piece over the heart, from the neighbourhood's squares, its streets and its houses (liftSky.ts): skyStep builds it. */
   private buildSky() {
     const city = this.g.city;
+    // (the houses up and placed as they are now: roofNear's cells again)
+    this.roofCells = null;
     const [hx, hz] = this.heart;
     const l = Math.hypot(this.g.sun[0], this.g.sun[1]) || 1;
     this.skyBuild = makeSkyPiece(this.faction, {
@@ -623,13 +649,14 @@ export class Lift implements LiftHooks, FieldHouses {
   }
   /**
    * One part of the sky piece (a frame's share); once it's whole, it goes in the scene. The first is the wave's heights, placed in a frame of
-   * their own (plan(): the piece stands over them). stats.skyMs is the longest part's ms, the plan's included; stats.planMs the plan's.
+   * their own with roofNear's cells (plan(), roofGrid(): the piece stands over them). stats.skyMs is the longest part's ms, the plan's included; stats.planMs the plan's.
    */
   private skyStep() {
     const t0 = performance.now();
     let piece: SkyPiece | null = null;
     if (!this.planDone && this.staged) {
       this.plan();
+      this.roofGrid();
       this.stats.planMs = +(performance.now() - t0).toFixed(1);
     } else piece = this.skyBuild!.step();
     this.stats.skyMs = Math.max(this.stats.skyMs, +(performance.now() - t0).toFixed(1));
