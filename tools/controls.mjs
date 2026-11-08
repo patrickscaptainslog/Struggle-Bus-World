@@ -1039,9 +1039,7 @@ if (modes.has('bomb')) {
       const x = Math.round((a.box.x0 + a.box.x1) / 2), y = Math.round((a.box.y0 + a.box.y1) / 2);
       const pt0 = await page.evaluate(() => ((window.__bombTiers.length = 0), performance.now()));
       await H.down(1, x, y);
-      // (held on the game's clock, as the Bomb charges: on the wall's, a frame the laptop held up about half a second as the finger landed left
-      // street-cruise-II at tier 1 as it lifted, its I shown at 863 ms where it shows at 365: the extras merge's gate.sh all, 2026-11-08)
-      await runFor(page, (ms - 60) / 1000);
+      await wall(ms - 60);
       // (no still while it's held: a 3x screenshot takes long enough to carry a Bomb II past III's 1.29 s. Its tier just before the lift, and when each showed:
       // read 150 ms before, ?life's III came after it once on a loaded laptop, and the row failed on a Bomb III fired as III)
       const charging = await page.evaluate((t0) => ({ tier: window.__game.bomb.tier, ring: { ...window.__game.bomb.ring }, shown: window.__bombTiers.map(([t, at]) => [t, Math.round(at - t0)]) }), pt0);
