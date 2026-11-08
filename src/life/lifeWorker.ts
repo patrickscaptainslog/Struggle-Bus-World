@@ -74,9 +74,10 @@ export interface LifeTick {
 }
 
 const RELAY_MS = 10000;
-/** People are filled this far round the bus (m): a picnic is 2 px at about 1.2 km on the portrait lens. At most PICNICS_MOST of them, the nearest tiles' first (the
- *  host samples the nearest first): Golden Gate Park's meadows would be thousands, and 276 triangles each (800, the first account's life review M5) */
-const PEOPLE_REACH = 800, PICNICS_MOST = 800;
+/** People are filled this far round the bus (m): a picnic is 2 px at about 1.2 km on the portrait lens, and out to 1.6 km, where a Lob lands (HOOKS.md), so its blast
+ *  finds them. At most PICNICS_MOST of them, the nearest tiles' first (the host samples the nearest first): Golden Gate Park's meadows would be thousands. A picnic
+ *  is 276 triangles drawn near, a speck or nothing far (Life.ts, MODEL_PX), so the far half costs rows, not triangles (800 before, the first account's life review M5) */
+const PEOPLE_REACH = 1600, PICNICS_MOST = 1600;
 /** O9: with no geoid for the place, no live plane is drawn under this (m) */
 const NO_GEOID_FLOOR = 1000;
 /** Cars round the bus (m): every one in CAR_FULL, fewer on out to none at CAR_REACH (3.5 px on the portrait lens), all of them while the bus is under CAR_THIN and fewer

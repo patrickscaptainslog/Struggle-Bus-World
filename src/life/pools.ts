@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { globals, GLSL_COMMON, GLSL_OUT, heldGlobals } from '../render/materials';
-import { HUE_RAMPS, Ramp } from '../render/palette';
+import { FACTION_RAMPS, HUE_RAMPS, Ramp } from '../render/palette';
 import { Kind, Pool } from './kinds';
 
 // How movers are drawn (LIFE.md): a pool is one InstancedMesh, one draw, whose geometry holds every kind in it, each vertex marked with its kind (aPart),
@@ -17,7 +17,8 @@ export const MARK_VERTS = 8192;
 export const MARK_POINTS = 12;
 export const MARKS_MAX = Math.floor(MARK_VERTS / (MARK_POINTS * 2));
 
-const PAINT_LO = Math.min(...HUE_RAMPS), PAINT_HI = Math.max(...HUE_RAMPS);
+/** Paint's rows: Rainbow's hues, and the factions' own (24-31; a faction's movers draw in its look, factionLook.ts, the day review's M14) */
+const PAINT_LO = Math.min(...HUE_RAMPS), PAINT_HI = Math.max(...HUE_RAMPS), FACTION_LO = Math.min(...FACTION_RAMPS), FACTION_HI = Math.max(...FACTION_RAMPS);
 
 /** An attribute's first `count` elements go up this frame, its one range object reused: three's addUpdateRange makes one a call (as SuperFx.flush keeps its own). */
 type Range = { start: number; count: number };
@@ -224,7 +225,7 @@ const POOL_FS = /* glsl */ `
     vec3 n = normalize(vWorldNormal);
     if (!gl_FrontFacing) n = -n;
     float ramp = floor(vRamp + 0.5);
-    bool painted = ramp >= ${PAINT_LO}.0 && ramp <= ${PAINT_HI}.0;
+    bool painted = (ramp >= ${PAINT_LO}.0 && ramp <= ${PAINT_HI}.0) || (ramp >= ${FACTION_LO}.0 && ramp <= ${FACTION_HI}.0);
     float fog0 = sbFog(vWorldPos);
     // (at night, when the windows light: a car's headlights and a ferry's windows on, painted or grey, and a grey plane's beacon an eighth of each 1.2 s, as its speck's,
     // on its own phase)
@@ -272,7 +273,7 @@ const SPECK_FS = /* glsl */ `
   ${GLSL_OUT}
   void main() {
     float ramp = floor(vRamp + 0.5);
-    bool painted = ramp >= ${PAINT_LO}.0 && ramp <= ${PAINT_HI}.0;
+    bool painted = (ramp >= ${PAINT_LO}.0 && ramp <= ${PAINT_HI}.0) || (ramp >= ${FACTION_LO}.0 && ramp <= ${FACTION_HI}.0);
     // (a painted speck holds its colour through the haze: it's the player's mark on the sky, to orbit)
     float fog = sbFog(vWorldPos) * (painted ? 0.35 : 1.0);
     // (at night, when the windows light, a car's speck is its headlights, steady, phase 2; and a grey plane is its lights: a beacon on the lamps' ramp an eighth of each

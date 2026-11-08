@@ -5,12 +5,12 @@ import { latLonToLocal, localToLatLon } from '../game/geo';
 import type { SuperTag } from '../game/Splat';
 import { globals, heldGlobals } from '../render/materials';
 import { FACTION_RAINBOW, ownerOf } from '../game/factions';
-import { HUE_RAMPS } from '../render/palette';
+import { lookOf } from '../render/factionLook';
 import type { Observer } from '../sky/SkyModel';
 import { axesAt, fixToGeodetic, geodeticToFix } from '../sky/WorldFrame';
 import type { LifeCurbAnswer, LifeLawn, LifeTick } from './lifeWorker';
 import { Curb, type CurbPose } from './Curb';
-import { LAWN_CELL, LookBit } from './sim/parks';
+import { LAWN_CELL } from './sim/parks';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
 import { Col, Kind, KINDS, ROW } from './kinds';
@@ -33,13 +33,15 @@ const REACH = 80000;
 const SKY_NEAR = 25000;
 /** SkyModel's EARTH (an import would bring the sky's model into life's chunk). The ellipsoid's radius at the equator and its flattening's stretch of z, km. */
 const EARTH_ID = 0;
+/** The supers whose movers blast() remembers (m22): a pour's dozen blasts a second, a Bomb's one. */
+const SUPERS_KEPT = 8;
 /** A painted mover's contrail (O6): the longest it streams, s of its flight; its width, px a level over the first, and m at the least. */
 const TRAIL_S = 40;
 const TRAIL_PX = 1;
 const TRAIL_M = 8;
 /** People's ground round the bus (LIFE.md, "People"): tiles in this far (m) are sampled for their grass, a few rows of their 2 m cells a frame (512 of the world's queries
- *  of each kind: CONTRACT.md section 6's few hundred), and dropped past FORGET. */
-const LAWN_REACH = 700, LAWN_FORGET = 1600, LAWN_ROWS = 4;
+ *  of each kind: CONTRACT.md section 6's few hundred), nearest first, and dropped past FORGET. Out to 1.6 km, where a Lob lands (HOOKS.md) */
+const LAWN_REACH = 1600, LAWN_FORGET = 2400, LAWN_ROWS = 4;
 /** A painted picnic's people, up and dancing: where each stands (m, the blanket's model's, pools.ts: the sitters' and the one lying's places, by their look bits), how
  *  much bigger than a person's model, and each one's beat behind the last (a share of a hop) */
 const DANCE_AT = [-0.95, 0.45, 0.95, 0.45, 0, 0.95, -0.4, -0.45], DANCER = 1.25, DANCE_BEAT = 0.27;
@@ -60,8 +62,9 @@ const CAR_LAMP_Y = 0.84;
  * building's, so a car's shows
  */
 const GROUND_PX = 10, GROUND_GLINT = 2;
-/** Dancers drawn a frame at the most: a MEGA over a crowded park paints thousands (the first account's life review, M5) */
-const DANCERS_MOST = 400;
+/** Dancers drawn a frame at the most: a MEGA over a crowded park paints thousands (the first account's life review, M5). Past it, and on a painted picnic under
+ *  DANCE_PX on the screen, its people stay sitting in its paint (the day review's M15: an 85 m tap at Dolores's peak paints about 138 blankets) */
+const DANCERS_MOST = 400, DANCE_PX = 12;
 /** A truck's length by its look (the heavy pool's models, pools.ts): a bus, a box truck, a semi; the aim and the level of detail read it, not the kind's one size */
 const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
 /** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
@@ -71,7 +74,7 @@ const WAKE_W = 0.3, WAKE_LIFT = 0.15;
 const BLAST_OVER = 30, BLAST_UNDER = 250;
 const WGS_A = 6378.137, WGS_K = 1 / (1 - 1 / 298.257223563);
 
-/** A mover's paint as drawn: its colour (an index into HUE_RAMPS), level, the page clock's UTC ms it took it (0: kept from before, its contrail whole), and whose it is. */
+/** A mover's paint as drawn: its colour (a slot of its faction's look, factionLook.ts: Rainbow's are HUE_RAMPS), level, the page clock's UTC ms it took it (0: kept from before, its contrail whole), and whose it is. */
 export interface MoverPaint {
   hue: number;
   level: number;
@@ -411,7 +414,7 @@ export class LifeHost {
         pz = cam.z - tz * k;
         w *= k;
       }
-      const v = (r * MARK_POINTS + j) * 2, ramp = HUE_RAMPS[paint.level >= 3 || wake ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
+      const v = (r * MARK_POINTS + j) * 2, ramp = lookOf(paint.faction).spray[paint.level >= 3 || wake ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
       K.pos[v * 3] = px - sx * w;
       K.pos[v * 3 + 1] = py - sy * w;
       K.pos[v * 3 + 2] = pz - sz * w;
@@ -457,7 +460,7 @@ export class LifeHost {
           if (!this.frustum.intersectsSphere(this.sphere)) continue;
         }
         // (a grey vehicle in its own tone, white, silver, grey or black)
-        const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
+        const ramp = paint ? lookOf(paint.faction).body[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (d > near) {
           const k = near / d;
           x = cam.x + dx * k;
@@ -469,7 +472,7 @@ export class LifeHost {
           const k = pc[info.pool];
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
-          if (alive) this.party(k, o, x, y, z, scale, cam, utcMs);
+          if (alive && px >= DANCE_PX) this.party(k, o, x, y, z, scale, cam, utcMs);
           else if (paint && (info.track || info.wake)) y += this.bounce(P.pool(info.pool), k, o, x, y, z, scale, utcMs, !!info.wake);
           pc[info.pool]++;
           // (a car's lights at night while its model's lamps are too small to see: a speck at its nose, which its body hides from behind)
@@ -537,9 +540,12 @@ export class LifeHost {
    */
   private party(k: number, o: number, x: number, y: number, z: number, scale: number, cam: THREE.Vector3, utcMs: number): void {
     const P = this.pools.small, rows = this.snap!.rows, look = rows[o + Col.LOOK], h = rows[o + Col.HEADING], c = Math.cos(h), sn = Math.sin(h);
-    P.look[k] = look & (LookBit.BASKET | LookBit.UMBRELLA);
+    // (one past the frame's dancers stays sitting on the blanket, in its paint: never an empty blanket, the day review's M15)
+    let sat = look;
     for (let j = 0, b = 1; j < 4; j++, b <<= 1) {
       if (!(look & b) || this.pc[0] + 1 >= P.max || this.dancing >= DANCERS_MOST) continue;
+      sat &= ~b;
+      P.look[k] = sat;
       this.dancing++;
       const ox = DANCE_AT[j * 2] * scale, oz = DANCE_AT[j * 2 + 1] * scale;
       this.dance(P, ++this.pc[0], o, x + ox * c - oz * sn, y, z + ox * sn + oz * c, scale * DANCER, cam, utcMs, j * DANCE_BEAT);
@@ -667,7 +673,7 @@ export class LifeHost {
       }
       const age = j / (MARK_POINTS - 1), sx = -dz, sz = dx, d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2);
       const w = 0.5 * Math.max(wake ? wake * WAKE_W * (1 + 2 * age) : TRACK_M, TRACK_PX * d * ang);
-      const ramp = HUE_RAMPS[(paint.hue + all - Math.min(j, n) + 600) % 6];
+      const ramp = lookOf(paint.faction).spray[(paint.hue + all - Math.min(j, n) + 600) % 6];
       for (let side = 0; side < sides; side++) {
         const off = (side ? -wheel : wheel) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
         K.pos[v * 3] = cx - sx * w;
@@ -730,7 +736,7 @@ export class LifeHost {
         const x0 = x, y0 = y, z0 = z;
         let scale = rows[o + Col.SCALE];
         const px = (this.sizeOf(o, info) * scale) / (Math.max(1, d) * ang), paint = this.painted.get(u32[o + Col.KEY]);
-        const ramp = paint ? HUE_RAMPS[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
+        const ramp = paint ? lookOf(paint.faction).body[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
         if (!paint && px < 1) continue;
         if (d > SKY_NEAR) {
           const k = SKY_NEAR / d;
@@ -831,15 +837,26 @@ export class LifeHost {
   /**
    * A splat's blast (CONTRACT.md section 3; the shots' plan, SHOTS.md: "the splat is 85 m across at roof height and paints every car, person, picnic and boat inside
    * it, each tap still one level"): every mover inside the blast's circle when it lands, at `arrive` (game time), takes paint as a building in it would, a fresh
-   * one the blast's hue at level 1 and a painted one a level up, each the blast's `faction` (C15). The circle is (x, z) and `r` across the ground, a column from
-   * under the street to BLAST_OVER m over the blast's height (y), so a splat on a roof paints the cars in the street below it and never a plane overhead. A mover
-   * the same breath already hit (its pending hit lands at this `arrive`) isn't hit twice. The super's tag is the buildings' business (one hit an area): a mover
-   * takes one level a blast.
+   * one the blast's hue at level 1 and a painted one a level up, each the blast's `faction` (C15). The circle is (x, z) and `r` round it on the ground, a column
+   * from under the street to BLAST_OVER m over the blast's height (y), so a splat on a roof paints the cars in the street below it and never a plane overhead. A
+   * mover the same breath already hit (its pending hit lands at this `arrive`) isn't hit twice. A super's blasts (a Hose's pour, a Bomb, MEGA) take a mover one
+   * level in all, as a pour takes a building (the day review's m22: a dozen a second took a car from 1 to 3 in a quarter second); a ring's (`superTag.inner`,
+   * Sonic Boom's) leaves the movers in its hole alone, so only those under its band take paint (HOOKS.md, "The extras").
    */
-  blast(x: number, y: number, z: number, r: number, hue: number, _superTag: SuperTag | undefined, arrive: number, faction: number): void {
+  blast(x: number, y: number, z: number, r: number, hue: number, superTag: SuperTag | undefined, arrive: number, faction: number): void {
     const s = this.snap;
     if (!s) return;
-    const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000 + Math.max(0, arrive - this.sim);
+    const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000 + Math.max(0, arrive - this.sim), hole = superTag?.inner ?? 0;
+    let took: Set<number> | null = null;
+    if (superTag) {
+      took = this.superTook.get(superTag.id) ?? null;
+      if (!took) {
+        took = new Set();
+        this.superTook.set(superTag.id, took);
+        // (the last few supers only: a pour's blasts come within its 3 s)
+        if (this.superTook.size > SUPERS_KEPT) this.superTook.delete(this.superTook.keys().next().value!);
+      }
+    }
     for (let i = 0; i < n; i++) {
       const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
       if (!info) continue;
@@ -847,12 +864,16 @@ export class LifeHost {
       if (my > y + BLAST_OVER || my < y - BLAST_UNDER) continue;
       const dx = rows[o + Col.X] + rows[o + Col.VX] * dt - x, dz = rows[o + Col.Z] + rows[o + Col.VZ] * dt - z;
       const R = r + 0.5 * info.size * rows[o + Col.SCALE], h = u32[o + Col.KEY];
-      if (dx * dx + dz * dz > R * R) continue;
+      if (dx * dx + dz * dz > R * R || (hole > 0 && dx * dx + dz * dz < hole * hole) || took?.has(h)) continue;
       const key = this.keys.get(h);
       if (!key || this.pendingAt(h, arrive)) continue;
+      took?.add(h);
       this.hit(key, hue, this.utc, arrive, faction);
     }
   }
+
+  /** The movers each recent super's blasts took (its SuperTag's id: the hashes), so each takes one level a super. */
+  private readonly superTook = new Map<number, Set<number>>();
 
   /** A hit on mover `h` already on its way, landing at `arrive`. */
   private pendingAt(h: number, arrive: number): boolean {
