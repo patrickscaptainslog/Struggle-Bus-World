@@ -105,6 +105,12 @@ Painted, a boat rides a swell, about once in 1.6 s, its bow and sides rising and
 
 Not yet: L3, the busiest view's draws and triangles measured, waits for the boats (Draws, above, has the count from the code); 5,000 hits and another place's keys wait for a second place. L6's laptop leg, `warmcheck.mjs` with `?life`, the first account ran on the laptop's GPU on 2026-11-05: 0 programs after the warm-up (`docs/reviews/life-gpu-2026-11-05.md`), before cars.
 
+## Bus routes (started 2026-11-08)
+
+The producer approved BBBike's San Francisco extract for the bus routes (`CLAUDE.md`, 2026-11-08: `SanFrancisco.osm.pbf`, 33,058,412 bytes, MD5 1fcf0e8203ecf8ee9275cc68fbde1f94 as BBBike's `CHECKSUM.txt` has it, last modified 2026-10-31). It isn't in the repo: `tools/life/busroutes.mjs <file.osm.pbf> [out.json]` reads it with its own PBF reader (no library) and chains each `type=route` relation's ways, `route=bus` or `trolleybus`, into one line in order, with its stops. On the extract, in 2.7 s: 365 routes, 135 of them Muni's (San Francisco Municipal Transportation Agency), the rest AC Transit 46, SamTrans 47, Marin Transit 27, Golden Gate Transit 16 and smaller ones; 5,277 km of line and 15,302 stops. The regional ones run off the extract's edge, so 41,124 of their members are missing and their lines jump (599 gaps over 1 m, the worst 31 km); Muni's stay inside it.
+
+Next, not built: Muni's lines baked to a small file a city (split where they jump, simplified to a couple of metres, in the map's metres), and the worker running buses on them by the local hour as it runs ferries on theirs: a departure every 8 to 20 minutes by the hour, about 4.5 m/s with the stops in it, half a lane right of the line, each bus's height from the cars' net under it, keyed by its route and its day's departure. Then the random buses the cars' mix makes on the arterials give way to them where a city has routes, and the buses go where the routes go, Market Street's car-free blocks included (the first account's life review, M7).
+
 ## Curb's road side (the shots' plan, 2026-11-06)
 
 `docs/specs/shots/SHOTS.md`, "Curb: cruising beside the cars": the bus lands on the street and rolls beside the cars with no steering. The road side is life's; the flight, the camera and the landing are the first account's, and call it.
