@@ -44,7 +44,7 @@ The draws hold. The triangles go up by the gardens alone, and that is where the 
 **The hook** (`6b5ad0e`, `src/game/Hold.ts`, written up in `HOOKS.md`).
 - A hold gives the screen point, its ray and where that ray meets the city, how long it has lasted, the drag and the release.
 - Handlers can take a hold at its start or partway through, and can take the next taps. A hold nobody takes goes to the Hose.
-- `Holds.fire` is the homing shot. It leads a moving target with a turn limit and a speed, and goes white-hot and stops steering in its last `white` seconds. The player's shot spends the belly; a captain's needs none and can whistle.
+- `Holds.fire` is the homing shot. It leads a moving target with a turn limit and a speed, and goes white-hot and stops steering in its last `white` seconds. The player's shot spends the belly; a captain's needs none and can whistle. Since the second account's review of fd6d413 it leaves led, given the target's velocity (`vel`, M80: below).
 
 **The Hose** (`4519a4b`, `src/game/Hose.ts`, built from SuperSplat's firehose, which stays asleep). A hold on the city that nobody takes pours 40 m blasts under the finger, and a drag sweeps them.
 - A blast lands each time the stream has moved 0.45 of its radius, or every 0.3 s while it stays put, at most 10 a second.
@@ -371,6 +371,8 @@ The branch's preview: `https://struggle-bus-world-git-feat-shots-patricks-projec
 - **A dry tank ends the hold.** A pour that runs dry stops for that hold, even if the tank refills while the finger stays down. Lift and hold again.
 - **The Hose is new code, built from the firehose, not an extraction of it.** `SuperSplat.ts` stays whole and asleep, so the two share ideas, not a module.
 - **The homing shot spends a breath.** The player's shot stalls the bus for the breath's second, as a tap does, but it has no jet: the blob is the jet.
+- **A homing shot without `vel` fired inside its white flies at where the target was** (M80, below): life and Recess give `vel` for anything that moves. A shot that learnt its lead from `target`'s frames alone would need one frame's sample before the white, and main.ts's frame order makes the launch's sample and the first frame's the same position.
+- **A tap while the Hose pours coughs and splats nothing** (m84). The review's other way, the tap closing the pour and splatting, is a feel call: the producer's.
 - **Not built yet:** the flick's lunge in the white, the Bomb on a hold on the bus, and the HOLD TO LOCK hint. See `HOOKS.md`, "Not here yet".
 - **The hook for the second account.** `docs/TODO.md` (on `feat/earth`) should say that the hook is on `feat/shots`, in `HOOKS.md`. Neither run wrote it there: it's off this branch.
 - **Not measured** on an A15 or on the producer's phone. Not flown over Recess or `?life` on the GPU.
@@ -392,6 +394,25 @@ And the rest:
 - **Downtown, a Comet on a tower's face paints few buildings:** 10 at Nonstop (the gate is 20; today's tap there paints 6 to 22).
 - **A big tap's frame.** The GPU check found a Comet's tap frame 10-45 ms of game work against a Cruise tap's 6-16 ms; its own classic tap from 300 m at Turbo 3 took 33.7 ms, and in Node a Comet's barf is 0.2-1.4 ms against a classic one's 0.2-0.6 ms with the same drop, so it's the frame of a big blast from high up, any tap's, not the Comet's own work. Not measured on an A15.
 - **Not flown** on `?life` with the fixes, `?moon` (the Moon's side is built, not flown), in Recess, on an A15 or on the producer's phone. The boom wasn't listened to. `controls.mjs` has no `comet` mode yet.
+
+## The second account's review of fd6d413, and what it came to
+
+The second account's code review of `feat/shots` at fd6d413 (`docs/reviews/shots-fd6d413-2026-11-08.md`, on `feat/earth`): no blocker, one major, five minors and four nits. Each was read against the code at 06a3de6 first (the Lob merged in since fd6d413: its lines moved, and nothing it read had changed), and each that can have one has a row in `s_hold --review` (`tools/controls-sim/s_hold.ts`, new), which exits 1 on any miss. The sim's other rows were left alone.
+
+| | Finding | Holds? | What was done |
+|---|---|---|---|
+| M80 | A homing shot fired inside its white window can't hit anything that moves: its first heading points at where the target is, and it goes white on its first frame, so it never leads or turns | Yes: 06a3de6's `Hold.ts` under `--review`'s rows misses 13 of the review table's 30 cells at 60 fps, every one inside speed x white (the review's table, but for the boat at 250 m, which hits here) | `0eb3e61`: `HomingOpts.vel(out)`, the target's velocity from whoever knows it. The first heading goes at where the two meet if both hold their lines, solved exactly and with no turn limit, and before the white the shot steers at that meeting. The review's second fix, not its first (one more `target()` sample before the white): main.ts fires on a lift inside `input.update`, and life moves its movers after `holds.frame`, so the launch's sample and the first frame's are one position, and a lead learnt from them reads a crossing target as still. `74d01fe`: `holds.busVel(out)`, for a captain's shot at the player. The rows, at 60 and 30 fps: a lock at 200 m inside its white on a target crossing at 30 m/s hits; a 40 m break in the white, and a flick up (30 to 112 m/s) in it, dodge it; every cell of the review's table hits holding its line |
+| m80 | HOOKS.md sends the second account to `window.__qa` | Yes | HOOKS.md says `window.__game`; gates' `hooks-doc` row holds it to main.ts |
+| m81 | A `target()` that throws at the launch isn't caught, and the belly is gone | Yes: at 06a3de6 the row's throw comes out of `fire()` | `0eb3e61`: `target()` (and `vel`) first, caught: no shot, the cough, the belly and the breath untouched, `stats.errors` 1 |
+| m82 | A target never there flies 8 s and ends as `time` | Yes | `0eb3e61`: one not seen at the launch nor on its first frame ends as `lost` after the beat: the row's at 17 ms, 242 m out |
+| m83 | A lock's shot after a pour refills like the Hose, 3 s | Yes: 3,023 ms empty to full before the fix | `70bc61b`: `Flight.tryBarf` sets `rechargeSeconds` back as a breath starts; the Bomb still sets its own after. 1,620 ms, a tap's 1.6 s |
+| m84 | A tap while the Hose pours does nothing, silently | Yes | `70bc61b`: main.ts asks `Hose.tapWhilePouring`, which coughs. The other way, the tap closing the pour and splatting, is left to the producer (What's left of step 2) |
+| n80 | `release()` doesn't tell the owner, so a released Hose pours on | Yes | `0eb3e61`: the owner gets `lost`, as on a claim; the row's Hose stops at the release |
+| n81 | `Hold.owner`'s comment | Yes: a Hose that coughed still owns it | `0eb3e61`: the comment says when it's null |
+| n82 | `Aimer.fire` swaps the Comet's side before anything is known to fire | Yes, and a tap refused while the belly refills did the same (main.ts's `tapSplat` calls `fire` before `tryBarf`). The Lob case doesn't arise since the merge: a Lob's tap never asks the Comet | `70bc61b`: `Aimer.unfire`, called where the breath then doesn't start (the tap's refusal, the Bomb's fizzle on `tryBarf`), hands it to `Comet.unshot`, which puts the side and the held landing back. A refused Lob tap still marks its Lob fired (`Lob.fired`): not the review's, left |
+| n83 | `blastCap`'s comment gives `config.bomb.cap` as 900 | Yes: 2,400 since `0e24fa9` | `70bc61b` |
+
+**For the second account** (HOOKS.md, "Since the second account's review of fd6d413"): give `holds.fire` a `vel` for anything that moves, a captain's at the player `holds.busVel`; `target` is asked first and one that throws refuses the shot; a target never there ends as `lost`; a lock's shot refills as a tap's; `holds.release` tells the one that had the hold.
 
 ## The review of step 4, and what it came to
 
