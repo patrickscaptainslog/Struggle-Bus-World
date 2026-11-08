@@ -1119,6 +1119,16 @@ if (modes.has('boom') || modes.has('falls')) {
     await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 120000, polling: 50 });
     await page.screenshot({ path });
   };
+  // (the bus against the Boom's plan, logged by the stills: where it is along the path from the hoop's plane, its height and the hoop's, the floors, its
+  // speeds and the plan's clock; the bloom still waits on it, Infinity until the ring's barf)
+  const xState = async (page, key, what) => {
+    const st = await page.evaluate((what) => {
+      const g = window.__game, f = g.flight, p = g.boom.plan, r = (v) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : String(v));
+      return { what, flick: what === 'flick' ? window.__xFlick : undefined, age: r(g.boom.time - p.t0), along: r((f.x - p.hx) * p.nx + (f.z - p.hz) * p.nz), y: r(f.y), hy: r(p.hy), floor: r(p.floor), hoopFloor: r(f.hoopFloor), floorY: r(f.floorY), speed: r(f.speed), ground: r(f.ground), vy: r(f.vy), noseTo: r(f.noseTo), land: r(p.land - p.t0), thread: r(p.thread - p.t0), threaded: p.threaded };
+    }, what);
+    console.log(`boomx ${key}:`, JSON.stringify(st));
+    return st;
+  };
   // (every frame's draws, triangles and live particles, the fps meter's counters, from when __xTrace is set; and the bus's least distance to __xAt)
   const traceInit = () => {
     const g = window.__game, p = g.perf, orig = p.frame.bind(p);
@@ -1171,13 +1181,14 @@ if (modes.has('boom') || modes.has('falls')) {
       if (mode === 'boom') {
         const E = Math.PI / 2;
         const ROWS = process.env.SB_BOOM_X === '1'
-          ? [['pull-western-addition', 37.7795, -122.4335, 150, E, 1400, true], ['north-western-addition', 37.7795, -122.4335, 150, 0, 1400], ['south-western-addition', 37.7795, -122.4335, 150, Math.PI, 1400], ['tower-downtown', 37.78975, -122.39686, 150, -E, 850, false, true]].filter(([k]) => !process.env.SB_BOOM_XONLY || k.startsWith(process.env.SB_BOOM_XONLY))
+          ? [['pull-western-addition', 37.7795, -122.4335, 150, E, 1400, true], ['north-western-addition', 37.7795, -122.4335, 150, 0, 1400], ['south-western-addition', 37.7795, -122.4335, 150, Math.PI, 1400], ['tower-downtown', 37.78975, -122.39686, 150, -E, 775, false, true]].filter(([k]) => !process.env.SB_BOOM_XONLY || k.startsWith(process.env.SB_BOOM_XONLY))
           : [['western-addition', 37.7795, -122.4335, 150, E], ['western-addition', 37.7795, -122.4335, 300, E], ['downtown', 37.7905, -122.4035, 150, E]];
         for (const [where, lat, lon, over, heading, backAt, pull, pinned] of ROWS) {
           const key = `${fk}-${where}-${over}`;
           // (held short of the place at Turbo 2 while the city streams in, heading east (or `heading`), `over` m over the ground there, by about where the ring
           // lands from there (Boom's boomLead: 1,400 m short from 150, 2,050 from 300); let go, a flick 0.2 s on. `pinned`: held there through the frames
-          // stepped to the flick too (they carried it 400-700 m), 850 m short (Turbo 2 on the page at about 850 m/s, the hoop a second ahead), so the hoop stands on the place; heading west, the ring lands on SoMa)
+          // stepped to the flick too (they carried it 400-700 m) and put there as the flick fires, 775 m short (Boom.flick's hoopAhead at Turbo 2's 720 m/s and a
+          // share of Turbo 3's spool, as s_boom's row), so the hoop stands on the place; heading west, the ring lands on SoMa)
           const back = backAt ?? (over > 200 ? 2050 : 1400);
           const at = await page.evaluate(([lat, lon, over, back, heading, pinned]) => {
             const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, px = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r), pz = -(lat - o[0]) * r * 6378137;
@@ -1199,6 +1210,22 @@ if (modes.has('boom') || modes.has('falls')) {
           if (stills) {
             // (the loop kept frozen from the stroke and stepped a frame at a time to the flick's; then each still held at its game time on the Boom's clock: the
             // crack, the hoop standing ahead, the bus at its plane, the slam, the band blooming, the band behind)
+            // (what the flick saw: the speed it was handed, the bus's, how far ahead it stood the hoop, and how far the bus was from its pin. `pinned`: the
+            // bus put at its pin as the flick fires: the frames of the stroke had carried it 360 m on, and the pin applied after the flick put it back
+            // there, 1,134 m short of a hoop 774 m ahead of the flick, so it crossed the plane at 1.5 s and the bloom's still waited past its time)
+            await page.evaluate(() => {
+              const b = window.__game.boom;
+              if (b.__xWrapped) return;
+              const o = b.flick.bind(b);
+              b.flick = (f, want) => {
+                const pin = window.__xPin, off = pin ? Math.hypot(f.x - pin.x, f.z - pin.z) : null;
+                if (pin) Object.assign(f, pin);
+                const p = o(f, want);
+                window.__xFlick = { want, speed: f.speed, ground: f.ground, y: f.y, hd: p ? Math.hypot(p.hx - f.x, p.hz - f.z) : null, pin: off };
+                return p;
+              };
+              b.__xWrapped = true;
+            });
             await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85), true);
             for (let k = 0; k < 40 && !plan; k++) {
               await page.evaluate(() => (window.__qa = window.__xPin ? { holdFrames: 1, pin: window.__xPin } : { holdFrames: 1 }));
@@ -1213,19 +1240,26 @@ if (modes.has('boom') || modes.has('falls')) {
                 await H.down(2, 196, 700);
                 await H.move(2, 196, 740);
               }
+              await xState(page, key, 'flick');
               await stillAt(page, t0 + 0.05, `${out}/boom-${key}-1-crack.png`);
               // (the sky's pressure ring rolling up through the sky, the hoop on its way; then the hoop standing, the ring rolling on down the city)
               await stillAt(page, t0 + 0.2, `${out}/boom-${key}-2-sky.png`);
               await stillAt(page, t0 + 0.45, `${out}/boom-${key}-2-hoop.png`);
+              await xState(page, key, 'hoop');
               // (the frame before the bus's crossing: its plane hoopAhead s on, a frame early at fixeddt's 0.05 s)
               await stillAt(page, t0 + 0.92, `${out}/boom-${key}-3-thread.png`);
+              await xState(page, key, 'thread');
               const p2 = await page.evaluate(() => window.__game.boomState().plan);
               const th = Number.isFinite(p2.thread) ? p2.thread : t0 + 1;
               await stillAt(page, th + 0.2, `${out}/boom-${key}-4-slam.png`);
+              await xState(page, key, 'slam');
+              // (boomState hands Infinity over as null: no bloom yet, the bus short of the plane; the still then waits for the Boom's 2.4 s)
               const p3 = await page.evaluate(() => window.__game.boomState().plan);
-              await stillAt(page, p3.bloom + 0.05, `${out}/boom-${key}-5-bloom.png`);
+              const bloom = Number.isFinite(p3.bloom) ? p3.bloom : t0 + 2.6;
+              await stillAt(page, bloom + 0.05, `${out}/boom-${key}-5-bloom.png`);
+              await xState(page, key, 'bloom');
               // (the band spreading under the bus and behind it: a second on, it's out of the chase's frame)
-              await stillAt(page, p3.bloom + 0.35, `${out}/boom-${key}-6-behind.png`);
+              await stillAt(page, bloom + 0.35, `${out}/boom-${key}-6-behind.png`);
               if (pull) await H.up(2);
               await page.evaluate(() => (window.__qa = null));
               await runFor(page, 1);
