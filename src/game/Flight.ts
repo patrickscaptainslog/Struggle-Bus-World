@@ -76,6 +76,9 @@ export class Flight {
   vy = 0;
   /** the way the bus is going (rad, + up): on the path it flies the bus; off it, it follows where the bus really goes */
   nose = 0;
+  /** on the path, the way the stick has the nose going (rad, + up; it follows at noseRate): where &boom's hoop reads the bus will be (src/game/Boom.ts).
+   *  NaN off the path */
+  noseTo = NaN;
   yawRate = 0;
   private yawAcc = 0; // spring velocity of yawRate
   bank = 0;
@@ -428,6 +431,7 @@ export class Flight {
       this.pathVy = this.vy;
       this.onPath = true;
     }
+    this.noseTo = this.onPath ? noseWant : NaN;
     if (this.onPath) {
       // ---- the path: the speed goes where the nose points. The nose is the only lag, so nothing lurches forward on the way
       this.nose += (noseWant - this.nose) * (1 - Math.exp(-Math.max(0.1, F.noseRate) * dt));

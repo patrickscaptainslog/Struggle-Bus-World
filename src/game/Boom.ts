@@ -31,14 +31,16 @@ export const boomTune = {
   hoopRK: 0.05,
   hoopR0: 2.5,
   /** standing, it keeps to the bus: its height and its place across the path eased (1/s) toward where the bus will be as it reaches its plane (on its arc
-   *  at its yaw rate and climb now: a pull, a push or a half carve after the flick is threaded), across by this share of its radius at most (a full
-   *  carve flies past its side), and its lower arc `hoopClear` m over every roof across it, so a tower in its way has the hoop stand over it and the bus
-   *  lifted to it (Flight.hoopFloor) */
+   *  at its yaw rate, and up or down as the path's nose goes where the stick has it, or as the floor lifts it: a pull, a push or a half carve after the
+   *  flick is threaded), across by this share of its radius at most (a full carve flies past its side; a bus that won't reach its plane in `aheadMax` s,
+   *  a full pull, flies over it, which stands at the bus's height), and its lower arc `hoopClear` m over every roof across it, so a tower in its way has
+   *  the bus lifted to it (Flight.hoopFloor) and the hoop standing where the lift will have it, a quarter of its hole over that at most. Its easing
+   *  quickens as the bus closes, to `hoopSnap` over the seconds left, so a pull begun late meets it at its middle, not its rim */
   hoopTrack: 6,
+  hoopSnap: 1,
   hoopDrift: 1.1,
   hoopClear: 2,
-  /** the growth of the bus's climb counted in where it will be (m/s^2), at most */
-  climbAcc: 600,
+  aheadMax: 1.5,
   /** a bus that turns away never crosses the hoop's plane: it slams down this long after the flick anyway (s) */
   hoopWait: 2.4,
   /** where the ring lands: where the bus will be once the hoop is threaded, the hoop has slammed onto the band and the band blooms, and `gap` s more from
@@ -203,7 +205,7 @@ export function hoopPose(p: BoomPlan, t: number, nose: { x: number; y: number; z
 }
 
 /** Boom.ahead's answer: where the bus will cross a hoop's plane */
-const AT = { y: 0, across: 0 };
+const AT = { y: 0, across: 0, T: 0 };
 
 export class Boom {
   /** &boom (main.ts sets it, as bomb.on): off, flick() does nothing */
@@ -216,9 +218,8 @@ export class Boom {
   private t = 0;
   private serial = 0;
   private readonly live: BoomPlan[] = [];
-  /** the bus the last flick was flown by: update() watches it cross the hoop's plane; its climb last frame (m/s) */
+  /** the bus the last flick was flown by: update() watches it cross the hoop's plane */
   private f: Flight | null = null;
-  private vy = NaN;
 
   constructor(private readonly city: City, private readonly splatter: Splatter, private readonly hooks: BoomHooks) {}
 
@@ -295,28 +296,31 @@ export class Boom {
     this.t += dt;
     const B = boomTune, f = this.f;
     let lift = -Infinity;
-    // (the climb's growth over the last frame: a pull held after the flick tips the nose up ever faster, and the hoop trailed it by its climb over hoopTrack)
-    const ay = f && dt > 0 && Number.isFinite(this.vy) ? clamp((f.vy - this.vy) / dt, -B.climbAcc, B.climbAcc) : 0;
-    this.vy = f ? f.vy : NaN;
     for (let i = 0; i < this.live.length; ) {
       const p = this.live[i];
       if (Number.isNaN(p.thread)) {
         // (along the path: under 0 the bus hasn't reached the hoop's plane; across it, and up)
         const along = f ? (f.x - p.hx) * p.nx + (f.z - p.hz) * p.nz : 0;
         const across = f ? (f.z - p.hz) * p.nx - (f.x - p.hx) * p.nz : 0;
+        // (the lift holds through a hit-stop or a hold, where the game clock stands still, and lets a bus carved past the hoop's side go)
+        if (f && along < 0 && Math.abs(across) < p.hR) lift = Math.max(lift, p.floor);
         if (f && along < 0 && dt > 0) {
-          const k = 1 - Math.exp(-B.hoopTrack * dt), lim = B.hoopDrift * p.hR;
-          this.ahead(f, p, ay);
+          this.ahead(f, p);
+          const k = 1 - Math.exp(-Math.max(B.hoopTrack, B.hoopSnap / Math.max(1e-3, AT.T)) * dt), lim = B.hoopDrift * p.hR;
           const s = clamp(p.drift + AT.across * k, -lim, lim) - p.drift;
           p.drift += s;
           p.hx -= p.nz * s;
           p.hz += p.nx * s;
-          p.hy += (Math.max(AT.y, p.floor) - p.hy) * k;
-          lift = Math.max(lift, p.floor);
+          p.hy += (Math.max(AT.y, Math.min(p.floor, AT.y + 0.25 * p.hole)) - p.hy) * k;
         }
         const age = this.t - p.t0;
         if (!(p.land < Infinity) && ((f && along >= -B.preBarf * Math.max(1, f.ground)) || age >= B.hoopWait - B.preBarf)) this.barf(p);
-        if (p.land < Infinity && ((f && along >= 0) || age >= B.hoopWait)) this.thread(p, along >= 0 && Math.abs(across) < p.hole && !!f && Math.abs(f.y - p.hy) < p.hole);
+        if (p.land < Infinity && ((f && along >= 0) || age >= B.hoopWait)) {
+          // (where the bus crossed the plane, between this frame and the last: a frame past it at 30 fps, a 0.6 pull had climbed 11 m on from its hole)
+          const back = f ? along / Math.max(1, f.ground) : 0;
+          const at = f ? across - f.ground * (f.fz * p.nx - f.fx * p.nz) * back : Infinity, dy = f ? f.y - f.vy * back - p.hy : Infinity;
+          this.thread(p, along >= 0 && Math.abs(at) < p.hole && Math.abs(dy) < p.hole);
+        }
         i++;
         continue;
       }
@@ -331,22 +335,40 @@ export class Boom {
     if (f) f.hoopFloor = lift;
   }
 
-  /** Where the bus will be as it reaches p's plane: on its arc at its speed over the ground and yaw rate now, in steps of a thirtieth of a second (the last
-   *  cut at the plane), 1.5 s at most, and its climb now and how fast that's growing (`ay`, m/s^2) on the way, no lower than its floor: into AT, its height
-   *  and how far across from the hoop's middle (m). */
-  private ahead(f: Flight, p: BoomPlan, ay: number) {
-    const st = 1 / 30, v = Math.max(1, f.ground), w = f.yawRate;
-    let x = f.x, z = f.z, h = f.heading, T = 0, a = (x - p.hx) * p.nx + (z - p.hz) * p.nz;
-    for (let n = 0; n < 45 && a < 0; n++) {
+  /** Where the bus will be as it reaches p's plane: on its arc at its yaw rate now, in steps of a thirtieth of a second (the last cut at the plane),
+   *  aheadMax s at most, its speed spooling on toward the gear's. On the path (Flight.noseTo) its nose going where the stick has it at the Flight's
+   *  noseRate, its speed split between over the ground and up by it, as Flight.step flies it (a held pull is where it threads, not its climb now grown
+   *  on); off it, its climb now, or the floor's critically damped lift where the bus is under its floor (a tower's hoop: where the lift will have it, so a
+   *  bus the lift can't carry all the way still threads), and no lower than the floor. Not there in time (a full pull), the bus's height now, eased from
+   *  there by how far short it falls. Into AT, its height and how far across from the hoop's middle (m), and the seconds to the plane (aheadMax: not there
+   *  in time). */
+  private ahead(f: Flight, p: BoomPlan) {
+    const F = config.flight, Tb = f.turbo, st = 1 / 30, w = f.yawRate, path = Number.isFinite(f.noseTo), kn = 1 - Math.exp(-Math.max(0.1, F.noseRate) * st);
+    const ks = Tb.speed > 0 && Tb.rate > 0 ? 1 - Math.exp(-Tb.rate * st) : 0;
+    let x = f.x, z = f.z, y = f.y, h = f.heading, nose = f.nose, sp = f.speed, v = 1, T = 0, a = (x - p.hx) * p.nx + (z - p.hz) * p.nz;
+    for (let n = 0; n < Math.round(boomTune.aheadMax / st) && a < 0; n++) {
+      if (path) nose += (f.noseTo - nose) * kn;
+      // (the gear's spool: the speed easing on toward its drive, Flight.step's)
+      sp += (Math.max(sp, Tb.speed) - sp) * ks;
+      v = Math.max(1, path ? sp * Math.cos(nose) : f.ground + sp - f.speed);
+      const vy = path ? sp * Math.sin(nose) : f.vy;
       const h2 = h + w * st, x2 = x + Math.sin(h2) * v * st, z2 = z - Math.cos(h2) * v * st, a2 = (x2 - p.hx) * p.nx + (z2 - p.hz) * p.nz;
       const u = a2 >= 0 ? -a / Math.max(1e-6, a2 - a) : 1;
       x += (x2 - x) * u;
       z += (z2 - z) * u;
+      y += vy * st * u;
       h += (h2 - h) * u;
       T += st * u;
       a = a2 >= 0 ? 0 : a2;
     }
-    AT.y = Math.max(f.floorY, f.y + f.vy * T + 0.5 * ay * T * T);
+    if (!path && f.y < f.floorY) {
+      // (y - floor goes (e0 + (v0 + W e0) t) e^-Wt, Flight's vyFloor)
+      const W = 2 * Math.PI * F.climbHz, e0 = f.y - f.floorY;
+      y = f.floorY + (e0 + (f.vy + W * e0) * T) * Math.exp(-W * T);
+    } else y = Math.max(f.floorY, y);
+    // (not there in time: back to the bus's height by a quarter second more of its flight short, so nothing jumps where a pull tips it past aheadMax)
+    AT.y = a < 0 ? f.y + (y - f.y) * clamp(1 + a / (0.25 * v), 0, 1) : y;
+    AT.T = T;
     AT.across = (z - p.hz) * p.nx - (x - p.hx) * p.nz;
   }
 
