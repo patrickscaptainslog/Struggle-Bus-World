@@ -241,6 +241,8 @@ interface Slot {
   /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. armed: a frame has seen it past aimHoldMs (the next one starts it). */
   aiming: boolean;
   aimArmed: boolean;
+  /** Its aim began with the Lob's ring showing (lobUp): a late lift of it is a tap. */
+  lobAim: boolean;
   /** The Bomb: the flying thumb landed on the bus with bombOn, and may still charge (moving past the slop ends that, for the touch); bombFrom = the charge's
    *  clock start (ms; -1: the belly isn't full yet); bombTier = the tier shown (0 none, 1 charging, 2, 3); bombArm = the tier a frame has seen it reach;
    *  bombShown2, bombShown3 = when II and III showed (the frame's clock, ms; -1 not yet) */
@@ -276,7 +278,10 @@ export class Input {
   onTap: (() => void) | null = null;
   /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
   onAimStart: (() => void) | null = null;
-  onAimEnd: ((cancelled: boolean) => void) | null = null;
+  onAimEnd: ((cancelled: boolean, late: boolean) => void) | null = null;
+  /** The Lob's ring shows (main.ts, every frame): an aim begun while it did, whose lift's own time says it was a tap, is that tap (pointerUp's lateTap). Off, a
+   *  late lift ends its aim as it always did: with the body under 25 degrees nothing changes (the Lob's check, 1). */
+  lobUp = false;
   /** Hold to aim is on (main.ts: off on ?moon and in the flight, which have no Hose; off, a still finger off the lane rests as it always did). */
   aimOn = true;
   /** MEGA is asleep unless this is set (main.ts, from &mega on the link; the producer, 2026-11-06: "lets just remove the mega splat for now"). Off, the
@@ -405,7 +410,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -755,10 +760,11 @@ export class Input {
     }
     // (an aim's lift is its release, and nothing else: no tap, no flick. One that lifts still before its aim began is a tap: secondTap. So is one whose aim a
     // frame began only because its lift reached the page late, its own time inside aimHoldMs: behind a run of slow frames a 60 ms tap's lift came 450 ms
-    // after its landing, the aim began in between, and a Lob's tap threw nothing (the Lob's roofs stage). Its aim ends cancelled, and it is the tap it was)
-    const lateTap = slot.aiming && !cancelled && now - slot.t0 < inputTune.aimHoldMs && slot.maxDist <= inputTune.tapSlopPx;
+    // after its landing, the aim began in between, and a Lob's tap threw nothing (the Lob's roofs stage). Its aim ends cancelled, late, and it is the tap it
+    // was. Only an aim begun with the Lob's ring up (lobAim): any other ends as it always did, its pour poured (the Lob's check, 1)
+    const lateTap = slot.aiming && slot.lobAim && !cancelled && now - slot.t0 < inputTune.aimHoldMs && slot.maxDist <= inputTune.tapSlopPx;
     const aimed = slot.aiming && !lateTap;
-    if (slot.aiming) this.endAim(slot, cancelled || lateTap);
+    if (slot.aiming) this.endAim(slot, cancelled || lateTap, lateTap);
     // (the Bomb's: let go at II or III it fires, and is nothing else; a still lift on the bus before II shows is a tap, as long as the charge has run, or with none
     // begun (the belly refilling) up to when II would have shown: a rest past that does nothing, as off the link, where any rest's lift was a tap with the
     // belly's "not yet" (the Bomb's play review, 2). By the lift's own time: one queued behind a frame that showed a tier after it is what showed when it lifted)
@@ -1143,6 +1149,7 @@ export class Input {
   /** A still finger off the lane holds to aim (state.aim), from now until its lift. */
   private startAim(s: Slot, now: number) {
     s.aiming = true;
+    s.lobAim = this.lobUp;
     this.aimSlot = s;
     const A = this.state.aim;
     A.on = true;
@@ -1156,11 +1163,11 @@ export class Input {
     this.onAimStart?.();
   }
 
-  private endAim(s: Slot, cancelled: boolean) {
+  private endAim(s: Slot, cancelled: boolean, late = false) {
     s.aiming = false;
     if (this.aimSlot === s) this.aimSlot = null;
     this.state.aim.on = false;
-    this.onAimEnd?.(cancelled);
+    this.onAimEnd?.(cancelled, late);
   }
 
   private endLook(s: Slot) {

@@ -1288,7 +1288,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   input.onAimStart = () => {
     if (!tuner.visible) holds.begin();
   };
-  input.onAimEnd = (cancelled) => holds.end(cancelled);
+  input.onAimEnd = (cancelled, late) => holds.end(cancelled, late);
 
   // ---- the Bomb (src/game/Bomb.ts, behind &bomb until the producer's grip test): a still hold on the bus charges it, and the lift lets it go as MEGA's
   // breath where the tap would land (at Nonstop and faster, the Comet's landing). On the Moon's ground too, where the craters take its jumps (CraterPaint)
@@ -1802,6 +1802,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
     // (the Lob's hint: its ring shows)
     controls.lobRing = aimer.lobPlan !== null;
+    // (and Input's: an aim begun while it shows, its lift's own time a tap's, is that tap)
+    input.lobUp = controls.lobRing;
     if (bomb.on) controls.bombGlint = Aimer.loaded(flight) && (moonPaint ? (moonPaint.target?.rec?.level ?? 0) > 0.5 : glint !== null && city.paint.level(glint.index) > 0.5) && flight.y - flight.groundBroad < 300;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;

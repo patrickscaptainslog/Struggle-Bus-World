@@ -1,6 +1,9 @@
 // Hold to aim, the hook and the Hose (docs/specs/shots/SHOTS.md, HOOKS.md) through the REAL Input, Flight, Holds and Hose, offline: synthetic pointers on a controlled
 // clock, one frame every 16.7 ms like the game loop, and a flat city at sea level under a camera 300 m up. The Splatter, the particles and the sound are stand-ins that
 // write down what they were asked. Writes shots/controls/sim/holds.json (SB_OUT moves it) and a table on stdout.
+// --late (the Lob's check, 1): only the late lift, a still finger whose lift reaches the page after its aim began, its own time 60 ms in: with the Lob's ring up
+// (input.lobUp, as main.ts sets it) it is a tap and the Hose gives back what it poured; without it, as the base had it, its aim ends and pours. A real hold
+// with the ring up, and a lost touch, keep what they poured. Writes holds-late.json; exit 0 only when every check passes.
 import { installDom, Target, clock, ptr, newId, runTimers } from './fakedom';
 const { win } = installDom();
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -49,7 +52,7 @@ function harness(bomb?: (dt: number) => void) {
   const hose = new Hose({ flight, city, splatter, particles, audio, rig: { kick: () => {} } as any, mouth: () => mouth.set(flight.x, flight.y, flight.z - 6), busVel: () => new THREE.Vector3(), hatch: (o) => o.set(0, 125, 0), flash: () => {}, sign: () => {} });
   holds.add(hose, { last: true });
   input.onAimStart = () => { log.push(`aim@${at()}`); holds.begin(); };
-  input.onAimEnd = (c) => { log.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`); holds.end(c); };
+  input.onAimEnd = (c, late) => { log.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`); holds.end(c, late); };
   input.onTap = () => { log.push(`tap@${at()}`); if (holds.tap()) log.push('tap taken'); };
   const step = 16.7;
   let next = clock.ms + step;
@@ -82,6 +85,9 @@ function harness(bomb?: (dt: number) => void) {
     down(id: number, x: number, y: number, primary = true) { el.dispatch('pointerdown', ptr('pointerdown', id, x, y, primary)); },
     move(id: number, x: number, y: number) { el.dispatch('pointermove', ptr('pointermove', id, x, y)); },
     up(id: number, x: number, y: number) { el.dispatch('pointerup', ptr('pointerup', id, x, y)); },
+    /** a lift whose own time is `ms` (the clock's), reaching the page now: behind slow frames */
+    upAt(id: number, x: number, y: number, ms: number) { el.dispatch('pointerup', { ...ptr('pointerup', id, x, y), timeStamp: ms }); },
+    cancel(id: number, x: number, y: number) { el.dispatch('pointercancel', ptr('pointercancel', id, x, y)); },
     slide(id: number, x0: number, y0: number, dx: number, dy: number, ms: number) { const n = Math.max(1, Math.round(ms / 16.7)); for (let i = 1; i <= n; i++) { wait(ms / n); this.move(id, x0 + (dx * i) / n, y0 + (dy * i) / n); } },
   };
 }
@@ -99,6 +105,48 @@ function row(name: string, fn: (h: Hn) => unknown) {
   h.input.dispose();
 }
 const hold = (h: Hn, ms: number, x = AX, y = AY) => { const id = newId(); h.down(id, x, y); h.wait(ms); h.up(id, x, y); return id; };
+
+if (process.argv.includes('--late')) {
+  const out: Record<string, unknown> = {};
+  const lf: string[] = [];
+  let n = 0;
+  const lok = (c: boolean, m: string) => { n++; if (!c) lf.push(m); };
+  // (down, held still to 520 ms by the frames' clock, the aim begun at about 434; then the lift: `own` its own time from the landing, or a lost touch)
+  const late = (name: string, lobUp: boolean, own: number | 'cancel') => {
+    const h = harness();
+    h.wait(100);
+    h.reset();
+    h.input.lobUp = lobUp;
+    const id = newId(), t0 = h.at();
+    h.down(id, AX, AY);
+    h.wait(520);
+    const before = h.flight.fullness, aimed = h.input.state.aim.on;
+    if (own === 'cancel') h.cancel(id, AX, AY);
+    else h.upAt(id, AX, AY, clock.ms - h.at() + t0 + own);
+    const after = h.flight.fullness;
+    h.wait(300);
+    const v = { lobUp, own, aimed, poured: +(1 - before).toFixed(3), tankAfter: +after.toFixed(3), log: [...h.log] };
+    out[name] = v;
+    console.log(`${name.padEnd(70)} | ${v.log.join(', ')} | tank ${before.toFixed(3)} -> ${after.toFixed(3)}`);
+    h.input.dispose();
+    return v;
+  };
+  const tap = (v: { log: string[] }) => v.log.some((s) => s.startsWith('tap@'));
+  const cancelled = (v: { log: string[] }) => v.log.some((s) => s.startsWith('aimEnd(cancelled)'));
+  const a = late('ring up: a late lift, 60 ms its own time, is a tap, the pour given back', true, 60);
+  lok(a.aimed && a.poured > 0 && cancelled(a) && tap(a) && a.tankAfter >= 0.999, `ring up, late lift: aimed, poured, ended cancelled, a tap, the tank back (${JSON.stringify(a)})`);
+  const b = late('no ring (the base): a late lift ends its aim and keeps its pour, no tap', false, 60);
+  lok(b.aimed && b.poured > 0 && !cancelled(b) && !tap(b) && b.tankAfter <= 1 - b.poured + 1e-3, `no ring, late lift: as the base, its aim ended, no tap, the pour kept (${JSON.stringify(b)})`);
+  const c = late('ring up: a real hold, lifted at 520 ms its own time, keeps its pour', true, 520);
+  lok(c.aimed && !cancelled(c) && !tap(c) && c.tankAfter < 0.999, `ring up, a real hold: no tap, the pour kept (${JSON.stringify(c)})`);
+  const d = late('ring up: a lost touch at 520 ms keeps its pour, no tap', true, 'cancel');
+  lok(d.aimed && cancelled(d) && !tap(d) && d.tankAfter < 0.999, `ring up, a lost touch: no tap, the pour kept (${JSON.stringify(d)})`);
+  const OUTL = process.env.SB_OUT ?? 'shots/controls/sim';
+  mkdirSync(OUTL, { recursive: true });
+  writeFileSync(`${OUTL}/holds-late.json`, JSON.stringify(out, null, 1));
+  console.log(lf.length ? `LATE FAILED ${lf.length} of ${n}:\n  ${lf.join('\n  ')}` : `late lift checks: all ${n} passed`);
+  process.exit(lf.length ? 1 : 0);
+}
 
 row('tap: off the lane at 150 ms splats, no hold, no pour', (h) => { hold(h, 150); h.wait(300); return { current: h.holds.current, pouring: h.hose.pouring }; });
 row('hold to aim, nobody claims: the Hose pours under the finger', (h) => {

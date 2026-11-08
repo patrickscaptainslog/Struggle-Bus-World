@@ -65,6 +65,8 @@ export interface Hold {
   range: number;
   /** the handler that has it (its name), or null: nobody, as when the Hose found no belly to pour */
   owner: string | null;
+  /** (in end) it was a tap's: Input's late tap, an aim begun with the Lob's ring up only because its lift reached the page late. It ends cancelled */
+  late?: boolean;
 }
 
 /** What life or Recess adds (Holds.add) to take holds and taps. Every method is optional. */
@@ -199,7 +201,7 @@ export class Holds {
   constructor(host: HoldHost) {
     this.h = host;
     this.shots = this.live;
-    this.hold = { id: 0, down: false, x: 0, y: 0, x0: 0, y0: 0, dragX: 0, dragY: 0, held: 0, aimed: 0, ray: { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: -1 }, hit: false, point: new THREE.Vector3(), range: Infinity, owner: null };
+    this.hold = { id: 0, down: false, x: 0, y: 0, x0: 0, y0: 0, dragX: 0, dragY: 0, held: 0, aimed: 0, ray: { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: -1 }, hit: false, point: new THREE.Vector3(), range: Infinity, owner: null, late: false };
   }
 
   /**
@@ -346,6 +348,7 @@ export class Holds {
     (h as { id: number }).id = ++this.serial;
     h.down = true;
     h.owner = null;
+    h.late = false;
     this.fill(0);
     this.current = h;
     this.stats.holds++;
@@ -366,11 +369,12 @@ export class Holds {
   }
 
   /** Input.onAimEnd. */
-  end(cancelled: boolean): void {
+  end(cancelled: boolean, late = false): void {
     const h = this.current;
     if (!h) return;
     this.fill(0);
     h.down = false;
+    h.late = late;
     this.current = null;
     for (const e of this.handlers) {
       if (!e.h.end || (e.h.name !== h.owner && !e.watch)) continue;
