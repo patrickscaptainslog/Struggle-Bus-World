@@ -87,9 +87,10 @@ export const recessScreen = {
   captainAGL: 45,
   captainClear: 22,
   /** the match's paint keeps inside the square the brain gave its shooter (the first account's M43): a blast `paintR` m round, its middle moved into the square
-   *  so it stays `paintEdge` m inside its edges; a heart's blast as big as fits */
+   *  so it stays `paintEdge` m inside its edges (a house is taken by its middle less 0.55 of its side, so 10 m keeps a 300 m² one's middle in); a heart's blast
+   *  as big as fits */
   paintR: 40,
-  paintEdge: 6,
+  paintEdge: 10,
 };
 
 /** The arena (FACTIONS.md section 4: "a 1.5 km circle the game picks where any city is densest"): San Francisco's where Alamo Square, the Lower Haight and Hayes
