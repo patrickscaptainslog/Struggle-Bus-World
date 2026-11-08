@@ -205,8 +205,12 @@ export class Lob {
   private hider(f: Flight, x: number, y: number, z: number, target: BuildingRef | null): BuildingRef | null {
     if (!this.lens) return null;
     const L = config.lob, c = this.eye.setFromMatrixPosition(this.lens.matrixWorld);
-    const dx = x - c.x, dy = y - c.y, dz = z - c.z, D = Math.hypot(dx, dz);
     const s0 = Math.hypot(f.x - c.x, f.z - c.z) + L.hideFrom;
+    // (from the lens moved on to the impact, as showsAt judges the landing: by then the bus is 100-250 m nearer it, and what hides it is judged from there)
+    c.x += this.ox;
+    c.y += this.oy;
+    c.z += this.oz;
+    const dx = x - c.x, dy = y - c.y, dz = z - c.z, D = Math.hypot(dx, dz);
     for (let s = s0; s < D - L.hideClear; s += L.hideStep) {
       const u = s / D, px = c.x + dx * u, pz = c.z + dz * u;
       const ref = this.city.buildingAbove(px, pz, c.y + dy * u);
