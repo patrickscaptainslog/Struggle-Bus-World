@@ -43,10 +43,11 @@ interface FxSeen { flat: number; nx: number; ny: number; nz: number; on: boolean
 const stubParticles = new Proxy({}, { get: () => () => {} }) as any;
 
 /** A bus at Turbo 2's 720 m/s, `over` m over the ground under (x, z) less the second's flight, heading east (or `heading`); flicked into Turbo 3, flown on
- *  4 s with the stick at rest after the flick (or held at `stick`). `hoopAt`: the hoop stands on the place, not the ring. `fx`: TurboFx's hoop and flash
- *  too, `mach` s after the flick the barrier's own crossing (TurboDrive's 'boom', as Controls hands it on), `freeze` frames from the second on with the game
- *  clock stood still (a hit-stop, or a hold), the wall clock going on. */
-async function flick(place: string, lat: number, lon: number, over: number, opts: { second?: boolean; prior?: number; dt?: number; heading?: number; stick?: [number, number]; hoopAt?: boolean; faction?: number; fx?: boolean; mach?: number; freeze?: number } = {}) {
+ *  4 s with the stick at rest after the flick (or held at `stick`, from `held[0]` s after the flick to `held[1]` if given). `hoopAt`: the hoop stands on the
+ *  place, not the ring. `fx`: TurboFx's hoop and flash too, `mach` s after the flick the barrier's own crossing (TurboDrive's 'boom', as Controls hands it
+ *  on), `freeze` frames from the second on with the game clock stood still (a hit-stop, or a hold), the wall clock going on. `zero`: the frames from its first
+ *  to its second flown at dt 0 (the page's hit-stop: the Flight and the Boom still step, the game clock stood still). */
+async function flick(place: string, lat: number, lon: number, over: number, opts: { second?: boolean; prior?: number; dt?: number; heading?: number; stick?: [number, number]; held?: [number, number]; hoopAt?: boolean; faction?: number; fx?: boolean; mach?: number; freeze?: number; zero?: [number, number] } = {}) {
   const dt = opts.dt ?? 1 / 60;
   city.paint.resetAll();
   city.ground.resetAll();
@@ -73,15 +74,15 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   boom.on = true;
   if (opts.prior !== undefined) boom.last = -opts.prior;
   // (a frame as the page's: the game's, then the city's ground slice and its upload; its parts' milliseconds)
-  let parts = [0, 0, 0], stick: [number, number] = [0, 0], frozen = false;
+  let parts = [0, 0, 0], stick: [number, number] = [0, 0], frozen = false, zeroed = false;
   const tfx = opts.fx ? (new TurboFx(stubParticles, 12) as any) : null, bus = new THREE.Object3D(), seen: FxSeen[] = [], lit: number[] = [];
   if (tfx) tfx.boomU = { uHoopRows: { value: [0, 1, 2, 3, 4, 5] }, uHoopW: { value: 0.5 } };
   const nrm = new THREE.Vector3();
   const step = () => {
     const a = performance.now();
     if (!frozen) {
-      g.frame(dt, { sx: stick[0], sy: stick[1], dragging: stick[0] !== 0 || stick[1] !== 0 });
-      boom.update(dt);
+      g.frame(zeroed ? 0 : dt, { sx: stick[0], sy: stick[1], dragging: stick[0] !== 0 || stick[1] !== 0 });
+      boom.update(zeroed ? 0 : dt);
     }
     if (tfx) {
       bus.position.set(f.x, f.y, f.z);
@@ -122,7 +123,8 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   fire();
   const s0 = seen.length;
   if (tfx && plans[0]) tfx.crack(bus, f, cam.rig, (_: unknown, k: number) => (lit[lit.length - 1] = k), plans[0], () => {});
-  if (opts.stick) stick = opts.stick;
+  const hold = opts.held ?? [0, Infinity];
+  if (opts.stick && hold[0] <= 0) stick = opts.stick;
   const flickMs = r2(performance.now() - a0);
   const [, b0] = step();
   frames.push({ ms: b0 - a0, a: a0, b: b0, parts: [flickMs, ...parts] });
@@ -131,7 +133,10 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   // the hoop: standing (its pose at hoopFly s, against the bus then), at the thread (the bus's offsets from its middle), and as the band's inner edge blooms
   const pose: HoopPose = { x: 0, y: 0, z: 0, r: 0, flat: 0, w: 0, tear: 0 };
   const nose = { x: 0, y: 0, z: 0 };
-  let stand: { ahead: number; dy: number; flat: number; r: number } | null = null, thr: { along: number; across: number; dy: number; age: number; flat: number } | null = null, slam: { flat: number; dx: number; dz: number; r: number } | null = null;
+  // (the hoop standing, from hoopFly s to the bus's crossing: its highest, the most it stood over the bus, the lift's least; and the lift as the bus was
+  // past the hoop's side)
+  let hyPeak = -Infinity, overBus = -Infinity, liftMin = Infinity, liftPast: string | null = null;
+  let stand: { ahead: number; dy: number; flat: number; r: number } | null = null, thr: { along: number; across: number; dy: number; dyFrame: number; age: number; flat: number } | null = null, slam: { flat: number; dx: number; dz: number; r: number } | null = null;
   const hitStops0 = (g as any).events.filter((e: any) => e.ev === 'hitstop').length;
   // (the crack over the frame, by its age: frames with the flash, the front's angles)
   let flashFrames = 0, flashEnd = 0;
@@ -140,6 +145,8 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   for (let i = 0, n = Math.round(4 / dt); i < n; i++) {
     if (opts.second && i === Math.round(1 / dt)) fire();
     frozen = opts.freeze !== undefined && i >= 1 && i <= opts.freeze;
+    zeroed = opts.zero !== undefined && i >= opts.zero[0] && i <= opts.zero[1];
+    if (opts.stick) stick = (i + 1) * dt > hold[0] && (i + 1) * dt <= hold[1] ? opts.stick : [0, 0];
     if (tfx && opts.mach !== undefined && i === Math.round(opts.mach / dt)) tfx.event('boom', bus, f, cam.rig, (_: unknown, k: number) => (lit[lit.length - 1] = Math.max(lit[lit.length - 1], k)));
     const age = boom.time - t0;
     crackSky(age, sky);
@@ -153,8 +160,18 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
     if (plan && plan.kind !== 'high') {
       Object.assign(nose, { x: f.x + f.fx * 6, y: f.y, z: f.z + f.fz * 6 });
       const has = hoopPose(plan, boom.time, nose, pose);
+      if (Number.isNaN(plan.thread) && boom.time - plan.t0 >= boomTune.hoopFly) {
+        hyPeak = Math.max(hyPeak, plan.hy);
+        overBus = Math.max(overBus, plan.hy - f.y);
+        if (Number.isFinite(plan.floor)) liftMin = Math.min(liftMin, f.hoopFloor - plan.floor);
+        if (Math.abs((f.z - plan.hz) * plan.nx - (f.x - plan.hx) * plan.nz) >= plan.hR) liftPast = Number.isFinite(f.hoopFloor) ? 'lifted' : 'free';
+      }
       if (!stand && boom.time - plan.t0 >= boomTune.hoopFly && has) stand = { ahead: r2(((pose.x - f.x) * plan.nx + (pose.z - f.z) * plan.nz) / Math.max(1, f.ground)), dy: r1(pose.y - f.y), flat: pose.flat, r: r1(pose.r) };
-      if (!thr && boom.time >= plan.thread) thr = { along: r1((f.x - plan.hx) * plan.nx + (f.z - plan.hz) * plan.nz), across: r1((f.z - plan.hz) * plan.nx - (f.x - plan.hx) * plan.nz), dy: r1(f.y - plan.hy), age: r2(plan.thread - plan.t0), flat: pose.flat };
+      // (the bus's offsets where it crossed the plane, between this frame and the last, as Boom.update has them; `dyFrame` this frame's)
+      if (!thr && boom.time >= plan.thread) {
+        const along = (f.x - plan.hx) * plan.nx + (f.z - plan.hz) * plan.nz, back = along / Math.max(1, f.ground);
+        thr = { along: r1(along), across: r1((f.z - plan.hz) * plan.nx - (f.x - plan.hx) * plan.nz - f.ground * (f.fz * plan.nx - f.fx * plan.nz) * back), dy: r1(f.y - f.vy * back - plan.hy), dyFrame: r1(f.y - plan.hy), age: r2(plan.thread - plan.t0), flat: pose.flat };
+      }
       if (!slam && boom.time >= plan.slam && has) slam = { flat: pose.flat, dx: r1(pose.x - plan.x), dz: r1(pose.z - plan.z), r: r2(pose.r / plan.r) };
     }
     if (plan) {
@@ -203,7 +220,7 @@ async function flick(place: string, lat: number, lon: number, over: number, opts
   const counted = frames.filter((fr) => !gcs.some(([s, e]) => s < fr.b && e > fr.a));
   const worst = Math.max(...counted.map((fr) => fr.ms)), worstAt = frames.findIndex((fr) => fr.ms === worst);
   const hitStops = (g as any).events.filter((e: any) => e.ev === 'hitstop').length - hitStops0;
-  const row = { place, over, fps: Math.round(1 / dt), cracks, flashFrames, flashEnd: r2(flashEnd), frontMax: r2(Math.max(-1, ...fronts)), frontFrames: fronts.length, stand, thr, threaded: plan?.threaded ?? null, slam, hitStops, kind: plan?.kind ?? null, r: plan && r1(plan.r), inner: plan && r1(plan.inner), ahead: plan && r1(Math.hypot(plan.x - x0, plan.z - z0)), band, up1, wrong, hole, outside, gBand: r2(gBand), gHole: r2(gHole), gOut: r2(gOut), bloom: [r2(bloomX), r2(bloomY)], rimY, busMin: r1(busMin), worstMs: r2(worst), worstAt, worstParts: frames[worstAt]?.parts, gcFrames: frames.length - counted.length, last: boom.last, stats: { ...boom.stats }, plans: plans.map((p) => p?.kind ?? null) };
+  const row = { place, over, fps: Math.round(1 / dt), cracks, flashFrames, flashEnd: r2(flashEnd), frontMax: r2(Math.max(-1, ...fronts)), frontFrames: fronts.length, stand, thr, threaded: plan?.threaded ?? null, slam, hoop: plan && { peak: r1(hyPeak - plan.hy), overBus: r1(overBus), liftMin: r1(liftMin), liftPast }, hitStops, kind: plan?.kind ?? null, r: plan && r1(plan.r), inner: plan && r1(plan.inner), ahead: plan && r1(Math.hypot(plan.x - x0, plan.z - z0)), band, up1, wrong, hole, outside, gBand: r2(gBand), gHole: r2(gHole), gOut: r2(gOut), bloom: [r2(bloomX), r2(bloomY)], rimY, busMin: r1(busMin), worstMs: r2(worst), worstAt, worstParts: frames[worstAt]?.parts, gcFrames: frames.length - counted.length, last: boom.last, stats: { ...boom.stats }, plans: plans.map((p) => p?.kind ?? null) };
   rows.push(row);
   console.log(JSON.stringify(row));
   return { row, boom, plan, seen: seen.slice(s0), lit, g };
@@ -313,6 +330,30 @@ for (const [place, lat, lon] of PLACES) {
           cut = Math.max(cut, roof - (plan.hy - plan.hR * Math.sqrt(1 - (i / 8) * (i / 8))));
         }
     ok(!!plan && tallest > 150 && cut < 0 && row.threaded === true, `a ${r1(tallest)} m tower under the hoop at ${row.fps} fps: its lower arc ${r1(-cut)} m over every roof across it, and the bus lifted through it (${JSON.stringify(row.thr)}, threaded ${row.threaded})`);
+  }
+  // the review of those fixes (6a22c5a..0cc8491; BUILT.md, "The review of the fixes, and what it came to"): the hoop meets the bus where its nose is going
+  // (Flight.noseTo), not its climb now grown on. A held 0.4 pull threads with the hoop no higher before than where it's threaded (it rose 27 m past it and
+  // sank back); a 0.8 pull, a 0.6 pull let go 0.4 s after the flick and one begun 0.6 s after it thread within half the hole of its middle (on its rim:
+  // 10.5-18.9 m off a 20 m hole); a full pull flies over the hoop, which never stands more than a quarter of its hole over the bus (it rose to about 2,500 m
+  // with the bus at 1,300 and slammed down from there); at 60 and 30 fps
+  for (const dt of [1 / 60, 1 / 30]) {
+    const PULLS: Array<[string, number, [number, number] | undefined]> = [['a held 0.4 pull', 0.4, undefined], ['a held 0.8 pull', 0.8, undefined], ['a 0.6 pull let go 0.4 s after the flick', 0.6, [0, 0.4]], ['a 0.6 pull begun 0.6 s after the flick', 0.6, [0.6, Infinity]]];
+    for (const [name, pull, held] of PULLS) {
+      const { row, plan } = await flick('pulled', wlat, wlon, 150, { dt, stick: [0, -pull], held });
+      const th = row.thr, hole = plan?.hole ?? 0, peak = row.hoop?.peak ?? Infinity, L = `${name} from 150 m at ${row.fps} fps`;
+      ok(!!th && row.threaded === true && Math.abs(th.dy) <= 0.5 * hole && Math.abs(th.across) <= 0.5 * hole && (held || peak <= 2), `${L}: threaded within half the hole of its middle${held ? '' : ', the hoop no higher before'} (${JSON.stringify(th)}, the hole ${r1(hole)} m, ${JSON.stringify(row.hoop)})`);
+    }
+    const { row, plan } = await flick('pulled', wlat, wlon, 150, { dt, stick: [0, -1] });
+    ok(row.threaded === false && !!plan && !!row.hoop && row.hoop.overBus <= 0.25 * plan.hole, `a full pull from 150 m at ${row.fps} fps: it flies over the hoop, which stood ${row.hoop?.overBus} m over the bus at most (a quarter of its ${plan && r1(plan.hole)} m hole: ${plan && r1(0.25 * plan.hole)}) (${JSON.stringify(row.thr)})`);
+  }
+  // the tower's lift through a hit-stop: half a second after the flick, 0.4 s at dt 0 (the page's hit-stop, its Flight and Boom stepped): the lift holds
+  // (it fell to the roofs' floor in those frames, the Flight first, and eased back up), and the bus threads; a full carve away lets it go once it's past the
+  // hoop's side (it held the bus at the tower's height until 2.4 s)
+  {
+    const { row } = await flick('tower under the hoop, a hit-stop', 37.78975, -122.39686, 150, { hoopAt: true, zero: [30, 54] });
+    ok(row.threaded === true && row.hoop?.liftMin === 0, `the tower's lift through a 0.4 s hit-stop in the stand: held (${row.hoop?.liftMin} m under its floor at the least), threaded (${JSON.stringify(row.thr)})`);
+    const c = await flick('tower under the hoop, a full carve', 37.78975, -122.39686, 150, { hoopAt: true, stick: [1, 0] });
+    ok(c.row.threaded === false && c.row.hoop?.liftPast === 'free', `a full carve away from the tower's hoop: past its side, the lift let go (${c.row.hoop?.liftPast}), not threaded (${c.row.threaded})`);
   }
   // Hyperglow's ring: its walls dealt from its four strongest slots with touching neighbours kept apart, where a remap after the deal (hue % 4) put them on
   // one slot. A clash left is one whose neighbours hold three of the slots or more (the fourth can be the ground's)
