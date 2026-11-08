@@ -245,6 +245,72 @@ if (process.argv.includes('--review')) {
     rok(before.pouring && before.owner === 'hose' && !v.after.pouring && !v.after.flightPouring && v.after.owner === null && v.log.some((x) => x.startsWith('stop@')), `n80: a release tells the owner, and the Hose stops (${JSON.stringify(v)})`);
     h.input.dispose();
   }
+  // m83: a lock takes a hold mid-pour and its lift fires: the belly then refills as after a tap (config.splat.recharge), not as after the Hose
+  {
+    const h = fresh();
+    let shot: unknown = null, tank = -1;
+    h.holds.add({ name: 'ferry', move: (hd) => { if (hd.aimed > 0.6 && hd.owner !== 'ferry') h.holds.claim('ferry'); }, end: (hd, c) => { if (hd.owner !== 'ferry' || c) return; tank = +h.flight.fullness.toFixed(2); shot = h.holds.fire({ target: (o) => (o.set(0, 2, -400), true), speed: 400, turn: 2.5, white: 0.7 }); } }, { watch: true });
+    const id = newId(); h.down(id, AX, AY); h.wait(1200); h.up(id, AX, AY);
+    const secs = h.flight.rechargeSeconds;
+    let empty = -1, full = -1;
+    for (let i = 0; i < 600 && full < 0; i++) {
+      h.wait(16.7);
+      if (empty < 0 && h.flight.barfT < 0 && h.flight.fullness < 0.05) empty = h.at();
+      else if (empty >= 0 && h.flight.fullness >= 1) full = h.at();
+    }
+    const v = { fired: !!shot, tank, secs, emptyToFullMs: Math.round(full - empty), tap: config.splat.recharge, hose: hoseTune.refill };
+    line("m83: a lock's shot after a pour: the belly refills in a tap's 1.6 s, not the Hose's 3", v);
+    rok(v.fired && tank > 0.12 && tank < 0.99 && secs === 0 && Math.abs(v.emptyToFullMs - config.splat.recharge * 1000) < 40, `m83: a lock's shot after a pour refills as after a tap (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // m84: a tap while the Hose pours (main.ts asks Hose.tapWhilePouring before anything splats): the cough, nothing splats; once it stops, nothing said
+  {
+    const h = fresh();
+    const id = newId(); h.down(id, AX, AY); h.wait(1000);
+    const pouring = { took: h.hose.tapWhilePouring(), log: [...h.log] };
+    h.up(id, AX, AY); h.wait(100);
+    const coughs = h.log.filter((x) => x.startsWith('cough@')).length;
+    const after = { took: h.hose.tapWhilePouring(), coughs: h.log.filter((x) => x.startsWith('cough@')).length };
+    const v = { pouring, after };
+    line('m84: a tap while the Hose pours: the cough, and no splat; after the pour, nothing', v);
+    rok(pouring.took && pouring.log.some((x) => x.startsWith('cough@')) && coughs === 1 && !after.took && after.coughs === 1, `m84: a tap while the Hose pours coughs, and one after doesn't (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // n82: the real Comet: a shot that doesn't leave puts its side and its held landing back (unshot); and the real Bomb, fizzling on a breath under way at its
+  // lift, tells the aimer (unfire), which hands it to the Comet
+  {
+    const { Comet } = await import('@src/game/Comet');
+    const { Bomb } = await import('@src/game/Bomb');
+    const comet = new Comet({} as any, {} as any) as any;
+    const plan = { target: null, x: 0, y: 0, z: -900, wall: false, drop: 120, travel: 1.2 } as any;
+    const side0 = comet.side;
+    comet.shotOf(plan);
+    const fired = comet.side;
+    comet.unshot();
+    const back = comet.side;
+    comet.shotOf(plan);
+    const next = comet.side;
+    const h = harness((dt) => bomb.update(dt));
+    const said: string[] = [];
+    const bomb: InstanceType<typeof Bomb> = new Bomb({
+      input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
+      aimer: { fire: () => (said.push('fire'), { x: 0, z: -120, drop: 120, comet: {} }), unfire: () => said.push('unfire'), aim: { x: 0, z: -120, drop: 120 } } as any,
+      audio: { bombCharge: () => {}, bombTier: () => {}, bombStop: (f: boolean) => said.push(f ? 'let go' : 'fizzle'), bombFade: () => {}, bombBeat: () => {}, superMega: () => {} } as any,
+      fx: { motes: () => {}, sparks: () => {}, halo: () => {} } as any,
+      breathe: () => (said.push('bomb'), 0), busy: () => false,
+    });
+    bomb.on = true;
+    h.input.busBox = { x0: 172, y0: 470, x1: 220, y1: 542 };
+    h.wait(100); h.reset();
+    const id = newId(); h.down(id, 196, 506); h.wait(800);
+    // (a breath under way at the lift: its tryBarf says no)
+    h.flight.barfT = 0;
+    h.up(id, 196, 506); h.wait(50);
+    const v = { side0, fired, back, next, bomb: said, fizzles: bomb.stats.fizzles };
+    line("n82: a Comet's shot that doesn't leave keeps its side; a Bomb fizzling on its breath says so to the aimer", v);
+    rok(fired === -side0 && back === side0 && next === -side0 && said.join() === 'fire,unfire,fizzle' && v.fizzles === 1, `n82: unshot puts the side back, and a Bomb that fizzles on tryBarf unfires (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
   const OUTR = process.env.SB_OUT ?? 'shots/controls/sim';
   mkdirSync(OUTR, { recursive: true });
   writeFileSync(`${OUTR}/holds-review.json`, JSON.stringify(out, null, 1));
@@ -510,7 +576,7 @@ function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths
   const ms = () => `${Math.round(h.at())}ms`;
   bomb = new Bomb({
     input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
-    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), aim: { x: 0, z: -DROP, drop: DROP } } as any,
+    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), unfire: () => {}, aim: { x: 0, z: -DROP, drop: DROP } } as any,
     audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombFade: () => h.log.push(`fade@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
     fx: { motes: (n: number) => (fxN.motes += n), sparks: (n: number) => (fxN.sparks += n), halo: (n: number) => (fxN.halo += n) } as any,
     breathe: (shot, b) => { breaths.push({ ...b, tag: { ...b.tag }, x: shot.x, z: shot.z, at: Math.round(h.at()) }); h.log.push(`bomb@${ms()}`); return 0; },

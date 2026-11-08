@@ -274,6 +274,13 @@ export class Hose implements HoldHandler {
     this.close(false);
   }
 
+  /** A tap while it pours (main.ts, before anything splats): it doesn't splat, and the bus coughs, as on an empty belly, never a tap that does nothing (the review of fd6d413, m84). */
+  tapWhilePouring(): boolean {
+    if (!this.pouring) return false;
+    this.h.audio.denied();
+    return true;
+  }
+
   end(h: Hold, _cancelled: boolean): void {
     // (Input's late tap gives the tank back: a lift that reached the page behind slow frames after its aim began, its own time a tap's, with the Lob's ring up.
     // The pour drained the belly, and the tap it was found it not yet full: the Lob's roofs stage. Any other hold, lost or let go, poured what it poured)

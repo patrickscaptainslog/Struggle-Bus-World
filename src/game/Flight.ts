@@ -198,12 +198,17 @@ export class Flight {
     this.height = y - this.groundUnder;
   }
 
-  /** Returns true if a barf started. `min`: what the belly must hold (a tap: full; a lock's homing shot takes what the Hose left, Holds.fire). */
+  /**
+   * Returns true if a barf started. `min`: what the belly must hold (a tap: full; a lock's homing shot takes what the Hose left, Holds.fire). The belly then
+   * refills as after a tap, whatever a pour before it set (a lock that took a hold mid-pour: the review of fd6d413, m83); a breath with its own refill sets it
+   * after (the Bomb).
+   */
   tryBarf(min = 0.999): boolean {
     if (this.barfT >= 0 || this.fullness < min) return false;
     this.barfT = 0;
     this.preBarfSpeed = this.speed;
     this.refund = 0;
+    this.rechargeSeconds = 0;
     return true;
   }
 

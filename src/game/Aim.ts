@@ -107,6 +107,8 @@ export class Aimer {
   private cometPlan: CometPlan | null = null;
   private lobbing = false;
   private cometOnly: CometPlan | null = null;
+  /** the last fire() was the Comet's shotOf (unfire puts its side back) */
+  private cometFired = false;
   private readonly cometOut = {} as CometPlan;
   private readonly lobOut = {} as CometPlan;
   private readonly aimOwnPt = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0, wall: false };
@@ -573,15 +575,28 @@ export class Aimer {
   fire(f: Flight, bomb = false): Shot {
     // (the tap's shot is chosen in one place, Comet.ts's chooseShot, every frame: what this frame planned and glints. A Bomb never lobs: where the Lob won,
     // its shot is the Comet's, or the aim's own under them)
+    this.cometFired = false;
     if (this.comet && this.cometPlan) {
-      if (!this.lobbing) return this.comet.shotOf(this.cometPlan);
+      if (!this.lobbing) {
+        this.cometFired = true;
+        return this.comet.shotOf(this.cometPlan);
+      }
       if (!bomb) return this.lobShot(this.cometPlan);
-      if (this.cometOnly) return this.comet.shotOf(this.cometOnly);
+      if (this.cometOnly) {
+        this.cometFired = true;
+        return this.comet.shotOf(this.cometOnly);
+      }
       Object.assign(this.aim, this.aimOwnPt);
       this.cometPlan = null;
       this.lobbing = false;
     }
     return this.fireAim(f, bomb);
+  }
+
+  /** The shot fire() gave didn't leave (Flight.tryBarf said no, or the Bomb fizzled): a Comet's next one stays on the side this one would have taken (n82). */
+  unfire(): void {
+    if (this.cometFired) this.comet?.unshot();
+    this.cometFired = false;
   }
 
   /** The shot a Lob's plan throws: at what glints, its flight the plan's. */

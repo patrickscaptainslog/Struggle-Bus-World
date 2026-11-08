@@ -117,6 +117,10 @@ export class Comet {
   private heldZ = 0;
   private heldT: BuildingRef | null = null;
   private latchUntil = -1;
+  /** what the last shotOf changed, for unshot: the side, and the held landing it dropped */
+  private wasSide = 1;
+  private wasHeld = false;
+  private wasLatch = -1;
   /** this plan's lens moved on by the bus's travel to the impact (m), and the bus's height on it (NDC) */
   private ox = 0;
   private oy = 0;
@@ -456,9 +460,19 @@ export class Comet {
 
   /** The shot a plan fires (Aimer.fire): the next Comet lands on the other side. */
   shotOf(p: CometPlan): Shot {
+    this.wasSide = this.side;
+    this.wasHeld = this.heldOk;
+    this.wasLatch = this.latchUntil;
     this.side = -this.side;
     this.heldOk = false;
     this.latchUntil = -1;
     return { target: p.target, x: p.x, z: p.z, y: p.wall || !p.target ? p.y : undefined, exact: p.wall, drop: p.drop, travel: p.travel, comet: { ...p } };
+  }
+
+  /** The shot the last shotOf gave didn't leave (the belly said no, a Bomb fizzled): its side and its held landing as they were (the review of fd6d413, n82). */
+  unshot(): void {
+    this.side = this.wasSide;
+    this.heldOk = this.wasHeld;
+    this.latchUntil = this.wasLatch;
   }
 }

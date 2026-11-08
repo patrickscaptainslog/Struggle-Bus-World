@@ -1178,10 +1178,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (flight.tryBarf()) {
       breatheNow(shot);
       controls.splatted();
-    } else audio.denied();
+    } else {
+      aimer.unfire();
+      audio.denied();
+    }
   };
   input.onTap = () => {
-    if (tuner.visible || superSplat.hosing || hose.pouring) return;
+    if (tuner.visible || superSplat.hosing || hose.tapWhilePouring()) return;
     // (the tap that skips the opening doesn't splat as well)
     if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
       openingSkip = true;

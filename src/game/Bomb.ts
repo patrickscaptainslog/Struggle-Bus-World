@@ -219,6 +219,7 @@ export class Bomb implements BombHook {
     if (!f.tryBarf()) {
       // (a tier shows only with a full belly, so this is a breath that started under the thumb: it fizzles, nothing spent)
       this.stats.fizzles++;
+      H.aimer.unfire();
       H.audio.bombStop(false);
       this.tell((w) => w.cancel?.());
       return;
