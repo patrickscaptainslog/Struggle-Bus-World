@@ -964,6 +964,11 @@ Our review of `6a22c5a..0cc8491` (a Node probe, `sb-checks/shots/extras/review-x
   - The frame's worst was 93 and 101 draws, 0.57 M and 0.54 M triangles, and 5,470 and 3,922 particles. 0 programs were made after the warm-up. "meet checks: all 12 passed".
   - The first three runs used `tools/flick.mjs`, whose events are stamped 2 s back. That flick came before the Lob's tap on the events' own clock, and in 3 of their 6 rows Input took it as no flick (no rung, no LOCKED). With the flick stamped 0.2 s back, after the tap as a thumb's would be, both rows took it the first time. This is the harness's, not the game's; `flick.mjs` is unchanged.
 
+**`gate.sh all`** on `9c41f53` (every row of `gates.txt` in order, 37 rows): 36 exit 0, the three-way 1.
+- It printed "three-way: 103 of 105 outputs pass, 2 FAIL". This time `owner-check.mjs` passed. The 2 were `s_pick`'s log and JSON: Sunset picked 1 of its 3,541 aims wrong where every other run had 0, with its aims the same.
+- That also flakes, as tile streaming's timing has it. `s_pick` on M gave Sunset 1 wrong in 2 of 5 runs, and on C 0 of 5. A wasn't run again (its tree is the merge now). Neither side changed `Splatter.pick` against the other: `Splat.ts` and `City.ts` are the extras' alone.
+- Every other row passed, `meet` 12 of 12 again.
+
 *Not checked:*
 - the two on a real thumb, or the jolt beside the Lob's tip by eye;
 - a Lob and a Boom together on the Moon;
