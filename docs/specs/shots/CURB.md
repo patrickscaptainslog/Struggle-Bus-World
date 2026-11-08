@@ -8,7 +8,7 @@ It was reviewed three ways (a code review, a GPU check and an outside look) and 
 
 ### Getting on
 
-**The dive.** Fly low over a road at School Zone, Cruise or Express (no turbo) and push the stick up for half a second: the wheels touch down. Low means within 30 m of the road, with the road going on 15 m ahead, so a street crossed square doesn't count. While the push is held the floor comes down to the street (`Flight.street`, 5 m over it), so the half second is a dive toward the asphalt, not a hold at the roofs. At Cruise and Express that push is the surge, so a surge down a street lands; `config.curb.diveOnly` limits it to a dive from a held height and School Zone's sink, if the phone says it's too eager. Nonstop, Jet and turbo never land.
+**The dive.** Fly low over a road at School Zone, Cruise or Express (no turbo) and push the stick up for half a second: the wheels touch down. Low means within 30 m of the road, with the road going on 15 m ahead, so a street crossed square doesn't count. While the push is held the floor comes down to the street (`Flight.street`, 5 m over it), so the half second is a dive toward the asphalt, not a hold at the roofs. At Cruise and Express that push at the roofs is the surge, and stays one: `config.curb.diveOnly` is on, the producer's pick (2026-11-08), so only a dive from a held height and School Zone's sink land (off, a surge down a street lands). Nonstop, Jet and turbo never land.
 
 **The flick.** In School Zone a flick down asks at once, from anywhere within 60 m of the ground or of a deck under the bus; life's worker finds the kerb lane within 80 m. From higher it does nothing, as before.
 

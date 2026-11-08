@@ -993,6 +993,38 @@ Our review of `6a22c5a..0cc8491` (a Node probe, `sb-checks/shots/extras/review-x
 - the sound of the two together;
 - anything on an A15 or the producer's phone.
 
+## The one-number picks and the first Bomb
+
+Two of the producer's approved picks are one number each, and the probe had a question left about the first Bomb on a page. Commits `96ec591`, `911772b` and `bf0d5f2`, `tsc` clean at each. The laptop's files: `sb-checks/shots/final/picks/`.
+
+**The Comet waits for 3 %** (`96ec591`). `config.comet.above` goes from 0.05 to 0.03 of the screen's height over the bus. The other `above` in config.ts is the Lob's (`config.lob.above`, 0.05, with `aboveNew` 0.07): `Lob.ts` reads only its own, and it stays. `s_shots --lob` and `s_lob` gated the Lob by the Comet's number, and now gate it by its own, so their text and counts are as before.
+- What the probe prints at 3 % with its old gates: "FAILED 32 of 405" (37 of 408 at 5 %). Jet's pass at the floor over the Western Addition is 2.13 s (2.39 at 5 %), 914 m ahead; Turbo 1 1.67 s, Turbo 2 1.45, Turbo 3 1.31; downtown Jet 1.63. Nonstop stays at 1.84 s: the line 1.5 s ahead of it sits under 3 % too. From 300 m Nonstop still lands 1.26 km ahead (about 5.6 s), and Turbo 1-3 still find no stretch 3 % over the bus within 1.9 km, so the tap there is the classic shot. Downtown Nonstop's Comet on a tower's face still paints 10.
+- Its expectations, set to the pick (`s_shots.ts`), and why:
+  - At the floor the pass is the margin's: where the line 1.5 s ahead shows less than 3 % over the bus, the landing moves out to the first stretch that shows it. The gate is 1.3-2.2 s, where it was 1.3-1.7: Jet's 2.1 s is the number the pick was made on.
+  - At 300 m, 1.3 s or more, the far end the margin's inside the reach (already gated at 1.9 km): Nonstop's 5.6 s is what the 3 % pick took (the review of step 3, 7). The 3 s bound is gone.
+  - In view at the impact: `config.comet.above` or more, where it was a fixed 5 %.
+  - A Comet on a tower's face paints 6 buildings or more, where one on a roof paints 20: downtown its circle holds few, and today's tap there paints 6 to 22 (step 3).
+  - Turbo from 300 m is **pending**: the Comet reaching farther the higher the bus flies is approved and not built. Until it is, those 6 rows are the classic shot, gated as the baseline's like any row that isn't a Comet, and named on a line of their own ("pending, an approved pick not built (6)"). Once a Comet lands there, every Comet gate is its own again.
+- Now: "shots checks: all 363 passed", exit 0.
+
+**Curb lands only from a dive over the roofs or School Zone's sink** (`911772b`). `config.curb.diveOnly` is on. A push held down a street at Cruise at the floor is the surge, and lands nothing (in `s_curb`: surge 1, 98.4 m/s, nothing asked in 2 s). A dive from a held height does land, and so does School Zone's sink. `s_curb`'s rows follow:
+- Cruise's and Express's landings are dives from 25 m held over GEARS.md's arterial. They ask at 0.52 s, as the surge did, and the arc, the roll beside the car, the push past it and the pull off read as before (the arc's touch, the lens's start and the like move a little).
+- The dive past a street's end with life slow starts from 25 m held, where the row places it, 75 m before the end. Half a second at Express first, as the row had it, carried the bus past where the road goes on 15 m before the dive's half second was up, and nothing asked. From the start it asks, and the bus is never in a building (`late067` and `never`).
+- The diveOnly block no longer sets `diveOnly` false behind it. With it off, the way back, the surge lands again (a new check), and with it on the surge is checked to stay a surge (another). "curb checks: all 46 passed" (44 before).
+- The page's Curb rows (`controls.mjs curb`, `warmcheck --curb`) land from School Zone's flicks and drift, which `diveOnly` keeps.
+- From the code, not run: a dive is counted only while the bus is diving (`Flight`'s `Dive`). One from just over the roofs that reaches the street's floor (5 m over it) before half a second has passed hands back to the floor, and doesn't land. From 25 m it had 12.5 m left at the ask. How low a held height still lands wasn't measured: the producer's phone is the judge.
+
+**The first Bomb on a page** (`bf0d5f2`). It's the probe's, not the game's. `controls.mjs bomb` taps the lane before its first row (a long task in the page's first touchstart), lets 1 s of game pass, and forces the belly full. The tap's breath is 1.0 s of game, and it starts when Input answers the tap, a frame or two into that second under load. Then `forceReady` lands in the breath, and the breath's end empties the belly as any breath does. The Bomb's clock waits for a full belly (`Input.bombStep`), so it waited out the 1.6 s recharge: about 32 frames at `fixeddt=0.05`, 0.5-0.6 s of the wall. That is the tier I at 863-969 ms, and the III let go at II.
+- `firstbomb.mjs` (the laptop's, every frame from the game's first, the belly, `Input.bombFull` and the thumb's `bombFrom`), 3 runs of each:
+  - The probe's own steps: forceReady came 2-9 frames after the breath ended (the belly back up to 0.06-0.28), and tier I showed at 363-385 ms. Two frames from losing the race, in the first run.
+  - Forced in the breath's last 0.15 s: `bombFrom` 687-855 ms after the touch, tier I at 1,060-1,213 ms, and the 1.7 s hold a Bomb II, 3 of 3.
+  - With `bf0d5f2`'s wait for the breath to end before `forceReady`: tier I at 358-383 ms, III, 3 of 3.
+  - A player's fresh page (no fixeddt, no tap first, the first touch of the page on the bus): the belly full from the game's first frame (fullness 1, no breath), `bombFull` true from the loop's first frame, about 2 s before the page is ready, and the thumb's clock started 3-9 ms after the touch. Tier I at 369-387 ms, III at 1,278-1,310 ms, 3 of 3.
+  - A tap and the thumb on the bus 0.5 s later: no tier in 1.7 s, 3 of 3. The belly is empty for the breath and its recharge (2.6 s), and the clock starts when it's full, by design.
+- So a player's first Bomb doesn't charge late, and the game is unchanged. No row in the game fails before a fix, since there's none.
+
+*Not checked:* the picks on the phone; how low a held dive still lands; the Comet at 3 % on the page's lens, but by the gates' `warm-comet` and `meet`; anything on an A15.
+
 ## The gardens' budget (feat/gardens)
 
 The shots paint more and faster, so the rooftop gardens have a triangle budget first. Before it, 1,146 level-3 roofs in a Recess match drew 4.04 M triangles of gardens alone.
