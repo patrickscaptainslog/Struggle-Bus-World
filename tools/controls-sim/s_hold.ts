@@ -24,7 +24,7 @@ const AX = 300, AY = 300;
 const LANE = { x: 196, y: 506, r: 0.27 * 393, open: 0.25 * 852 };
 const FLAT = { obstacleAt: () => 0, groundAt: () => 0 };
 
-function harness(bomb?: (dt: number) => void) {
+function harness(bomb?: (dt: number) => void, step = 16.7) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
@@ -54,7 +54,6 @@ function harness(bomb?: (dt: number) => void) {
   input.onAimStart = () => { log.push(`aim@${at()}`); holds.begin(); };
   input.onAimEnd = (c, late) => { log.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`); holds.end(c, late); };
   input.onTap = () => { log.push(`tap@${at()}`); if (holds.tap()) log.push('tap taken'); };
-  const step = 16.7;
   let next = clock.ms + step;
   let maxDrain = 0;
   let alt = 120;
@@ -146,6 +145,111 @@ if (process.argv.includes('--late')) {
   writeFileSync(`${OUTL}/holds-late.json`, JSON.stringify(out, null, 1));
   console.log(lf.length ? `LATE FAILED ${lf.length} of ${n}:\n  ${lf.join('\n  ')}` : `late lift checks: all ${n} passed`);
   process.exit(lf.length ? 1 : 0);
+}
+
+// --review (the second account's review of fd6d413): the homing shot led from its launch (M80) and the hook's minors, each a row with its own check, the real
+// Input, Flight, Holds and Hose as above. Writes holds-review.json and a table on stdout; exit 0 only when every check passes. The rows below are left as they were.
+if (process.argv.includes('--review')) {
+  const out: Record<string, unknown> = {};
+  const rf: string[] = [];
+  let n = 0;
+  const rok = (c: boolean, m: string) => { n++; if (!c) rf.push(m); };
+  const fresh = (fps = 60) => { const h = harness(undefined, 1000 / fps); h.wait(100); h.reset(); return h; };
+  const line = (name: string, v: unknown) => { out[name] = v; console.log(`${name.padEnd(100)} | ${JSON.stringify(v)}`); };
+  // M80: a target crossing the shot's line at v m/s, d m from the mouth (0, 120, -6), at the bus's height (a boat: on the water, 2 m), on the line at the launch,
+  // the caller giving its velocity (HomingOpts.vel). dodge: from 50 ms into the white, 'turn' breaks 40 m up off its line over 250 ms (the hard break row below),
+  // 'flick' goes from its speed to Express's 112 m/s over 250 ms along it (a flick up; the flight's lunge isn't built)
+  type Cross = { d: number; v: number; speed: number; white: number; turn: number; r: number; boat?: boolean; captain?: boolean; fps?: number; dodge?: 'turn' | 'flick' };
+  const cross = (c: Cross) => {
+    const fps = c.fps ?? 60, h = fresh(fps);
+    const y = c.boat ? 2 : 120, dz = Math.sqrt(c.d * c.d - (120 - y) ** 2);
+    let white = -1, hit = false, why = '', miss = Infinity;
+    // (u: how far into its dodge, 0 to 1; t0 its start, s after the launch)
+    const t0 = () => (white < 0 ? Infinity : (white + 50) / 1000);
+    const u = (t: number) => Math.min(1, Math.max(0, (t - t0()) / 0.25));
+    const at = (t: number, o: InstanceType<typeof THREE.Vector3>) => {
+      const k = u(t);
+      if (c.dodge === 'turn') return o.set(c.v * t, y + 40 * k, -6 - dz);
+      // (the flick: its distance is the speed's integral, the speed rising evenly over the 250 ms)
+      const extra = c.dodge === 'flick' && t > t0() ? (112 - c.v) * (k < 1 ? 0.125 * k * k : 0.125 + (t - t0() - 0.25)) : 0;
+      return o.set(c.v * t + extra, y, -6 - dz);
+    };
+    const velAt = (t: number, o: InstanceType<typeof THREE.Vector3>) => {
+      const k = u(t);
+      if (c.dodge === 'turn') return o.set(c.v, k > 0 && k < 1 ? 160 : 0, 0);
+      return o.set(c.dodge === 'flick' ? c.v + (112 - c.v) * k : c.v, 0, 0);
+    };
+    const s = h.holds.fire({
+      target: (o) => (at(h.at() / 1000, o), true), vel: (o) => { velAt(h.at() / 1000, o); },
+      speed: c.speed, turn: c.turn, white: c.white, hitRadius: c.r, ...(c.captain ? { from: new THREE.Vector3(0, 120, -6), belly: false } : {}),
+      onWhite: () => (white = h.at()), onHit: () => (hit = true), onMiss: (_a, _s, w) => { why = w; },
+    });
+    // (its closest pass, the shot's end of each frame against the target then)
+    const p = new THREE.Vector3();
+    for (let i = 0; i < 2.5 * fps && s && !s.done; i++) { h.wait(1000 / fps); if (!s.done) miss = Math.min(miss, s.pos.distanceTo(at(h.at() / 1000, p))); }
+    h.wait(600);
+    const v = { fired: !!s, hit, why, whiteMs: Math.round(white), inWhite: white >= 0 && white <= 1000 / fps + 1, closest: hit ? 0 : +miss.toFixed(1) };
+    h.input.dispose();
+    return v;
+  };
+  const HOOK = { speed: 420, white: 0.7, turn: 2.2, r: 7 }, CAPTAIN = { speed: 380, white: 0.7, turn: 1.8, r: 6, captain: true }, BOAT = { speed: 500, white: 0.7, turn: 2, r: 6, boat: true };
+  for (const fps of [60, 30]) {
+    const a = cross({ d: 200, v: 30, ...HOOK, fps });
+    line(`M80 @${fps}: a lock at 200 m, the target crossing at 30 m/s on its line: inside the white, a hit`, a);
+    rok(a.fired && a.inWhite && a.hit, `M80 @${fps}: a lock at 200 m inside its white on a target crossing at 30 m/s holding its line hits (${JSON.stringify(a)})`);
+    const b = cross({ d: 200, v: 30, ...HOOK, fps, dodge: 'turn' });
+    line(`M80 @${fps}: the same, a hard break in the white: dodged`, b);
+    rok(b.fired && b.inWhite && !b.hit && b.why === 'dodged', `M80 @${fps}: a hard break in the white still beats it (${JSON.stringify(b)})`);
+    const f = cross({ d: 200, v: 30, ...HOOK, fps, dodge: 'flick' });
+    line(`M80 @${fps}: the same, a flick up in the white (30 to 112 m/s): dodged`, f);
+    rok(f.fired && f.inWhite && !f.hit && f.why === 'dodged', `M80 @${fps}: a flick up in the white still beats it (${JSON.stringify(f)})`);
+    // (the review's table, every cell, each holding its line: a hit)
+    const table: Array<[string, number, Omit<Cross, 'd' | 'v' | 'fps'>]> = [['the hook', 0, HOOK], ['the hook', 30, HOOK], ['the hook', 100, HOOK], ["a captain's", 30, CAPTAIN], ['a boat lock', 12, BOAT]];
+    for (const [who, v, o] of table) for (const d of [150, 250, 290, 320, 500, 800]) {
+      const r = cross({ d, v, ...o, fps });
+      line(`M80 @${fps}: the table, ${who} (${o.speed} m/s, white ${o.white}, turn ${o.turn}, r ${o.r}), crossing at ${v} m/s, ${d} m`, r);
+      rok(r.fired && r.hit, `M80 @${fps}: the table, ${who} crossing at ${v} m/s from ${d} m, holding its line, hits (${JSON.stringify(r)})`);
+    }
+  }
+  // m81: a target() that throws at the launch refuses the shot, with the cough, nothing spent
+  {
+    const h = fresh();
+    const err = console.error; let told = 0; console.error = () => { told++; };
+    const s = h.holds.fire({ target: () => { throw new Error('target'); }, speed: 420, turn: 2.2, white: 0.7 });
+    console.error = err;
+    const v = { shot: !!s, tank: h.flight.fullness, barfT: h.flight.barfT, errors: h.holds.stats.errors, refused: h.holds.stats.refused, told, log: [...h.log] };
+    line('m81: a target() that throws at the launch: no shot, the cough, the belly kept', v);
+    rok(!s && v.tank === 1 && v.barfT < 0 && v.errors === 1 && v.refused === 1 && told === 1 && v.log.some((x) => x.startsWith('cough@')) && !v.log.some((x) => x.startsWith('breath@')), `m81: a target() that throws refuses the shot before the belly or the breath (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // m82: a target never there ends as lost after the beat, not at maxTime
+  {
+    const h = fresh();
+    let why = '', at = -1;
+    const s = h.holds.fire({ target: () => false, speed: 500, turn: 2, white: 0.7, onMiss: (_a, _s, w) => { why = w; at = h.at(); } })!;
+    h.wait(1000);
+    const v = { why, missAtMs: Math.round(at), done: s.done, flown: Math.round(s.pos.distanceTo(new THREE.Vector3(0, 120, -6))) };
+    line('m82: a target never there: lost on its first frame, gone after the beat', v);
+    rok(why === 'lost' && at > 0 && at < 40 && s.done && v.flown < 0.6 * 500, `m82: a target never seen ends as lost after the beat (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // n80: the Hose pours; another handler releases it: the Hose is told, and stops
+  {
+    const h = fresh();
+    const id = newId(); h.down(id, AX, AY); h.wait(1000);
+    const before = { pouring: h.hose.pouring, owner: h.holds.current!.owner };
+    h.holds.release('hose'); h.wait(100);
+    const v = { before, after: { pouring: h.hose.pouring, owner: h.holds.current!.owner, flightPouring: h.flight.pouring }, log: [...h.log] };
+    h.up(id, AX, AY); h.wait(50);
+    line('n80: the Hose pouring, released by another handler: told (lost), it stops', v);
+    rok(before.pouring && before.owner === 'hose' && !v.after.pouring && !v.after.flightPouring && v.after.owner === null && v.log.some((x) => x.startsWith('stop@')), `n80: a release tells the owner, and the Hose stops (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  const OUTR = process.env.SB_OUT ?? 'shots/controls/sim';
+  mkdirSync(OUTR, { recursive: true });
+  writeFileSync(`${OUTR}/holds-review.json`, JSON.stringify(out, null, 1));
+  console.log(rf.length ? `REVIEW FAILED ${rf.length} of ${n}:\n  ${rf.join('\n  ')}` : `review checks: all ${n} passed`);
+  process.exit(rf.length ? 1 : 0);
 }
 
 row('tap: off the lane at 150 ms splats, no hold, no pour', (h) => { hold(h, 150); h.wait(300); return { current: h.holds.current, pouring: h.hose.pouring }; });
