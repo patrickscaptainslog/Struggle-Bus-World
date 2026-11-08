@@ -207,6 +207,7 @@ export class TurboFx {
   private crackSkyTo: ((x: number, y: number, z: number, front: number) => void) | null = null;
   private readonly crackAxis = new THREE.Vector3();
   private readonly crackOut = { flash: 0, front: -1 };
+  private shimmerT = 0;
 
   private time = 0;
   /** the first frames draw every effect invisibly, so its shader compiles behind the loading fog, not at the shift */
@@ -609,6 +610,11 @@ export class TurboFx {
     this.hoop.quaternion.slerpQuaternions(this.hoopUpQ, this.flatQ, P.flat * P.flat * (3 - 2 * P.flat));
     this.hoopU.uT.value = P.tear;
     U.uHoopW.value = P.w;
+    // (lying on the band it shimmers: its scalloped edge redrawn every few frames)
+    if (P.flat >= 1 && dt > 0 && (this.shimmerT -= dt) <= 0) {
+      this.shimmerT = 0.07;
+      this.hoopU.uSeed.value = Math.floor(Math.random() * 64);
+    }
     return true;
   }
 

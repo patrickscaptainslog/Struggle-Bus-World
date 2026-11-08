@@ -10,7 +10,7 @@ import { arrival, blastRadiusFor, layoutHue, type BlastSpec } from './blastLayou
 // the N-wave), and its hoop shoots out from the nose, tight there and stretching as it goes, to stand upright across the bus's path at its height a second
 // ahead. The bus threads it, and as it crosses the hoop's plane (by where the bus is, at any frame rate) the hoop is punched on ahead and slams down flat onto
 // the city as a ring of paint, its band, 0.75 to 1 of 0.94 times the tap's circle from there, blooming as the hoop lands on it, ahead of the bus; the bus
-// flies over its band as a crown of the band's colours goes up, and the hoop lies tearing behind it. At most once in 10 s; inside them the
+// flies over its band as a crown of the band's colours goes up, and the hoop lies spreading and shimmering behind it. At most once in 10 s; inside them the
 // flick is today's. It paints from Jet's floor to 500 m over the ground; higher, the crack alone. Over open water a ring of spray, and the 10 s aren't spent,
 // as a Comet's miss keeps its full show. No geyser, hit-stop or belly: the ring is the flick's, not the breath's.
 //
@@ -138,9 +138,9 @@ export interface HoopPose {
   tear: number;
 }
 
-/** how long the hoop lies on the band, tearing (s), and how far it spreads (x its radius) */
-export const HOOP_LIE = 1.1;
-export const HOOP_SPREAD = 0.05;
+/** how long the hoop lies on the band, spreading out and tearing (s), and how far it spreads (x its radius): a beat behind the bus, not a blink */
+export const HOOP_LIE = 2;
+export const HOOP_SPREAD = 0.3;
 
 /**
  * The hoop at game time `t` (TurboFx draws it, s_boom checks it): out from the nose (`nose`, world m, where it is now) over hoopFly s, tight there and
@@ -186,14 +186,14 @@ export function hoopPose(p: BoomPlan, t: number, nose: { x: number; y: number; z
   }
   const w = (t - p.slam) / HOOP_LIE;
   if (w >= 1) return false;
-  // (lying on the band, it tears, the crest last)
+  // (lying on the band, it spreads out past the rim and tears slowly, the crest last)
   out.x = p.x;
   out.y = ty;
   out.z = p.z;
-  out.r = p.r * (1 + HOOP_SPREAD * w);
+  out.r = p.r * (1 + HOOP_SPREAD * Math.pow(w, 0.7));
   out.flat = 1;
   out.w = band + 0.12 * w;
-  out.tear = 0.04 + 0.96 * w;
+  out.tear = 0.04 + 0.96 * Math.pow(w, 1.6);
   return true;
 }
 

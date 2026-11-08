@@ -781,7 +781,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     boomLook?.(f);
   };
   /** &boom's ring lands (src/game/Boom.ts): no splash or fountain at its middle, where nothing is painted; its blobs fly out from the band's inner edge, a
-   *  softer flash and kick than a tap's (the crack had the big one), the splat's boom and the bells */
+   *  softer flash and kick than a tap's (the crack had the big one), the splat's boom at its loudest with a Comet's thunder under it, and the bells */
   const boomImpact = (b: Blast) => {
     const S = config.splat, inner = b.spec.ring;
     for (const dot of b.dots) {
@@ -792,7 +792,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
     }
     paintTrees(b);
-    audio.splatImpact(b.strength);
+    audio.splatImpact(Math.max(1.4, b.strength));
+    audio.cometBoom(1.2, false, false);
     audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
     flashPos.copy(b.pos).project(camera);
     pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength * 0.6);
