@@ -152,7 +152,7 @@ export class Lift implements LiftHooks, FieldHouses {
   private lowWant = 0;
   private lowFail = 0;
   /** what the QA reads */
-  readonly stats = { scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, turning: 0 };
+  readonly stats = { scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, planMs: 0, turning: 0 };
   /** the neighbourhood's streets (its tiles' OpenStreetMap centrelines through its squares), for the sky piece; the tiles they came from */
   private readonly streets: Array<{ rank: number; xz: Float32Array }> = [];
   private readonly streetTiles = new Set<string>();
@@ -621,10 +621,17 @@ export class Lift implements LiftHooks, FieldHouses {
       roof: (x, z, r) => this.roofNear(x, z, r),
     });
   }
-  /** One part of the sky piece (a frame's share); once it's whole, it goes in the scene. stats.skyMs is the longest part's ms. */
+  /**
+   * One part of the sky piece (a frame's share); once it's whole, it goes in the scene. The first is the wave's heights, placed in a frame of
+   * their own (plan(): the piece stands over them). stats.skyMs is the longest part's ms, the plan's included; stats.planMs the plan's.
+   */
   private skyStep() {
     const t0 = performance.now();
-    const piece = this.skyBuild!.step();
+    let piece: SkyPiece | null = null;
+    if (!this.planDone && this.staged) {
+      this.plan();
+      this.stats.planMs = +(performance.now() - t0).toFixed(1);
+    } else piece = this.skyBuild!.step();
     this.stats.skyMs = Math.max(this.stats.skyMs, +(performance.now() - t0).toFixed(1));
     this.stats.skySteps++;
     if (!piece) return;
