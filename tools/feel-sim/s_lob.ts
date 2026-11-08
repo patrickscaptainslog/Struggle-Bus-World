@@ -4,7 +4,7 @@
 // second one taps (whole frames at 30 and 60 fps, so both tap at the same game time). Every row starts on paint at level 0, so a building a tap raised two shows.
 // Lobs at Cruise, Express and Nonstop (where the Comet applies too: the farther of the two) over the Western Addition from the roofs and from 300 m, and downtown and over Glen Park's hills: each a Lob, at the
 // body as it was when the steering thumb lifted (one thumb) or at the tap (two), clamped to config.lob.most; 30 and 60 fps within 2 m and 0.05 s; at the
-// impact in frame and config.comet.above of the height over the bus; its radius lobRadius (its fall from the arc's top, at most config.lob.radius), every building it reached a level, none two; no
+// impact in frame and config.lob.above of the height over the bus; its radius lobRadius (its fall from the arc's top, at most config.lob.radius), every building it reached a level, none two; no
 // hit-stop; its arc never 2 m into the ground.
 // None: from a flick's stroke, in School Zone, out of a dive, under the Golden Gate, from 1.5 km up, at Jet. Over the bay from Fort Mason: a Lob's miss, with
 // its refund. A Bomb let go after a pull lands where it would with no Lob at all (the slot off). And the aim's cost a frame while it plans the Lob.
@@ -390,7 +390,7 @@ for (const r of rows) {
     const one = r.key.includes('/1t'), want = Math.min(most, one ? r.body.lift : r.body.tap);
     ok(Math.abs(r.body.angle - want) <= 0.15, `${id}: thrown at the body ${one ? 'as the steering thumb lifted' : 'at the tap, live'} (${r.body.angle} against ${want}; at the tap ${r.body.tap})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
-    ok(!!r.impactScreen?.in && r.impactScreen.above >= config.comet.above, `${id}: in frame at the impact, ${config.comet.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)}, planned ${r.planAbove})`);
+    ok(!!r.impactScreen?.in && r.impactScreen.above >= config.lob.above, `${id}: in frame at the impact, ${config.lob.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)}, planned ${r.planAbove})`);
     ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius its fall's from the arc's top, lobRadius (${r.radius} against ${r.wantRadius})`);
     ok((r.on === 'ground' || r.painted >= 5) && r.raisedTwo === 0, `${id}: a level each, none two (${r.painted} painted on ${r.on}, ${r.raisedTwo} two)`);
     ok(r.painted >= r.inside, `${id}: every building well inside its circle a level (${r.painted} painted, ${r.inside} inside 0.8 of it, up to its cap)`);

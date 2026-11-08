@@ -819,7 +819,7 @@ export const config = {
     reach: 1900,
     /** By this frame's lens moved on by the bus's travel to the impact it lands at least this share of the height above the bus; where it doesn't it
      *  moves out along its line `outStep` m at a time, and where it never does by `reach` the tap is the classic shot. */
-    above: 0.05,
+    above: 0.03,
     outStep: 20,
     /** A wall standing into the arc less than this many s of the bus's travel ahead of it at the impact is lobbed over: the arc tops out higher, up to
      *  `arcMax` of the chord. Farther, it takes the Comet on its face. */
