@@ -421,6 +421,22 @@ The second account's code review of `feat/shots` at fd6d413 (`docs/reviews/shots
 - On this laptop's GPU: `--det` against 06a3de6's code's views, 8 of 8 pixel for pixel with the sky off and 8 of 8 at golden hour; `warmcheck` plain, `--comet`, `--crew --bomb`, `--crew --lob` and on Curb's street passed; `controls.mjs lob`, its noon row (own draws 2), `bomb` and Curb's (zone, curb 15 of 15) passed; misfire at 20, 30 and 60 fps, every row its Lob; both budgets and the hint passed.
 - Not checked: an A15, the producer's phone, the sound of the new cough by ear, a homing shot on the page (nothing on this branch fires one), life's and Recess's callers of `vel`.
 
+**The check of the fixes, and what it came to.** A review of `b5ce5bd` (its own probes of the real `Holds` with `vel`, 8 launch phases a cell, in the game's frame order and the sim's) and a second `gate.sh all`. No blocker and no major: every close lock it probed leads and hits a target holding its line at 30 and 60 fps, and a break or a flick in the white still beats it. Each finding was read against the code first.
+
+| | Finding | Holds? | What was done |
+|---|---|---|---|
+| m | HOOKS.md promises a hit "from any range", and at 30 fps it isn't so | Yes: the hit test is the frame's target against the shot's path that frame, so it misses by up to a frame of the target's travel. `--review`'s plane row with the default 6 m: 6, 7 and 6 of 8 phases hit from 3, 6 and 12 km at 30 fps, every one at 60. The test is 06a3de6's, unchanged | `8e86118`: HOOKS.md and `hitRadius`'s comment say it must be at least the target's speed / 30, and the shot must arrive inside `maxTime`; the rival lock's example takes `max(7, its speed / 30)`. A row: a plane lock at 3,000 m/s and 9 m on a plane crossing at 250 m/s, 3, 6 and 12 km, eight phases each, at 60 and 30 fps, every phase hit |
+| n | `vel` is "called whenever target() is", but only after one that returns true | Yes | `8e86118`: HOOKS.md and `HomingOpts.vel`'s comment say so |
+| n | "The bus coughs" for any refused shot, and errors "printed once per handler" | Yes: a captain's refused shot is silent, and a shot that throws prints every time | `8e86118`: HOOKS.md says both |
+| n | The real `Aimer.unfire` never ran (the n82 row stubs the aimer), nor main.ts's `onTap` for m84 | Yes | `db5b451`: a `--review` row runs the real `Aimer.fire` and `unfire` on the real Comet for each shot a tap can choose; with `fire()`'s flag reset taken out it fails. main.ts's `onTap` was read, not run: the late tap closes the pour before it |
+| Gate | `controls-bomb` at 22:40: street-cruise-II, held 1,000 ms, "charging 2" but fired at III | The check's, not the code's: the hold is timed by the wall clock, and it ran beside three of the extras' `vite build`s (1,232 MB free). Nothing in the fixes touches the charge | Run again in the gate below: tier 2, charging 2 |
+
+**Its checks** (`gate.sh all` on `db5b451`'s tree, the same 31 rows, all exit 0; `sb-checks/shots/fixes/gates/`, the run at 22:40 kept in `gates-check-2240/`):
+- `tsc` clean; `fixes` "compare: 82 of 82 outputs pass", every sim and probe byte for byte 06a3de6's, masked as before; `s_hold --review` "review checks: all 80 passed"; `hooks-doc`, `hold-late`, `lob`, its misfire, size and tower checks, `lob-street` and `shots-lob` passed.
+- `vite build` exit 0, the same `main-CWx7H10X.js` (the fixes are comments and the sim), `iosfloor` "iOS 15.0 parses every chunk".
+- On this laptop's GPU: `det-skyoff` and `det-golden` "det2: 8 of 8 views pass"; every warmcheck; `controls-lob` and its noon row; misfire at 20, 30 and 60 fps; `controls-bomb` 37 ok lines and no FAIL; Curb's; both budgets and the hint.
+- Not checked: an A15, the producer's phone, main.ts's `onTap` run, life's and Recess's callers.
+
 ## The review of step 4, and what it came to
 
 Four checks of `a4909c2`: a review through input and play (its probes of the real Input, Flight, Aimer and Bomb), a review of the world and the frame (its probes against the real city, Splatter and GroundPaint, and a GPU run), an outside look at the frames by real touches, and `gate.sh all`. Each finding was read against the code first.
