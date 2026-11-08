@@ -969,7 +969,25 @@ Our review of `6a22c5a..0cc8491` (a Node probe, `sb-checks/shots/extras/review-x
 - That also flakes, as tile streaming's timing has it. `s_pick` on M gave Sunset 1 wrong in 2 of 5 runs, and on C 0 of 5. A wasn't run again (its tree is the merge now). Neither side changed `Splatter.pick` against the other: `Splat.ts` and `City.ts` are the extras' alone.
 - Every other row passed, `meet` 12 of 12 again.
 
+**The merge's checks and review, and what they came to.** The review (no browser, no sim) found no defect of the merge: every file only one side changed is that side's byte for byte, the six resolutions are unions, and each meeting point keeps both intents. A second `gate.sh all` on `9e27410` had two rows exit 1. Each was opened at its code and run again:
+
+| | Finding | Holds? | What was done |
+|---|---|---|---|
+| n | `s_pick`'s Sunset 1 wrong isn't tile streaming's timing (the review) | Yes, and it is the sim's, not the pick's. Sunset has row houses whose footprints overlap with roofs just as tall (77.4 m and 98.4 m pairs, each in one tile). For an aim in the overlap, the truth takes the nearer middle and `Splatter.pick` takes the first in its area cell's list, which follows the tiles' load order. The aims themselves follow `loadedRefs`' order, so a run lands 0 or 2 aims in such an overlap (`final/dev/pickdiag-*.log`: 0 wrong in 18 quiet runs and 15 loaded ones, ties in some). With the cell's list reversed at those aims, the pick is the other house, as tall and holding the aim (`dev/pickflip-*.log`). Either house is the one aimed at | `20b6e00`: `s_pick` counts a pick that is as tall and holds the aim as right. Three runs: 0 wrong everywhere, the output equal to B0's but for `pickUs` |
+| n | `s_falls`' "a Bomb III pours on a 127.9 m tower" printed its spread's end at 158.1 s on M where C had 158 s (the three-way, 104 of 105) | No, it isn't the merge's. M printed 158.1 in 2 of 20 runs, C in 0 of 8. With `Math.random` seeded, M's and C's whole log and JSON are byte for byte (`final/var/fallsseed`): `Falls`' random drops move the spread's last frame | The number masked in `VARIES.json` (the M71 row's third), as `s_falls`' JSON's random keys are |
+| — | `controls-bomb` exit 1: street-cruise-II "fired 0, charging 1", its tier I at 863 ms where it shows at 365 | It's the page's first row, and not the merge's: the same row failed this way on the Lob merge (all1), and ?life's first row did on the Bomb's own stage, before either side | `20b6e00` held the Bomb on the game's clock. That was wrong, and `b65c659` takes it back: the Bomb charges from the touch's own time, and these pages run `fixeddt=0.05`, whose clock goes about three times the wall's (gate.sh all: 11 FAIL, every III let go at II). Left as it was. Run alone twice on `b65c659`, it failed both times on a page's first row, ?life's III (I at 969 and 963 ms, so let go at II), where M's two earlier runs passed it. Not diagnosed. Where `Input.bombStep` starts the clock only once `bombFull` holds, a player's first Bomb on a page might charge late too: not checked |
+| n | The meet's second flick would hide a lost one (the review) | Yes: `block.js` flicks again if the turbo didn't take the first, and the check didn't look | `check-meet.mjs` now fails a row whose first flick wasn't taken ("the first flick taken"): 14 checks |
+| n | A Lob that lands on a tower 40 m up with `&falls` (1-1.9 km out) | Never run. `falls.impact` takes any blast with no kind test (main.ts), so it pours there as for a tap | Nothing |
+| n | Boom's crown puffs don't take the Lob's new `F_PAINT` lighting | The extras' look kept as it was: a choice, not a regression | Nothing: the producer's call |
+
+**`gate.sh all` on `20b6e00`** (`final/gate-all-fix.SUMMARY.tsv`): 36 of 37 rows exit 0.
+- "three-way: 105 of 105 outputs pass", `owner-check` among them.
+- The probes, the Node rows, the build, `iosfloor`, both `--det` views, the six `warmcheck`s, controls `lob`, the noon row, the three misfires, `curb`, `boom` (64 ok), `falls`, both budgets, the hint and `meet` ("meet checks: all 14 passed"): exit 0.
+- `controls-bomb` exit 1 with 11 FAIL, on `20b6e00`'s game-clock hold, taken back in `b65c659`.
+- On `b65c659`, `controls-bomb` run alone twice: 37 ok and 1 FAIL each, ?life's first row (above).
+
 *Not checked:*
+- why a page's first Bomb sometimes charges 0.5-0.6 s late, or whether a player meets it;
 - the two on a real thumb, or the jolt beside the Lob's tip by eye;
 - a Lob and a Boom together on the Moon;
 - the sound of the two together;
