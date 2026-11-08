@@ -1,7 +1,8 @@
 // Curb on the real baked city and life's real road graphs (docs/specs/shots/CURB.md), offline: the real Flight, TurboDrive, Shifter, CameraRig and
 // CurbFlight, and life's own Curb (src/life/Curb.ts) on the cars' net round each place, its worker a stand-in that answers as lifeWorker's curb()
-// does, a frame late (or later, or never). The bridges' decks are in, as main.ts adds them. The landing (a dive along a street at Cruise and
-// Express, School Zone's sink and its flick; none from Nonstop, Jet or turbo, none let go early, none over the roofs, none from 80 m), the arc down
+// does, a frame late (or later, or never). The bridges' decks are in, as main.ts adds them. The landing (a dive along a street from a held height at
+// Cruise and Express, School Zone's sink and its flick; none from Nonstop, Jet or turbo, none let go early, none over the roofs, none from 80 m, none
+// from a push held at the floor at Cruise, which is the surge: config.curb.diveOnly, the producer's pick, and with it off the surge lands), the arc down
 // (no step over its speed's, nothing backward along the lane, never faster than its top from higher up, the readout eased), FIND A STREET (the
 // hint not learned by it), the roll beside a car (paced, painted once at 1.5 s, a dab every 3 m, a push past it), the look at a junction (asked
 // square, kept past the lift, as the drive-by's side), getting off (a flick up, a pull held, not a flick's stroke, a gear forced, a dead end),
@@ -240,9 +241,9 @@ const WATERFRONT = [37.852117, -122.478968, 180] as const;
   console.log('band along the streets:', JSON.stringify(out));
 }
 
-// ---- 2. the dive at Cruise along the arterial: asks at 0.5 s, lands, the arc, the roll
+// ---- 2. the dive at Cruise along the arterial, from 25 m held (diveOnly: at the floor the push is the surge): asks at 0.5 s, lands, the arc, the roll
 {
-  const s = await session(...ARTERIAL);
+  const s = await session(ARTERIAL[0], ARTERIAL[1], ARTERIAL[2], 25);
   await s.run(1, free);
   const lens0 = s.rig.distance;
   s.resetLens();
@@ -300,9 +301,9 @@ const WATERFRONT = [37.852117, -122.478968, 180] as const;
   console.log('a pull held gets off:', JSON.stringify(res.pullOff));
 }
 
-// ---- 3. Express down the arterial: the surge latched; the arc lets Express go, never back along the lane
+// ---- 3. Express down the arterial, a dive from 25 m held: the arc lets Express go, never back along the lane
 {
-  const s = await session(...ARTERIAL);
+  const s = await session(ARTERIAL[0], ARTERIAL[1], ARTERIAL[2], 25);
   s.drive.rung(1, s.f);
   await s.run(2, free);
   const ask = await untilAsk(s, 3, push(1));
@@ -377,16 +378,21 @@ const WATERFRONT = [37.852117, -122.478968, 180] as const;
     out.acrossTheBlocks = await untilAsk(s, 3, push(1));
   }
   {
-    // (diveOnly: the surge down a street no longer lands; School Zone's sink still does)
-    config.curb.diveOnly = true;
+    // (diveOnly, the producer's pick: a push held down a street at Cruise at the floor is the surge, and lands nothing; School Zone's sink still does.
+    // With it off, the way back, the surge lands)
     const s = await session(...ARTERIAL);
     await s.run(1, free);
-    out.diveOnlySurge = await untilAsk(s, 2, push(1));
+    out.diveOnlySurge = { ...(await untilAsk(s, 2, push(1))), surge: r2(s.f.surge), speed: r1(s.f.speed), below: s.drive.below };
     const z = await session(...ARTERIAL);
     z.drive.rung(-1, z.f);
     await z.run(3, free);
     out.diveOnlyZone = await untilAsk(z, 12, push(1));
+    const was = config.curb.diveOnly;
     config.curb.diveOnly = false;
+    const o = await session(...ARTERIAL);
+    await o.run(1, free);
+    out.surgeLandsWithItOff = await untilAsk(o, 2, push(1));
+    config.curb.diveOnly = was;
   }
   res.none = out;
   console.log('none:', JSON.stringify(out));
@@ -582,9 +588,10 @@ const WATERFRONT = [37.852117, -122.478968, 180] as const;
   }
   for (const [name, late] of [['late067', 0.67], ['never', Infinity]] as const) {
     if (!start) break;
-    const s = await session(start.lat, start.lon, start.hdg, -1, late);
+    // (from 25 m held, a dive, diveOnly's, from where it starts 75 m before the end: half a second at Express first carried the bus past where the road
+    // goes on 15 m before the dive's half second was up, and from a held height nothing asked)
+    const s = await session(start.lat, start.lon, start.hdg, 25, late);
     s.drive.rung(1, s.f);
-    await s.run(0.5, free);
     let inside = 0, rise = 0, asked = -1, atStreet = 0, frames = 0, lowest = Infinity;
     for (let k = 0; k < 4 * 60; k++) {
       if (k % 30 === 0) await pump(city, s.f.x, s.f.z, s.f.lift, s.f.fx, s.f.fz);
@@ -630,7 +637,9 @@ ok(res.flickUp.state === 'leave' && res.flickUp.left === 'flick' && res.flickUp.
 ok(res.zoneHigh.asked === 0 && res.zoneHigh.below === SCHOOL_ZONE, `Curb: a flick down at 80 m does nothing: ${JSON.stringify(res.zoneHigh)}`);
 const N = res.none;
 for (const k of ['nonstop', 'jet', 'turbo', 'letGo', 'acrossTheBlocks', 'diveOnlySurge']) ok(N[k].asked === 0, `Curb: nothing lands (${k}): ${JSON.stringify(N[k])}`);
+ok(config.curb.diveOnly && N.diveOnlySurge.surge > 0.9 && N.diveOnlySurge.speed > config.flight.cruiseSpeed + 0.5 * (config.flight.surgeSpeed - config.flight.cruiseSpeed) && N.diveOnlySurge.below === 0, `Curb: diveOnly is on, and a push held along a street at Cruise stays a surge: ${JSON.stringify(N.diveOnlySurge)}`);
 ok(N.diveOnlyZone.asked === 1, `Curb: diveOnly still lands School Zone's sink: ${JSON.stringify(N.diveOnlyZone)}`);
+ok(N.surgeLandsWithItOff.asked === 1, `Curb: with diveOnly off the surge down a street lands: ${JSON.stringify(N.surgeLandsWithItOff)}`);
 const Fs = res.findAStreet;
 ok(Fs.state === 'bounce' && Fs.vyGain > 3 && Fs.toast && Fs.at15s === 'bounce' && Fs.at21s === 'fly' && Fs.below === SCHOOL_ZONE, `Curb: no street, the hop and FIND A STREET, 2 s quiet: ${JSON.stringify(Fs)}`);
 ok(Fs.hints.length === 0, `Curb: a flick that finds no street doesn't learn the hint: ${JSON.stringify(Fs)}`);

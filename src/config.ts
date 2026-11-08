@@ -516,8 +516,9 @@ export const config = {
     /** How long the hint and FIND A STREET stay up (s). */
     hintFor: 3.2,
     noneFor: 1.8,
-    /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's call on the phone. */
-    diveOnly: false,
+    /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's pick (BUILT.md, "The
+     *  one-number picks and the first Bomb"). */
+    diveOnly: true,
     /** In School Zone a flick down lands from at most this high over the ground (m); the lane is the worker's to find, within 80 m. From higher it
      *  does nothing, as at any height before Curb (at 150 m the arc came down at 115 m/s: the review of feat/curb, M4). */
     flickOver: 60,
