@@ -172,7 +172,8 @@ export class TurboFx {
   private tHead = -1;
   private tCount = 0;
   private readonly trail: THREE.Mesh;
-  private readonly trailU = { uOn: { value: 0 }, uBillow: { value: 9 }, uWander: { value: 5 } };
+  /** uTrailRows: its six bands' rows, the bus's faction's spray (setTrailRows; Rainbow's hues, the rows it always had, until a faction is picked) */
+  private readonly trailU = { uOn: { value: 0 }, uBillow: { value: 9 }, uWander: { value: 5 }, uTrailRows: { value: HUE_RAMPS.slice() as number[] } };
 
   private readonly lines: THREE.Mesh;
   private readonly lineU = {
@@ -292,6 +293,7 @@ export class TurboFx {
         ${GLSL_BAYER}
         uniform float uOn;
         uniform float uBillow;
+        uniform float uTrailRows[6];
         in float vSide;
         in float vAge;
         in float vDist;
@@ -318,7 +320,7 @@ export class TurboFx {
           float fold = 0.65 * tbNoise(vec2(along * 1.3 + 2.0, side * 1.4)) + 0.35 * (0.5 - side * 0.5);
           float cel = (fold > 0.56 ? 0.1 : fold < 0.4 ? -0.09 : 0.0) * set;
           float light = 0.52 + 0.16 * fresh + 0.1 * (1.0 - edge) + cel;
-          sbWrite(${Ramp.RED}.0 + band, light, sbFog(vWorld), 0.55 * fresh * uOn, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
+          sbWrite(uTrailRows[int(band)], light, sbFog(vWorld), 0.55 * fresh * uOn, vec3(0.0, 0.0, 1.0), 0.61, 0.5);
         }
       `,
     });
@@ -593,6 +595,11 @@ export class TurboFx {
     this.crackAxis.set(f.fx, 0.08, f.fz).normalize();
     this.hoopTo = to;
     if (to) this.hoopUpQ.setFromUnitVectors(this.zAxis, this.tmp.set(to.nx, 0, to.nz));
+  }
+
+  /** The contrail's six bands, the bus's faction's spray (main.ts's paintAsFaction, with ?crew or &paintas; SHOTS.md: "a contrail in your colour"). */
+  setTrailRows(rows: readonly number[]) {
+    for (let i = 0; i < 6; i++) this.trailU.uTrailRows.value[i] = rows[i % rows.length];
   }
 
   /** &boom: the hoop's six rows, the bus's faction's spray (main.ts's boomLook). */

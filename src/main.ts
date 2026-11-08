@@ -774,9 +774,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** &bomb: the Bomb's look takes the faction's spray too (set once the Bomb is up); &boom's hoop too */
   let bombLook: ((f: number) => void) | null = null;
   let boomLook: ((f: number) => void) | null = null;
+  /** the contrail takes the faction's spray (set once the Controls are up: Rainbow's is its hues, as before) */
+  let trailLook: ((f: number) => void) | null = null;
   const paintAsFaction = (f: number) => {
     splatter.faction = f;
     particles.palette = lookOf(f).spray;
+    trailLook?.(f);
     bombLook?.(f);
     boomLook?.(f);
   };
@@ -1369,6 +1372,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (boom.on) controls.fx.setHoopRows(lookOf(f).spray);
   };
   boomLook(splatter.faction);
+  trailLook = (f) => controls.fx.setTrailRows(lookOf(f).spray);
+  trailLook(splatter.faction);
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
