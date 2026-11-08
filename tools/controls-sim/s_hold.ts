@@ -245,6 +245,15 @@ if (process.argv.includes('--review')) {
     rok(before.pouring && before.owner === 'hose' && !v.after.pouring && !v.after.flightPouring && v.after.owner === null && v.log.some((x) => x.startsWith('stop@')), `n80: a release tells the owner, and the Hose stops (${JSON.stringify(v)})`);
     h.input.dispose();
   }
+  // (M80, a captain's side: holds.busVel is the player's bus's velocity, Flight.velocity's, for a captain's shot's vel)
+  {
+    const h = fresh();
+    Object.assign(h.flight, { heading: 0.6, speed: 50, vy: 4 });
+    const v = { busVel: h.holds.busVel(new THREE.Vector3()).toArray(), flight: h.flight.velocity(new THREE.Vector3()).toArray() };
+    line("M80: holds.busVel, a captain's shot's vel at the player's bus", v);
+    rok(v.busVel.join() === v.flight.join() && Math.hypot(...v.busVel) > 49, `M80: holds.busVel is the bus's velocity (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
   // m83: a lock takes a hold mid-pour and its lift fires: the belly then refills as after a tap (config.splat.recharge), not as after the Hose
   {
     const h = fresh();

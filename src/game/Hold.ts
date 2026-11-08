@@ -318,6 +318,11 @@ export class Holds {
     return out.set(f.x, f.y, f.z);
   }
 
+  /** The player's bus's velocity now (world m/s, into `out`): a captain's shot's vel (HomingOpts.vel), so it leads the bus from its launch. */
+  busVel(out: THREE.Vector3): THREE.Vector3 {
+    return this.h.flight.velocity(out);
+  }
+
   /** Nothing of the city stands between the camera and `p` (SHOTS.md, Lock-on: "until ... a building hides it"). Within 8 m of `p` doesn't count. No allocation. */
   inSight(p: THREE.Vector3): boolean {
     const r = this.sight;
