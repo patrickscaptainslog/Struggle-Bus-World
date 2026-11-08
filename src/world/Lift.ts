@@ -108,6 +108,9 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly pending = new Int32Array(LIFT.cap);
   private nPending = 0;
   private nUp = 0;
+  /** &lifted: the wave's houses whose rest heights are placed already, before it (plan()): the wave lifts each at its placed height */
+  private readonly planned = new Set<number>();
+  private planDone = false;
 
   // ---- the GPU's
   private readonly data: Float32Array;
@@ -457,8 +460,9 @@ export class Lift implements LiftHooks, FieldHouses {
     const ref = this.refs.get(i);
     // (a house already lifting or up stays as it is: a hit before the wave lifted it, and the wave mustn't drop it to the ground and launch it again)
     if (!ref || this.state[i] !== ST_GROUND || this.nUp + this.nPending >= LIFT.cap) return;
-    // (its height among its neighbours that went before it: never two touching alike, a low one only with room over it: liftPlace)
-    this.H[i] = liftPlace(liftRest(ref.area, ref.roofY - ref.baseY, i), ref.roofY - ref.baseY, this.margin[i], this.nearPlaced(ref));
+    // (its height among its neighbours that went before it: never two touching alike, a low one only with room over it: liftPlace. A wave's
+    // house placed already by plan() keeps that height)
+    if (!this.planned.has(i)) this.H[i] = liftPlace(liftRest(ref.area, ref.roofY - ref.baseY, i), ref.roofY - ref.baseY, this.margin[i], this.nearPlaced(ref));
     this.solid[i] = liftLow(this.H[i], this.margin[i]) ? 1 : 0;
     this.state[i] = ST_PENDING;
     this.t0[i] = at;
@@ -470,6 +474,49 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   /**
+   * &lifted: the wave's rest heights, placed before it (once, from the sky piece's first part: it stands over them), in its own order with the
+   * same liftPlace, so they come out as the wave would have placed them; the wave, or a hit before it, then lifts each at its placed height.
+   */
+  private plan() {
+    if (this.planDone || !this.staged) return;
+    this.planDone = true;
+    for (const { ref } of this.waveOrder()) {
+      const i = ref.index;
+      if (this.state[i] !== ST_GROUND) continue;
+      this.H[i] = liftPlace(liftRest(ref.area, ref.roofY - ref.baseY, i), ref.roofY - ref.baseY, this.margin[i], this.nearPlaced(ref));
+      this.planned.add(i);
+    }
+  }
+  /** the wave's houses in the order it places them: the low ones first, out from the heart, then the rest (a low house keeps its room by its neighbours rising round it, liftPlace) */
+  private *waveOrder() {
+    const low = (r: BuildingRef) => liftLow(liftRest(r.area, r.roofY - r.baseY, r.index), this.margin[r.index]);
+    for (const pass of [true, false]) for (const w of this.waveList) if (low(w.ref) === pass) yield w;
+  }
+
+  /**
+   * The highest any floating house whose footprint's bounds come within r m of (x, z) can reach (m, world y; -Infinity for none), the sky
+   * piece's (liftSky's SkyPlace.roof): the wave's houses at their placed heights (plan()) and any up already, each its roof or its domes (6 m,
+   * or its garden's noted top), its rest with the overshoot (14 %) and its heave and lean (its margin), as the flight's slab counts it.
+   */
+  roofNear(x: number, z: number, r: number): number {
+    this.plan();
+    let top = -Infinity;
+    const each = (i: number) => {
+      if (this.state[i] === ST_GROUND && !this.planned.has(i)) return;
+      const o = this.refs.get(i);
+      if (o && nearRef(o, x, z) <= r) top = Math.max(top, Math.max(o.roofY + 6, this.extra[i]) + this.H[i] * 1.14 + this.margin[i]);
+    };
+    // (a wide one, as the Hellmouth's smoke, looks at every house; a narrow one at the cells round it)
+    if (r > 300) for (const i of this.refs.keys()) each(i);
+    else {
+      const g = r + this.nearRad;
+      for (let qz = Math.floor((z - g) / NEAR_CELL); qz <= Math.floor((z + g) / NEAR_CELL); qz++)
+        for (let qx = Math.floor((x - g) / NEAR_CELL); qx <= Math.floor((x + g) / NEAR_CELL); qx++) for (const i of this.nearGrid.get(squareKey(qx, qz)) ?? NONE) each(i);
+    }
+    return top;
+  }
+
+  /**
    * the house's near neighbours (their footprints' bounds within LIFT_NEAR m) already lifting or up, as liftPlace reads them. From the Lift's own
    * index of its houses, by bounds alone: the City's buildingsWithin measured every building's edge round it, 56-73 ms for the wave's 400 in its
    * first frame (the review's hitch)
@@ -478,7 +525,7 @@ export class Lift implements LiftHooks, FieldHouses {
     const out: LiftNear[] = [];
     this.nearEach(ref, LIFT_NEAR, (o) => {
       const i = o.index;
-      if (this.state[i] === ST_GROUND) return;
+      if (this.state[i] === ST_GROUND && !this.planned.has(i)) return;
       const dist = Math.hypot(Math.max(o.x0 - ref.x1, 0, ref.x0 - o.x1), Math.max(o.z0 - ref.z1, 0, ref.z0 - o.z1));
       out.push({ H: this.H[i], height: o.roofY - o.baseY, reach: this.margin[i], dist, touching: dist <= 3 * Math.SQRT2 && o.x0 - 3 <= ref.x1 && o.x1 + 3 >= ref.x0 && o.z0 - 3 <= ref.z1 && o.z1 + 3 >= ref.z0 });
     });
@@ -571,6 +618,7 @@ export class Lift implements LiftHooks, FieldHouses {
       face: [this.g.sun[0] / l, this.g.sun[1] / l],
       groundAt: (x, z) => city.groundAt(x, z),
       clear: (x, z) => this.clearOf(x, z),
+      roof: (x, z, r) => this.roofNear(x, z, r),
     });
   }
   /** One part of the sky piece (a frame's share); once it's whole, it goes in the scene. stats.skyMs is the longest part's ms. */
@@ -691,11 +739,8 @@ export class Lift implements LiftHooks, FieldHouses {
     }
     if (!busy && liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
       this.waveAt = now + 0.6;
-      // (placed low ones first, out from the heart, then the rest: a low house keeps its room by its neighbours rising round it, liftPlace. The
-      // crouches go by distance whatever the order)
-      const low = (r: BuildingRef) => liftLow(liftRest(r.area, r.roofY - r.baseY, r.index), this.margin[r.index]);
-      for (const pass of [true, false])
-        for (const { ref, d } of this.waveList) if (low(ref) === pass) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
+      // (placed low ones first, out from the heart, then the rest: waveOrder, plan(). The crouches go by distance whatever the order)
+      for (const { ref, d } of this.waveOrder()) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
       if (this.faction === FACTION_HYPERGLOW) this.turns();
       this.sky?.start(this.waveAt);
       this.g.sound.wave();

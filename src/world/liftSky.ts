@@ -6,7 +6,8 @@ import { registerWarm } from '../render/warmup';
 import { LIFT, LIFT_TURN, liftSeed, SQUARE, squareIx, squareIz, squareKey } from './liftGlsl';
 
 // Stage 4's sky marks in the other four factions (docs/specs/factions/LIFT.md, "Stage 4 in the other factions"; FACTIONS.md section 2): the set
-// piece over a lifted neighbourhood's heart, 220 m over its ground, one draw and one program, made only for the faction ?lift&lifted=<key> names.
+// piece over a lifted neighbourhood's heart, about 300 m over its ground and over the highest floating roof under it, one draw and one program,
+// made only for the faction ?lift&lifted=<key> names.
 // Atlantis's Sky Sea (a lens of ocean, the canals pouring up into it, a whale breaching out of it), the Elderwood's Sky Wood (islands of earth
 // carrying old trees and rune stones, trailing glowing roots), Hyperglow's Skyway (the neighbourhood's real streets copied in lanes of light) and
 // Inferno's Hellmouth (a black sun fed by four columns of lava, under a black-violet ceiling of smoke). Rainbow's halo isn't here yet.
@@ -32,10 +33,36 @@ export interface SkyPlace {
   groundAt(x: number, z: number): number;
   /** how far (x, z) is from the nearest liftable house's footprint (m) */
   clear(x: number, z: number): number;
+  /**
+   * The highest any floating house whose footprint comes within r m of (x, z) can reach (m, world y; -Infinity for none): from its own placed
+   * rest height, roof, domes, overshoot and heave (Lift.roofNear)
+   */
+  roof(x: number, z: number, r: number): number;
 }
 
-/** The set pieces' height over the heart's ground (m): FACTIONS.md section 1's sky marks, at 200-250 m. */
-export const SKY_Y = 220;
+/**
+ * The set pieces' height over the heart's ground (m): the producer's pick (LIFT.md's call 5), over FACTIONS.md's sky marks' 200-250 m: the bus
+ * can't touch them, so they stand over its climb's chase view, not in it. Each piece stands higher where the floating roofs under it call for it.
+ */
+export const SKY_Y = 300;
+/** How far each piece stays over the highest floating roof under it (m): over Lift.roofNear's reach, which has the overshoot and the heave in it. */
+const SKY_CLEAR = 12;
+/**
+ * The height its risers' feet are picked for (m over the heart's ground): a foot's ground no higher than leaves a riser the room to rise
+ * straight through the floating houses' layer under a piece this high. The pieces stood at 220 m when the feet were placed; standing higher
+ * leaves them more, and the feet stay where they were.
+ */
+const FOOT_Y = 220;
+
+/**
+ * A piece's height (m, world y): SKY_Y over the heart's ground, or higher where a floating roof under it calls for it. `under`: the piece's
+ * reach downward, each as a disc (x, z, its radius, and how far under the height its lowest part comes, m).
+ */
+function skyY(p: SkyPlace, under: ReadonlyArray<readonly [number, number, number, number]>): number {
+  let Y = p.ground + SKY_Y;
+  for (const [x, z, r, depth] of under) Y = Math.max(Y, p.roof(x, z, r) + depth + SKY_CLEAR);
+  return Y;
+}
 /**
  * The top of the floating houses' layer over the ground (m): no roof rests over LIFT.topMax, then the more of the jump's overshoot (13 % of the
  * highest rest, before the swell has it) and its heave on the swell's crest, and a margin for a neighbour's ground a little higher. Nothing of a
@@ -290,9 +317,16 @@ const HIDE = 'gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return;';
 // ---------------------------------------------------------------- Atlantis: the Sky Sea
 
 function* atlantisGeo(p: SkyPlace, g: Geo): Steps {
-  const [hx, hz] = p.heart, Y = p.ground + SKY_Y;
+  const [hx, hz] = p.heart;
   const Rl = Math.min(190, Math.max(90, hoodRadius(p) * 0.62));
   const TB = 34, TT = 14;
+  // (over the roofs under it: the lens's belly (its sway and bob 4 m more), and the whale plunging out of it, its arc 0.62 of the way out on
+  // its own way round: 21 m under, 58 more down, its body and fins 12, the arc and its body and its foam within 80 m of its middle)
+  const aw = Math.atan2(p.face[1], p.face[0]) + 2.2;
+  const Y = skyY(p, [
+    [hx, hz, Rl + 3, TB + 4],
+    [hx + Math.cos(aw) * Rl * 0.62, hz + Math.sin(aw) * Rl * 0.62, 80, 21 + 58 + 12],
+  ]);
   // the lens: from its belly's middle to the rim, then over its top (aE.x: -1 the belly's middle .. 0 the rim .. 1 the top's middle)
   const sides = 48, rings = 14;
   const o = g.pos.length / 3;
@@ -316,7 +350,7 @@ function* atlantisGeo(p: SkyPlace, g: Geo): Steps {
   const belly = (r: number) => Y - TB * Math.sqrt(Math.max(0, 1 - (r / Rl) ** 2));
   // the falls: the canals pour up from the streets into it, waterspouts: a skirt of foam on the street, a narrow rope of water straight up
   // through the floating houses, and over them a funnel flaring out as it bends in to meet the Sea (aK.y their seed, aK.z the foot, aK.w the top)
-  const pts = streetPoints(p, 5, Rl * 0.75, FALL_GAP, 0.35, SKY_Y - TB - LAYER - 25);
+  const pts = streetPoints(p, 5, Rl * 0.75, FALL_GAP, 0.35, FOOT_Y - TB - LAYER - 25);
   const cols: number[][] = [];
   yield;
   for (let i = 0; i < pts.length; i++) {
@@ -519,15 +553,17 @@ void main() {
 /**
  * The Sky Wood's islands, over the squares farthest apart from the heart: each one's centre, its turf's height, its radius and its rock's
  * depth (m), the top of the floating houses' layer under it (`floor`: its ground's highest under its rim, plus LAYER) and how far it rises
- * into place (m). Its rock, its roots and its rise all stay over that floor: an island over a square higher than the heart floats higher.
+ * into place (m). Its rock, its roots and its rise all stay over that floor, and its rock and its rise over the highest floating roof under it
+ * by SKY_CLEAR: an island over a square higher than the heart floats higher.
  */
 function isles(p: SkyPlace) {
-  const Y = p.ground + SKY_Y;
+  const Y = skyY(p, []);
   return spreadSquares(p, 7).map(([x, z], i) => {
     const r = isleR(i), depth = r * 0.55;
     let g = p.groundAt(x, z);
     for (let k = 0; k < 8; k++) g = Math.max(g, p.groundAt(x + Math.cos((k * Math.PI) / 4) * r, z + Math.sin((k * Math.PI) / 4) * r));
-    const floor = g + LAYER;
+    // (its rim reaches 1.12 of its radius, its roots sway 4 m)
+    const floor = Math.max(g + LAYER, p.roof(x, z, r * 1.15 + 4) + SKY_CLEAR);
     // (its rock's crags reach 1.15 of its depth and it breathes 3 m; it rises scaled up from small, so from at most `room` below it clears too)
     const y = Math.max(isleY(i, Y), floor + depth * 1.15 + 3 + 4);
     const room = y - floor - 3 - depth * 1.15;
@@ -536,7 +572,7 @@ function isles(p: SkyPlace) {
 }
 
 function* elderwoodGeo(p: SkyPlace, g: Geo): Steps {
-  const Y = p.ground + SKY_Y;
+  const Y = skyY(p, []);
   const all = isles(p);
   for (let i = 0; i < all.length; i++) {
     const { x, z, y, r, depth, floor } = all[i];
@@ -744,8 +780,16 @@ void main() {
 // ---------------------------------------------------------------- Hyperglow: the Skyway
 
 function* hyperglowGeo(p: SkyPlace, g: Geo): Steps {
-  const [hx, hz] = p.heart, Y = p.ground + SKY_Y;
+  const [hx, hz] = p.heart;
   const inHood = (x: number, z: number) => p.squares.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE)));
+  // (flat, over the roofs under every lane: a segment's disc, out to its sides 3 m deep and a junction's ring at either end, 16 m)
+  const under: Array<[number, number, number, number]> = [];
+  for (const { xz } of p.streets)
+    for (let k = 0; k + 3 < xz.length; k += 2) {
+      const ax = xz[k], az = xz[k + 1], bx = xz[k + 2], bz = xz[k + 3];
+      if (inHood((ax + bx) / 2, (az + bz) / 2)) under.push([(ax + bx) / 2, (az + bz) / 2, Math.hypot(bx - ax, bz - az) / 2 + 16, 3]);
+    }
+  const Y = skyY(p, under);
   const ends = new Map<string, [number, number, number]>();
   const node = (x: number, z: number) => {
     const key = `${Math.round(x / 6)},${Math.round(z / 6)}`;
@@ -872,8 +916,11 @@ const RS_ = 60;
 const HALO = 1.85;
 
 function* infernoGeo(p: SkyPlace, g: Geo): Steps {
-  const [hx, hz] = p.heart, Y = p.ground + SKY_Y;
+  const [hx, hz] = p.heart;
   const RS = RS_;
+  // (over the roofs under it: the sun, throbbing, and the corona's square, which faces the eye: seen from the street it hangs its half width
+  // under the sun's middle, and turned it reaches its half diagonal out)
+  const Y = skyY(p, [[hx, hz, HALO * RS * Math.SQRT2 + 2, HALO * RS + 2]]);
   // the black sun (aE: its latitude 0..1, its longitude 0..1)
   g.tube(18, 28, (t) => {
     const lat = Math.PI * t;
@@ -887,7 +934,7 @@ function* infernoGeo(p: SkyPlace, g: Geo): Steps {
   }
   // the four columns: lava rising from the lake at the street, flaring there, straight up through the floating houses and over them twisting in
   // to the sun's belly; once the sun has formed they pour up into it and are gone (aE.x along 0..1)
-  const pts = streetPoints(p, 4, 120, COL_GAP, 0.8, SKY_Y - RS * 0.85 - LAYER - 25);
+  const pts = streetPoints(p, 4, 120, COL_GAP, 0.8, FOOT_Y - RS * 0.85 - LAYER - 25);
   const cols: number[][] = [];
   yield;
   for (let i = 0; i < pts.length; i++) {
@@ -932,7 +979,8 @@ function* infernoGeo(p: SkyPlace, g: Geo): Steps {
     g.tri(i3, i4, i2);
   }
   // the ceiling of smoke: a billowing disc over the neighbourhood, facing down only (from over it, it isn't there), thinning out at its edge
-  const CR = Math.max(520, hoodRadius(p) * 1.9), CY = p.ground + 470;
+  // (170 m over the sun's middle, at least, and over the roofs under all of it: it billows and rolls 10 m under its height)
+  const CR = Math.max(520, hoodRadius(p) * 1.9), CY = Math.max(p.ground + 470, Y + 170, p.roof(hx, hz, CR) + 10 + SKY_CLEAR);
   const rings = 9, sides = 56, o = g.pos.length / 3;
   for (let i = 0; i <= rings; i++) {
     const t = i / rings, r = CR * t;
