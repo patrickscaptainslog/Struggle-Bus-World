@@ -1123,14 +1123,14 @@ void main() {
     float skyA = 0.0;
     if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
     if (flashAll || flashK > 0.45) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }${boomed(`
-    // (&boom's crack: the sky's pressure ring racing out from the heading, a white-hot front widening as it goes, a pale halo dithered out behind it, and the
+    // (&boom's crack: the sky's pressure ring racing out from the heading, a white-hot front widening as it goes, a short pale halo dithered out behind it, and the
     // whole of it thinning to a dither as it ends)
     if (uCrack.w >= 0.0) {
       float cAng = acos(clamp(dot(dir, uCrack.xyz), -1.0, 1.0)) - uCrack.w;
-      float cW = 0.035 + 0.045 * uCrack.w;
-      float cF = 1.0 - smoothstep(0.9, 1.5, uCrack.w);
+      float cW = 0.03 + 0.025 * uCrack.w;
+      float cF = 1.0 - smoothstep(0.8, 1.2, uCrack.w);
       if (abs(cAng) < cW && dsk < 0.3 + 0.7 * cF) { sc = pal(${Ramp.GLOW_WHITE}.0, 7.0); skyA = 1.0; }
-      else if (cAng < 0.0 && cAng > -5.0 * cW && dsk < cF * (1.0 + cAng / (5.0 * cW))) { sc = pal(${Ramp.GLOW_WHITE}.0, 6.0); skyA = 1.0; }
+      else if (cAng < 0.0 && cAng > -2.5 * cW && dsk < cF * (1.0 + cAng / (2.5 * cW))) { sc = pal(${Ramp.GLOW_WHITE}.0, 6.0); skyA = 1.0; }
     }`)}
     outColor = vec4(sc, skyA);
     return;
@@ -1366,10 +1366,10 @@ void main() {
 ${boomed(`  // &boom's crack: its pressure ring rolls on over the city, everything in its front two steps up its own ramp, one in its halo
   if (uCrack.w >= 0.0) {
     float cAng = acos(clamp(dot(dir, uCrack.xyz), -1.0, 1.0)) - uCrack.w;
-    float cW = 0.035 + 0.045 * uCrack.w;
-    float cF = 1.0 - smoothstep(0.9, 1.5, uCrack.w);
+    float cW = 0.03 + 0.025 * uCrack.w;
+    float cF = 1.0 - smoothstep(0.8, 1.2, uCrack.w);
     if (abs(cAng) < cW && dsk < 0.3 + 0.7 * cF) { oStep = min(oStep + 2.0, 7.0); col = pal(oRamp, oStep); }
-    else if (cAng < 0.0 && cAng > -4.0 * cW && dsk < 0.8 * cF * (1.0 + cAng / (4.0 * cW))) { oStep = min(oStep + 1.0, 7.0); col = pal(oRamp, oStep); }
+    else if (cAng < 0.0 && cAng > -2.0 * cW && dsk < 0.8 * cF * (1.0 + cAng / (2.0 * cW))) { oStep = min(oStep + 1.0, 7.0); col = pal(oRamp, oStep); }
   }
 `)}  // impact flash: white-hot near the blast (shapes kept by their own light),
   // everything else jumps two or three steps up its own ramp (a Comet's: only round it)

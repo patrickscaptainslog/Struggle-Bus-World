@@ -25,7 +25,7 @@
 //            downtown, a real flick into Turbo 3, in Rainbow, Atlantis, Hyperglow and Inferno (&paintas). Each: one crack, the hoop threaded, a ring, every
 //            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
 //            and 8,000), no program made after ready, and stills held on the Boom's clock at the crack, the hoop standing ahead, the bus at its plane, the
-//            slam, the band blooming and the band behind (SB_STILLS=0 leaves them out). Exits 1 when a row fails                 -> boom.json
+//            slam, the band blooming and the band behind, and the sky's ring at 0.2 s (SB_STILLS=0 leaves them out). Exits 1 when a row fails                 -> boom.json
 //   falls    the Waterfall (&falls; src/fx/Falls.ts; not in the default list): at Cruise 60 m over a Financial District tower's roof, 300 m west of it, a
 //            real tap off the lane, in Rainbow, Hyperglow and the Elderwood, the next tower if it didn't pour. Each: its drops and its pool landed round its
 //            foot, the draws, triangles and particles each frame (200, 1.5 M, 8,000), nothing compiled, and stills of the runs, the drops and the pool.
@@ -1200,8 +1200,9 @@ if (modes.has('boom') || modes.has('falls')) {
               await page.evaluate((p) => (window.__xAt = [p.x, p.z]), plan);
               const t0 = plan.t0;
               await stillAt(page, t0 + 0.05, `${out}/boom-${key}-1-crack.png`);
-              // (the hoop just standing, the sky's pressure ring rolling through the frame)
-              await stillAt(page, t0 + 0.35, `${out}/boom-${key}-2-hoop.png`);
+              // (the sky's pressure ring rolling up through the sky, the hoop on its way; then the hoop standing, the ring rolling on down the city)
+              await stillAt(page, t0 + 0.2, `${out}/boom-${key}-2-sky.png`);
+              await stillAt(page, t0 + 0.45, `${out}/boom-${key}-2-hoop.png`);
               // (the frame before the bus's crossing: its plane hoopAhead s on, a frame early at fixeddt's 0.05 s)
               await stillAt(page, t0 + 0.92, `${out}/boom-${key}-3-thread.png`);
               const p2 = await page.evaluate(() => window.__game.boomState().plan);

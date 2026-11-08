@@ -52,12 +52,13 @@ export const turboFxTune = {
   hoopR1: 92,
   hoopBack: 150,
   /** &boom's crack (src/game/Boom.ts) over the whole frame: the flash, how long (s) and how strong (its first 0.05 s white-hot); the sky's pressure ring, how
-   *  long its front takes to race out (s) and how far from the bus's heading it gets (rad: the frame's edges are 0.5-1 from it, so it rolls through the
-   *  frame over about 0.6 s; at 0.85 s to 1.9 it was gone in 0.2, the stills); the camera's jolt (rad), pitch and roll ringing down */
+   *  long its front takes to race out (s) and how far from the bus's heading it gets (rad: the sky's top edge is about 0.45 from it and the frame's bottom
+   *  about 1, so it rolls up through the sky over its first half second and on down the city; out to 1.9 in 0.85 s it crossed the sky in 0.2, the stills);
+   *  the camera's jolt (rad), pitch and roll ringing down */
   crackFlash: 0.16,
   crackFlashK: 0.55,
-  crackFront: 1.1,
-  crackFrontMax: 1.5,
+  crackFront: 1.5,
+  crackFrontMax: 1.2,
   crackJolt: 0.03,
   /** fov kick spring (Hz) */
   kickHz: 2.2,
@@ -149,7 +150,7 @@ export function crackSky(age: number, out: { flash: number; front: number }): { 
   const X = turboFxTune;
   out.flash = age >= 0 && age < X.crackFlash ? (age < 0.05 ? 0.9 : X.crackFlashK) : 0;
   const u = (age - 0.03) / X.crackFront;
-  out.front = u >= 0 && u < 1 ? X.crackFrontMax * (1 - Math.pow(1 - u, 1.6)) : -1;
+  out.front = u >= 0 && u < 1 ? X.crackFrontMax * (1 - Math.pow(1 - u, 1.2)) : -1;
   return out;
 }
 
