@@ -27,7 +27,7 @@
 //            and 8,000), no program made after ready, and stills held on the Boom's clock at the crack, the hoop standing ahead, the bus at its plane, the
 //            slam, the band blooming and the band behind, and the sky's ring at 0.2 s (SB_STILLS=0 leaves them out). Exits 1 when a row fails                 -> boom.json
 //            SB_BOOM_X=1: the reviews' rows instead (BUILT.md, "The reviews of the Sonic Boom pass and of feat/extras"): a pull held after the flick over the
-//            Western Addition, the slam heading north and south there, and downtown's tallest tower under the hoop from 150 m
+//            Western Addition, the slam heading north and south there, and downtown's tallest tower under the hoop from 150 m (SB_BOOM_XONLY=tower: that row)
 //   falls    the Waterfall (&falls; src/fx/Falls.ts; not in the default list): at Cruise 60 m over a Financial District tower's roof, 300 m west of it, a
 //            real tap off the lane, in Rainbow, Hyperglow and the Elderwood, the next tower if it didn't pour. Each: its drops and its pool landed round its
 //            foot, the draws, triangles and particles each frame (200, 1.5 M, 8,000), nothing compiled, and stills of the runs, the drops and the pool.
@@ -1171,23 +1171,25 @@ if (modes.has('boom') || modes.has('falls')) {
       if (mode === 'boom') {
         const E = Math.PI / 2;
         const ROWS = process.env.SB_BOOM_X === '1'
-          ? [['pull-western-addition', 37.7795, -122.4335, 150, E, 1400, true], ['north-western-addition', 37.7795, -122.4335, 150, 0, 1400], ['south-western-addition', 37.7795, -122.4335, 150, Math.PI, 1400], ['tower-downtown', 37.78975, -122.39686, 150, E, 920]]
+          ? [['pull-western-addition', 37.7795, -122.4335, 150, E, 1400, true], ['north-western-addition', 37.7795, -122.4335, 150, 0, 1400], ['south-western-addition', 37.7795, -122.4335, 150, Math.PI, 1400], ['tower-downtown', 37.78975, -122.39686, 150, -E, 850, false, true]].filter(([k]) => !process.env.SB_BOOM_XONLY || k.startsWith(process.env.SB_BOOM_XONLY))
           : [['western-addition', 37.7795, -122.4335, 150, E], ['western-addition', 37.7795, -122.4335, 300, E], ['downtown', 37.7905, -122.4035, 150, E]];
-        for (const [where, lat, lon, over, heading, backAt, pull] of ROWS) {
+        for (const [where, lat, lon, over, heading, backAt, pull, pinned] of ROWS) {
           const key = `${fk}-${where}-${over}`;
           // (held short of the place at Turbo 2 while the city streams in, heading east (or `heading`), `over` m over the ground there, by about where the ring
-          // lands from there (Boom's boomLead: 1,400 m short from 150, 2,050 from 300; `backAt` 920: the hoop stands on it); let go, a flick 0.2 s on)
+          // lands from there (Boom's boomLead: 1,400 m short from 150, 2,050 from 300); let go, a flick 0.2 s on. `pinned`: held there through the frames
+          // stepped to the flick too (they carried it 400-700 m), 850 m short (Turbo 2 on the page at about 850 m/s, the hoop a second ahead), so the hoop stands on the place; heading west, the ring lands on SoMa)
           const back = backAt ?? (over > 200 ? 2050 : 1400);
-          const at = await page.evaluate(([lat, lon, over, back, heading]) => {
+          const at = await page.evaluate(([lat, lon, over, back, heading, pinned]) => {
             const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, px = (lon - o[1]) * r * 6378137 * Math.cos(o[0] * r), pz = -(lat - o[0]) * r * 6378137;
             const bx = px - Math.sin(heading) * (back - 950), bz = pz + Math.cos(heading) * (back - 950), x = bx - Math.sin(heading) * 950, z = bz + Math.cos(heading) * 950;
             const y = g.city.groundAt(x, z) + over;
             window.__qa = { pin: { x, z, heading, y } };
+            window.__xPin = pinned ? window.__qa.pin : null;
             Object.assign(g.flight, { x, z, heading, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0, speed: 720 });
             g.controls.turbo.arrive(3, 2);
             g.boom.last = -Infinity;
             return [bx, bz];
-          }, [lat, lon, over, back, heading]);
+          }, [lat, lon, over, back, heading, pinned]);
           await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
           await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
           await runFor(page, 0.2);
@@ -1199,7 +1201,7 @@ if (modes.has('boom') || modes.has('falls')) {
             // crack, the hoop standing ahead, the bus at its plane, the slam, the band blooming, the band behind)
             await H.stamped(() => H.stroke(1, 100, 520, 0, -74, 85), true);
             for (let k = 0; k < 40 && !plan; k++) {
-              await page.evaluate(() => (window.__qa = { holdFrames: 1 }));
+              await page.evaluate(() => (window.__qa = window.__xPin ? { holdFrames: 1, pin: window.__xPin } : { holdFrames: 1 }));
               await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 60000, polling: 20 });
               plan = await page.evaluate((n) => (window.__game.boomState().stats.flicks > n ? window.__game.boomState().plan : null), a.flicks);
             }
