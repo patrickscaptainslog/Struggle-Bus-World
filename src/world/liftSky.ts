@@ -48,6 +48,11 @@ export const SKY_Y = 300;
 /** How far each piece stays over the highest floating roof under it (m): over Lift.roofNear's reach, which has the overshoot and the heave in it. */
 const SKY_CLEAR = 12;
 /**
+ * How wide the piece's cut round the bus is (the tangent of its half angle from the lens): from 250 m up the chase lens stands about 230 m off,
+ * where 0.11 is about 25 m, the bus's own length three times over, so the bus and a little of what's round it show through.
+ */
+const SKY_CUT = 0.11;
+/**
  * The height its risers' feet are picked for (m over the heart's ground): a foot's ground no higher than leaves a riser the room to rise
  * straight through the floating houses' layer under a piece this high. The pieces stood at 220 m when the feet were placed; standing higher
  * leaves them more, and the feet stay where they were.
@@ -310,6 +315,16 @@ flat in vec4 vK;
 ${GLSL_OUT}
 float sbH2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sbLit(vec3 n) { return clamp(uLight.y + uLight.z * (0.5 + 0.5 * n.y) + uLight.x * max(dot(n, uSunDir), 0.0), 0.0, 1.0); }
+uniform vec4 uSkyBus; // the bus (x, y, z, m) and the cut's reach (w: the tangent of its half angle; 0, none)
+// the bus through the piece: what of it stands between the lens and the bus, in a cone round the line from the lens to the bus, isn't drawn
+// (whole within two thirds of its reach, a checker of game pixels out to it), so a piece over the climb's chase view never hides the bus
+void sbCut() {
+  vec3 b = uSkyBus.xyz - cameraPosition, q = vWorldPos - cameraPosition;
+  float lb = length(b), along = dot(q, b) / max(lb, 1e-3);
+  if (along <= 0.0 || along > lb + 2.0) return;
+  float a = length(q - b * (along / max(lb, 1e-3))) / along;
+  if (a < uSkyBus.w * 0.68 || (a < uSkyBus.w && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
+}
 `;
 /** a hidden vertex: behind the far plane */
 const HIDE = 'gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return;';
@@ -488,6 +503,7 @@ void main() {
 const ATLANTIS_FS = /* glsl */ `
 ${FS_HEAD}
 void main() {
+  sbCut();
   float kind = vK.x;
   vec3 n = normalize(vN);
   float fog = sbFog(vWorldPos);
@@ -722,6 +738,7 @@ void main() {
 const ELDERWOOD_FS = /* glsl */ `
 ${FS_HEAD}
 void main() {
+  sbCut();
   float kind = vK.x;
   vec3 n = normalize(vN);
   float fog = sbFog(vWorldPos);
@@ -864,6 +881,7 @@ void main() {
 const HYPERGLOW_FS = /* glsl */ `
 ${FS_HEAD}
 void main() {
+  sbCut();
   float kind = vK.x;
   vec3 n = vec3(0.0, 1.0, 0.0);
   float fog = sbFog(vWorldPos);
@@ -1053,6 +1071,7 @@ void main() {
 const INFERNO_FS = /* glsl */ `
 ${FS_HEAD}
 void main() {
+  sbCut();
   float kind = vK.x;
   vec3 n = normalize(vN);
   float fog = sbFog(vWorldPos);
@@ -1154,6 +1173,7 @@ function material(faction: number): THREE.ShaderMaterial {
     ...globals,
     uSkyC: { value: new THREE.Vector4() },
     uSkyT0: { value: 1e9 },
+    uSkyBus: { value: new THREE.Vector4(0, -1e6, 0, SKY_CUT) },
   };
   if (faction === FACTION_ELDERWOOD) uniforms.uIsles = { value: Array.from({ length: 7 }, () => new THREE.Vector4()) };
   return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, side: THREE.DoubleSide, vertexShader: P.vs, fragmentShader: P.fs });
@@ -1166,6 +1186,8 @@ export interface SkyPiece {
   feet: Array<[number, number]>;
   cols: number[][];
   start(t: number): void;
+  /** where the bus is now (m): the piece isn't drawn between the lens and it (the shaders' sbCut) */
+  bus(x: number, y: number, z: number): void;
 }
 
 /**
@@ -1203,6 +1225,12 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
     cols,
     start: (t: number) => {
       mat.uniforms.uSkyT0.value = t;
+    },
+    bus: (x: number, y: number, z: number) => {
+      const b = mat.uniforms.uSkyBus.value as THREE.Vector4;
+      b.x = x;
+      b.y = y;
+      b.z = z;
     },
   };
 }

@@ -765,6 +765,7 @@ export class Lift implements LiftHooks, FieldHouses {
   frame(renderer: THREE.WebGLRenderer, now: number, dt: number, realDt: number, bus: { x: number; y: number; z: number; ground: number }, cam: THREE.Vector3, fogGone: number) {
     this.now = now;
     this.wall += realDt;
+    this.sky?.bus(bus.x, bus.y, bus.z);
     let busy = false;
     if (liftedOn && !this.staged && this.tilesWanted.size === 0) this.stage();
     else if (this.skyBuild) {
