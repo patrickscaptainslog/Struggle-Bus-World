@@ -287,17 +287,18 @@ export class Controls {
   }
 
   /**
-   * Curb's one-time hint (src/game/CurbFlight.ts), the first time the bus is low over a road: LAND ON THE STREET, DIVE AND HOLD, once ever. Not a
-   * first-run cue: ?skipintro shows it, ?nohud and ?nocoach don't. `learn`: a flick landed, so it's known without it. True: it's done with.
+   * Curb's one-time hint (src/game/CurbFlight.ts), the first time the bus is low over a road: LAND ON THE STREET, DIVE AND HOLD, once ever (CLIMB,
+   * THEN DIVE AND HOLD where the push is the surge: `climbFirst`). Not a first-run cue: ?skipintro shows it, ?nohud and ?nocoach don't. `learn`: a
+   * flick landed, so it's known without it. True: it's done with.
    */
-  curbHint(learn: boolean): boolean {
+  curbHint(learn: boolean, climbFirst = false): boolean {
     if (this.curbHintOff || ((this.prefs.taught ?? 0) & TAUGHT.curb)) return true;
     // (the first run's hint has the slot: this one waits for another pass over a road)
     if (!learn && this.hintLeft > 0) return false;
     this.prefs.taught = (this.prefs.taught ?? 0) | TAUGHT.curb;
     this.coach?.done(TAUGHT.curb);
     savePrefs(this.prefs);
-    if (!learn) this.hud.toast(['LAND ON THE STREET', 'DIVE AND HOLD'], config.curb.hintFor);
+    if (!learn) this.hud.toast(['LAND ON THE STREET', climbFirst ? 'CLIMB, THEN DIVE AND HOLD' : 'DIVE AND HOLD'], config.curb.hintFor);
     return true;
   }
 

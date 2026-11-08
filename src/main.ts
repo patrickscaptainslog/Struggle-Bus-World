@@ -1493,7 +1493,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     };
     curbFlight = new CurbFlight(flight, controls.turbo, rig, life, city, {
-      hint: (learn) => controls.curbHint(learn),
+      hint: (learn, climbFirst) => controls.curbHint(learn, climbFirst),
       event: curbEvent,
       // (the lane paints itself: a small dab every few metres, in rainbow rings round where the wheels came down, the splatter's faction's)
       dab: (x, z, ox, oz) => {
