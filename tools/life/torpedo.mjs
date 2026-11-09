@@ -10,6 +10,7 @@
 //   aground  land come between it and its boat ends it there, a fizz
 //   wake     a hit ferry's wake is twice as wide and the one colour for 30 s, then the usual
 //   ribbon   a plane's locked hit: a ribbon as long as it has flown since and 60 m wide for a minute, easing back to the 40 s contrail 8 m wide
+//   unseen   a painted plane out of the lens's view still lays its contrail, and a ferry unseen for a minute and more its whole wake (the re-review's M11)
 // Exit 1 on a failure.
 import { registerHooks } from 'node:module';
 registerHooks({ resolve(spec, ctx, next) { return next(/^\.\.?\//.test(spec) && !/\.[a-z]+$/.test(spec) ? `${spec}.ts` : spec, ctx); } });
@@ -192,11 +193,28 @@ step(0.1);
 const fresh = life.lockHit('plane:low', 2, 3);
 const read = (s) => {
   step(s);
-  const r = ribbon(0, 3);
+  // (the plane's ribbon is the last laid: the ferry's wake, out of this lens's view, is laid before it all the same, the re-review's M11)
+  const r = ribbon(life.qa.marks - 1, 3);
   return { marks: life.qa.marks, length: Math.round(r.length), width: r1(r.width), ramps: r.ramps };
 };
 const at30 = read(30), pp = paintOf('plane:low'), at50 = read(20), at56 = read(6), at70 = read(14);
 row('ribbon: a plane\'s locked hit: 30 s on, 1,800 m long and 60 m wide in one colour; 50 s on, 3,000 m; easing at 56 s; the 40 s contrail 8 m wide past a minute',
-  fresh && !!pp?.show && at30.marks === 1 && Math.abs(at30.length - 1800) < 8 && at30.width === 60 && at30.ramps === 1 && Math.abs(at50.length - 3000) < 8 && at50.width === 60 && Math.abs(at56.length - 2880) < 12 && at56.width > 30 && at56.width < 40 && Math.abs(at70.length - 2400) < 8 && at70.width === 8,
+  fresh && !!pp?.show && at30.marks === 2 && Math.abs(at30.length - 1800) < 8 && at30.width === 60 && at30.ramps === 1 && Math.abs(at50.length - 3000) < 8 && at50.width === 60 && Math.abs(at56.length - 2880) < 12 && at56.width > 30 && at56.width < 40 && Math.abs(at70.length - 2400) < 8 && at70.width === 8,
   { fresh, show: !!pp?.show, at30, at50, at56, at70 });
+// ---- unseen: the re-review's M11 ----
+// (the lens turned to where the plane was a kilometre and a half back: the plane out of its view, its contrail in it; the ferry out of view since the ribbon's row)
+const was = ribbon(life.qa.marks - 1, 3), planeHash = fnv1a('plane:low');
+watch = () => {
+  life.moverAt('plane:low', seen);
+  camera.position.set(0, 60, 0);
+  camera.lookAt(seen.x - 1500, seen.y, seen.z);
+  camera.updateMatrixWorld();
+};
+step(2);
+let planeDrawn = false;
+for (let i = 0; i < life.qa.drawn; i++) planeDrawn ||= life.drawn[i * 4] === planeHash;
+const trail = ribbon(life.qa.marks - 1, 3), wake = ribbon(0);
+row('unseen: a painted plane out of the lens\'s view still lays its contrail, and a ferry unseen for a minute and more its whole wake',
+  !planeDrawn && life.qa.marks === 2 && Math.abs(trail.length - was.length) < 0.05 * was.length && trail.length > 2000 && wake.length > 100,
+  { planeDrawn, marks: life.qa.marks, contrailM: Math.round(trail.length), wasM: Math.round(was.length), wakeM: Math.round(wake.length) });
 process.exit(bad ? 1 : 0);

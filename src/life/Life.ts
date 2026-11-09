@@ -64,6 +64,8 @@ const LAMP_PX = 14, LIT_PX = 0.3;
 /** Painted cars' tyre tracks (KindInfo's track): as many cars at once, a point every TRACK_STEP m of the road behind each, the wheels' lines either side of the middle
  *  (m), each line's width at the least (m) and in px, and how far over the road it's laid (m) */
 const TRACKS = 48, TRACK_STEP = 2.2, TRACK_M = 0.32, TRACK_PX = 1, TRACK_LIFT = 0.12;
+/** A painted car out of the lens's view goes on laying its tracks within this of the lens (m): past it they'd be under a pixel when it's seen again */
+const TRACKS_UNSEEN = 400;
 /** a car's lamps over the road (m, the model's: pools.ts) */
 const CAR_LAMP_Y = 0.84;
 /**
@@ -519,10 +521,14 @@ export class LifeHost {
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         let scale = rows[o + Col.SCALE] * ghost, x = x0, y = y0, z = z0;
         const size = this.sizeOf(o, info), px = (size * scale) / (Math.max(1, d) * ang);
+        // (out of the lens's view it isn't drawn. A painted one's marks are laid all the same, and drawn where they're in view: a contrail kilometres behind its
+        // plane, a wake when the lens has turned from its boat, a car's tracks near the lens, none starting over when it's seen again: the re-review's M11)
+        let seen = true;
         if (d < near) {
           this.sphere.center.set(x0, y0, z0);
           this.sphere.radius = size * scale + 2;
-          if (!this.frustum.intersectsSphere(this.sphere)) continue;
+          seen = this.frustum.intersectsSphere(this.sphere);
+          if (!seen && !(paint && (info.mark || info.wake || (info.track && d < TRACKS_UNSEEN)))) continue;
         }
         // (a grey vehicle in its own tone, white, silver, grey or black)
         const ramp = paint ? lookOf(paint.faction).body[paint.hue] : info.track ? VEHICLE_TONES[(rows[o + Col.LOOK] >> 6) & 3] : GREY_RAMP;
@@ -533,7 +539,9 @@ export class LifeHost {
           z = cam.z + dz * k;
           scale *= k;
         }
-        if (px >= MODEL_PX) {
+        if (!seen) {
+          // (its marks alone, below)
+        } else if (px >= MODEL_PX) {
           const k = pc[info.pool];
           if (k >= P.pool(info.pool).max) continue;
           this.put(P.pool(info.pool), k, o, x, y, z, scale, ramp);
@@ -560,9 +568,11 @@ export class LifeHost {
           ns++;
           if (lit && info.lights) this.lights++;
         } else continue;
-        if (info.track) this.cars++;
-        else if (info.wake) this.boats++;
-        this.note(nd++, u32[o + Col.KEY], x, y, z);
+        if (seen) {
+          if (info.track) this.cars++;
+          else if (info.wake) this.boats++;
+          this.note(nd++, u32[o + Col.KEY], x, y, z);
+        }
         if (paint && info.track && nk + 2 <= MARKS_MAX) nk += this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang);
         if (paint && info.wake && nk < MARKS_MAX) nk += this.tracks(nk, u32[o + Col.KEY], o, x0, y0, z0, rows[o + Col.SCALE], paint, cam, ang, info.size * rows[o + Col.SCALE]);
         if (paint && info.mark && nk < MARKS_MAX) {
