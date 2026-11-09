@@ -873,9 +873,10 @@ export class LifeHost {
   /**
    * The aim (CONTRACT.md section 3): the mover nearest the line from (ox, oy, oz) along (dx, dy, dz), the ray to the aim point, where it will be when a breath
    * flying the whole ray in `travel` s reaches it; within pickR of the line, widening with the distance, plus its own half size. Null: none. The answer is one
-   * object, filled again each call.
+   * object, filled again each call. `past`: how far past the ray's end one on the line alone may stand (m): ON_LINE_PAST, or the few metres the aim gives it
+   * where the ray ends on a building (the re-review's M10).
    */
-  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground = true): MoverTarget | null {
+  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground = true, past = ON_LINE_PAST): MoverTarget | null {
     const s = this.snap;
     if (!s) return null;
     const L = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -893,7 +894,7 @@ export class LifeHost {
       let along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
       // (one on the line alone may stand past its end, ON_LINE_PAST at most: the line ends on the obstacle grid, roofs plus 3 m, which stands over the
       // sidewalk by a building, so the street under it is on the line too; whether a wall stands between is the aim's, Aim.clearTo)
-      if (along <= 0 || along > (info.onLine ? L + ON_LINE_PAST : L * 1.25)) continue;
+      if (along <= 0 || along > (info.onLine ? L + past : L * 1.25)) continue;
       // (where it is when the breath gets there: once round is near enough at a plane's speed against the breath's)
       const tt = along / speed;
       x += vx * tt;

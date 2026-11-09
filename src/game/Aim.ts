@@ -50,7 +50,7 @@ export interface MoverTarget {
 /** What the aim asks life (src/life/Life.ts): the mover nearest a line of fire, and which one glints. */
 export interface MoverAim {
   /** `ground` false: nothing on the line of fire alone (a car, a picnic) is taken, only what flies or sails by the pick radius (the nose's ray) */
-  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground?: boolean): MoverTarget | null;
+  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground?: boolean, past?: number): MoverTarget | null;
   glint(key: string | null): void;
 }
 
@@ -88,6 +88,12 @@ export function tapOpts(shot: Shot, busY: number): BarfOpts {
 
 const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
 const LM_GROUND = 2; // a landmark's line of fire stays this far above the ground (m)
+/**
+ * ?life, where the line of fire ends on a building (landsOnBuilding): how far past the aim point a mover on the ground may still stand (m), how far the line
+ * may miss its middle at the most (m, a vehicle's own width, whatever its length), and how near the shown building's bounds the aim point has to be for the grid's
+ * height there to be that building's (m: a grid cell and the roof's reach past its footprint).
+ */
+const ROOF_PAST = 6, ROOF_MISS = 2.5, ROOF_NEAR = 9;
 
 export class Aimer {
   /** Where a breath fired now would land, refreshed by point() / update(). */
@@ -444,8 +450,11 @@ export class Aimer {
       const dx = aim.x - f.x, dy = aim.y - f.y, dz = aim.z - f.z;
       // (the building's distance: a mover nearer the bus than it takes the shot, one past it doesn't: the jet couldn't get through)
       this.shownD2 = shown ? (shown.cx - f.x) ** 2 + (shown.roofY - f.y) ** 2 + (shown.cz - f.z) ** 2 : Infinity;
-      m = life.aim(f.x, f.y, f.z, dx, dy, dz, r, aim.travel, true);
-      if (m?.onLine && (!this.clearTo(m) || (shown && m.miss > m.half && this.landsOnBuilding()))) m = null;
+      // (the line ending on a building, the building has it: a car may stand only a few metres past the aim point, and takes the shot only where the line
+      // really crosses it, not within a bus's half length of its middle: the re-review's M10)
+      const onRoof = !!shown && this.landsOnBuilding();
+      m = life.aim(f.x, f.y, f.z, dx, dy, dz, r, aim.travel, true, onRoof ? ROOF_PAST : undefined);
+      if (m?.onLine && (!this.clearTo(m) || (onRoof && m.miss > Math.min(m.half, ROOF_MISS)))) m = null;
       if (!this.nearer(m, f)) {
         // (along the nose, as far as a breath's reach: a plane alongside or ahead, which from high up is nearer than any roof under the aim)
         const reach = config.splat.moverReach, c = Math.cos(f.nose), speed = aim.dist / Math.max(0.05, aim.travel);
@@ -466,8 +475,14 @@ export class Aimer {
   /** ?life: the line of fire ends on a building: its aim point is on a roof or in a wall, not the street. */
   private landsOnBuilding(): boolean {
     // (a roof there within a few metres under the aim point, which the obstacle grid holds 3 m over a roof, or over it: a wall the line ends in)
-    const a = this.aim, ref = this.city.buildingAbove(a.x, a.z, a.y - 6);
-    return !!ref && ref.roofY - ref.baseY >= config.splat.minTargetHeight;
+    const a = this.aim, city = this.city, min = config.splat.minTargetHeight, ref = city.buildingAbove(a.x, a.z, a.y - 6);
+    if (ref && ref.roofY - ref.baseY >= min) return true;
+    // (or the grid the line ended on says so, the re-review's M10: a roof's cell stands 3 to 6 m out past its footprint, and a wall's aim point 0.6 m outside
+    // it, where no footprint is. The grid there a building's height over the ground, and the shown building's bounds within a cell of the point)
+    const shown = this.shown();
+    if (!shown || city.obstacleAt(a.x, a.z) - city.groundAt(a.x, a.z) < min) return false;
+    const dx = Math.max(shown.x0 - a.x, 0, a.x - shown.x1), dz = Math.max(shown.z0 - a.z, 0, a.z - shown.z1);
+    return dx * dx + dz * dz <= ROOF_NEAR * ROOF_NEAR;
   }
 
   /**
