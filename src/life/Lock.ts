@@ -12,7 +12,7 @@ export const lockTune = {
   /** the pick: the nearest within this many px of the finger, or its drawn size's half and `sizePx` more (SHOTS.md: "a plane that's only a dot still catches") */
   pickPx: 48,
   sizePx: 16,
-  /** the clack (s of the hold's aim), and how long the lock holds after the lift for taps (s) */
+  /** the clack (s the finger has been down: SHOTS.md's "about 0.55 s", as the duel's lock counts it), and how long the lock holds after the lift for taps (s) */
   lockAt: 0.55,
   keep: 4,
   /** reach (m from the bus): boats, planes */
@@ -114,7 +114,7 @@ export class LifeLock implements HoldHandler {
       this.host.holds.release(this.name);
       return;
     }
-    if (!this.clacked && h.aimed >= lockTune.lockAt) {
+    if (!this.clacked && h.held >= lockTune.lockAt) {
       this.clacked = true;
       this.host.clack();
       this.life.lockGlint(this.locked);

@@ -180,7 +180,29 @@ Both are behind their links, `&boom` and `&falls` (`docs/specs/shots/BUILT.md`, 
 - **The ask for life (`SuperTag.inner`)**: when `superTag.inner` is set, leave the movers within `inner` of the blast's centre alone, so a ring paints only the cars, people and boats under its band. Without it the whole disc's movers are painted, the hole's too. A pool's movers are all of its circle's, as now. Optional, life's call: cars driving through a pool for 20 s after it lands take its paint.
 - **The ask for Recess (the producer's fifth call)**: `areas.hit` takes no square from a blast whose `super.kind` is `'boom'` or `'falls'`: the ring and the pool paint but take no ground in a match. A tap that struck the tower is a tap, its one hit on its square, as always. Until `areas.hit` honours it, `&boom` is off under `?recess` (main.ts: `boom.on = boomOn && !params.has('recess')`), so no ring can take a square every 10 s: drop that guard in the same commit that lands the ask. A pool reaches `life.blast` alone, never the Splatter's impact: if `areas.hit` hears only the Splatter's blasts, a pool needs no guard. The white's gate ("Not here yet") must swallow the flick before `TurboDrive.rung`, or the ring fires under it.
 
+## The Torpedo (life's, with one line in the shot code's block)
+
+SHOTS.md, "The shots": a shot that comes down on open water runs along the surface at the nearest boat. It's life's (`src/life/Torpedo.ts`), and it needed one hook in the shot code, the smallest there is, for the first account to review:
+
+```ts
+// main.ts, the Splatter's fx, `miss:` (the block was one expression; it's now three statements, the first two as they were)
+miss: (pos, hue, comet) => {
+  if (comet) cometFx.miss(pos, hue, comet, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel());
+  else particles.splash(pos, hue, 0.6);
+  life?.torpedo(pos, hue);
+},
+```
+
+Nothing in `src/game` changed. Life's own block in main.ts gives it what it draws with, once: `life.torpedoOn({ faction, dealHue, bus, water, splash, fling })`: the Splatter's faction and `dealHue`, `holds.bus`, water by the Splatter's own test (`city.groundAt(x, z) < config.splat.missWaterY`), and the particles' `splash` and `fling`.
+
+- **What it does.** From where the breath came down it picks the nearest ferry or sailboat within 300 m (`torpedoTune.reach`) that it has clear water to (land looked for every 20 m of the way; a ferry at its pier is still had, within 60 m of it), and runs at it at 130 m/s, homing on the boat as it moves, 5 s at the most: spray at its head every 0.07 s and a wake behind it, a ribbon in the marks' pool that fades in 1.6 s. There, the boat is painted as a locked shot paints it (`life.torpedoHit`: a fresh boat takes the hue at level 1 and the hue is dealt on, a painted one goes up a level), with a crown, and its wake runs in the one colour, twice as wide, for 30 s. With no boat in reach it skips twice on the way it was thrown (from the bus to where it came down), 70 m then 45, a blob flung and a crown at each landing, and stops short of a shore. A run that land cuts off fizzes there.
+- **How many.** Four at once at the most, and no two within 0.35 s (`torpedoTune.max`, `gap`), so the Hose poured on the water sends about three a second, not one a blob.
+- **The miss carries no faction**, so a torpedo paints as the Splatter's faction now (`splatter.faction`), the player's. Nothing in `src/recess` calls the Splatter, so a captain's paint never reaches `miss` and the player's torpedo in a match is the player's; that's to be seen on the release candidate, where life and Recess first meet. One for the first account to know if `miss` ever gains callers.
+- **The refund stays.** The Splatter still gives back half the belly on a water miss (`config.splat.missRefund`), whether or not the torpedo then finds a boat. SHOTS.md has water "stop being a miss": taking the refund back when a boat is hit is the shot code's, so the first account's call, or the producer's. Life can say so: `life.torpedoes.qa.hits` counts them, and a callback is a line if it's wanted.
+- **The Comet's water miss** keeps its own splash and soft boom (`cometFx.miss`), and the torpedo runs from under it.
+- **Checked** in Node on a hand-made snapshot, `node --no-warnings tools/life/torpedo.mjs` (9 rows): the run and its hit, the skips, the shore, a ferry at its pier, a car never picked, the gap and the cap, a run cut off by land, the wake's show and a plane's ribbon. Not flown in a browser on this branch yet: `window.__game.life.torpedoes` is the thing, its `qa` its counts.
+
 ## Not here yet
 
 - The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.
-- The HOLD TO LOCK hint for the first boat in reach: one line from Recess or life through `controls.hud.toast`, once.
+- The HOLD TO LOCK hint for the first boat in reach is in, life's (`Lock.ts`, through `controls.hud.toast`, once a page). In a match the duel says its own after the first dodge (`Duel.ts`).

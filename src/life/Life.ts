@@ -12,6 +12,7 @@ import type { LifeCurbAnswer, LifeLawn, LifeTick } from './lifeWorker';
 import { Curb, type CurbPose } from './Curb';
 import type { Holds } from '../game/Hold';
 import { LifeLock, type LockHost, type LockPick, lockTune } from './Lock';
+import { LifeTorpedo, type TorpedoHost, type TorpedoPick, type TorpedoRun, torpedoTune } from './Torpedo';
 import { LAWN_CELL } from './sim/parks';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
@@ -41,6 +42,13 @@ const SUPERS_KEPT = 8;
 const TRAIL_S = 40;
 const TRAIL_PX = 1;
 const TRAIL_M = 8;
+/**
+ * An aimed hit's show (SHOTS.md, "Lock-on", what a hit does; a locked shot's or a Torpedo's): for SHOW_PLANE_S s a plane's contrail is a ribbon of the one colour
+ * across the sky, RIBBON_M m and RIBBON_PX px wide at the least and as long as it has flown since, "seen from the whole city"; for SHOW_WAKE_S a boat's wake is
+ * the one colour, twice as wide. Either eases back to the usual over its last SHOW_EASE s.
+ */
+const SHOW_PLANE_S = 60, SHOW_WAKE_S = 30, SHOW_EASE = 8;
+const RIBBON_M = 60, RIBBON_PX = 4;
 /** People's ground round the bus (LIFE.md, "People"): tiles in this far (m) are sampled for their grass, a few rows of their 2 m cells a frame (512 of the world's queries
  *  of each kind: CONTRACT.md section 6's few hundred), nearest first, and dropped past FORGET. Out to 1.6 km, where a Lob lands (HOOKS.md) */
 const LAWN_REACH = 1600, LAWN_FORGET = 2400, LAWN_ROWS = 4;
@@ -83,6 +91,8 @@ export interface MoverPaint {
   at: number;
   /** whose paint it is (C15, src/game/factions.ts) */
   faction: number;
+  /** the page clock's UTC ms an aimed shot last hit it (a locked shot, a Torpedo): its ribbon's or its wake's show (SHOW_PLANE_S, SHOW_WAKE_S). None: never */
+  show?: number;
 }
 
 /** What life asks of the street's world (CONTRACT.md section 6, WorldForLife's first two queries): per query, a few hundred a frame at the most. */
@@ -147,12 +157,13 @@ export class LifeHost {
   private lockHash = 0;
   private lockRow = -1;
   lock: LifeLock | null = null;
+  torpedoes: LifeTorpedo | null = null;
   private readonly lockS = { x: 0, y: 0 };
   private readonly lockV = new THREE.Vector3();
   private glintKey: string | null = null;
   private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: false, miss: 0, half: 0 };
   /** hits on their way: each takes at its impact's game time */
-  private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number; kept: boolean; faction: number }> = [];
+  private readonly hits: Array<{ h: number; key: string; hue: number; level: number; arrive: number; until: number; kept: boolean; faction: number; show: boolean }> = [];
   private readonly worker: Worker;
   readonly pools: Pools;
   private readonly store: MoverStore;
@@ -218,6 +229,7 @@ export class LifeHost {
     this.utc = utcMs;
     this.sim = simTime;
     this.lock?.tick(_dt);
+    this.torpedoes?.tick(_dt);
     if (this.home && this.pools.group.parent !== this.home) this.home.add(this.pools.group);
     this.land(simTime);
     const ll = localToLatLon(bus.x, bus.z, this.origin, this.ll);
@@ -332,7 +344,8 @@ export class LifeHost {
       const h = this.hits[i];
       if (simTime < h.arrive) continue;
       // (a level up keeps its contrail going from when it was first painted)
-      this.painted.set(h.h, { hue: h.hue, level: h.level, at: this.painted.get(h.h)?.at ?? this.utc, faction: h.faction });
+      const was = this.painted.get(h.h);
+      this.painted.set(h.h, { hue: h.hue, level: h.level, at: was?.at ?? this.utc, faction: h.faction, show: h.show ? this.utc : was?.show });
       // (its kind says whether it's kept, KindInfo's kept: a picnic's paint and a car's are the session's, `picnic:` and `car:` live only while they're near,
       // CONTRACT.md section 3; a plane's namespace is `earth`, every other the place's)
       if (h.kept) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: h.key.startsWith('plane:') ? 'earth' : this.ns, ...(h.faction !== FACTION_RAINBOW ? { faction: h.faction } : {}) });
@@ -395,9 +408,12 @@ export class LifeHost {
    * WAKE_W of that wide at the stern and spreading to three times it, in every hue at any level. False: nothing to draw yet.
    */
   private trail(r: number, x: number, y: number, z: number, ux: number, uy: number, uz: number, speed: number, half: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, near: number, wake = 0): boolean {
-    const L = speed * Math.min(TRAIL_S, Math.max(0, (this.utc - paint.at) / 1000));
+    const bold = this.show(paint, wake ? SHOW_WAKE_S : SHOW_PLANE_S), flown = Math.min(TRAIL_S, Math.max(0, (this.utc - paint.at) / 1000));
+    // (the show's ribbon is as long as the plane has flown since the hit, the whole minute of it)
+    const L = speed * (wake || bold <= 0 ? flown : flown + (Math.max(flown, Math.min(SHOW_PLANE_S, (this.utc - paint.show!) / 1000)) - flown) * bold);
     if (L < 1) return false;
-    const K = this.pools.marks, wpx = TRAIL_PX * (paint.level + 1);
+    const K = this.pools.marks, wpx0 = TRAIL_PX * (paint.level + 1), wpx = wake ? wpx0 : wpx0 + (Math.max(wpx0, RIBBON_PX) - wpx0) * bold;
+    const wm = wake ? wake * WAKE_W * (1 + bold) : TRAIL_M + (RIBBON_M - TRAIL_M) * bold;
     for (let j = 0; j < MARK_POINTS; j++) {
       const t = j / (MARK_POINTS - 1), back = half + L * t;
       let px = x - ux * back, py = y - uy * back, pz = z - uz * back;
@@ -415,7 +431,7 @@ export class LifeHost {
         sy /= sl;
         sz /= sl;
       }
-      let w = 0.5 * Math.max(wake ? wake * WAKE_W * (1 + 2 * t) : TRAIL_M, wpx * d * ang);
+      let w = 0.5 * Math.max(wake ? wm * (1 + 2 * t) : wm, wpx * d * ang);
       if (near > 0 && d > near) {
         const k = near / d;
         px = cam.x - tx * k;
@@ -423,7 +439,7 @@ export class LifeHost {
         pz = cam.z - tz * k;
         w *= k;
       }
-      const v = (r * MARK_POINTS + j) * 2, ramp = lookOf(paint.faction).spray[paint.level >= 3 || wake ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
+      const v = (r * MARK_POINTS + j) * 2, ramp = lookOf(paint.faction).spray[bold <= 0 && (paint.level >= 3 || wake) ? (paint.hue + Math.floor(t * 5.999)) % 6 : paint.hue];
       K.pos[v * 3] = px - sx * w;
       K.pos[v * 3 + 1] = py - sy * w;
       K.pos[v * 3 + 2] = pz - sz * w;
@@ -432,6 +448,38 @@ export class LifeHost {
       K.pos[v * 3 + 5] = pz + sz * w;
       K.ramp[v] = K.ramp[v + 1] = ramp;
       K.age[v] = K.age[v + 1] = t;
+    }
+    return true;
+  }
+
+  /** How much of an aimed hit's show `paint` is in (0: none, 1: all of it), over `span` s from the hit and easing out over the last SHOW_EASE. */
+  private show(paint: MoverPaint, span: number): number {
+    if (!paint.show) return 0;
+    const since = (this.utc - paint.show) / 1000;
+    return since < 0 || since >= span ? 0 : Math.min(1, (span - since) / SHOW_EASE);
+  }
+
+  /**
+   * A Torpedo's wake (Torpedo.ts), ribbon `r`: flat on the water from its head back to where it went in, torpedoTune.wakeW m wide at the head and spreading behind,
+   * in its one colour; once it has ended the whole of it ages out over wakeFade s.
+   */
+  private torpedoWake(r: number, run: TorpedoRun, cam: THREE.Vector3, ang: number): boolean {
+    const T = torpedoTune, dx = run.x0 - run.x, dz = run.z0 - run.z, len = Math.sqrt(dx * dx + dz * dz);
+    if (len < 2) return false;
+    const K = this.pools.marks, sx = -dz / len, sz = dx / len, py = run.y + WAKE_LIFT, fade = run.done < 0 ? 0 : run.done / T.wakeFade;
+    const ramp = lookOf(ownerOf(run.faction)).spray[run.hue % 6];
+    for (let j = 0; j < MARK_POINTS; j++) {
+      const t = j / (MARK_POINTS - 1), px = run.x + dx * t, pz = run.z + dz * t;
+      const d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2);
+      const w = 0.5 * Math.max(T.wakeW * (1 + (T.wakeSpread - 1) * t), T.wakePx * d * ang), v = (r * MARK_POINTS + j) * 2;
+      K.pos[v * 3] = px - sx * w;
+      K.pos[v * 3 + 1] = py;
+      K.pos[v * 3 + 2] = pz - sz * w;
+      K.pos[v * 3 + 3] = px + sx * w;
+      K.pos[v * 3 + 4] = py;
+      K.pos[v * 3 + 5] = pz + sz * w;
+      K.ramp[v] = K.ramp[v + 1] = ramp;
+      K.age[v] = K.age[v + 1] = Math.min(1, t * 0.85 + fade);
     }
     return true;
   }
@@ -515,6 +563,8 @@ export class LifeHost {
         }
       }
     }
+    // (the Torpedoes' wakes, with what ribbons are left)
+    if (this.torpedoes) for (const run of this.torpedoes.runs) if (run.live && run.key && nk < MARKS_MAX && this.torpedoWake(nk, run, cam, ang)) nk++;
     this.qa.sky = false;
     this.qa.drawn = Math.min(nd, DRAWN);
     this.commit(pc, ns, n, nk);
@@ -621,6 +671,7 @@ export class LifeHost {
     // (a wake, `wake` the boat's length: one ribbon from its stern, a point every 0.3 of its length, its width spreading with age, laid on the water where the boat
     // went, not a bar swung with it: the first account's life review, M6. Its heading is its line either way for a ferry, so its stern is behind its going)
     const R = MARK_POINTS - 1, rows = this.snap!.rows, vx = rows[o + Col.VX], vz = rows[o + Col.VZ], vv = Math.sqrt(vx * vx + vz * vz);
+    const bold = wake ? this.show(paint, SHOW_WAKE_S) : 0;
     const h = rows[o + Col.HEADING], fx = wake && vv > 0.3 ? vx / vv : Math.cos(h), fz = wake && vv > 0.3 ? vz / vv : Math.sin(h);
     const kAxle = KINDS[rows[o + Col.KIND]].axle, rear = wake ? wake / (2 * scale) : (kAxle ? kAxle[0] : 1.35), wheel = wake ? 0 : (kAxle ? kAxle[1] : 0.72);
     const ax = x - fx * rear * scale, az = z - fz * rear * scale;
@@ -681,8 +732,9 @@ export class LifeHost {
         dz /= dl;
       }
       const age = j / (MARK_POINTS - 1), sx = -dz, sz = dx, d = Math.sqrt((cam.x - px) ** 2 + (cam.y - py) ** 2 + (cam.z - pz) ** 2);
-      const w = 0.5 * Math.max(wake ? wake * WAKE_W * (1 + 2 * age) : TRACK_M, TRACK_PX * d * ang);
-      const ramp = lookOf(paint.faction).spray[(paint.hue + all - Math.min(j, n) + 600) % 6];
+      const w = 0.5 * Math.max(wake ? wake * WAKE_W * (1 + bold) * (1 + 2 * age) : TRACK_M, TRACK_PX * d * ang);
+      // (an aimed hit's show: the wake in the one colour)
+      const ramp = lookOf(paint.faction).spray[bold > 0 ? paint.hue : (paint.hue + all - Math.min(j, n) + 600) % 6];
       for (let side = 0; side < sides; side++) {
         const off = (side ? -wheel : wheel) * scale, cx = px + sx * off, cz = pz + sz * off, v = ((r + side) * MARK_POINTS + j) * 2;
         K.pos[v * 3] = cx - sx * w;
@@ -979,9 +1031,48 @@ export class LifeHost {
     this.lockHash = key ? fnv1a(key) : 0;
   }
 
-  /** A lock's homing shot reached `key`: its paint at once, as a breath's (hit). True if it was fresh. */
+  /** A lock's homing shot reached `key`: its paint at once, as a breath's (hit), and its show (a plane's ribbon, a boat's wake). True if it was fresh. */
   lockHit(key: string, hue: number, faction: number): boolean {
-    return this.hit(key, hue, this.utc, this.sim, faction);
+    return this.hit(key, hue, this.utc, this.sim, faction, true);
+  }
+
+  /** The Torpedo (Torpedo.ts; SHOTS.md, "The shots"): main.ts's life block calls it once. */
+  torpedoOn(host: TorpedoHost): LifeTorpedo {
+    this.torpedoes = new LifeTorpedo(this, host);
+    return this.torpedoes;
+  }
+
+  /** The shot code's hook (HOOKS.md, "The Torpedo"; main.ts's `miss:`): a breath of `hue` came down on open water at `pos`. Nothing before torpedoOn. */
+  torpedo(pos: THREE.Vector3, hue: number): void {
+    this.torpedoes?.launch(pos, hue);
+  }
+
+  /** The Torpedo's pick: the ferry or sailboat nearest (x, z) within `reach` m that `clear` lets through. Its key, where it is and its length (m) into `out`. */
+  boatNear(x: number, z: number, reach: number, clear: (bx: number, bz: number) => boolean, out: TorpedoPick): boolean {
+    const s = this.snap;
+    if (!s) return false;
+    const rows = s.rows, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000;
+    let best = -1, bestD = reach;
+    for (let i = 0; i < n; i++) {
+      const o = i * ROW, kind = rows[o + Col.KIND];
+      if (kind !== Kind.FERRY && kind !== Kind.SAILBOAT) continue;
+      const bx = rows[o + Col.X] + rows[o + Col.VX] * dt, bz = rows[o + Col.Z] + rows[o + Col.VZ] * dt, d = Math.hypot(bx - x, bz - z);
+      if (d > bestD || !clear(bx, bz)) continue;
+      best = i;
+      bestD = d;
+    }
+    if (best < 0) return false;
+    const o = best * ROW, key = this.keys.get(s.rowsU32[o + Col.KEY]);
+    if (!key) return false;
+    out.key = key;
+    out.size = (KINDS[rows[o + Col.KIND]]?.size ?? 0) * rows[o + Col.SCALE];
+    out.at.set(rows[o + Col.X] + rows[o + Col.VX] * dt, rows[o + Col.Y] + rows[o + Col.VY] * dt, rows[o + Col.Z] + rows[o + Col.VZ] * dt);
+    return true;
+  }
+
+  /** A Torpedo reached `key`: its paint at once and its wake's show, as a locked shot's. True if it was fresh. */
+  torpedoHit(key: string, hue: number, faction: number): boolean {
+    return this.hit(key, hue, this.utc, this.sim, faction, true);
   }
 
   /** A ferry or sailboat within 1.5 km of the bus, on the screen (the HOLD TO LOCK hint). */
@@ -1009,7 +1100,8 @@ export class LifeHost {
    * A breath fired at a mover (CONTRACT.md section 3): it takes `color` (an index into HUE_RAMPS) at level 1 if it's fresh, or goes up a level and keeps its own,
    * when the breath arrives (game time); either way it takes the hitter's `faction` (C15, src/game/factions.ts), at level 3 too, as a building does. True: a fresh mover took the colour, and the breath's hue moves on, as for a fresh building.
    */
-  hit(key: string, color: number, utcMs: number, arrive: number, faction: number): boolean {
+  hit(key: string, color: number, utcMs: number, arrive: number, faction: number, show = false): boolean {
+    // (`show`: an aimed hit, a locked shot's or a Torpedo's, and its ribbon's or its wake's show from when it lands)
     const h = fnv1a(key), was = this.painted.get(h) ?? this.hits.find((x) => x.h === h);
     const level = was ? Math.min(3, was.level + 1) : 1;
     // (how long it's kept: what the row says, its time left over the place, or for a live plane the most)
@@ -1022,7 +1114,7 @@ export class LifeHost {
           kept = KINDS[s.rows[i * ROW + Col.KIND]]?.kept ?? kept;
           break;
         }
-    this.hits.push({ h, key, hue: was ? was.hue : color, level, arrive, until, kept, faction: ownerOf(faction) });
+    this.hits.push({ h, key, hue: was ? was.hue : color, level, arrive, until, kept, faction: ownerOf(faction), show });
     this.qa.hits++;
     return !was;
   }
@@ -1032,6 +1124,7 @@ export class LifeHost {
     this.painted.clear();
     this.trackOf.fill(0);
     this.hits.length = 0;
+    this.torpedoes?.reset();
     this.store.clear();
   }
 }

@@ -682,8 +682,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const fly = breathTravel ?? Math.max(0.05, S.impactDelay - S.inhale);
       jet = { at: simTime + S.inhale, impact: simTime + S.inhale + fly, end: simTime + S.duration, targets, hues, width: breathWidth };
     },
-    // (a Comet's into the water: its splash thrown up there, a soft boom, and it doesn't use up the full show)
-    miss: (pos, hue, comet) => (comet ? cometFx.miss(pos, hue, comet, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel()) : particles.splash(pos, hue, 0.6)),
+    // (a Comet's into the water: its splash thrown up there, a soft boom, and it doesn't use up the full show. Then the Torpedo, life's: the breath runs on along
+    // the water at the nearest boat, or skips twice: HOOKS.md, "The Torpedo"; the second account's hook, src/life/Torpedo.ts)
+    miss: (pos, hue, comet) => {
+      if (comet) cometFx.miss(pos, hue, comet, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel());
+      else particles.splash(pos, hue, 0.6);
+      life?.torpedo(pos, hue);
+    },
     // (a Comet planned late, its landing's tile in now: its streak bends to where it comes down)
     late: (comet, pos) => cometFx.retarget(comet, pos, simTime),
     impact: (b) => {
@@ -1465,6 +1470,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (lock-on for boats and planes, life's: a still hold on one within reach locks it, the lift fires a shot that homes in, and the lock holds 4 s for taps:
   // src/life/Lock.ts, SHOTS.md "Lock-on". The clack borrows the Bomb's II until it has a sound of its own)
   if (life) life.lockOn({ holds, faction: () => splatter.faction, hue: () => splatter.hueNext, dealHue: () => splatter.dealHue(), clack: () => audio.bombTier(2), hint: (l) => controls.hud.toast(l, 2.4) });
+  // (the Torpedo, life's: a shot that comes down on open water runs at the nearest boat within 300 m, or skips twice: src/life/Torpedo.ts, SHOTS.md "The shots".
+  // Its splashes and its skipping blob are the particles'; water is what the Splatter calls water)
+  if (life)
+    life.torpedoOn({
+      faction: () => splatter.faction,
+      dealHue: () => splatter.dealHue(),
+      bus: (out) => holds.bus(out),
+      water: (x, z) => city.groundAt(x, z) < config.splat.missWaterY,
+      splash: (pos, hue, strength, delay, count) => particles.splash(pos, hue, strength, delay, count),
+      fling: (from, to, flight, hue, size) => particles.fling(from, to, flight, hue, size),
+    });
   if (life) {
     // (Curb, on life's lane: the landing, the roll and its paint, src/game/CurbFlight.ts. Off under the opening's gate, the street preview, a match, the Moon)
     let curbHue = 0, curbSeed = 0x6a09e667;

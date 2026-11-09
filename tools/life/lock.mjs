@@ -98,7 +98,7 @@ const hold = (x, y, aimed, opts = {}) => {
   const took = !opts.owner && lock.start(h);
   if (took) h.owner = lock.name;
   for (let t = 0; t < aimed; t += 1 / 60) {
-    h.aimed = t;
+    h.aimed = h.held = t;
     lock.move(h, 1 / 60);
     opts.during?.(h, t);
     step(1 / 60);
