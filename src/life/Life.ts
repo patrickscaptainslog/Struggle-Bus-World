@@ -12,11 +12,12 @@ import type { LifeCurbAnswer, LifeLawn, LifeTick } from './lifeWorker';
 import { Curb, type CurbPose } from './Curb';
 import type { Holds } from '../game/Hold';
 import { LifeLock, type LockHost, type LockPick, lockTune } from './Lock';
+import { LifeParade, type ParadeHost } from './Parade';
 import { LifeTorpedo, type TorpedoHost, type TorpedoPick, type TorpedoRun, torpedoTune } from './Torpedo';
 import { LAWN_CELL } from './sim/parks';
 import { Ground } from '../world/tiles';
 import { fnv1a } from './hash';
-import { Col, Kind, KINDS, ROW } from './kinds';
+import { Col, Kind, KINDS, ROW, TRUCK_LEN } from './kinds';
 import type { MoverStore } from './paint';
 import { GREY_RAMP, MARK_POINTS, MARKS_MAX, type Pools, SPECKS_MAX, VEHICLE_TONES } from './pools';
 import { MAX_ROWS, readKeys, SNAP_BYTES, view, type SnapView } from './snapshot';
@@ -75,8 +76,6 @@ const GROUND_PX = 10, GROUND_GLINT = 2;
 /** Dancers drawn a frame at the most: a MEGA over a crowded park paints thousands (the first account's life review, M5). Past it, and on a painted picnic under
  *  DANCE_PX on the screen, its people stay sitting in its paint (the day review's M15: an 85 m tap at Dolores's peak paints about 138 blankets) */
 const DANCERS_MOST = 400, DANCE_PX = 12;
-/** A truck's length by its look (the heavy pool's models, pools.ts): a bus, a box truck, a semi; the aim and the level of detail read it, not the kind's one size */
-const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
 /** A painted boat's wake (KindInfo's wake): its width at the stern, a share of the boat's length, spreading to three times that at its far end, and how far over the water
  *  it's laid (m) */
 const WAKE_W = 0.3, WAKE_LIFT = 0.15;
@@ -158,6 +157,10 @@ export class LifeHost {
   private lockRow = -1;
   lock: LifeLock | null = null;
   torpedoes: LifeTorpedo | null = null;
+  parade: LifeParade | null = null;
+  /** the rows being drawn, which put, bounce and tracks read: the snapshot's, or the Parade's own */
+  private dRows: Float32Array = new Float32Array(0);
+  private dU32: Uint32Array = new Uint32Array(0);
   private readonly lockS = { x: 0, y: 0 };
   private readonly lockV = new THREE.Vector3();
   private glintKey: string | null = null;
@@ -232,6 +235,7 @@ export class LifeHost {
     this.torpedoes?.tick(_dt);
     if (this.home && this.pools.group.parent !== this.home) this.home.add(this.pools.group);
     this.land(simTime);
+    this.parade?.tick(_dt, this.snap, this.snap ? (utcMs - this.snap.f64[0]) / 1000 : 0, this.painted);
     const ll = localToLatLon(bus.x, bus.z, this.origin, this.ll);
     this.send(utcMs, bus.x, bus.y, bus.z, ll[0], ll[1], REACH);
     if (bus.y < 1500) this.sampleGround(bus.x, bus.z);
@@ -346,6 +350,7 @@ export class LifeHost {
       // (a level up keeps its contrail going from when it was first painted)
       const was = this.painted.get(h.h);
       this.painted.set(h.h, { hue: h.hue, level: h.level, at: was?.at ?? this.utc, faction: h.faction, show: h.show ? this.utc : was?.show });
+      this.parade?.ask(h.h, h.faction);
       // (its kind says whether it's kept, KindInfo's kept: a picnic's paint and a car's are the session's, `picnic:` and `car:` live only while they're near,
       // CONTRACT.md section 3; a plane's namespace is `earth`, every other the place's)
       if (h.kept) this.store.put({ key: h.key, hue: h.hue, level: h.level, until: h.until, ns: h.key.startsWith('plane:') ? 'earth' : this.ns, ...(h.faction !== FACTION_RAINBOW ? { faction: h.faction } : {}) });
@@ -490,7 +495,7 @@ export class LifeHost {
     // so a painted plane keeps its pixel out there; the haze has the rest by then)
     const near = 0.9 * ((camera as THREE.PerspectiveCamera).far || SKY_NEAR);
     let ns = 0, n = 0, nd = 0, nk = 0;
-    const pc = this.pc, lit = (heldGlobals.uLit.value as number) > 0;
+    const pc = this.pc, lit = (heldGlobals.uLit.value as number) > 0, Q = this.parade;
     pc[0] = pc[1] = pc[2] = pc[3] = 0;
     this.qMap.identity();
     this.drawFrames++;
@@ -499,17 +504,20 @@ export class LifeHost {
     camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(this.vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     if (s) {
-      const rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
+      const rows = (this.dRows = s.rows), u32 = (this.dU32 = s.rowsU32), dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
       n = s.u32[2];
       for (let i = 0; i < n; i++) {
         const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
         if (!info) continue;
+        // (a car in the Parade is drawn from the Parade's row, below; one just out of it grows back on its own road)
+        const ghost = Q && Q.busy && info.track ? Q.ghost(u32[o + Col.KEY]) : 1;
+        if (ghost <= 0) continue;
         const x0 = rows[o + Col.X] + rows[o + Col.VX] * dt, y0 = rows[o + Col.Y] + rows[o + Col.VY] * dt, z0 = rows[o + Col.Z] + rows[o + Col.VZ] * dt;
         const paint = this.painted.get(u32[o + Col.KEY]);
         // (painted life comes alive, LIVING.md: a painted picnic's people get up off the blanket, turn to the bus and dance)
         const alive = paint !== undefined && rows[o + Col.KIND] === Kind.PICNIC;
         const dx = x0 - cam.x, dy = y0 - cam.y, dz = z0 - cam.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        let scale = rows[o + Col.SCALE], x = x0, y = y0, z = z0;
+        let scale = rows[o + Col.SCALE] * ghost, x = x0, y = y0, z = z0;
         const size = this.sizeOf(o, info), px = (size * scale) / (Math.max(1, d) * ang);
         if (d < near) {
           this.sphere.center.set(x0, y0, z0);
@@ -563,6 +571,25 @@ export class LifeHost {
         }
       }
     }
+    // (the Parade's cars, each from its own row there, Parade.ts: leaping in, bouncing in a wave down the line with their tracks behind them, popping away)
+    if (Q && Q.busy) {
+      const rows = (this.dRows = Q.rows), u32 = (this.dU32 = Q.u32);
+      for (let j = 0; j < Q.slots; j++) {
+        if (!Q.shown(j)) continue;
+        const o = j * ROW, info = KINDS[rows[o + Col.KIND]], hash = u32[o + Col.KEY], x = rows[o + Col.X], y = rows[o + Col.Y], z = rows[o + Col.Z], scale = rows[o + Col.SCALE];
+        const k = pc[info.pool], pool = P.pool(info.pool);
+        this.sphere.center.set(x, y, z);
+        this.sphere.radius = Q.longOf(j) * scale + 4;
+        if (k >= pool.max || !this.frustum.intersectsSphere(this.sphere)) continue;
+        const paint = Q.paintOf(j, this.painted.get(hash));
+        this.put(pool, k, o, x, y, z, scale, lookOf(paint.faction).body[paint.hue]);
+        if (Q.rolling(j)) this.bounce(pool, k, o, x, y, z, scale, utcMs, false, Q.beat(j));
+        pc[info.pool]++;
+        this.cars++;
+        this.note(nd++, hash, x, y, z);
+        if (Q.rolling(j) && nk + 2 <= MARKS_MAX) nk += this.tracks(nk, hash, o, x, y, z, scale, paint, cam, ang);
+      }
+    }
     // (the Torpedoes' wakes, with what ribbons are left)
     if (this.torpedoes) for (const run of this.torpedoes.runs) if (run.live && run.key && nk < MARKS_MAX && this.torpedoWake(nk, run, cam, ang)) nk++;
     this.qa.sky = false;
@@ -581,7 +608,7 @@ export class LifeHost {
 
   /** A model's instance: row `o` of the snapshot at (x, y, z) in the drawing loop's frame, its map heading turned into that frame by qMap. */
   private put(pool: Pools['large'], k: number, o: number, x: number, y: number, z: number, scale: number, ramp: number): void {
-    const rows = this.snap!.rows, key = this.snap!.rowsU32[o + Col.KEY];
+    const rows = this.dRows, key = this.dU32[o + Col.KEY];
     this.e.set(rows[o + Col.BANK], -rows[o + Col.HEADING], rows[o + Col.PITCH]);
     this.q.setFromEuler(this.e).premultiply(this.qMap);
     this.m.compose(this.p.set(x, y, z), this.q, this.s.set(scale, scale, scale));
@@ -643,8 +670,8 @@ export class LifeHost {
    * high, squashed as it lands and stretched as it leaves, its nose nodding and its body rocking. A boat (`rock`) rides a swell instead, about once in 1.6 s, its bow
    * and its sides rising and falling in turn, a metre a 40 m of it. Returns the lift (m).
    */
-  private bounce(pool: Pools['middle'], k: number, o: number, x: number, y: number, z: number, scale: number, utcMs: number, rock = false): number {
-    const rows = this.snap!.rows, key = this.snap!.rowsU32[o + Col.KEY], beat = (utcMs / 1000) * (rock ? 0.62 : 2.2) + (key & 255) / 256;
+  private bounce(pool: Pools['middle'], k: number, o: number, x: number, y: number, z: number, scale: number, utcMs: number, rock = false, at = -1): number {
+    const rows = this.dRows, key = this.dU32[o + Col.KEY], beat = (utcMs / 1000) * (rock ? 0.62 : 2.2) + (at < 0 ? (key & 255) / 256 : at);
     const up = rock ? 0.5 + 0.5 * Math.sin(2 * Math.PI * beat) : Math.abs(Math.sin(Math.PI * beat)), lift = (rock ? 0.025 * KINDS[rows[o + Col.KIND]].size : 0.3) * up * scale;
     const sq = rock ? 0 : (1 - up) ** 3, a = rock ? 1.6 : 1;
     this.e.set(rows[o + Col.BANK] + 0.05 * a * Math.sin(Math.PI * beat * (rock ? 2 : 1) + (rock ? 1.3 : 0)), -rows[o + Col.HEADING], rows[o + Col.PITCH] + 0.07 * (rock ? 0.6 : 1) * Math.sin(2 * Math.PI * beat));
@@ -670,7 +697,7 @@ export class LifeHost {
   private tracks(r: number, hash: number, o: number, x: number, y: number, z: number, scale: number, paint: MoverPaint, cam: THREE.Vector3, ang: number, wake = 0): number {
     // (a wake, `wake` the boat's length: one ribbon from its stern, a point every 0.3 of its length, its width spreading with age, laid on the water where the boat
     // went, not a bar swung with it: the first account's life review, M6. Its heading is its line either way for a ferry, so its stern is behind its going)
-    const R = MARK_POINTS - 1, rows = this.snap!.rows, vx = rows[o + Col.VX], vz = rows[o + Col.VZ], vv = Math.sqrt(vx * vx + vz * vz);
+    const R = MARK_POINTS - 1, rows = this.dRows, vx = rows[o + Col.VX], vz = rows[o + Col.VZ], vv = Math.sqrt(vx * vx + vz * vz);
     const bold = wake ? this.show(paint, SHOW_WAKE_S) : 0;
     const h = rows[o + Col.HEADING], fx = wake && vv > 0.3 ? vx / vv : Math.cos(h), fz = wake && vv > 0.3 ? vz / vv : Math.sin(h);
     const kAxle = KINDS[rows[o + Col.KIND]].axle, rear = wake ? wake / (2 * scale) : (kAxle ? kAxle[0] : 1.35), wheel = wake ? 0 : (kAxle ? kAxle[1] : 0.72);
@@ -775,7 +802,7 @@ export class LifeHost {
     pc[0] = pc[1] = pc[2] = pc[3] = 0;
     if (s) {
       if (this.fixFor !== s) this.toFix(s);
-      const R = ob.axes, b = ob.pos, F = this.fix, A = this.ax, rows = s.rows, u32 = s.rowsU32, dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
+      const R = ob.axes, b = ob.pos, F = this.fix, A = this.ax, rows = (this.dRows = s.rows), u32 = (this.dU32 = s.rowsU32), dt = (utcMs - s.f64[0]) / 1000, sp = P.specks;
       // (the map's axes in the render frame, for the models' headings: render <- fixed <- map, at the map's origin, near enough over the place's sky. Column k is map axis k)
       const me = this.mapRot.elements;
       for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) me[k * 4 + j] = R[j * 3] * A[k * 3] + R[j * 3 + 1] * A[k * 3 + 1] + R[j * 3 + 2] * A[k * 3 + 2];
@@ -847,9 +874,10 @@ export class LifeHost {
     const ang = Math.max(1e-6, globals.uPixelAngle.value as number);
     const t0 = (this.utc - s.f64[0]) / 1000;
     let best = -1, bestD = Infinity, bx = 0, by = 0, bz = 0, bt = 0, bR = 0, bHalf = 0;
+    const Q = this.parade;
     for (let i = 0; i < n; i++) {
       const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
-      if (!info || (info.onLine && !ground)) continue;
+      if (!info || (info.onLine && !ground) || (Q && Q.busy && info.track && Q.ghost(u32[o + Col.KEY]) <= 0)) continue;
       const vx = rows[o + Col.VX], vy = rows[o + Col.VY], vz = rows[o + Col.VZ];
       let x = rows[o + Col.X] + vx * t0, y = rows[o + Col.Y] + vy * t0, z = rows[o + Col.Z] + vz * t0;
       let along = (x - ox) * ux + (y - oy) * uy + (z - oz) * uz;
@@ -907,7 +935,7 @@ export class LifeHost {
   blast(x: number, y: number, z: number, r: number, hue: number, superTag: SuperTag | undefined, arrive: number, faction: number): void {
     const s = this.snap;
     if (!s) return;
-    const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000 + Math.max(0, arrive - this.sim), hole = superTag?.inner ?? 0;
+    const rows = s.rows, u32 = s.rowsU32, n = s.u32[2], dt = (this.utc - s.f64[0]) / 1000 + Math.max(0, arrive - this.sim), hole = superTag?.inner ?? 0, Q = this.parade;
     let took: Set<number> | null = null;
     if (superTag) {
       took = this.superTook.get(superTag.id) ?? null;
@@ -920,7 +948,7 @@ export class LifeHost {
     }
     for (let i = 0; i < n; i++) {
       const o = i * ROW, info = KINDS[rows[o + Col.KIND]];
-      if (!info) continue;
+      if (!info || (Q && Q.busy && info.track && Q.ghost(u32[o + Col.KEY]) <= 0)) continue;
       const my = rows[o + Col.Y] + rows[o + Col.VY] * dt;
       if (my > y + BLAST_OVER || my < y - BLAST_UNDER) continue;
       const dx = rows[o + Col.X] + rows[o + Col.VX] * dt - x, dz = rows[o + Col.Z] + rows[o + Col.VZ] * dt - z;
@@ -930,6 +958,21 @@ export class LifeHost {
       if (!key || this.pendingAt(h, arrive)) continue;
       took?.add(h);
       this.hit(key, hue, this.utc, arrive, faction);
+    }
+    // (the Parade's cars are where the Parade has them, not where their rows are)
+    if (Q && Q.busy) {
+      const pr = Q.rows, pu = Q.u32;
+      for (let j = 0; j < Q.slots; j++) {
+        if (!Q.shown(j)) continue;
+        const o = j * ROW, my = pr[o + Col.Y];
+        if (my > y + BLAST_OVER || my < y - BLAST_UNDER) continue;
+        const dx = pr[o + Col.X] - x, dz = pr[o + Col.Z] - z, R = r + 0.5 * Q.longOf(j) * pr[o + Col.SCALE], h = pu[o + Col.KEY];
+        if (dx * dx + dz * dz > R * R || (hole > 0 && dx * dx + dz * dz < hole * hole) || took?.has(h)) continue;
+        const key = this.keys.get(h);
+        if (!key || this.pendingAt(h, arrive)) continue;
+        took?.add(h);
+        this.hit(key, hue, this.utc, arrive, faction);
+      }
     }
   }
 
@@ -947,8 +990,10 @@ export class LifeHost {
    * calls it after `curb.land(...)` has the lane; false when there's none.
    */
   curbRoll(dt: number, push: number, look: number, out: CurbPose): boolean {
-    const s = this.snap;
-    return this.curb.roll(dt, push, look, s, s ? (this.utc - s.f64[0]) / 1000 : 0, this.keys, out, this.painted);
+    const s = this.snap, on = this.curb.roll(dt, push, look, s, s ? (this.utc - s.f64[0]) / 1000 : 0, this.keys, out, this.painted, this.parade);
+    // (the Parade follows the bus's pose on its lane)
+    if (on) this.parade?.lead(out);
+    return on;
   }
 
   /** A key's hash, as the rows carry it (QA). */
@@ -1034,6 +1079,12 @@ export class LifeHost {
   /** A lock's homing shot reached `key`: its paint at once, as a breath's (hit), and its show (a plane's ribbon, a boat's wake). True if it was fresh. */
   lockHit(key: string, hue: number, faction: number): boolean {
     return this.hit(key, hue, this.utc, this.sim, faction, true);
+  }
+
+  /** Parade (Parade.ts; SHOTS.md, "The shots"): main.ts's life block calls it once. */
+  paradeOn(host: ParadeHost): LifeParade {
+    this.parade = new LifeParade(host);
+    return this.parade;
   }
 
   /** The Torpedo (Torpedo.ts; SHOTS.md, "The shots"): main.ts's life block calls it once. */
@@ -1125,6 +1176,7 @@ export class LifeHost {
     this.trackOf.fill(0);
     this.hits.length = 0;
     this.torpedoes?.reset();
+    this.parade?.reset();
     this.store.clear();
   }
 }

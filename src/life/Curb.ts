@@ -180,7 +180,7 @@ export class Curb {
    * next junction. `snap` is life's snapshot (the cars, where they were at its utcMs, `ageS` s ago); `painted`, life's painted movers by key hash. False when it
    * isn't on a lane.
    */
-  roll(dt: number, push: number, look: number, snap: SnapView | null, ageS: number, keys: Map<number, string>, out: CurbPose, painted: ReadonlyMap<number, unknown> | null = null): boolean {
+  roll(dt: number, push: number, look: number, snap: SnapView | null, ageS: number, keys: Map<number, string>, out: CurbPose, painted: ReadonlyMap<number, unknown> | null = null, hidden: { busy: number; ghost(hash: number): number } | null = null): boolean {
     if (this.state !== 'on' || this.n < 2) return false;
     const P = this.pts, H = curbHost;
     let i = Math.min(this.i, this.n - 2);
@@ -213,6 +213,8 @@ export class Curb {
         this.qa.side = side;
         if (side < H.sideMin || side > H.side || Math.abs(along) > H.reach2) continue;
         const hash = u32[o + Col.KEY];
+        // (a car in the Parade is behind the bus, not on its row: Parade.ts)
+        if (hidden && hidden.busy && hidden.ghost(hash) < 1) continue;
         if (along > 6 && along < nextAlong && !painted?.has(hash)) {
           const key = keys.get(hash) ?? null;
           if (key && !this.painted.has(key)) {

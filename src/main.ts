@@ -25,6 +25,7 @@ import { StreetCam } from './game/StreetCam';
 import { CurbFlight, type CurbEvent } from './game/CurbFlight';
 import { curbBoing, curbChirp, curbTicks, curbToot } from './audio/curbSfx';
 import { LOOKAHEAD } from './audio/dsp';
+import { paradeHonk } from './life/paradeSfx';
 import { driveSpeed, WARP } from './game/Turbo';
 import { BusModel, busTune, type BusPose } from './bus/BusModel';
 import { D as BUS_DIM } from './bus/busShape';
@@ -1480,6 +1481,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       water: (x, z) => city.groundAt(x, z) < config.splat.missWaterY,
       splash: (pos, hue, strength, delay, count) => particles.splash(pos, hue, strength, delay, count),
       fling: (from, to, flight, hue, size) => particles.fling(from, to, flight, hue, size),
+    });
+  // (Parade, life's: a car the player's paint lands on from the street honks and falls in behind the bus, up to six: src/life/Parade.ts, SHOTS.md "The shots".
+  // The honk is life's stand-in on the voice kit, src/life/paradeSfx.ts)
+  if (life)
+    life.paradeOn({
+      faction: () => splatter.faction,
+      tail: BUS_DIM.zRear * bus.scale,
+      honk: (n, seed) => {
+        const a = audio.voiceKit();
+        if (a) paradeHonk(a, a.ctx.currentTime + LOOKAHEAD, n, seed);
+      },
     });
   if (life) {
     // (Curb, on life's lane: the landing, the roll and its paint, src/game/CurbFlight.ts. Off under the opening's gate, the street preview, a match, the Moon)

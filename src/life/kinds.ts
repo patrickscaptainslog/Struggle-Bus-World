@@ -50,6 +50,9 @@ export const KINDS: Record<number, KindInfo> = {
   [Kind.SAILBOAT]: { pool: Pool.LARGE, size: 11, wake: true, kept: true },
 };
 
+/** A truck's length by its look (the heavy pool's models, pools.ts): a bus, a box truck, a semi; the aim, the level of detail and the Parade read it, not the kind's one size */
+export const TRUCK_LEN = [12, 12, 9.3, 9.3, 20.4];
+
 /** A snapshot row (LIFE.md, "The worker"): 16 floats. */
 export const ROW = 16;
 export const Col = {

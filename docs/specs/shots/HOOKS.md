@@ -202,6 +202,16 @@ Nothing in `src/game` changed. Life's own block in main.ts gives it what it draw
 - **The Comet's water miss** keeps its own splash and soft boom (`cometFx.miss`), and the torpedo runs from under it.
 - **Checked** in Node on a hand-made snapshot, `node --no-warnings tools/life/torpedo.mjs` (9 rows): the run and its hit, the skips, the shore, a ferry at its pier, a car never picked, the gap and the cap, a run cut off by land, the wake's show and a plane's ribbon. Not flown in a browser on this branch yet: `window.__game.life.torpedoes` is the thing, its `qa` its counts.
 
+## Parade (life's; nothing in the shot code)
+
+SHOTS.md, "The shots": cars painted from the street honk and fall in behind the bus, up to six. All of it is life's (`src/life/Parade.ts`; `docs/specs/earth/LIFE.md`, "Parade"), and nothing of yours changed: it hears of a paint landing from life's own `land`, and of the bus on the street from `life.curbRoll`, which your Curb flight already calls each frame. Three things are yours to pick up:
+
+- **The lens.** The line is behind the bus, where the street's camera sits: the first car's middle is about 15 m behind the bus's, the sixth's about 55 m (six semis, 150 m). `life.parade.count` is the cars in the line, the leaping ones too. A lens that stands back a little for each, or a look behind that finds them, is yours; nothing asks for it yet.
+- **The honk** is a stand-in on your kit, `src/life/paradeSfx.ts` (`paradeHonk(kit, t, place, seed)`: two square reeds a third apart through a bandpass, a step up a five-note scale by the place in the line; a seventh car one low sour note). main.ts's life block plays it from `life.paradeOn({ honk })`. Re-voice it or take it into `src/audio`: it's one line there.
+- **In a match** nothing: Curb is off there (`off: ... params.has('recess')`), so the Parade never leads.
+
+Checked in Node, `node --expose-gc --no-warnings tools/life/parade.mjs` (10 rows).
+
 ## Not here yet
 
 - The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.
