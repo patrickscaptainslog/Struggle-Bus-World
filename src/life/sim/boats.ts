@@ -51,6 +51,9 @@ export interface FerryLine {
 const SHARED = 120, BERTH = 40, RAFT = 12, EASE = 120;
 /** It slides into its berth over its last APPROACH m in, and out over its first out (m) */
 const APPROACH = 500;
+/** Under way it keeps this far to the right of its line (m), so one line's two vessels pass port to port and not through each other (the first account's
+ *  re-review of life, M8: 152 head-on meetings a day); eased in and out with the slide to its berth */
+const LANE = 22;
 /** Every line's headway divides this (s): departures from one terminal are spread over it */
 const PHASE = 1800;
 const circ = (d: number) => {
@@ -246,6 +249,10 @@ function placeVessel(f: FerryLine, j: number, t: number, tzMin: number): void {
   onLine(f, s + FERRY_CHORD, P, 2);
   let x = (P[0] + P[2]) / 2, z = (P[1] + P[3]) / 2;
   const dx = P[2] - P[0], dz = P[3] - P[1], l = Math.sqrt(dx * dx + dz * dz) || 1, ux = dx / l, uz = dz / l;
+  // (to the right of its way: the line's way out, back the other; none of it at a berth, where its way turns round)
+  const lane = LANE * (on ? S[2] : 1) * (1 - berth);
+  x -= uz * lane;
+  z += ux * lane;
   if (berth > 0) {
     // (its own vessels across its heading, outward along the terminal's axis on its slot's side, away from the berths nearer its middle)
     const off = berthOff(atB ? f.slotB : f.slotA) * berth, ax = atB ? f.axisB : f.axisA, raft = RAFT * j * berth * (atB ? f.raftB : f.raftA);

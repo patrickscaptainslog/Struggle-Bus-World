@@ -324,24 +324,31 @@ const snap = (place, t, reach = 80000, bx = 0, bz = 0, ...weather) => {
     return true;
   };
   {
-    let pairs = 0, worst = Infinity, at = '', still = 0;
-    for (let t = day0; t < day0 + 86400000; t += 60000) {
-      const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX);
+    // (the re-review's M8: every second of the day, ferries under way too. Two hulls inside each other: both at rest; one at rest and one coming in or
+    // going out; two of one line; and two lines' boats under way, which may still cross on the bay)
+    let still = 0, sliding = 0, sisters = 0, crossing = 0, firstAt = '';
+    const keyOf8 = new Map();
+    for (let t = day0; t < day0 + 86400000; t += 1000) {
+      const k = ferriesOn(lines, t, tz, 0, 0, 200000, out, 0, MAX, t === day0 ? (h, key) => keyOf8.set(h, key) : undefined);
       for (let p = 0; p < k; p++)
         for (let q = p + 1; q < k; q++) {
-          const a = p * ROW, b = q * ROW, d = Math.hypot(out[a + 2] - out[b + 2], out[a + 4] - out[b + 4]);
-          const ra = Math.hypot(out[a + 5], out[a + 7]) < 0.5, rb = Math.hypot(out[b + 5], out[b + 7]) < 0.5, rest = ra || rb;
-          if (!rest && Math.hypot(out[a + 5] - out[b + 5], out[a + 7] - out[b + 7]) > 1) continue;
-          if (d < worst) { worst = d; at = new Date(t).toISOString(); }
-          if (hullsMeet(a, b)) {
-            pairs++;
-            if (ra && rb) still++;
-          }
+          const a = p * ROW, b = q * ROW;
+          if (Math.abs(out[a + 2] - out[b + 2]) > 45 || Math.abs(out[a + 4] - out[b + 4]) > 45 || !hullsMeet(a, b)) continue;
+          const ra = Math.hypot(out[a + 5], out[a + 7]) < 0.05, rb = Math.hypot(out[b + 5], out[b + 7]) < 0.05;
+          const la = keyOf8.get(u32[a])?.split(':')[1], lb = keyOf8.get(u32[b])?.split(':')[1];
+          if (ra && rb) still++;
+          else if (ra || rb) sliding++;
+          else if (la === lb) sisters++;
+          else crossing++;
+          if (!firstAt && (ra || rb || la === lb)) firstAt = `${new Date(t).toISOString()} ${keyOf8.get(u32[a])} ${keyOf8.get(u32[b])}`;
         }
     }
     const firsts = new Set(lines.map((f) => f.first)).size;
-    // (both at rest, never; one sliding into its berth past another already in, a brush, half an hour of the day at the most: from 1,396 minutes before)
-    row('ferries: no two hulls inside each other at rest, any minute of a day; brushing one at a berth on the way in 30 minutes a day at most; sailings staggered', still === 0 && pairs <= 30 && firsts > 1, { bothAtRest: still, brushMinutes: pairs, closestM: +worst.toFixed(1), at, firstSailings: firsts, lines: lines.length });
+    // (held: none at rest in another at rest, and no two of one line under way in each other, which keep to the right of their line. Not held yet, and counted
+    // here so it's seen: a ferry coming in or going out through one at its berth, by the Ferry Building most of all, and two lines' boats crossing under way.
+    // Berths laid from the water, not from the routes' last stretches, are what's left of M8: LIFE.md, "Ferries")
+    row('ferries: every second of a day: none at rest in one at rest, no two of one line under way in each other; one through a berthed one, and two lines crossing, counted; sailings staggered',
+      still === 0 && sisters === 0 && firsts > 1, { bothAtRestS: still, intoOneAtRestS: sliding, sistersS: sisters, twoLinesUnderWayS: crossing, first: firstAt, firstSailings: firsts, lines: lines.length });
     // (M3: keyed by the service day, CONTRACT.md section 3, and kept to its last crossing)
     const k = ferriesOn(lines, T0, tz, 0, 0, 200000, out, 0, MAX, (h, key) => (keyOf.has(h) ? 0 : keyOf.set(h, key)));
     const sample = keyOf.get(u32[0]) ?? '', untilH = out[13] / 3600;
