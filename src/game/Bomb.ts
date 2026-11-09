@@ -219,6 +219,7 @@ export class Bomb implements BombHook {
     if (!f.tryBarf()) {
       // (a tier shows only with a full belly, so this is a breath that started under the thumb: it fizzles, nothing spent)
       this.stats.fizzles++;
+      H.aimer.unfire();
       H.audio.bombStop(false);
       this.tell((w) => w.cancel?.());
       return;
@@ -267,6 +268,8 @@ export class Bomb implements BombHook {
 
   private look(dt: number) {
     const T = this.tierV, B = config.bomb, A = this.h.aimer;
+    // (a Bomb never lobs: while it charges the aim plans no Lob, so its ring and its shot are the Comet's or the tap's)
+    A.bombing = T >= 1;
     this.swellTo = T >= 3 ? 1 + B.swell3 : T >= 2 ? 1 + B.swell2 : 1;
     // (a stiff spring: the clunk is the bus snapping bigger, a little past, and settling. Stepped at 1/120 s at most: in one step of a 30 fps frame it
     // grew by a quarter a frame, and the bus with it, off the screen in a second)

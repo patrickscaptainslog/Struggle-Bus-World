@@ -13,8 +13,8 @@ export const fallsOn = !!q && q.has('falls') && !q.has('moon') && !q.has('moonla
 export const fallsed = (glsl: string): string => (fallsOn ? glsl : '');
 
 /** The runs: a tower over `tall` m hit `up` m up or more runs; their speed (m/s, the flood's), up to `fast` times it a column, a column's width (m) and the
- *  share of columns that run, how long a wet run takes to dry (s), and the slots. */
-export const FALLS = { tall: 40, up: 40, speed: 55, fast: 1.6, col: 2, share: 0.55, dry: 6, slots: 4 };
+ *  share of columns that run, how long a wet run takes to dry (s), the slots, and how long the struck tower's own coat is held back behind its runs (s). */
+export const FALLS = { tall: 40, up: 40, speed: 55, fast: 1.6, col: 2, share: 0.55, dry: 6, slots: 4, hold: 0.5 };
 
 /** uFalls[i]: (the tower's building index, -1 none; the impact's height, m; the game time it struck; the runs' speed, m/s). */
 export const fallsUniforms = fallsOn ? { uFalls: { value: Array.from({ length: FALLS.slots }, () => new THREE.Vector4(-1, 0, -1e3, FALLS.speed)) } } : null;
@@ -27,7 +27,10 @@ export const fallTime = (h: number): number => Math.max(0, h) / (FALLS.speed * F
 
 /** A tower struck at height y (m) at game time t0 runs in slot i. Off the flag, only fallsLast. */
 export function setFall(i: number, index: number, y: number, t0: number): void {
-  Object.assign(fallsLast[i], { index, y, t0 });
+  const L = fallsLast[i];
+  L.index = index;
+  L.y = y;
+  L.t0 = t0;
   fallsUniforms?.uFalls.value[i].set(index, y, t0, FALLS.speed);
 }
 

@@ -1,6 +1,9 @@
 // Hold to aim, the hook and the Hose (docs/specs/shots/SHOTS.md, HOOKS.md) through the REAL Input, Flight, Holds and Hose, offline: synthetic pointers on a controlled
 // clock, one frame every 16.7 ms like the game loop, and a flat city at sea level under a camera 300 m up. The Splatter, the particles and the sound are stand-ins that
 // write down what they were asked. Writes shots/controls/sim/holds.json (SB_OUT moves it) and a table on stdout.
+// --late (the Lob's check, 1): only the late lift, a still finger whose lift reaches the page after its aim began, its own time 60 ms in: with the Lob's ring up
+// (input.lobUp, as main.ts sets it) it is a tap and the Hose gives back what it poured; without it, as the base had it, its aim ends and pours. A real hold
+// with the ring up, and a lost touch, keep what they poured. Writes holds-late.json; exit 0 only when every check passes.
 import { installDom, Target, clock, ptr, newId, runTimers } from './fakedom';
 const { win } = installDom();
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -21,7 +24,7 @@ const AX = 300, AY = 300;
 const LANE = { x: 196, y: 506, r: 0.27 * 393, open: 0.25 * 852 };
 const FLAT = { obstacleAt: () => 0, groundAt: () => 0 };
 
-function harness(bomb?: (dt: number) => void) {
+function harness(bomb?: (dt: number) => void, step = 16.7) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
@@ -49,9 +52,8 @@ function harness(bomb?: (dt: number) => void) {
   const hose = new Hose({ flight, city, splatter, particles, audio, rig: { kick: () => {} } as any, mouth: () => mouth.set(flight.x, flight.y, flight.z - 6), busVel: () => new THREE.Vector3(), hatch: (o) => o.set(0, 125, 0), flash: () => {}, sign: () => {} });
   holds.add(hose, { last: true });
   input.onAimStart = () => { log.push(`aim@${at()}`); holds.begin(); };
-  input.onAimEnd = (c) => { log.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`); holds.end(c); };
+  input.onAimEnd = (c, late) => { log.push(`aimEnd${c ? '(cancelled)' : ''}@${at()}`); holds.end(c, late); };
   input.onTap = () => { log.push(`tap@${at()}`); if (holds.tap()) log.push('tap taken'); };
-  const step = 16.7;
   let next = clock.ms + step;
   let maxDrain = 0;
   let alt = 120;
@@ -82,6 +84,9 @@ function harness(bomb?: (dt: number) => void) {
     down(id: number, x: number, y: number, primary = true) { el.dispatch('pointerdown', ptr('pointerdown', id, x, y, primary)); },
     move(id: number, x: number, y: number) { el.dispatch('pointermove', ptr('pointermove', id, x, y)); },
     up(id: number, x: number, y: number) { el.dispatch('pointerup', ptr('pointerup', id, x, y)); },
+    /** a lift whose own time is `ms` (the clock's), reaching the page now: behind slow frames */
+    upAt(id: number, x: number, y: number, ms: number) { el.dispatch('pointerup', { ...ptr('pointerup', id, x, y), timeStamp: ms }); },
+    cancel(id: number, x: number, y: number) { el.dispatch('pointercancel', ptr('pointercancel', id, x, y)); },
     slide(id: number, x0: number, y0: number, dx: number, dy: number, ms: number) { const n = Math.max(1, Math.round(ms / 16.7)); for (let i = 1; i <= n; i++) { wait(ms / n); this.move(id, x0 + (dx * i) / n, y0 + (dy * i) / n); } },
   };
 }
@@ -99,6 +104,262 @@ function row(name: string, fn: (h: Hn) => unknown) {
   h.input.dispose();
 }
 const hold = (h: Hn, ms: number, x = AX, y = AY) => { const id = newId(); h.down(id, x, y); h.wait(ms); h.up(id, x, y); return id; };
+
+if (process.argv.includes('--late')) {
+  const out: Record<string, unknown> = {};
+  const lf: string[] = [];
+  let n = 0;
+  const lok = (c: boolean, m: string) => { n++; if (!c) lf.push(m); };
+  // (down, held still to 520 ms by the frames' clock, the aim begun at about 434; then the lift: `own` its own time from the landing, or a lost touch)
+  const late = (name: string, lobUp: boolean, own: number | 'cancel') => {
+    const h = harness();
+    h.wait(100);
+    h.reset();
+    h.input.lobUp = lobUp;
+    const id = newId(), t0 = h.at();
+    h.down(id, AX, AY);
+    h.wait(520);
+    const before = h.flight.fullness, aimed = h.input.state.aim.on;
+    if (own === 'cancel') h.cancel(id, AX, AY);
+    else h.upAt(id, AX, AY, clock.ms - h.at() + t0 + own);
+    const after = h.flight.fullness;
+    h.wait(300);
+    const v = { lobUp, own, aimed, poured: +(1 - before).toFixed(3), tankAfter: +after.toFixed(3), log: [...h.log] };
+    out[name] = v;
+    console.log(`${name.padEnd(70)} | ${v.log.join(', ')} | tank ${before.toFixed(3)} -> ${after.toFixed(3)}`);
+    h.input.dispose();
+    return v;
+  };
+  const tap = (v: { log: string[] }) => v.log.some((s) => s.startsWith('tap@'));
+  const cancelled = (v: { log: string[] }) => v.log.some((s) => s.startsWith('aimEnd(cancelled)'));
+  const a = late('ring up: a late lift, 60 ms its own time, is a tap, the pour given back', true, 60);
+  lok(a.aimed && a.poured > 0 && cancelled(a) && tap(a) && a.tankAfter >= 0.999, `ring up, late lift: aimed, poured, ended cancelled, a tap, the tank back (${JSON.stringify(a)})`);
+  const b = late('no ring (the base): a late lift ends its aim and keeps its pour, no tap', false, 60);
+  lok(b.aimed && b.poured > 0 && !cancelled(b) && !tap(b) && b.tankAfter <= 1 - b.poured + 1e-3, `no ring, late lift: as the base, its aim ended, no tap, the pour kept (${JSON.stringify(b)})`);
+  const c = late('ring up: a real hold, lifted at 520 ms its own time, keeps its pour', true, 520);
+  lok(c.aimed && !cancelled(c) && !tap(c) && c.tankAfter < 0.999, `ring up, a real hold: no tap, the pour kept (${JSON.stringify(c)})`);
+  const d = late('ring up: a lost touch at 520 ms keeps its pour, no tap', true, 'cancel');
+  lok(d.aimed && cancelled(d) && !tap(d) && d.tankAfter < 0.999, `ring up, a lost touch: no tap, the pour kept (${JSON.stringify(d)})`);
+  const OUTL = process.env.SB_OUT ?? 'shots/controls/sim';
+  mkdirSync(OUTL, { recursive: true });
+  writeFileSync(`${OUTL}/holds-late.json`, JSON.stringify(out, null, 1));
+  console.log(lf.length ? `LATE FAILED ${lf.length} of ${n}:\n  ${lf.join('\n  ')}` : `late lift checks: all ${n} passed`);
+  process.exit(lf.length ? 1 : 0);
+}
+
+// --review (the second account's review of fd6d413): the homing shot led from its launch (M80) and the hook's minors, each a row with its own check, the real
+// Input, Flight, Holds and Hose as above. Writes holds-review.json and a table on stdout; exit 0 only when every check passes. The rows below are left as they were.
+if (process.argv.includes('--review')) {
+  const out: Record<string, unknown> = {};
+  const rf: string[] = [];
+  let n = 0;
+  const rok = (c: boolean, m: string) => { n++; if (!c) rf.push(m); };
+  const fresh = (fps = 60) => { const h = harness(undefined, 1000 / fps); h.wait(100); h.reset(); return h; };
+  const line = (name: string, v: unknown) => { out[name] = v; console.log(`${name.padEnd(100)} | ${JSON.stringify(v)}`); };
+  // M80: a target crossing the shot's line at v m/s, d m from the mouth (0, 120, -6), at the bus's height (a boat: on the water, 2 m), on the line at the launch,
+  // the caller giving its velocity (HomingOpts.vel). dodge: from 50 ms into the white, 'turn' breaks 40 m up off its line over 250 ms (the hard break row below),
+  // 'flick' goes from its speed to Express's 112 m/s over 250 ms along it (a flick up; the flight's lunge isn't built)
+  type Cross = { d: number; v: number; speed: number; white: number; turn: number; r: number; boat?: boolean; captain?: boolean; fps?: number; dodge?: 'turn' | 'flick'; secs?: number };
+  const cross = (c: Cross) => {
+    const fps = c.fps ?? 60, h = fresh(fps);
+    const y = c.boat ? 2 : 120, dz = Math.sqrt(c.d * c.d - (120 - y) ** 2);
+    let white = -1, hit = false, why = '', miss = Infinity;
+    // (u: how far into its dodge, 0 to 1; t0 its start, s after the launch)
+    const t0 = () => (white < 0 ? Infinity : (white + 50) / 1000);
+    const u = (t: number) => Math.min(1, Math.max(0, (t - t0()) / 0.25));
+    const at = (t: number, o: InstanceType<typeof THREE.Vector3>) => {
+      const k = u(t);
+      if (c.dodge === 'turn') return o.set(c.v * t, y + 40 * k, -6 - dz);
+      // (the flick: its distance is the speed's integral, the speed rising evenly over the 250 ms)
+      const extra = c.dodge === 'flick' && t > t0() ? (112 - c.v) * (k < 1 ? 0.125 * k * k : 0.125 + (t - t0() - 0.25)) : 0;
+      return o.set(c.v * t + extra, y, -6 - dz);
+    };
+    const velAt = (t: number, o: InstanceType<typeof THREE.Vector3>) => {
+      const k = u(t);
+      if (c.dodge === 'turn') return o.set(c.v, k > 0 && k < 1 ? 160 : 0, 0);
+      return o.set(c.dodge === 'flick' ? c.v + (112 - c.v) * k : c.v, 0, 0);
+    };
+    const s = h.holds.fire({
+      target: (o) => (at(h.at() / 1000, o), true), vel: (o) => { velAt(h.at() / 1000, o); },
+      speed: c.speed, turn: c.turn, white: c.white, hitRadius: c.r, ...(c.captain ? { from: new THREE.Vector3(0, 120, -6), belly: false } : {}),
+      onWhite: () => (white = h.at()), onHit: () => (hit = true), onMiss: (_a, _s, w) => { why = w; },
+    });
+    // (its closest pass, the shot's end of each frame against the target then)
+    const p = new THREE.Vector3();
+    for (let i = 0; i < (c.secs ?? 2.5) * fps && s && !s.done; i++) { h.wait(1000 / fps); if (!s.done) miss = Math.min(miss, s.pos.distanceTo(at(h.at() / 1000, p))); }
+    h.wait(600);
+    const v = { fired: !!s, hit, why, whiteMs: Math.round(white), inWhite: white >= 0 && white <= 1000 / fps + 1, closest: hit ? 0 : +miss.toFixed(1) };
+    h.input.dispose();
+    return v;
+  };
+  const HOOK = { speed: 420, white: 0.7, turn: 2.2, r: 7 }, CAPTAIN = { speed: 380, white: 0.7, turn: 1.8, r: 6, captain: true }, BOAT = { speed: 500, white: 0.7, turn: 2, r: 6, boat: true };
+  for (const fps of [60, 30]) {
+    const a = cross({ d: 200, v: 30, ...HOOK, fps });
+    line(`M80 @${fps}: a lock at 200 m, the target crossing at 30 m/s on its line: inside the white, a hit`, a);
+    rok(a.fired && a.inWhite && a.hit, `M80 @${fps}: a lock at 200 m inside its white on a target crossing at 30 m/s holding its line hits (${JSON.stringify(a)})`);
+    const b = cross({ d: 200, v: 30, ...HOOK, fps, dodge: 'turn' });
+    line(`M80 @${fps}: the same, a hard break in the white: dodged`, b);
+    rok(b.fired && b.inWhite && !b.hit && b.why === 'dodged', `M80 @${fps}: a hard break in the white still beats it (${JSON.stringify(b)})`);
+    const f = cross({ d: 200, v: 30, ...HOOK, fps, dodge: 'flick' });
+    line(`M80 @${fps}: the same, a flick up in the white (30 to 112 m/s): dodged`, f);
+    rok(f.fired && f.inWhite && !f.hit && f.why === 'dodged', `M80 @${fps}: a flick up in the white still beats it (${JSON.stringify(f)})`);
+    // (the review's table, every cell, each holding its line: a hit)
+    const table: Array<[string, number, Omit<Cross, 'd' | 'v' | 'fps'>]> = [['the hook', 0, HOOK], ['the hook', 30, HOOK], ['the hook', 100, HOOK], ["a captain's", 30, CAPTAIN], ['a boat lock', 12, BOAT]];
+    for (const [who, v, o] of table) for (const d of [150, 250, 290, 320, 500, 800]) {
+      const r = cross({ d, v, ...o, fps });
+      line(`M80 @${fps}: the table, ${who} (${o.speed} m/s, white ${o.white}, turn ${o.turn}, r ${o.r}), crossing at ${v} m/s, ${d} m`, r);
+      rok(r.fired && r.hit, `M80 @${fps}: the table, ${who} crossing at ${v} m/s from ${d} m, holding its line, hits (${JSON.stringify(r)})`);
+    }
+    // (the check of the fixes: a plane lock, HOOKS.md's 3,000 m/s, on a plane crossing at 250 m/s, 3 to 12 km, at eight launch phases each (the distance moved on
+    // by eighths of a frame of the shot). The hit test is the frame's target against the shot's segment, so the radius must cover a frame of the plane's travel,
+    // 250 / 30 = 8.3 m at 30 fps: with 6 m it hit 6, 7 and 6 of 8. 9 m here)
+    for (const d of [3000, 6000, 12000]) {
+      const rs = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => cross({ d: d + (k / 8) * (3000 / fps), v: 250, speed: 3000, white: 0.45, turn: 1.5, r: 9, fps, secs: d / 3000 + 1 }));
+      const r = { hits: rs.filter((x) => x.hit).length, of: rs.length, inWhite: rs.every((x) => x.inWhite), closest: Math.max(...rs.map((x) => x.closest)) };
+      line(`M80 @${fps}: a plane lock (3000 m/s, white 0.45, turn 1.5, r 9), a plane crossing at 250 m/s, ${d} m, eight phases`, r);
+      rok(r.hits === r.of, `M80 @${fps}: a plane lock from ${d} m on a plane crossing at 250 m/s, holding its line, hits at every phase (${JSON.stringify(r)})`);
+    }
+  }
+  // m81: a target() that throws at the launch refuses the shot, with the cough, nothing spent
+  {
+    const h = fresh();
+    const err = console.error; let told = 0; console.error = () => { told++; };
+    const s = h.holds.fire({ target: () => { throw new Error('target'); }, speed: 420, turn: 2.2, white: 0.7 });
+    console.error = err;
+    const v = { shot: !!s, tank: h.flight.fullness, barfT: h.flight.barfT, errors: h.holds.stats.errors, refused: h.holds.stats.refused, told, log: [...h.log] };
+    line('m81: a target() that throws at the launch: no shot, the cough, the belly kept', v);
+    rok(!s && v.tank === 1 && v.barfT < 0 && v.errors === 1 && v.refused === 1 && told === 1 && v.log.some((x) => x.startsWith('cough@')) && !v.log.some((x) => x.startsWith('breath@')), `m81: a target() that throws refuses the shot before the belly or the breath (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // m82: a target never there ends as lost after the beat, not at maxTime
+  {
+    const h = fresh();
+    let why = '', at = -1;
+    const s = h.holds.fire({ target: () => false, speed: 500, turn: 2, white: 0.7, onMiss: (_a, _s, w) => { why = w; at = h.at(); } })!;
+    h.wait(1000);
+    const v = { why, missAtMs: Math.round(at), done: s.done, flown: Math.round(s.pos.distanceTo(new THREE.Vector3(0, 120, -6))) };
+    line('m82: a target never there: lost on its first frame, gone after the beat', v);
+    rok(why === 'lost' && at > 0 && at < 40 && s.done && v.flown < 0.6 * 500, `m82: a target never seen ends as lost after the beat (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // n80: the Hose pours; another handler releases it: the Hose is told, and stops
+  {
+    const h = fresh();
+    const id = newId(); h.down(id, AX, AY); h.wait(1000);
+    const before = { pouring: h.hose.pouring, owner: h.holds.current!.owner };
+    h.holds.release('hose'); h.wait(100);
+    const v = { before, after: { pouring: h.hose.pouring, owner: h.holds.current!.owner, flightPouring: h.flight.pouring }, log: [...h.log] };
+    h.up(id, AX, AY); h.wait(50);
+    line('n80: the Hose pouring, released by another handler: told (lost), it stops', v);
+    rok(before.pouring && before.owner === 'hose' && !v.after.pouring && !v.after.flightPouring && v.after.owner === null && v.log.some((x) => x.startsWith('stop@')), `n80: a release tells the owner, and the Hose stops (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // (M80, a captain's side: holds.busVel is the player's bus's velocity, Flight.velocity's, for a captain's shot's vel)
+  {
+    const h = fresh();
+    Object.assign(h.flight, { heading: 0.6, speed: 50, vy: 4 });
+    const v = { busVel: h.holds.busVel(new THREE.Vector3()).toArray(), flight: h.flight.velocity(new THREE.Vector3()).toArray() };
+    line("M80: holds.busVel, a captain's shot's vel at the player's bus", v);
+    rok(v.busVel.join() === v.flight.join() && Math.hypot(...v.busVel) > 49, `M80: holds.busVel is the bus's velocity (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // m83: a lock takes a hold mid-pour and its lift fires: the belly then refills as after a tap (config.splat.recharge), not as after the Hose
+  {
+    const h = fresh();
+    let shot: unknown = null, tank = -1;
+    h.holds.add({ name: 'ferry', move: (hd) => { if (hd.aimed > 0.6 && hd.owner !== 'ferry') h.holds.claim('ferry'); }, end: (hd, c) => { if (hd.owner !== 'ferry' || c) return; tank = +h.flight.fullness.toFixed(2); shot = h.holds.fire({ target: (o) => (o.set(0, 2, -400), true), speed: 400, turn: 2.5, white: 0.7 }); } }, { watch: true });
+    const id = newId(); h.down(id, AX, AY); h.wait(1200); h.up(id, AX, AY);
+    const secs = h.flight.rechargeSeconds;
+    let empty = -1, full = -1;
+    for (let i = 0; i < 600 && full < 0; i++) {
+      h.wait(16.7);
+      if (empty < 0 && h.flight.barfT < 0 && h.flight.fullness < 0.05) empty = h.at();
+      else if (empty >= 0 && h.flight.fullness >= 1) full = h.at();
+    }
+    const v = { fired: !!shot, tank, secs, emptyToFullMs: Math.round(full - empty), tap: config.splat.recharge, hose: hoseTune.refill };
+    line("m83: a lock's shot after a pour: the belly refills in a tap's 1.6 s, not the Hose's 3", v);
+    rok(v.fired && tank > 0.12 && tank < 0.99 && secs === 0 && Math.abs(v.emptyToFullMs - config.splat.recharge * 1000) < 40, `m83: a lock's shot after a pour refills as after a tap (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // m84: a tap while the Hose pours (main.ts asks Hose.tapWhilePouring before anything splats): the cough, nothing splats; once it stops, nothing said
+  {
+    const h = fresh();
+    const id = newId(); h.down(id, AX, AY); h.wait(1000);
+    const pouring = { took: h.hose.tapWhilePouring(), log: [...h.log] };
+    h.up(id, AX, AY); h.wait(100);
+    const coughs = h.log.filter((x) => x.startsWith('cough@')).length;
+    const after = { took: h.hose.tapWhilePouring(), coughs: h.log.filter((x) => x.startsWith('cough@')).length };
+    const v = { pouring, after };
+    line('m84: a tap while the Hose pours: the cough, and no splat; after the pour, nothing', v);
+    rok(pouring.took && pouring.log.some((x) => x.startsWith('cough@')) && coughs === 1 && !after.took && after.coughs === 1, `m84: a tap while the Hose pours coughs, and one after doesn't (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // n82: the real Comet: a shot that doesn't leave puts its side and its held landing back (unshot); and the real Bomb, fizzling on a breath under way at its
+  // lift, tells the aimer (unfire), which hands it to the Comet
+  {
+    const { Comet } = await import('@src/game/Comet');
+    const { Bomb } = await import('@src/game/Bomb');
+    const comet = new Comet({} as any, {} as any) as any;
+    const plan = { target: null, x: 0, y: 0, z: -900, wall: false, drop: 120, travel: 1.2 } as any;
+    const side0 = comet.side;
+    comet.shotOf(plan);
+    const fired = comet.side;
+    comet.unshot();
+    const back = comet.side;
+    comet.shotOf(plan);
+    const next = comet.side;
+    const h = harness((dt) => bomb.update(dt));
+    const said: string[] = [];
+    const bomb: InstanceType<typeof Bomb> = new Bomb({
+      input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
+      aimer: { fire: () => (said.push('fire'), { x: 0, z: -120, drop: 120, comet: {} }), unfire: () => said.push('unfire'), aim: { x: 0, z: -120, drop: 120 } } as any,
+      audio: { bombCharge: () => {}, bombTier: () => {}, bombStop: (f: boolean) => said.push(f ? 'let go' : 'fizzle'), bombFade: () => {}, bombBeat: () => {}, superMega: () => {} } as any,
+      fx: { motes: () => {}, sparks: () => {}, halo: () => {} } as any,
+      breathe: () => (said.push('bomb'), 0), busy: () => false,
+    });
+    bomb.on = true;
+    h.input.busBox = { x0: 172, y0: 470, x1: 220, y1: 542 };
+    h.wait(100); h.reset();
+    const id = newId(); h.down(id, 196, 506); h.wait(800);
+    // (a breath under way at the lift: its tryBarf says no)
+    h.flight.barfT = 0;
+    h.up(id, 196, 506); h.wait(50);
+    const v = { side0, fired, back, next, bomb: said, fizzles: bomb.stats.fizzles };
+    line("n82: a Comet's shot that doesn't leave keeps its side; a Bomb fizzling on its breath says so to the aimer", v);
+    rok(fired === -side0 && back === side0 && next === -side0 && said.join() === 'fire,unfire,fizzle' && v.fizzles === 1, `n82: unshot puts the side back, and a Bomb that fizzles on tryBarf unfires (${JSON.stringify(v)})`);
+    h.input.dispose();
+  }
+  // n82, the real Aimer (the check of the fixes): fire() and unfire() as the tap's refusal and the Bomb's fizzle call them, on the real Comet, each shot the
+  // tap can choose: the Comet's puts its side back, the Lob's, the aim's own and a second unfire leave it, and a Bomb's Comet under a Lob puts it back
+  {
+    const { Comet } = await import('@src/game/Comet');
+    const { Aimer } = await import('@src/game/Aim');
+    const comet = new Comet({} as any, {} as any) as any;
+    const plan = { target: null, x: 0, y: 0, z: -900, wall: false, drop: 120, travel: 1.2 } as any;
+    const aimer = new Aimer({} as any, {} as any) as any;
+    let own = 0;
+    aimer.comet = comet;
+    aimer.lob = { fired: () => {} };
+    aimer.fireAim = () => (own++, {});
+    // (what this frame planned: the Comet's plan, the Lob's over it, or neither, and for a Bomb under a Lob the Comet's alone)
+    const as = (lobbing: boolean, cometPlan: unknown, cometOnly: unknown = null) => Object.assign(aimer, { lobbing, cometPlan, cometOnly });
+    const side0 = comet.side;
+    const sides: Record<string, number> = {};
+    as(false, plan); aimer.fire({}); sides.cometFired = comet.side; aimer.unfire(); sides.cometUnfired = comet.side;
+    aimer.unfire(); sides.again = comet.side;
+    as(false, plan); aimer.fire({}); as(true, plan); aimer.fire({}); aimer.unfire(); sides.lobAfterComet = comet.side;
+    as(false, null); aimer.fire({}); aimer.unfire(); sides.aimOwn = comet.side;
+    as(true, plan, plan); aimer.fire({}, true); sides.bombFired = comet.side; aimer.unfire(); sides.bombUnfired = comet.side;
+    const v = { side0, ...sides, ownShots: own };
+    line("n82, the real Aimer: unfire puts back the Comet's side after its shot alone", v);
+    rok(v.cometFired === -side0 && v.cometUnfired === side0 && v.again === side0 && v.lobAfterComet === -side0 && v.aimOwn === -side0 && v.bombFired === side0 && v.bombUnfired === -side0 && own === 1, `n82: the real Aimer's unfire puts the side back after the Comet's shot alone (${JSON.stringify(v)})`);
+  }
+  const OUTR = process.env.SB_OUT ?? 'shots/controls/sim';
+  mkdirSync(OUTR, { recursive: true });
+  writeFileSync(`${OUTR}/holds-review.json`, JSON.stringify(out, null, 1));
+  console.log(rf.length ? `REVIEW FAILED ${rf.length} of ${n}:\n  ${rf.join('\n  ')}` : `review checks: all ${n} passed`);
+  process.exit(rf.length ? 1 : 0);
+}
 
 row('tap: off the lane at 150 ms splats, no hold, no pour', (h) => { hold(h, 150); h.wait(300); return { current: h.holds.current, pouring: h.hose.pouring }; });
 row('hold to aim, nobody claims: the Hose pours under the finger', (h) => {
@@ -358,7 +619,7 @@ function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths
   const ms = () => `${Math.round(h.at())}ms`;
   bomb = new Bomb({
     input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
-    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), aim: { x: 0, z: -DROP, drop: DROP } } as any,
+    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), unfire: () => {}, aim: { x: 0, z: -DROP, drop: DROP } } as any,
     audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombFade: () => h.log.push(`fade@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
     fx: { motes: (n: number) => (fxN.motes += n), sparks: (n: number) => (fxN.sparks += n), halo: (n: number) => (fxN.halo += n) } as any,
     breathe: (shot, b) => { breaths.push({ ...b, tag: { ...b.tag }, x: shot.x, z: shot.z, at: Math.round(h.at()) }); h.log.push(`bomb@${ms()}`); return 0; },

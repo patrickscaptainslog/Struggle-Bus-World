@@ -963,6 +963,17 @@ export class LifeHost {
     return true;
   }
 
+  /** The velocity of the mover moverAt last found (world m/s into `out`): a homing shot's lead (HomingOpts.vel). Ask moverAt first. */
+  moverVel(out: THREE.Vector3): void {
+    const s = this.snap, r = this.lockRow;
+    if (!s || r < 0 || r >= s.u32[2]) {
+      out.set(0, 0, 0);
+      return;
+    }
+    const rows = s.rows, o = r * ROW;
+    out.set(rows[o + Col.VX], rows[o + Col.VY], rows[o + Col.VZ]);
+  }
+
   /** The lock's glint on `key`, or none: it shows over whatever the aim glints. */
   lockGlint(key: string | null): void {
     this.lockHash = key ? fnv1a(key) : 0;

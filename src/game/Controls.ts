@@ -17,7 +17,7 @@ import { Balloons } from '../fx/Balloons';
 import { balloonPop, balloonSqueak } from '../audio/balloonSfx';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { AIM_LINE, BOMB_LINES, Coach, hintLines, TAUGHT, type CoachFrame } from '../ui/Coach';
+import { AIM_LINE, BOMB_LINES, Coach, hintLines, LOB_LINES, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the first run, the settings
@@ -74,6 +74,8 @@ export class Controls {
   glinting = false;
   /** the Bomb's hint may come: a painted building glints with a full belly under 300 m (main.ts, per frame, with &bomb) */
   bombGlint = false;
+  /** the Lob's ring shows (main.ts): its hint's moment */
+  lobRing = false;
   /** QA: the game holds (dt 0) while this is set: tools/shots.mjs --det stands the clock on it, tools/contextloss.mjs too */
   frozen = false;
   private readonly d: ControlsDeps;
@@ -97,8 +99,10 @@ export class Controls {
   private splats = 0;
   private chargedOnce = false;
   private bombedOnce = false;
+  private lobbedOnce = false;
   private thumbOnce = false;
   private gestured = false;
+  private readonly onCrackSky = (x: number, y: number, z: number, front: number) => this.d.pipeline.crackSky(x, y, z, front);
   private readonly onFlash = (pos: THREE.Vector3, strength: number) => {
     const p = this.flashTmp.copy(pos).project(this.d.camera);
     this.d.pipeline.flash(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5, 1, strength);
@@ -175,11 +179,11 @@ export class Controls {
   /** Every rung's event after its own looks and sounds (main.ts: &boom's flick into Turbo 3, src/game/Boom.ts) */
   onRung: ((ev: TurboEvent, gear: number) => void) | null = null;
 
-  /** &boom (src/game/Boom.ts): the flick into Turbo 3 breaks the barrier again, Mach 1's set piece and its N-wave, the hoop landing as the ring `to` (null: the
-   *  crack alone), game clock `now`. */
-  crack(to: BoomPlan | null, now: number) {
+  /** &boom (src/game/Boom.ts): the flick into Turbo 3 breaks the barrier again, Mach 1's set piece and its N-wave, the flash over the frame and the sky's
+   *  pressure ring (the resolve's), the hoop standing ahead and landing as the ring `to` (null: the crack alone). */
+  crack(to: BoomPlan | null) {
     const d = this.d;
-    this.fx.crack(d.bus.root, d.flight, d.rig, this.onFlash, to, now);
+    this.fx.crack(d.bus.root, d.flight, d.rig, this.onFlash, to, this.onCrackSky);
     const kit = d.audio.voiceKit();
     if (!kit) return;
     const t = kit.ctx.currentTime + LOOKAHEAD;
@@ -205,6 +209,11 @@ export class Controls {
   /** A Bomb was let go: its hint is learned. */
   bombed() {
     this.bombedOnce = true;
+  }
+
+  /** A Lob was thrown: its hint is learned. */
+  lobbed() {
+    this.lobbedOnce = true;
   }
 
   /** The super charged: the HOLD cue (and the keyboard's line) are over. */
@@ -278,17 +287,18 @@ export class Controls {
   }
 
   /**
-   * Curb's one-time hint (src/game/CurbFlight.ts), the first time the bus is low over a road: LAND ON THE STREET, DIVE AND HOLD, once ever. Not a
-   * first-run cue: ?skipintro shows it, ?nohud and ?nocoach don't. `learn`: a flick landed, so it's known without it. True: it's done with.
+   * Curb's one-time hint (src/game/CurbFlight.ts), the first time the bus is low over a road: LAND ON THE STREET, DIVE AND HOLD, once ever (CLIMB,
+   * THEN DIVE AND HOLD where the push is the surge: `climbFirst`). Not a first-run cue: ?skipintro shows it, ?nohud and ?nocoach don't. `learn`: a
+   * flick landed, so it's known without it. True: it's done with.
    */
-  curbHint(learn: boolean): boolean {
+  curbHint(learn: boolean, climbFirst = false): boolean {
     if (this.curbHintOff || ((this.prefs.taught ?? 0) & TAUGHT.curb)) return true;
     // (the first run's hint has the slot: this one waits for another pass over a road)
     if (!learn && this.hintLeft > 0) return false;
     this.prefs.taught = (this.prefs.taught ?? 0) | TAUGHT.curb;
     this.coach?.done(TAUGHT.curb);
     savePrefs(this.prefs);
-    if (!learn) this.hud.toast(['LAND ON THE STREET', 'DIVE AND HOLD'], config.curb.hintFor);
+    if (!learn) this.hud.toast(['LAND ON THE STREET', climbFirst ? 'CLIMB, THEN DIVE AND HOLD' : 'DIVE AND HOLD'], config.curb.hintFor);
     return true;
   }
 
@@ -376,6 +386,9 @@ export class Controls {
       cf.charged = this.chargedOnce;
       cf.bombGlint = this.bombGlint;
       cf.bombed = this.bombedOnce;
+      cf.lobRing = this.lobRing;
+      cf.lobbed = this.lobbedOnce;
+      cf.toastUp = hud.toastUp;
       c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.megaDue) hud.megaHoldCue();
@@ -389,6 +402,9 @@ export class Controls {
       } else if (c.bombHintDue) {
         this.hintLeft = 3;
         hud.toast(BOMB_LINES, 3);
+      } else if (c.lobHintDue) {
+        this.hintLeft = 3;
+        hud.toast(LOB_LINES, 3);
       }
     }
     if (c?.dirty) {

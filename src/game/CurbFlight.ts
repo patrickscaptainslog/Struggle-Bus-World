@@ -78,8 +78,9 @@ const LEAVES: CurbLeave[] = ['flick', 'pull', 'thrown', 'end'];
 
 export interface CurbHooks {
   /** The bus has been low over a road a moment: the one-time hint, if it's due (Controls). `learn`: it's learned without showing (a flick landed).
-   *  False: not now (the slot is taken), ask again on another pass */
-  hint(learn: boolean): boolean;
+   *  `climbFirst`: a push held here is the surge, not a dive (config.curb.diveOnly, the bus at the floor, holding no height), so the hint says to
+   *  climb first. False: not now (the slot is taken), ask again on another pass */
+  hint(learn: boolean, climbFirst?: boolean): boolean;
   /** What happened: the sounds, the toast, the squash (main.ts) */
   event(ev: CurbEvent, k: number): void;
   /** A dab of the lane's paint at (x, z), its rings round the landing at (ox, oz) (main.ts: GroundPaint.dab) */
@@ -334,7 +335,9 @@ export class CurbFlight {
     if (this.dive > 0) f.street = this.road0;
     this.qa.low = this.low;
     this.qa.dive = this.dive;
-    if (!this.hinted && this.low >= K.hintAfter && this.low - dt < K.hintAfter) this.hinted = this.qa.hinted = this.hooks.hint(false);
+    // (diveOnly: at the floor, holding no height, the push is the surge and lands nothing, so the hint there says to climb first: the review of the picks, 1)
+    if (!this.hinted && this.low >= K.hintAfter && this.low - dt < K.hintAfter)
+      this.hinted = this.qa.hinted = this.hooks.hint(false, K.diveOnly && this.drive.below !== SCHOOL_ZONE && f.holdY < -1e8);
     if (this.dive >= K.hold) this.ask();
   }
 

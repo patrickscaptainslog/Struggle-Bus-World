@@ -7,6 +7,7 @@ import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import type { CometPlan } from './Comet';
 import { arrival, blastCap, blastRadiusFor, groundDeadline, LAYOUT_BANDS, LAYOUT_RING, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 import { setPogo } from '../world/pogo';
+import { lookOf } from '../render/factionLook';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
 // rainbow projectile forward; it snaps to the building at the aim point and
@@ -534,15 +535,23 @@ export class Splatter {
     // (a Bomb's plan, up to config.bomb.cap: each building's neighbours from a grid of it, where each against the whole plan was 21-27 ms of the lift's frame
     // over fresh housing from 300 m: the Bomb's world review. The same neighbours; a tap's plan stays the scan it was)
     const grid = plan.length > DEAL_GRID ? dealGrid(plan) : null;
-    for (const p of plan) if (p.hue < 0) p.hue = this.freeHue(p.pref, p.ref, plan, layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z), grid);
+    // (&boom's ring in a faction with its strongest rows named: its walls are dealt from those slots alone, touching neighbours kept apart in them and off
+    // the ground's (its strongest too), where a remap after the deal put two neighbours on one slot)
+    const look = spec.layout === LAYOUT_RING ? lookOf(spec.faction ?? FACTION_RAINBOW).ring : undefined;
+    for (const p of plan)
+      if (p.hue < 0) {
+        const g = layoutHue(spec, p.ref.cx - spec.x, p.ref.cz - spec.z);
+        p.hue = this.freeHue(p.pref, p.ref, plan, look ? look.ground[g % look.ground.length] : g, grid, look?.walls);
+      }
   }
 
-  /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. */
-  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number, grid: DealGrid | null = null): number {
+  /** The preferred hue unless a touching neighbor already has it (or it's the ground's): then the nearest free hue. `slots`: only those, from pref's on. */
+  private freeHue(pref: number, ref: BuildingRef, plan: Scheduled[], ground: number, grid: DealGrid | null = null, slots?: readonly number[]): number {
     const ra = Math.sqrt(ref.area) * 0.5;
     const near = grid ? gridNear(grid, ref, ra, this.dealNear) : null;
-    for (const off of HUE_TRY) {
-      const h = wrapHue(pref + off);
+    const n = slots ? slots.length : HUE_TRY.length;
+    for (let o = 0; o < n; o++) {
+      const h = slots ? slots[(pref + o) % n] : wrapHue(pref + HUE_TRY[o]);
       if (h === ground) continue;
       let clash = false;
       if (near) clash = near.some((p) => p.hue === h);
@@ -557,7 +566,7 @@ export class Splatter {
         }
       if (!clash) return h;
     }
-    return pref;
+    return slots ? slots[pref % n] : pref;
   }
 
   update(dt: number) {

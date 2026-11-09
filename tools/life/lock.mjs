@@ -3,7 +3,7 @@
 // a flat screen over the map, the bus at its middle): node --no-warnings tools/life/lock.mjs
 //   pick     a still hold on a ferry 1 km off takes the hold; on one 2 km off, a car or open sky it doesn't (the Hose has it); a plane 10 km off on the screen
 //            does, a dot within 48 px of the finger
-//   lock     the clack at 0.55 s and the target's glint; the lift fires a homing shot at it, the player's faction and hue, fast enough for a boat; a hit paints
+//   lock     the clack at 0.55 s and the target's glint; the lift fires a homing shot at it with the ferry's own velocity to lead by, the player's faction and hue; a hit paints
 //            the ferry; a tap in the next 4 s homes at it again, and one after doesn't
 //   weak     a lift before the clack fires a weaker shot (slower, turning less): nothing is wasted
 //   plane    a plane coming under a finger the Hose pours from is taken mid-pour, and its shot is fast enough to arrive in under 4 s
@@ -127,6 +127,9 @@ holds.fired.length = 0;
 const took = hold(nearF[0], nearF[1], 0.7);
 const shot = holds.fired[0];
 const glinted = life.lockHash === fnv1a('ferry:near:0:20261107');
+// (the shot leads: its vel is the ferry's own, asked after its target as Hold.ts asks it)
+const lead = new THREE.Vector3(9, 9, 9);
+if (shot?.target(new THREE.Vector3())) shot.vel?.(lead);
 shot?.onHit?.();
 step(0.05);
 const painted = life.painted.get(fnv1a('ferry:near:0:20261107'));
@@ -136,8 +139,8 @@ const until = lock.until;
 lock.until = performance.now() - 1;
 const tapLate = lock.tap();
 row('lock: the clack at 0.55 s and its glint; the lift homes at the ferry in the player\'s colours; a hit paints it; a tap in 4 s homes again, one after doesn\'t',
-  took && clacks === 1 && glinted && !!shot && shot.speed === 520 && shot.faction === 3 && shot.hue === 4 && painted?.faction === 3 && painted?.hue === 4 && dealt === 1 && tapSoon && firedSoon === 2 && until > 0 && !tapLate,
-  { took, clacks, glinted, speed: shot?.speed, turn: shot?.turn, painted: painted && { hue: painted.hue, level: painted.level, faction: painted.faction }, tapSoon, tapLate, fired: holds.fired.length });
+  took && clacks === 1 && glinted && !!shot && lead.x === 0 && lead.y === 0 && lead.z === 5 && shot.speed === 520 && shot.faction === 3 && shot.hue === 4 && painted?.faction === 3 && painted?.hue === 4 && dealt === 1 && tapSoon && firedSoon === 2 && until > 0 && !tapLate,
+  { took, clacks, glinted, lead: lead.toArray(), speed: shot?.speed, turn: shot?.turn, painted: painted && { hue: painted.hue, level: painted.level, faction: painted.faction }, tapSoon, tapLate, fired: holds.fired.length });
 // ---- weak ----
 holds.fired.length = 0;
 hold(nearF[0], nearF[1], 0.3);

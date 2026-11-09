@@ -556,6 +556,11 @@ export class Hud {
     this.toastEl = null;
   }
 
+  /** A toast is on screen (one that's run its time is gone at the next frame's update). */
+  get toastUp(): boolean {
+    return !!this.toastEl && performance.now() < this.toastUntil;
+  }
+
   // ------------------------------------------------------------------ the coach's outputs
 
   /** MEGA's face alternates HOLD and MEGA twice (it ends when a charge starts). */

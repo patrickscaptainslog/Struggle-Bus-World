@@ -54,6 +54,8 @@ export interface LockLife {
   pickLock(sx: number, sy: number, holds: Holds, planes: boolean, out: LockPick): boolean;
   /** Where the mover keyed `key` is now (world m into `out`); false: gone from life's snapshot. */
   moverAt(key: string, out: THREE.Vector3): boolean;
+  /** The velocity of the mover moverAt last found (world m/s into `out`): the shot's lead. */
+  moverVel(out: THREE.Vector3): void;
   /** The lock's glint on `key` (or none), over the aim's. */
   lockGlint(key: string | null): void;
   /** A homing shot reached `key`: its paint, now. True if it was fresh. */
@@ -185,6 +187,8 @@ export class LifeLock implements HoldHandler {
     const speed = (plane ? Math.max(T.planeMin, d / T.planeT) : T.boatSpeed) * (weak ? T.weakSpeed : 1);
     const shot = H.holds.fire({
       target: (out) => life.moverAt(key, out),
+      // (the shot leads the boat or the plane from its launch: Hold.ts asks vel after each target that held)
+      vel: (out) => life.moverVel(out),
       speed,
       turn: (plane ? T.planeTurn : T.boatTurn) * (weak ? T.weakTurn : 1),
       white: T.white,

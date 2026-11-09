@@ -5,6 +5,7 @@ import { HUE_RAMPS, makePaletteTexture, Ramp } from './palette';
 import { earthFly, held, heldOr, moonLow, moonrun, skyLive, skyOn, space } from '../sky/flag';
 import { GLSL_SKY_HELD, GLSL_SKY_HELD_UNIFORMS, GLSL_SKY_MOON, GLSL_SKY_STARS, GLSL_SPACE, GLSL_SPACE_UNIFORMS, GLSL_SUN_DISC, heldResolveUniforms, spaceResolveUniforms, sunDisc } from './skyResolve';
 import type { WarmPipeline } from './warmup';
+import { boomed, boomOn } from '../game/Boom';
 
 // Low-res 3D pixel-art renderer.
 //
@@ -164,7 +165,10 @@ export class PixelPipeline implements WarmPipeline {
   private readonly heroCircle = new THREE.Vector4();
   /** the Bomb's ring where it will land (center x, z, radius m, strength; 0 = off) and its heartbeat's pulse */
   private readonly bombRing = new THREE.Vector4();
+  /** &boom's crack for the next render (crackSky): the heading it's centred on, its front's angle (under 0: none) */
+  private readonly crack = new THREE.Vector4(0, 0, 1, -1);
   private bombPulse = 0;
+  private lobY = 0;
   /** ...its six rows of paint, each (ramp, its step at rest, its brightest): Rainbow's, or the bus's faction's spray (setBombRows) */
   private readonly bombRows = HUE_RAMPS.map((r) => new THREE.Vector3(r, 5, 7));
 
@@ -225,8 +229,10 @@ export class PixelPipeline implements WarmPipeline {
         uHeroCircle: { value: new THREE.Vector4() },
         uBombRing: { value: new THREE.Vector4() },
         uBombPulse: { value: 0 },
+        uLobY: { value: 0 },
         uBombRows: { value: HUE_RAMPS.map((r) => new THREE.Vector3(r, 5, 7)) },
         uFlash: { value: new THREE.Vector4() },
+        ...(boomOn ? { uCrack: { value: new THREE.Vector4(0, 0, 1, -1) } } : {}),
         uSkyCut: { value: this.skyCut },
         ...(skyOn ? heldResolveUniforms : {}),
         ...(moonrun || moonLow || earthFly ? spaceResolveUniforms : {}),
@@ -386,6 +392,14 @@ export class PixelPipeline implements WarmPipeline {
   }
 
   /**
+   * &boom's crack for the next render (TurboFx.crack): a pressure ring racing across the sky and on over the city, its front `front` rad from the heading
+   * (x, y, z: a unit world direction). Drawn in the resolve: no draw call and no program of its own. Without &boom it isn't there.
+   */
+  crackSky(x: number, y: number, z: number, front: number) {
+    this.crack.set(x, y, z, front);
+  }
+
+  /**
    * The hero's headlight beam for the next render: what lies ahead of the lens
    * (from `eye` toward `tip`, half width `halfNear` m at the lens to `halfFar` m
    * at the tip) is lit a step or two up its own ramp in the resolve pass, a warm
@@ -425,10 +439,12 @@ export class PixelPipeline implements WarmPipeline {
   /**
    * The Bomb's ring (src/game/Bomb.ts): where it will land, its whole circle (m), on whatever faces up there, the hero circle's way: in the resolve, a band of
    * paint's colours stippled in as `k` grows (0 = off), wider and a step brighter on each heartbeat (`pulse` 0-1). No decal, no draw, no program of its own.
+   * `dotted`: the Lob's (src/game/Lob.ts), dots of its rows marching round it on the level of where it lands (`y`, m), two game px across however far off.
    */
-  setBombRing(x: number, z: number, r: number, k: number, pulse: number) {
-    this.bombRing.set(x, z, Math.max(1, r), k);
+  setBombRing(x: number, z: number, r: number, k: number, pulse: number, dotted = false, y = 0) {
+    this.bombRing.set(x, z, Math.max(1, r), dotted ? -k : k);
     this.bombPulse = pulse;
+    this.lobY = y;
   }
 
   /** The ring's six rows of paint, each (ramp, its step at rest, its brightest on a heartbeat): the bus's faction's spray under &bomb (main.ts), Rainbow's else. */
@@ -724,11 +740,16 @@ export class PixelPipeline implements WarmPipeline {
     ru.uHeroCircle.value.copy(this.heroCircle);
     ru.uBombRing.value.copy(this.bombRing);
     ru.uBombPulse.value = this.bombPulse;
+    ru.uLobY.value = this.lobY;
     for (let i = 0; i < 6; i++) (ru.uBombRows.value as THREE.Vector3[])[i].copy(this.bombRows[i]);
     if (this.flashLeft > 0) {
       ru.uFlash.value.copy(this.flashU);
       this.flashLeft--;
     } else ru.uFlash.value.z = 0;
+    if (boomOn) {
+      ru.uCrack.value.copy(this.crack);
+      this.crack.w = -1;
+    }
     this.blit(this.resolveMat, this.resolved);
 
     // upscale to canvas
@@ -906,10 +927,12 @@ uniform vec4 uBeamShape; // half width at the lens / at the tip (px), strength, 
 uniform vec4 uHeroShadow;     // hero drop shadow: center xz, underside y (m), ramp steps (0 = off)
 uniform vec4 uHeroShadowAxes; // ...its oval: forward axis xz, half length, half width (m)
 uniform vec4 uHeroCircle;     // the charge's pinwheel around it: charge (0 = off), spin (arms), half length, half width (m)
-uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off)
+uniform vec4 uBombRing;       // the Bomb's ring where it lands: center xz, radius (m), strength (0 = off; under 0, the Lob's, dotted)
 uniform float uBombPulse;     // ...its heartbeat, 0-1
+uniform float uLobY;          // the Lob's ring: the level it lies on (m)
 uniform vec3 uBombRows[6];    // ...its six rows of paint: ramp, its step at rest, its brightest
-uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)
+uniform vec4 uFlash;     // impact flash: buffer uv, strength, white-hot radius (fraction of the height)${boomed(`
+uniform vec4 uCrack;     // &boom's crack: the heading (unit world direction), its pressure ring's front from it (rad; under 0: none)`)}
 uniform float uSkyCut;   // depth at and past which geometry still turns to sky (over 1: never)${held(GLSL_SKY_HELD_UNIFORMS)}${space(GLSL_SPACE_UNIFORMS)}
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
@@ -1105,7 +1128,16 @@ void main() {
     // (alpha 0 marks plain sky: the upscale leaves it unshifted, it holds still on the screen)
     float skyA = 0.0;
     if (hAmt > 0.1 && hAmt > d2 * 1.1) { sc = haloTint(halo / hAmt); skyA = 1.0; }
-    if (flashAll || flashK > 0.45) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }
+    if (flashAll || flashK > 0.45) { sc = pal(${Ramp.GLOW_WHITE}.0, flashK > 0.45 ? 7.0 : 6.0 + floor(flashK * 2.0)); skyA = 1.0; }${boomed(`
+    // (&boom's crack: the sky's pressure ring racing out from the heading, a white-hot front widening as it goes, a short pale halo dithered out behind it, and the
+    // whole of it thinning to a dither as it ends)
+    if (uCrack.w >= 0.0) {
+      float cAng = acos(clamp(dot(dir, uCrack.xyz), -1.0, 1.0)) - uCrack.w;
+      float cW = 0.03 + 0.025 * uCrack.w;
+      float cF = 1.0 - smoothstep(0.8, 1.2, uCrack.w);
+      if (abs(cAng) < cW && dsk < 0.3 + 0.7 * cF) { sc = pal(${Ramp.GLOW_WHITE}.0, 7.0); skyA = 1.0; }
+      else if (cAng < 0.0 && cAng > -2.5 * cW && dsk < cF * (1.0 + cAng / (2.5 * cW))) { sc = pal(${Ramp.GLOW_WHITE}.0, 6.0); skyA = 1.0; }
+    }`)}
     outColor = vec4(sc, skyA);
     return;
   }
@@ -1311,6 +1343,28 @@ void main() {
       }
     }
   }
+  // the Lob's ring where it will land (uBombRing.w under 0): dots of the same rows marching round it, each a step over its row's rest, on the level of where
+  // it lands (uLobY) as the view's ray meets it, not on whatever stands there, so its band is two game pixels either side on the screen by its own gradient
+  // (fwidth, in a branch on the uniform alone) however far off and however flat it lies; it's left off a surface standing well in front of that level. On
+  // the roofs' and the street's own surfaces a kilometre off from the roofs, it was under a pixel tall, broken by every roof, or under the fog
+  if (uBombRing.w < -0.01) {
+    float bt = (uLobY - uCamPos.y) / (abs(dir.y) > 1e-4 ? dir.y : -1e-4);
+    vec2 bq = (uCamPos.xz + dir.xz * bt - uBombRing.xy) / uBombRing.z;
+    float br = length(bq), bw = min(fwidth(br), 0.125);
+    vec3 cfb = -normalize(vec3(uCamWorld[2].xyz));
+    float bd = depth / max(dot(dir, cfb), 0.05);
+    if (!heroRamp && bt > 0.0 && bd > 0.85 * bt && abs(br - 0.975) < max(0.012, 2.0 * bw)) {
+      float bn = max(12.0, floor(uBombRing.z * 0.32)), bs = atan(bq.y, bq.x) * 0.159155 * bn - uTime * 1.5;
+      if (fract(bs) < 0.6 && (uBombRing.w < -0.85 || ((int(gl_FragCoord.x) + int(gl_FragCoord.y)) & 1) == 0)) {
+        vec3 brow = uBombRows[int(mod(floor(bs), 6.0))];
+        // (at the paint's full strength: a faction's row at its brightest, its FACTION_STEP; Rainbow's rows, at rest 5 and brightest 7, at their step 4,
+        // where a step over the rest read as washed-out pastels on a pastel city, the outside look's)
+        oRamp = brow.x;
+        oStep = brow.z > 6.5 ? 4.0 : brow.z;
+        col = pal(oRamp, oStep);
+      }
+    }
+  }
   // the hero's headlight: what lies ahead of the lens (beyond the bus) is lit a step or two up its own
   // ramp; a lift, not a drawn shape, so it reads as light in the haze. Only the grey world: paint and
   // glow are already the brightest things around (the bloom right after a hit is the money shot). A
@@ -1337,7 +1391,15 @@ void main() {
       else if (lift > 0.5) { oStep = min(oStep + lift, 7.0); col = pal(oRamp, oStep); }
     }
   }
-  // impact flash: white-hot near the blast (shapes kept by their own light),
+${boomed(`  // &boom's crack: its pressure ring rolls on over the city, everything in its front two steps up its own ramp, one in its halo
+  if (uCrack.w >= 0.0) {
+    float cAng = acos(clamp(dot(dir, uCrack.xyz), -1.0, 1.0)) - uCrack.w;
+    float cW = 0.03 + 0.025 * uCrack.w;
+    float cF = 1.0 - smoothstep(0.8, 1.2, uCrack.w);
+    if (abs(cAng) < cW && dsk < 0.3 + 0.7 * cF) { oStep = min(oStep + 2.0, 7.0); col = pal(oRamp, oStep); }
+    else if (cAng < 0.0 && cAng > -2.0 * cW && dsk < 0.8 * cF * (1.0 + cAng / (2.0 * cW))) { oStep = min(oStep + 1.0, 7.0); col = pal(oRamp, oStep); }
+  }
+`)}  // impact flash: white-hot near the blast (shapes kept by their own light),
   // everything else jumps two or three steps up its own ramp (a Comet's: only round it)
   if (flashK > 0.0 || flashAll) {
     if (flashK > 0.5 + 0.3 * d) col = pal(${Ramp.GLOW_WHITE}.0, floor(4.5 + 2.6 * light));

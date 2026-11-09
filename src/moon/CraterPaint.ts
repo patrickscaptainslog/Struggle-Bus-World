@@ -23,6 +23,7 @@ import type { PaintStroke } from '../sky/MoonPaint';
 import { RimBloom } from './RimBloom';
 import type { MoonCraterRequest, MoonCraters } from './moonWorker';
 import { CLIP_LEVELS, PaintClip, type ClipMark } from './PaintClip';
+import { relob } from '../game/Lob';
 
 // Craters are the buildings of the Moon. This is what the street's buildings get from Aim, Splat and PaintState: a pick at the aim point, a target that glints, a hit that goes up a level and blooms, and what's
 // painted kept on the device under the crater's stable id (craters.ts), so it comes back on any map of the Moon. Nothing on the street changes: the bus aims as it does, and this moves the shot onto what glints.
@@ -564,21 +565,36 @@ export class CraterPaint {
     if (mega && !this.target) this.pick(ax, az, Math.max(40, Math.hypot(ax - f.x, az - f.z, shot.drop)), f, now);
     const t = this.target;
     if (!t) return;
-    const q = Math.hypot(ax - t.x, az - t.z) / t.r;
-    const x = t.r > 120 && q < 0.8 ? ax : t.x, z = t.r > 120 && q < 0.8 ? az : t.z, y = this.groundAt(x, z);
+    const { x, z, y } = this.onto(ax, az, this.onPt)!;
     shot.x = x;
     shot.z = z;
     shot.y = y + 0.5;
     shot.exact = true;
     shot.drop = Math.max(0, f.y - y);
-    // (a Comet keeps its flight and its arc, onto the crater: src/game/Comet.ts. Every other shot lobs, longer the farther it goes)
+    // (a Comet keeps its flight and its arc, onto the crater: src/game/Comet.ts; a Lob its throw's parabola, from its mouth onto the crater in its ring:
+    // src/game/Lob.ts. Every other shot lobs, longer the farther it goes)
     if (shot.comet) {
       shot.comet.x = x;
       shot.comet.y = y + 0.5;
       shot.comet.z = z;
       shot.comet.drop = shot.drop;
+      relob(shot.comet);
     } else shot.travel = this.travelFor(Math.hypot(x - f.x, z - f.z, f.y - y));
     shot.crater = t;
+  }
+
+  private readonly onPt = { x: 0, y: 0, z: 0 };
+
+  /** Where a shot aimed at (ax, az) comes down on the crater glinting (aim's rule: anywhere well inside a big one, else its middle), or null with none. The
+   *  Lob's ring shows it there before the tap (main.ts), where it showed the landing before aim moved it. */
+  onto(ax: number, az: number, out: { x: number; y: number; z: number }): { x: number; y: number; z: number } | null {
+    const t = this.target;
+    if (!t) return null;
+    const q = Math.hypot(ax - t.x, az - t.z) / t.r;
+    out.x = t.r > 120 && q < 0.8 ? ax : t.x;
+    out.z = t.r > 120 && q < 0.8 ? az : t.z;
+    out.y = this.groundAt(out.x, out.z);
+    return out;
   }
 
   /** How high a breath lobs (m over its chord): a hill of a thing, in proportion to the throw. */
@@ -808,13 +824,14 @@ export class CraterPaint {
   // ------------------------------------------------------------------ a frame
 
   /** After the splats, before the frame's draw. */
-  update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, dragging: boolean, height: number) {
+  update(dt: number, now: number, f: Flight, ax: number, az: number, loaded: boolean, dragging: boolean, height: number, far = 0) {
     this.busX = f.x;
     this.busZ = f.z;
     // (up high the aim tips down: what it picks is under the view, a throw it can make, not at the horizon)
     const up = Math.min(1, Math.max(0, (height - 300) / 2700));
     config.splat.aimDown = 20 + 16 * up * up * (3 - 2 * up);
-    const reach = Math.max(120, Math.min(26000, height * 3)) + 60;
+    // (`far`: a Lob's landing, 1-1.9 km out from low down, where the craters asked round the bus didn't reach: it came down on open ground)
+    const reach = Math.max(120, Math.min(26000, height * 3), far) + 60;
     this.ask(f, reach);
     if (dragging) this.latchTo = 0;
     else if (this.wasDrag) this.latch(now);

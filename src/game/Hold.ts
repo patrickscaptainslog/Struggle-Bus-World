@@ -63,8 +63,10 @@ export interface Hold {
   readonly point: THREE.Vector3;
   /** metres from the bus to `point` (Infinity when no hit) */
   range: number;
-  /** the handler that has it (its name), or null: nobody, as when the Hose found no belly to pour */
+  /** the handler that has it (its name), or null: nobody, once its owner let it go (Holds.release) or where no handler took it (no Hose added). A Hose that coughed still has it */
   owner: string | null;
+  /** (in end) it was a tap's: Input's late tap, an aim begun with the Lob's ring up only because its lift reached the page late. It ends cancelled */
+  late?: boolean;
 }
 
 /** What life or Recess adds (Holds.add) to take holds and taps. Every method is optional. */
@@ -87,19 +89,29 @@ export interface HoldHandler {
 
 /** Holds.fire's options. */
 export interface HomingOpts {
-  /** Where the target is now (world m, into `out`); false: it's gone (sunk, off the map), and the shot flies on a beat and ends as a miss, 'lost'. Called every frame. */
+  /**
+   * Where the target is now (world m, into `out`); false: it's gone (sunk, off the map), and the shot flies on a beat and ends as a miss, 'lost' (one never there,
+   * at the launch nor on its first frame, too). Called first in fire(), where one that throws refuses the shot, nothing spent, and then every frame.
+   */
   target(out: THREE.Vector3): boolean;
+  /**
+   * The target's velocity now (world m/s, into `out`), where the caller knows it (a boat's on its lane, a rival's flight): the shot leads from its launch, its first
+   * heading at where it meets the target if both hold their lines, and before the white it steers at that meeting. Without it the velocity is learnt from
+   * target()'s frames, so a shot fired from inside its white window (speed x white of the target) flies at where the target was. Called after each target() that
+   * returns true.
+   */
+  vel?(out: THREE.Vector3): void;
   /** m/s along its path (a boat at 1.5 km: about 500; a plane 12 km out: 3,000 or more to arrive in under 4 s) */
   speed: number;
   /** the most it turns, rad/s (the lower, the easier to dodge before the white) */
   turn: number;
   /** its last seconds (time to go = distance / speed): white-hot, and it no longer steers (SHOTS.md: 0.7, 0.45 at a full charge) */
   white: number;
-  /** a hit is within this of the target (m, default 6) */
+  /** a hit is within this of the target (m, default 6): this frame's target against the shot's path this frame, so at least the target's speed / 30, a frame of its travel at 30 fps */
   hitRadius?: number;
   /** it ends as a miss after this long (s, default 8) */
   maxTime?: number;
-  /** where it leaves from (default the bus's mouth) and its first heading (default straight at the target) */
+  /** where it leaves from (default the bus's mouth) and its first heading (default at the target: where it will meet it, with `vel`, else where it is) */
   from?: THREE.Vector3;
   dir?: THREE.Vector3;
   /** whose colours it flies in (game/factions.ts; default the player's), and which of its six (0-5, default 0) */
@@ -199,7 +211,7 @@ export class Holds {
   constructor(host: HoldHost) {
     this.h = host;
     this.shots = this.live;
-    this.hold = { id: 0, down: false, x: 0, y: 0, x0: 0, y0: 0, dragX: 0, dragY: 0, held: 0, aimed: 0, ray: { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: -1 }, hit: false, point: new THREE.Vector3(), range: Infinity, owner: null };
+    this.hold = { id: 0, down: false, x: 0, y: 0, x0: 0, y0: 0, dragX: 0, dragY: 0, held: 0, aimed: 0, ray: { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: -1 }, hit: false, point: new THREE.Vector3(), range: Infinity, owner: null, late: false };
   }
 
   /**
@@ -237,9 +249,19 @@ export class Holds {
     return true;
   }
 
-  /** Let the hold go: nobody has it (its finger stays down, and nothing else is asked). */
+  /** Let the hold go: nobody has it (its finger stays down, and nothing else is asked). The one that had it gets lost(), as on a claim, so the Hose stops pouring. */
   release(name: string): void {
-    if (this.current && this.current.owner === name) this.current.owner = null;
+    const h = this.current;
+    if (!h || h.owner !== name) return;
+    h.owner = null;
+    const was = this.handlers.find((x) => x.h.name === name);
+    if (was?.h.lost) {
+      try {
+        was.h.lost(h);
+      } catch (err) {
+        this.threw(was.h, err);
+      }
+    }
   }
 
   /** A tap is about to splat (main.ts): a handler may take it. */
@@ -297,6 +319,11 @@ export class Holds {
     return out.set(f.x, f.y, f.z);
   }
 
+  /** The player's bus's velocity now (world m/s, into `out`): a captain's shot's vel (HomingOpts.vel), so it leads the bus from its launch. */
+  busVel(out: THREE.Vector3): THREE.Vector3 {
+    return this.h.flight.velocity(out);
+  }
+
   /** Nothing of the city stands between the camera and `p` (SHOTS.md, Lock-on: "until ... a building hides it"). Within 8 m of `p` doesn't count. No allocation. */
   inSight(p: THREE.Vector3): boolean {
     const r = this.sight;
@@ -346,6 +373,7 @@ export class Holds {
     (h as { id: number }).id = ++this.serial;
     h.down = true;
     h.owner = null;
+    h.late = false;
     this.fill(0);
     this.current = h;
     this.stats.holds++;
@@ -366,11 +394,12 @@ export class Holds {
   }
 
   /** Input.onAimEnd. */
-  end(cancelled: boolean): void {
+  end(cancelled: boolean, late = false): void {
     const h = this.current;
     if (!h) return;
     this.fill(0);
     h.down = false;
+    h.late = late;
     this.current = null;
     for (const e of this.handlers) {
       if (!e.h.end || (e.h.name !== h.owner && !e.watch)) continue;
@@ -420,24 +449,35 @@ export class Holds {
 
   // ------------------------------------------------------------------ the homing shot
 
-  /** Launch a homing shot (HomingOpts). Null: too little in the belly (when it spends it), or the player's MAX_MINE / everyone else's MAX_SHOTS already flying. */
+  /** Launch a homing shot (HomingOpts). Null: too little in the belly (when it spends it), the player's MAX_MINE / everyone else's MAX_SHOTS already flying, or its target() threw. */
   fire(o: HomingOpts): HomingShot | null {
     const H = this.h;
     const belly = o.belly ?? !o.from;
+    // (the target first, caught: one that throws refuses the shot before the belly is spent or the bus heaves. The review of fd6d413, m81)
+    const tgt = new THREE.Vector3(), tv = new THREE.Vector3();
+    let seen = false, threw = false;
+    try {
+      seen = o.target(tgt);
+      if (seen && o.vel) o.vel(tv);
+    } catch (err) {
+      threw = true;
+      this.stats.errors++;
+      console.error('Holds: a homing shot threw', err);
+    }
     let n = 0;
     for (const s of this.live) if (s.mine === belly) n++;
     // (the player's refused shot coughs, whatever refused it: a lift that fires nothing is never silent)
-    if (n >= (belly ? MAX_MINE : MAX_SHOTS) || (belly && !H.flight.tryBarf(hoseTune.minTank))) {
+    if (threw || n >= (belly ? MAX_MINE : MAX_SHOTS) || (belly && !H.flight.tryBarf(hoseTune.minTank))) {
       this.stats.refused++;
       if (belly) H.audio.denied();
       return null;
     }
     if (belly) H.breath();
     const pos = new THREE.Vector3().copy(o.from ?? H.mouth());
-    const tgt = new THREE.Vector3();
-    const seen = o.target(tgt);
     const dir = new THREE.Vector3();
     if (o.dir) dir.copy(o.dir).normalize();
+    // (with its velocity, at where they meet, with no turn limit: fired from inside the white it flies straight from the start, so it must leave led. M80)
+    else if (seen && o.vel) dir.copy(tgt).addScaledVector(tv, this.meet(pos, tgt, tv, Math.max(1, o.speed))).sub(pos).normalize();
     else if (seen) dir.copy(tgt).sub(pos).normalize();
     else dir.set(H.flight.fx, 0, H.flight.fz);
     const faction = o.faction ?? H.faction();
@@ -447,11 +487,27 @@ export class Holds {
       cancel: () => {
         s.done = true;
       },
-      o, tgt, last: tgt.clone(), tv: new THREE.Vector3(), seen, closest: Infinity, ramp: sprays[((o.hue ?? 0) % 6 + 6) % 6], ending: -1, whistled: false, mine: belly,
+      o, tgt, last: tgt.clone(), tv, seen, closest: Infinity, ramp: sprays[((o.hue ?? 0) % 6 + 6) % 6], ending: -1, whistled: false, mine: belly,
     };
     this.live.push(s);
     this.stats.fired++;
     return s;
+  }
+
+  /**
+   * When a shot at `speed` from `p` meets a target at `q` going `v`, both on straight lines (s from now), or, where it never can (a target faster away), the time
+   * to go to where it is now, at most 3 s, as the learnt lead's. No allocation.
+   */
+  private meet(p: THREE.Vector3, q: THREE.Vector3, v: THREE.Vector3, speed: number): number {
+    const rx = q.x - p.x, ry = q.y - p.y, rz = q.z - p.z;
+    const a = v.lengthSq() - speed * speed, b = 2 * (rx * v.x + ry * v.y + rz * v.z), c = rx * rx + ry * ry + rz * rz;
+    const now = Math.min(3, Math.sqrt(c) / speed);
+    if (Math.abs(a) < 1e-6) return b < 0 ? -c / b : now;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return now;
+    const t1 = (-b - Math.sqrt(disc)) / (2 * a), t2 = (-b + Math.sqrt(disc)) / (2 * a);
+    const t = t1 > 0 && t2 > 0 ? Math.min(t1, t2) : Math.max(t1, t2);
+    return t > 0 ? t : now;
   }
 
   private stepShots(dt: number) {
@@ -485,11 +541,12 @@ export class Holds {
       if (s.ending < 0) s.done = true;
       return;
     }
-    const was = s.seen;
+    const was = s.seen, first = s.t === dt;
     s.seen = o.target(s.tgt);
     if (s.seen) {
-      // the target's velocity, smoothed: the shot leads it
-      if (was) {
+      // the target's velocity: the caller's, or else learnt from its frames, smoothed. The shot leads it
+      if (o.vel) o.vel(s.tv);
+      else if (was) {
         this.v.copy(s.tgt).sub(s.last).divideScalar(dt);
         s.tv.lerp(this.v, 1 - Math.exp(-15 * dt));
       }
@@ -508,7 +565,7 @@ export class Holds {
     }
     if (s.seen && !s.white) {
       // steer at where the target will be, at most `turn` rad/s
-      const lead = this.w.copy(s.tgt).addScaledVector(s.tv, Math.min(s.ttg, 3)).sub(s.pos);
+      const lead = this.w.copy(s.tgt).addScaledVector(s.tv, o.vel ? this.meet(s.pos, s.tgt, s.tv, speed) : Math.min(s.ttg, 3)).sub(s.pos);
       if (lead.lengthSq() > 1e-6) {
         lead.normalize();
         const cos = Math.min(1, Math.max(-1, s.dir.dot(lead)));
@@ -542,7 +599,8 @@ export class Holds {
       // (in the white it doesn't steer: once it is moving away it has gone by)
       s.closest = Math.min(s.closest, near);
       if (s.white && s.pos.distanceTo(s.tgt) > s.closest + 2 && s.dir.dot(this.u.copy(s.tgt).sub(s.pos)) < 0) return this.miss(s, 'dodged');
-    } else if (was) return this.miss(s, 'lost');
+      // (gone since it was seen, or never there, at the launch nor now: a miss after a beat, never a blob flying on for maxTime. M82)
+    } else if (was || first) return this.miss(s, 'lost');
     if (s.pos.y <= H.city.surfaceAt(s.pos.x, s.pos.z, s.pos.y + 2)) {
       this.hitFx(s);
       return this.miss(s, 'ground', true);

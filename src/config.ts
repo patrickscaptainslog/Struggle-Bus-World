@@ -516,8 +516,9 @@ export const config = {
     /** How long the hint and FIND A STREET stay up (s). */
     hintFor: 3.2,
     noneFor: 1.8,
-    /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's call on the phone. */
-    diveOnly: false,
+    /** The surge down a street lands (false), or only a dive from a held height and School Zone's sink (true): the producer's pick (BUILT.md, "The
+     *  one-number picks and the first Bomb"). */
+    diveOnly: true,
     /** In School Zone a flick down lands from at most this high over the ground (m); the lane is the worker's to find, within 80 m. From higher it
      *  does nothing, as at any height before Curb (at 150 m the arc came down at 115 m/s: the review of feat/curb, M4). */
     flickOver: 60,
@@ -819,7 +820,7 @@ export const config = {
     reach: 1900,
     /** By this frame's lens moved on by the bus's travel to the impact it lands at least this share of the height above the bus; where it doesn't it
      *  moves out along its line `outStep` m at a time, and where it never does by `reach` the tap is the classic shot. */
-    above: 0.05,
+    above: 0.03,
     outStep: 20,
     /** A wall standing into the arc less than this many s of the bus's travel ahead of it at the impact is lobbed over: the arc tops out higher, up to
      *  `arcMax` of the chord. Farther, it takes the Comet on its face. */
@@ -865,6 +866,63 @@ export const config = {
     sound: 343,
     kick: 3.2,
     kickLight: 1.2,
+  },
+
+  /** The Lob (src/game/Lob.ts, docs/specs/shots/SHOTS.md "The modes"): a tap with the bus's body (Flight.pitch) more than `from` degrees up throws the breath
+   *  off the nose at the body's angle θ, at most `most` (past it, a Lob at it), into the distance: `range` x sin 2θ m along the aim's flat way, on the middle of
+   *  a stretch of its way `stretch` m long, in view as the Comet must be (config.comet.above, reach and outStep). */
+  lob: {
+    from: 25,
+    most: 70,
+    range: 1600,
+    stretch: 60,
+    /** The body latched as the steering thumb lifts (or a tap's finger lands) is what a tap throws for this long (s), where the aim's latch is
+     *  config.splat.aimLatch's 0.5: a tap 0.5 s after the lift found the body dropped and threw a plain splat, the ring still up the frame before. */
+    latch: 0.8,
+    /** Its blast is a tap's for its fall from the arc's top (Lob.ts's lobRadius, 220-560 m of fall from the roofs), at most this (m): a 300 m tap's, the
+     *  best a tap has, so it lands as big from the roofs as from 300 m. The producer's call (BUILT.md, the roofs stage). */
+    radius: 170,
+    /** A tower over its landing's line of sight from the lens takes it (Lob.ts's hider): asked from this far past the bus (m) to this far short of the
+     *  landing (inside it the blast reaches it), every hideStep m: in the distance, where a Lob lands (s_lob's 600 m). Nearer, one taken on its roof is
+     *  flown to in the whole flight's time (1.4 s for 209 m from Justin Herman Plaza). */
+    hideFrom: 600,
+    hideClear: 120,
+    hideStep: 12,
+    /** It must show at least this share of the height over the bus by the lens moved on to the impact (config.comet.above is the Comet's), and a landing
+     *  picked afresh `aboveNew`: held or latched it stays while it shows `above`, so one picked on the edge doesn't move off it before the tap. */
+    above: 0.05,
+    aboveNew: 0.07,
+    /** Its flight after the inhale at 45 degrees (s), x sin θ / sin 45 at θ: 1.43-3.19 s from 25 to 70. */
+    flight: 2.4,
+    /** The lens moved on to the impact climbs with the bus for this long at most (s): a thumb lifted levels it out in about that. */
+    climbFor: 0.5,
+    /** ...and with the steering thumb down (a second thumb's tap), this long: it climbs on. */
+    climbLive: 1,
+    /** The path more than this under level (degrees) is a dive, which never lobs (Belly Flop's, later). */
+    levelSlack: 3,
+    /** Its whump comes when its sound reaches the bus, but at most this long after the impact (s): 1.6 km is 4.7 s of sound. */
+    boomLate: 1.2,
+    /** The view tips up this far (degrees) while it climbs, the sky lift's way, and back down while it falls (main.ts); further, as far as keeps its arc's
+     *  top and then its star tipTop degrees under the frame's top, but the bus never lower than tipBus of the half height under the middle (89 % down the
+     *  screen), eased at tipRate (1/s; the sky lift's 1.6). */
+    tip: 10,
+    tipTop: 2,
+    tipBus: 0.78,
+    tipRate: 3,
+    /** While its ring shows, a dim pillar of its paint stands on the landing (CometFx.beacon, the pillars' program and draw): this tall (m), this share of a
+     *  pillar's stipple, a step down its ramp. And once thrown its ring's dots close in as it falls from its top, to 1 - close of its circle as it lands. */
+    beacon: 260,
+    beaconKeep: 0.3,
+    close: 0.75,
+    /** Motes in its streak over its whole flight, three times the Comet's time aloft and more (the Comet's 400). */
+    motes: 700,
+    /** Its throw: a cloud of this many puffs of its paint out of the roof hatch at about puffSpeed m/s, each puffSize x a smoke puff's (CometFx.lobPuff), and
+     *  the bus dips this far (m) under it and back over dipTime s (main.ts): no hit-stop, no kick. */
+    puff: 26,
+    puffSpeed: 12,
+    puffSize: 7,
+    dip: 1.2,
+    dipTime: 0.45,
   },
 
   /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */

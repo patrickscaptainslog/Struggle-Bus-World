@@ -4,6 +4,8 @@ import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { BarfOpts, Splatter } from './Splat';
 import { chooseShot, type Comet, type CometPlan } from './Comet';
+import { lobRadius, type Lob } from './Lob';
+import { inputTune } from './Input';
 
 // Dragon-breath aim. One source of truth: the building that glints is the
 // building a tap hits.
@@ -26,6 +28,8 @@ import { chooseShot, type Comet, type CometPlan } from './Comet';
 // - A look turns the aim with the view, sideways only (lookYaw, CameraRig's
 //   aimYaw): the glint stays in its usual spot on the screen and the world turns
 //   under it, because the view turns about the bus and so does this.
+// - The Comet (a gear at speed) and the Lob (the body nose up) plan the tap's shot every frame where they apply, and what glints is where it lands
+//   (Comet.ts's chooseShot picks between them). Lifting the steering thumb latches the Lob's body as it was with it down.
 
 /** A mover the aim took (?life, src/life; CONTRACT.md section 3): its key, where it will be when the breath gets there, and that game time. */
 export interface MoverTarget {
@@ -77,6 +81,8 @@ export function tapOpts(shot: Shot, busY: number): BarfOpts {
   // (a Comet: no ribbon from the mouth, its streak is the jet, and no hit-stop that far off; its tile not in yet, it's planned just before it lands)
   const c = shot.comet;
   if (c) Object.assign(o, { stream: true, hitStop: 0, comet: c, late: c.loaded ? 0 : config.comet.late });
+  // (a Lob's circle is its fall's from the arc's top, not the bus's height over where it lands)
+  if (c?.kind === 'lob') o.radius = lobRadius(c);
   return o;
 }
 
@@ -92,8 +98,26 @@ export class Aimer {
   life: MoverAim | null = null;
   /** The Comet (src/game/Comet.ts; main.ts and the probe make it): with a gear at speed it plans the tap's shot, and what glints is its landing */
   comet: Comet | null = null;
+  /** The Lob (src/game/Lob.ts; main.ts and the sims make it, on the Comet's odometer): with the body nose up a tap throws it into the distance, and what glints is
+   *  where it lands */
+  lob: Lob | null = null;
+  /** A Bomb charging (src/game/Bomb.ts): the Lob is out of it, its shot the Comet's or the tap's */
+  bombing = false;
+  /** this frame's plan (the Comet's or the Lob's, chooseShot's pick), and whether it's the Lob's; the Comet's own, and the aim's own point under them */
   private cometPlan: CometPlan | null = null;
+  private lobbing = false;
+  private cometOnly: CometPlan | null = null;
+  /** the last fire() was the Comet's shotOf (unfire puts its side back) */
+  private cometFired = false;
   private readonly cometOut = {} as CometPlan;
+  private readonly lobOut = {} as CometPlan;
+  private readonly aimOwnPt = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0, wall: false };
+  /** the steering thumb was down last frame, and the body and the path as they were then: what the Lob latches when it lifts */
+  private wasThumb = false;
+  private bodyWas = 0;
+  private noseWas = 0;
+  /** when the steering thumb went down (game s): a stroke lifted within inputTune.quickTapMs may be a slid tap, and keeps the Lob's latch it found */
+  private thumbAt = 0;
   /** the mover this frame's aim takes, and one held by a press, as the building latch is */
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
@@ -134,10 +158,18 @@ export class Aimer {
 
   constructor(private readonly city: City, private readonly splatter: Splatter) {}
 
-  /** The Comet a tap now fires (planned this frame), or null: the classic shot. */
+  /** The Comet or the Lob a tap now fires (planned this frame; a Lob's has kind 'lob'), or null: the classic shot. */
   get planned(): CometPlan | null {
     return this.cometPlan;
   }
+
+  /** The Lob a tap now throws (planned this frame), or null: its ring shows where it lands (main.ts). */
+  get lobPlan(): CometPlan | null {
+    return this.lobbing ? this.cometPlan : null;
+  }
+
+  /** QA: this frame's Lob, chosen or not (the Comet's landing farther), or null. */
+  lobLast: CometPlan | null = null;
 
   /** A breath can fire right now (Flight.tryBarf's own test). */
   static loaded(f: Flight): boolean {
@@ -311,14 +343,26 @@ export class Aimer {
   }
 
   /**
-   * Once per frame: the aim point, the target, the latch. `dragging` = the steering thumb is down.
+   * Once per frame: the aim point, the target, the latch. `dragging` = the steering thumb is down (and no press holds what glints); `thumb` = it is down,
+   * whatever a press holds: a second thumb's tap reads the Lob's body live, and its lift latches the body as it was.
    * Returns the building that glints (the one a tap now hits), or null.
    */
-  update(f: Flight, t: number, dragging: boolean): BuildingRef | null {
+  update(f: Flight, t: number, dragging: boolean, thumb = dragging): BuildingRef | null {
     const S = config.splat;
     this.t = t;
     this.ready = Aimer.loaded(f) || (this.primed && f.barfT < 0);
-    this.cometPlan = null;
+    this.cometPlan = this.cometOnly = this.lobLast = null;
+    this.lobbing = false;
+    // (the Lob's body: as it was last frame, with the thumb down, when it lifts; live while it's down. The body drops as soon as the thumb lifts, at Cruise
+    // 72 to 41 degrees in 0.2 s, and a frame's drop at 30 fps put a throw tens of metres from 60's). On Curb's street it latches nothing: there's no Lob there
+    if (this.lob && this.street === 0) {
+      if (this.wasThumb && !thumb) this.lob.latch(this.bodyWas, this.noseWas, t, t + config.lob.latch, false, t - this.thumbAt <= inputTune.quickTapMs / 1000);
+      if (thumb) this.lob.unlatch(t);
+    }
+    if (thumb && !this.wasThumb) this.thumbAt = t;
+    this.wasThumb = thumb;
+    this.bodyWas = f.pitch;
+    this.noseWas = f.nose;
     // (the Comet's odometer runs every frame: its stretches are counted along the bus's travel)
     this.comet?.track(f);
     // thumb lifted (to tap): freeze what glints while the bus straightens out under it (the Comet's landing as the aim's own pick)
@@ -346,21 +390,29 @@ export class Aimer {
     // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one. Where it applies it takes the place
     // of ?life's mover, as of the building: HOOKS.md, "The Comet")
     const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
-    if (!c) return this.noteShown(own);
-    this.cometPlan = c;
+    // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): the farther of it and the Comet, never weighed
+    // against the aim's own (chooseShot)
+    const l = this.lob && this.comet && !this.bombing && this.street === 0 ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;
+    this.lobLast = l;
+    const p = chooseShot(f, null, c, l);
+    if (!p) return this.noteShown(own);
+    this.cometPlan = p;
+    this.cometOnly = c;
+    this.lobbing = p === l;
     const aim = this.aim;
-    aim.x = c.x;
-    aim.y = c.y;
-    aim.z = c.z;
-    aim.wall = c.wall;
-    aim.drop = c.drop;
-    aim.travel = c.travel;
-    aim.dist = Math.hypot(c.x - f.x, c.z - f.z, f.y - c.y);
+    Object.assign(this.aimOwnPt, aim);
+    aim.x = p.x;
+    aim.y = p.y;
+    aim.z = p.z;
+    aim.wall = p.wall;
+    aim.drop = p.drop;
+    aim.travel = p.travel;
+    aim.dist = Math.hypot(p.x - f.x, p.z - f.z, f.y - p.y);
     if (this.life) {
       this.mover = null;
       this.life.glint(null);
     }
-    return this.noteShown(c.target);
+    return this.noteShown(p.target);
   }
 
   /** The aim's own pick this frame (update's): the target, held; the latch; a wall in the line of fire; ?life's mover. Returns what it would glint. */
@@ -469,8 +521,17 @@ export class Aimer {
     return this.target;
   }
 
+  /** Before a tap fires: an aim this frame found not ready, the belly full again since (a pour given back by Input's late tap, Hose.end), plans again,
+   *  as it stood, so the tap throws what it would have (the Lob's roofs stage: the late tap found no plan and threw a plain splat). */
+  refresh(f: Flight): void {
+    if (!this.ready && Aimer.loaded(f)) this.update(f, this.t, this.wasDrag, this.wasThumb);
+  }
+
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
   press(): void {
+    // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
+    // thumb's tap reads it live. On Curb's street, none)
+    if (this.lob && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
     if (this.mover && !this.moverLatch) {
       // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
       Object.assign(this.moverHeld, this.mover);
@@ -512,13 +573,37 @@ export class Aimer {
   /** The shot a tap fires now: at the glinting building (call before Flight.tryBarf, between frames), or ?life's glinting mover. `bomb`: a Bomb's, which takes no
    *  mover off a floor (a plane glinting): the building, as its ring showed. */
   fire(f: Flight, bomb = false): Shot {
-    // (the tap's shot is chosen in one place, Comet.ts: the Comet's when a gear is at speed, and the Lob's slot)
-    const lob = this.comet?.lob?.(f) ?? null;
+    // (the tap's shot is chosen in one place, Comet.ts's chooseShot, every frame: what this frame planned and glints. A Bomb never lobs: where the Lob won,
+    // its shot is the Comet's, or the aim's own under them)
+    this.cometFired = false;
     if (this.comet && this.cometPlan) {
-      const s = this.comet.shotOf(this.cometPlan);
-      return chooseShot(f, s, s, lob);
+      if (!this.lobbing) {
+        this.cometFired = true;
+        return this.comet.shotOf(this.cometPlan);
+      }
+      if (!bomb) return this.lobShot(this.cometPlan);
+      if (this.cometOnly) {
+        this.cometFired = true;
+        return this.comet.shotOf(this.cometOnly);
+      }
+      Object.assign(this.aim, this.aimOwnPt);
+      this.cometPlan = null;
+      this.lobbing = false;
     }
-    return lob ? chooseShot(f, this.fireAim(f, bomb), null, lob) : this.fireAim(f, bomb);
+    return this.fireAim(f, bomb);
+  }
+
+  /** The shot fire() gave didn't leave (Flight.tryBarf said no, or the Bomb fizzled): a Comet's next one stays on the side this one would have taken (n82). */
+  unfire(): void {
+    if (this.cometFired) this.comet?.unshot();
+    this.cometFired = false;
+  }
+
+  /** The shot a Lob's plan throws: at what glints, its flight the plan's. */
+  private lobShot(p: CometPlan): Shot {
+    this.lob!.fired();
+    this.latchRef = null;
+    return { target: p.target, x: p.x, z: p.z, y: p.wall || !p.target ? p.y : undefined, exact: p.wall, drop: p.drop, travel: p.travel, comet: { ...p } };
   }
 
   /** The aim's own shot: at the glinting building, or ?life's glinting mover (a Bomb's, one on a floor only: one at a plane painted the plane alone, at one
