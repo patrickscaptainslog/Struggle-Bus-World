@@ -2,7 +2,8 @@ import { latLonToLocal } from '../game/geo';
 import { gunzip, isGzip } from '../world/gunzip';
 import { parseCityRoutes, parseRegionGraph, type CityRoutes, type RegionGraph } from '../world/lifeData';
 import { ferriesOn, ferryLines, harbourOf, sailsOn, WATER_R, type FerryLine, type Harbour } from './sim/boats';
-import { buildNet, carsOn, type CarNet } from './sim/cars';
+import { busesOn, parseBusLines, type BusLine } from './sim/buses';
+import { buildNet, carMix, carsOn, type CarNet } from './sim/cars';
 import { type CurbEnd, curbLand, curbPath, curbTune } from './sim/curb';
 import { sunsetSec } from './sim/sun';
 import { parkBlocks, picnicsOn, type LawnTile } from './sim/parks';
@@ -24,8 +25,8 @@ export interface LifeInit {
   /** the place's time zone (IANA, city.json's tz), for the local hour's traffic; none: the mean Sun's at its origin */
   tz?: string;
   /** the world's graphs (CONTRACT.md section 1.2, city.json's life.regions): a region's URL with g_RXRZ for its name, the regions there are, a region's side (m), and
-   *  routes.bin's URL; none: no cars, boats or ferries */
-  graphs?: { url: string; regions: Array<[number, number]>; regionM: number; routes?: string };
+   *  routes.bin's URL; none: no cars, boats or ferries. `buses`: buses.bin's URL where the city has its bus lines baked (city.json's life.buses) */
+  graphs?: { url: string; regions: Array<[number, number]>; regionM: number; routes?: string; buses?: string };
 }
 /** A tile's grass for people, sampled by the host (Life.ts, sampleGround): its arrays transferred. `tile` null: the tile is far, and dropped. */
 export interface LifeLawn {
@@ -108,6 +109,8 @@ let fetching = 0;
 /** routes.bin, once: the ferry lines, and the marinas, each's water once its regions are in (by its key) */
 let routes: CityRoutes | 'asking' | null = null;
 let lines: FerryLine[] = [];
+/** buses.bin, once: the city's bus lines (none: the cars' mix makes its own buses) */
+let busLines: BusLine[] | 'asking' | null = null;
 const harbours = new Map<string, Harbour>();
 let net: CarNet | null = null;
 let netStale = false;
@@ -155,6 +158,23 @@ function askRoutes(): void {
       if (!r) routes = { version: 0, minor: 0, ferries: [], terminals: [], marinas: [], airports: [] };
     })
     .catch(() => (routes = { version: 0, minor: 0, ferries: [], terminals: [], marinas: [], airports: [] }));
+}
+
+/** buses.bin, fetched once: the city's bus lines. With them in, the cars' mix makes no bus of its own. */
+function askBuses(): void {
+  const url = place?.graphs?.buses;
+  if (!url || busLines !== null) return;
+  busLines = 'asking';
+  fetch(url)
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .then((b) => (b && isGzip(b) ? gunzip(b) : b))
+    .then((b) => {
+      if (busLines !== 'asking') return;
+      // (a failed file isn't asked for again)
+      busLines = (b && parseBusLines(b)) || [];
+      carMix.buses = !busLines.length;
+    })
+    .catch(() => (busLines = []));
 }
 
 /** The marinas being sailed now: within BOAT_NEAR of the bus while it's under BOAT_ALT. */
@@ -304,8 +324,12 @@ function tick(t: LifeTick): void {
     if (curbWaiting && roadsIn(curbWaiting.x, curbWaiting.z, curbWaiting.reach)) curb(curbWaiting);
     // (cars on the roads round the bus, fewer as it climbs away from them, by the place's hour)
     if (t.y < CAR_ALT) {
+      // (the city's buses on their lines, then the cars, which keep clear of them as of each other)
+      askBuses();
+      const lead = n;
+      if (busLines && busLines !== 'asking' && busLines.length) n = busesOn(busLines, t.utcMs, tz, t.x, t.z, CAR_REACH, v.rows, n, MAX_ROWS, keys);
       if (netStale) rebuild();
-      if (net) n = carsOn(net, t.utcMs, tz, t.x, t.z, CAR_FULL, CAR_REACH, Math.min(1, (CAR_ALT - t.y) / (CAR_ALT - CAR_THIN)), v.rows, n, MAX_ROWS, keys);
+      if (net) n = carsOn(net, t.utcMs, tz, t.x, t.z, CAR_FULL, CAR_REACH, Math.min(1, (CAR_ALT - t.y) / (CAR_ALT - CAR_THIN)), v.rows, n, MAX_ROWS, keys, undefined, lead);
     }
     v.u32[3] = Math.max(0, keyAt);
   } else v.u32[3] = 0;
@@ -357,6 +381,8 @@ self.onmessage = (e: MessageEvent<LifeInit | LifeTick | LifeLawn | LifeCurb>) =>
     harbours.clear();
     routes = null;
     lines = [];
+    busLines = null;
+    carMix.buses = true;
     net = null;
     netStale = false;
     curbWaiting = null;

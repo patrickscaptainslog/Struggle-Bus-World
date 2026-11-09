@@ -61,11 +61,18 @@ const TONES = [
   [0.4, 0.7, 0.9, 1],
   [1, 1, 1, 1],
 ];
+/** Where a city has its bus lines the mix makes no bus of its own (sim/buses.ts runs them where they really go): the worker sets it when the lines are in. */
+export const carMix = { buses: true };
 /** A slot's vehicle by its hash and its road's class: 0 to 5, sedan, SUV, pickup, box truck, semi, bus. */
 function typeOf(s: number, cls: number): number {
   const u = unit(mix(s, 11)), m = mixOf(cls);
   let t = 0;
   while (t < 5 && u >= m[t]) t++;
+  // (a bus's slot where the lines have the buses: a sedan, an SUV or a pickup, by its own hash)
+  if (t === 5 && !carMix.buses) {
+    const w = unit(mix(s, 14));
+    t = w < 0.62 ? 0 : w < 0.92 ? 1 : 2;
+  }
   return t;
 }
 /** Its look: its body's bit and its tone. */
@@ -379,11 +386,11 @@ export function traffic(localHour: number): number {
  * is told each row's key; `ways`, if given, each row's way (QA).
  */
 export function carsOn(net: CarNet, utcMs: number, tzMin: number, bx: number, bz: number, full: number, reach: number, keep: number, out: Float32Array, at: number,
-  max: number, keys?: (hash: number, key: string) => void, ways?: Int32Array): number {
+  max: number, keys?: (hash: number, key: string) => void, ways?: Int32Array, lead = at): number {
   if (!net.n || keep <= 0) return at;
-  const first = at;
   at = carsPlaced(net, utcMs, tzMin, bx, bz, full, reach, keep, out, at, max, keys, ways);
-  unoverlap(out, first, at);
+  // (`lead`: the first row of the vehicles placed before the cars, the lines' buses, which the cars keep clear of too)
+  unoverlap(out, lead, at);
   return at;
 }
 

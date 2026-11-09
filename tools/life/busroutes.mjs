@@ -214,7 +214,8 @@ const metres = (p, q) => {
 let gaps = 0, maxGap = 0, missing = 0;
 const done = [];
 for (const rt of routes) {
-  const line = [];
+  // (cuts: where in the line a way starts over 30 m from the last one's end, a member missing between them: the bake cuts the line there)
+  const line = [], cuts = [];
   for (const m of rt.members) {
     if (m.type !== 1 || /stop|platform/.test(m.role)) continue;
     const wn = ways.get(m.ref);
@@ -232,6 +233,7 @@ for (const rt of routes) {
         gaps++;
         maxGap = Math.max(maxGap, gap);
       }
+      if (gap > 30) cuts.push(line.length);
       if (gap < 1) pts = pts.slice(1);
     } else if (rt.members.filter((x) => x.type === 1 && !/stop|platform/.test(x.role)).length > 1) {
       // (the first way's direction from the second's)
@@ -247,7 +249,7 @@ for (const rt of routes) {
   const stops = rt.members.filter((m) => m.type === 0 && /stop|platform/.test(m.role)).map((m) => nodes.get(m.ref)).filter(Boolean);
   let len = 0;
   for (let i = 1; i < line.length; i++) len += metres(line[i - 1], line[i]);
-  done.push({ id: rt.id, ref: rt.tags.ref ?? '', name: rt.tags.name ?? '', operator: rt.tags.operator ?? '', network: rt.tags.network ?? '', colour: rt.tags.colour ?? '', mode: rt.tags.route, line, stops, km: len / 1000 });
+  done.push({ id: rt.id, ref: rt.tags.ref ?? '', name: rt.tags.name ?? '', operator: rt.tags.operator ?? '', network: rt.tags.network ?? '', colour: rt.tags.colour ?? '', mode: rt.tags.route, line, cuts, stops, km: len / 1000 });
 }
 const ops = {};
 for (const r of done) ops[r.operator || r.network || '?'] = (ops[r.operator || r.network || '?'] ?? 0) + 1;
