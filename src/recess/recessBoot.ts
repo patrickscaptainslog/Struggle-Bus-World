@@ -343,9 +343,9 @@ export class RecessGame implements MoverAim {
     return key.startsWith('recess:');
   }
 
-  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground?: boolean): MoverTarget | null {
-    // (`ground` passed on: without it the aim's second ask, along the nose for a plane, took cars too in a match)
-    return this.life ? this.life.aim(ox, oy, oz, dx, dy, dz, pickR, travel, ground) : null;
+  aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number, ground?: boolean, past?: number): MoverTarget | null {
+    // (`ground` passed on: without it the aim's second ask, along the nose for a plane, took cars too in a match; and `past`, life's M10)
+    return this.life ? this.life.aim(ox, oy, oz, dx, dy, dz, pickR, travel, ground, past) : null;
   }
 
   glint(key: string | null): void {
