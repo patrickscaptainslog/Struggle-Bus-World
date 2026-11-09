@@ -145,7 +145,11 @@ export class Controls {
       },
     });
     d.input.swapped = !!this.prefs.swap;
-    d.input.onTurbo = (dir, flew) => this.shifter.flick(dir, flew);
+    d.input.onTurbo = (dir, flew) => {
+      // (?recess: a flick in a breath's white-hot hops out of it, and in a ride it only wheezes; the gate says it took it)
+      if (this.flickGate?.(dir)) return;
+      this.shifter.flick(dir, flew);
+    };
     this.shifter.onAnswer = (a) => this.answer(a);
     this.turbo.onEvent = (ev, g) => this.onTurbo(ev, g);
     if (this.prefs.muted) d.audio.setMuted(true);
@@ -228,6 +232,9 @@ export class Controls {
   private holdToast = false;
 
   /** The opening's gate (main.ts): a gear would lift the bus into the deck, so a gear waits until it clears. */
+  /** ?recess: sees every flick first, and takes it when it returns true (src/recess/recessBoot.ts) */
+  flickGate: ((dir: 1 | -1) => boolean) | null = null;
+
   get gearsLocked(): boolean {
     return this.shifter.locked;
   }

@@ -124,6 +124,10 @@ export interface BarfOpts {
   late?: number;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
+  /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land) */
+  solo?: number;
+  /** whose blast it is when it isn't this splatter's own `faction` (?recess: a captain's bus) */
+  faction?: number;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
@@ -374,7 +378,8 @@ export class Splatter {
     // the blast's center hue: an escalating primary keeps its color, a fresh one takes the next hue
     const pRec = primary ? paint.get(primary.index) : null;
     const bands = opts?.bands;
-    const hue = bands ? bands.hue : pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
+    const solo = opts?.solo;
+    const hue = solo !== undefined ? solo : bands ? bands.hue : pRec && pRec.level > 0.5 ? wrapHue(pRec.color) : this.nextHue;
 
     // every building the blast reaches (its footprint, not its centroid: a big block half inside the radius
     // blooms too), nearest edge first, capped: a house by its centroid less its half-size (as the approved
@@ -409,15 +414,18 @@ export class Splatter {
     this.lastPos = pos;
     this.lastSpec = null;
     if (this.lastMiss) {
-      this.misses.push({ at: tImpact, pos, hue: this.nextHue, comet: opts?.comet ?? null });
-      if (!stream) this.fx.geyser([pos.clone()], [this.nextHue]);
+      this.misses.push({ at: tImpact, pos, hue: solo ?? this.nextHue, comet: opts?.comet ?? null });
+      if (!stream) this.fx.geyser([pos.clone()], [solo ?? this.nextHue]);
       return tImpact;
     }
-    if (!bands && (!pRec || pRec.level < 0.5)) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
+    if (solo === undefined && !bands && (!pRec || pRec.level < 0.5)) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(cx, cz, r, hue, this.seed);
-    spec.faction = this.faction;
-    if (bands) {
+    spec.faction = opts?.faction ?? this.faction;
+    if (solo !== undefined) {
+      spec.layout = 0;
+      spec.sectors = 1;
+    } else if (bands) {
       spec.layout = LAYOUT_BANDS;
       spec.ring = bands.width;
       spec.ox = bands.x;
@@ -460,7 +468,7 @@ export class Splatter {
       const base = was ? Math.round(lv) : 0;
       const level = Math.min(3, base + 1), last = Math.min(3, base + jump);
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
-      const h = was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
+      const h = solo !== undefined ? solo : was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, last);
       // it pops when the shockwave reaches its near edge
       const flags = (hose ? BLOOM_HOSE : 0) | (jump > 1 ? BLOOM_BOMB : 0) | (lift || (was && level <= Math.round(lv)) ? BLOOM_REPOP : 0);
@@ -497,7 +505,7 @@ export class Splatter {
     if (fresh) this.nextHue = (this.nextHue + 1) % HUE_COUNT;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(m.x, m.z, r, hue, this.seed);
-    spec.faction = this.faction;
+    spec.faction = opts.faction ?? this.faction;
     this.pending.push({
       at: tImpact, plan: [], ground: null, hitStop: hose ? 0 : opts.hitStop ?? S.hitStopFrames,
       blast: { spec, pos, t: tImpact, count: 1, maxLevel: 1, strength: r / S.blastRadius, dots: [], hose, mover: true, afloat: false, primary: null, super: opts.super ?? null, tag: opts.tag, comet: opts.comet ?? null, jump: 1 },

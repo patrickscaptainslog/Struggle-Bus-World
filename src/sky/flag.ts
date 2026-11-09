@@ -86,6 +86,12 @@ const noLife = typeof __SB_NO_LIFE__ !== 'undefined' && __SB_NO_LIFE__;
  *  of it is fetched or compiled: its chunk is imported under the flag alone (main.ts). */
 export const lifeOn = !noLife && !!query?.has('life') && !moonLow && !moonrun;
 
+/**
+ * ?recess: the bots match, FACTIONS.md section 4 (src/recess/recessBoot.ts): the player against two AI captains in a 1.5 km circle of the street, three minutes between
+ * the bells. The same law as the others: flag off, no fetch, no new program, no shader byte differs. Its module is a chunk of its own. Not over the Moon or ?earth.
+ */
+export const recessOn = !!query?.has('recess') && !moonLow && !moonrun && !earthFly;
+
 /** GLSL only ?moonrun, ?moon and ?earth compile. */
 export const space = (glsl: string): string => (moonrun || moonLow || earthFly ? glsl : '');
 

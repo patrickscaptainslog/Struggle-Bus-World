@@ -32,7 +32,7 @@ import { D as BUS_DIM } from './bus/busShape';
 import { glowSteps, Particles } from './fx/Particles';
 import { StreetSigns, signBladeWidth, signTune } from './fx/StreetSign';
 import { Credit } from './ui/Credits';
-import { registerCityData } from './world/PaintState';
+import { landmarkStoreKey, registerCityData } from './world/PaintState';
 import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
@@ -54,7 +54,7 @@ import { Comet } from './game/Comet';
 import { Lob, lobRadius, lobTop } from './game/Lob';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
-import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, skyLive } from './sky/flag';
+import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, recessOn, skyLive } from './sky/flag';
 import { CUT_NEAR, EARTH_CEILING, H_UP, SKY_FROM, SKY_TOP } from './sky/earthJoin';
 import type { EarthLanding, StreetWorld } from './sky/EarthLanding';
 import { spaceResolveUniforms as spaceU } from './render/skyResolve';
@@ -177,6 +177,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   if (!moon && manifest.slug !== slug) manifest.slug = slug;
   // and by the data's id scheme (city.json "ids"): the stores the City opens need it first
   registerCityData(manifest);
+  // (?recess: a match keeps its paint to itself, the first account's B21. Its paint stores open under a slug of their own, which no id scheme is registered for, so
+  // they keep paint for the session only and never touch storage; the landmarks' store, which keys by slug alone, starts empty under it)
+  if (recessOn && !moon) {
+    manifest.slug = `${manifest.slug}~recess`;
+    try {
+      localStorage.removeItem(landmarkStoreKey(manifest.slug));
+    } catch {
+      /* storage blocked: nothing to clear */
+    }
+  }
   live?.place(manifest.origin, (manifest as { tz?: string }).tz);
   // ?lift (docs/specs/factions/LIFT.md): the neighbourhood the Lift stages, from hoods.bin (C18's first reader). Without the flag nothing is fetched
   let liftHood: { hoods: HoodsTable; n: number } | null = null;
@@ -243,6 +253,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   }
   if (!moon && params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  // (?recess: the bots match, src/recess/recessBoot.ts. The bus starts on its arena's edge facing in, and the opening's Golden Gate and fog are skipped, as under ?lat)
+  const recessMod = recessOn ? await import('./recess/recessBoot') : null;
+  const recessArena = recessMod ? recessMod.arenaFor(manifest, params, flight) : null;
+  if (recessArena) {
+    params.set('lat', '');
+    params.set('skipintro', '');
+  }
   if (moon) {
     flight.y = moon.startY + 30;
     if (land) moon.far!.alloc();
@@ -722,6 +739,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         else superSplat.impact(b);
         return;
       }
+      // (?recess: a blast the player didn't fire, a captain's, a hiccup's, a heart's, paints and pops but plays no flash, kick, sound or sign, recessBoot's M22)
+      const quiet = !!recess?.quiet(b.tag);
+      // (?recess: a captain's blast splashes, bursts and flings in its own faction's colours, not the player's: the day review's M44)
+      const palette0 = particles.palette;
+      if (quiet && b.spec.faction !== undefined && b.spec.faction !== splatter.faction) particles.palette = lookOf(b.spec.faction).spray;
       particles.splash(b.pos, b.spec.hue, 2.2 * Math.sqrt(k));
       particles.burst(b.pos, b.spec.hue, k, city.groundAt(b.pos.x, b.pos.z));
       // paint blobs flung far out, each landing on a spatter dot the ground paint already holds (Curb's drive-by: only on the side it blooms)
@@ -731,8 +753,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y) + 0.15, dot.z);
         particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
       }
+      particles.palette = palette0;
       paintTrees(b);
       landmarkHit(city, b.pos, b.t);
+      if (quiet) {
+        bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
+        return;
+      }
       // (a Comet's boom comes late, when its sound reaches the bus, with the camera's kick; its pillar rises now, and the bloom's notes are on time)
       if (b.comet) cometFx.impact(b, simTime, cometBus.set(flight.x, flight.y, flight.z), busVel(), city.groundAt(b.pos.x, b.pos.z));
       else audio.splatImpact(k);
@@ -764,7 +791,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // (a Bomb's stages share one such budget over all of them, about 1,800: its hundreds of buildings and three pops each, each on its chance)
       const bombK = (14 + level * 8) * Math.min(1, SPARKS_BLAST / Math.max(1, total * 3));
       const each = flags & BLOOM_HOSE ? 5 + level * 3 : flags & BLOOM_BOMB ? Math.floor(bombK) + (Math.random() < bombK % 1 ? 1 : 0) : Math.max(SPARKS_MIN, Math.round((14 + level * 8) * Math.min(1, SPARKS_BLAST / Math.max(1, total))));
+      // (?recess: a building a captain painted sparkles in its faction's colours, M44)
+      const owner = recess ? city.paint.get(ref.index).faction : undefined, palette0 = particles.palette;
+      if (owner !== undefined && owner !== splatter.faction) particles.palette = lookOf(owner).spray;
       particles.sparkles(roof, Math.sqrt(ref.area) * 0.6 + 2, h, bloomHues, each);
+      particles.palette = palette0;
       fogBumped.add(ref.stableId);
       if (level >= 2 && !(flags & BLOOM_REPOP)) growSprouts(ref, hue, level, globals.uTime.value);
     },
@@ -1106,15 +1137,25 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     try {
       // (?life: a breath at a car, a ferry or a person is a blast centred on it: it paints the block round it, and life.blast paints it with every mover in the
       // circle (SHOTS.md, "The shot, reworked"). One at a plane paints the plane, at the impact's game time, and nothing under it. CONTRACT.md section 3)
-      const mover = shot.mover && life ? shot.mover : null;
+      // (?recess: a breath at a captain is the match's: a hit's flash in the air where it will be, and the match flies it)
+      const lands = simTime + config.splat.inhale + shot.travel;
+      const ours = shot.mover && recess?.ours(shot.mover.key) ? shot.mover : null;
+      const mover = shot.mover && life && !ours ? shot.mover : null;
       const block = !!mover && splatter.moverOnFloor(mover);
-      const moverFresh = mover && !block ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel, splatter.faction) : false;
+      const moverFresh = mover && !block ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), lands, splatter.faction) : false;
       // (Curb's drive-by: the car beside takes it too, and the fronts on the side it looks, that side only)
       const by = curbFlight?.state === 'on' && !mega ? curbDriveBy(shot) : null;
       const at = block ? mover! : shot;
+      // (the match hears what lands on the city: the square there takes Rainbow's hit, a Bomb's jump on it; one it leaves someone else's, or from inside the
+      // stop arm, lands as a flash in the air and paints nothing, so the screen agrees with it, M23)
+      if (ours) recess!.playerFire(ours.key, lands);
+      else if (!mover || block) recess?.playerPaint(at.x, at.z, lands, mega?.jump ? { jump: mega.jump, superId: mega.tag.id, r: mega.radius } : undefined);
+      const blocked = !ours && (!mover || block) && recess?.blocks(at.x, at.z, lands) ? { x: at.x, y: at.y ?? city.groundAt(at.x, at.z) + 2, z: at.z } : null;
       // (a tap's own barf, as the probe's (Aim.tapOpts), and what a mover, a mega and a crater add to it)
       const o = tapOpts(shot, flight.y);
-      if (block) Object.assign(o, { target: null, y: at.y, exact: true, moverBlock: true });
+      if (ours) Object.assign(o, { mover: ours, moverFresh: false });
+      else if (blocked) Object.assign(o, { mover: blocked, moverFresh: false });
+      else if (block) Object.assign(o, { target: null, y: at.y, exact: true, moverBlock: true });
       else if (mover) Object.assign(o, { mover, moverFresh });
       if (mega) Object.assign(o, { radius: mega.radius, hitStop: mega.hitStop, super: mega.tag });
       if (mega?.jump) o.jump = mega.jump;
@@ -1402,8 +1443,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     },
   });
-  // (not in Recess until its areas.hit takes no square from a ring: HOOKS.md, the producer's fifth call; the guard goes with that hook)
-  boom.on = boomOn && !params.has('recess');
+  // (in Recess too: the match hears only a breath's landing (breathe, recess.playerPaint), so a ring or a Waterfall's pool paints but takes no square, HOOKS.md,
+  // the producer's fifth call)
+  boom.on = boomOn;
   controls.onRung = (ev, n) => {
     if (ev === 'turbo' && n === config.turbo.levels.length) boom.flick(flight, driveSpeed(controls.turbo.gear, n, true));
   };
@@ -1468,6 +1510,28 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     : null;
   // (and the aim asks it for a mover on the line of fire)
   if (life) aimer.life = life;
+  // (?recess: the match, its captains and their breaths in the scene before the warm-up reads it; the aim asks it first, then life)
+  const recess = recessMod && recessArena
+    ? recessMod.bootRecess({
+        params, scene, flight, turbo: controls.turbo, arena: recessArena,
+        barf: (x, z, o) => void splatter.barf(x, z, o), groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z) => city.obstacleAt(x, z), toast: (l, s) => controls.hud.toast(l, s),
+        rig,
+        bus,
+        // (the duel: a handler on the shots' holds; a hard turn of the steering thumb dodges; the lock's clack and the tone are the Bomb's clunk and the homing
+        // whistle until they get their own: HOOKS.md)
+        holds,
+        steer: () => input.state.stretch.x,
+        clack: (full) => audio.bombTier(full ? 3 : 2),
+        tone: (s) => audio.homingWhistle(s),
+      })
+    : null;
+  if (recess) {
+    recess.life = life;
+    aimer.life = recess;
+    controls.flickGate = (dir) => recess.flick(dir);
+    // (no Comet in a match, and no Lob: `kind` isn't asked, so every kind is a tap at what glints till the bell; HOOKS.md, the review of step 3's 2)
+    comet.clamp = () => !recess.playing;
+  }
   // (lock-on for boats and planes, life's: a still hold on one within reach locks it, the lift fires a shot that homes in, and the lock holds 4 s for taps:
   // src/life/Lock.ts, SHOTS.md "Lock-on". The clack borrows the Bomb's II until it has a sound of its own)
   if (life) life.lockOn({ holds, faction: () => splatter.faction, hue: () => splatter.hueNext, dealHue: () => splatter.dealHue(), clack: () => audio.bombTier(2), hint: (l) => controls.hud.toast(l, 2.4) });
@@ -2088,6 +2152,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     signs.update(dt, camera);
     life?.frame(dt, simTime, skyClock.now(), flight, camera);
+    recess?.frame(dt, simTime, camera, held ? 0 : realDt);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);

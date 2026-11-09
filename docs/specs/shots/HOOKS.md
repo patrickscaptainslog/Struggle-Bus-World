@@ -211,6 +211,20 @@ SHOTS.md, "The shots": cars painted from the street honk and fall in behind the 
 - **In a match** nothing: Curb is off there (`off: ... params.has('recess')`), so the Parade never leads.
 
 Checked in Node, `node --expose-gc --no-warnings tools/life/parade.mjs` (10 rows).
+## The duel, as built on these (the second account's, `feat/recess`, 2026-11-09)
+
+`src/recess/Duel.ts` is Recess's side of the hold, as `src/life/Lock.ts` is life's. Nothing in the shot code changed for it. What it leans on, so a change here doesn't break it quietly:
+
+- **`white` is read live.** A captain's shot is fired with `white: 0` and the duel sets `white` on the options it passed, each frame, once the shot's time to go is under its window (a level's, in real seconds whatever the bus closes at). `stepShot` reads `o.white` each frame today: keep that, or give `HomingOpts` a `white(shot)` callback and the duel moves to it.
+- **The dodge is the duel's, by rule, until the flight's own lands** ("Not here yet", below). In the white a flick (`controls.flickGate`, so no gear hears it) or a hard turn (the steering thumb's stretch changed by 0.6 since the shot went white; 0.3 for a match's first) slides the shot's target off its line over a quarter second, and the hook's own `dodged` miss follows. The flick's show is `Duel.frame` moving the bus: 40 m on for a flick up, 24 m back and 6 m up for a flick down. When the flight has its own lunge and brake-hop, the duel drops its move and keeps the rule.
+- **Captains' shots are the hook's**: `from` the captain, `belly: false`, `whistle: true`, `maxTime: 6`, the player's bus as `target` and `holds.busVel` as `vel`. Never more than one a captain, so the cap of eight is far off.
+- **The player's lock** is a handler named `recess-lock` (not a watcher: a rival is never taken mid-pour). It reads `h.held` (the finger's whole time down) for its clack at 0.55 s and its full charge at 1 s, and fires with `belly: true` at the lift: 420 m/s, 2.2 rad/s, 0.7 s white (a full charge 1.2 times as fast, 1.5 times the size, 0.45 s white; a lift before the clack 0.8 of the speed and 0.3 of the turn). `tap()` sends the next 4 s of taps at the same captain.
+- **Borrowed sounds, yours to voice**: the lock's clack is `audio.bombTier(2)` and the full charge `audio.bombTier(3)`; "a captain has you" is `audio.homingWhistle(seconds)` at its glint. Both are passed in from main.ts's Recess lines (`clack`, `tone`), so a sound of their own is a one-line swap.
+- **In a match the Comet and the Lob are off**: main.ts's `comet.clamp = () => !recess.playing` never asks the `kind`, so the Lob's kind is covered with the Comet's (your ask). A tap in any gear or nose is a tap at what glints, and a tap at a rival bus is a splash for show (85 m of paint on its square, no ride): only a locked shot possesses.
+- **Your street signs draw over a captain and its ring** (`tools/recess/screen.mjs`'s `duel-lock.png`: WEBSTER ST over a captain at the clack). In a match a sign within a tag's box could fade or stand back: yours to pick.
+- **A rival dead ahead is in the bus's lane**, where a hold flies and can't lock (`Input.inLookZone` false). The kickoff puts both captains about 10 degrees off the nose and well above the lane, so it rarely bites; if the phone says it does, the fix is the lane's (a still finger on a tagged bus aims even there), so yours.
+
+The brain's side (`src/recess/recess.ts`): `Recess.duel` on makes a captain's breath at the player's bus only said (`'aim'`, which the duel answers with the shot); `aimedHit(from, to)` lands a shot that arrived, at the next step, by the rules a breath lands by; `lunge(id)` is a captain's dodge; `recessTune.firstLock` (3.6 s) and `firstGap` (4 s) keep the first contact to the easiest captain.
 
 ## Not here yet
 

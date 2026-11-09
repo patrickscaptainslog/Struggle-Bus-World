@@ -106,6 +106,9 @@ export class CameraRig {
   turboFov = 0;
   turboHero = 1;
   readonly turboLead = new THREE.Vector3();
+  /** ?recess's hook (src/recess/recessBoot.ts sets them each frame; 0 everywhere else): a wider lens in the match (deg) and a pull-back while a rival is near (m) */
+  matchFov = 0;
+  matchPull = 0;
   readonly turboLookLead = new THREE.Vector3();
   /** School Zone (Controls, per frame): 1 brings the lens in by config.zone.camIn of its distance; zoneIn is where that is now, eased */
   zone = 0;
@@ -244,7 +247,7 @@ export class CameraRig {
     const ds = Math.max(Math.abs(dd) * (1 - Math.exp(-C.diveRate * dt)), 0.04 * dt);
     this.dive = Math.abs(dd) <= ds ? diveWant : this.dive + Math.sign(dd) * ds;
     const dive = this.dive * (1 - low);
-    this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov;
+    this.hfov = C.hfovPortrait + (C.hfovVista - C.hfovPortrait) * v + this.turboFov + this.matchFov;
     this.heroScale = (1 + (C.heroScaleVista - 1) * v) * this.turboHero;
     const barf = this.barfTilt * (1 - v) * (1 - dive); // up high the splat lands mid-screen anyway
     let elev = this.elev + (C.elevationVista - this.elev) * v;
@@ -254,7 +257,7 @@ export class CameraRig {
     const dz = this.zone - this.zoneIn;
     this.zoneIn = Math.abs(dz) < 1e-3 ? this.zone : this.zoneIn + dz * (1 - Math.exp(-config.zone.camRate * dt));
     const zin = 1 - config.zone.camIn * this.zoneIn * (1 - low);
-    const dist = ((C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull) * (1 - low) + this.lowDist * low) * zin;
+    const dist = ((C.distance + (C.distanceVista - C.distance) * v + this.openingPull + this.turboPull + this.matchPull) * (1 - low) + this.lowDist * low) * zin;
     const fx = Math.sin(this.yaw), fz = -Math.cos(this.yaw);
     const bus = this.bus.set(f.x, f.y, f.z);
     const desired = this.desired.set(bus.x - fx * Math.cos(el) * dist, bus.y + Math.sin(el) * dist, bus.z - fz * Math.cos(el) * dist).addScaledVector(this.turboLead, 1 - this.stiff);
