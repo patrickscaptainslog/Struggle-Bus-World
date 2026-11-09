@@ -4,7 +4,7 @@ import type { RegionGraph } from '../../world/lifeData';
 
 // Cars (LIVING.md, "Cars"): on the world's road graph (GRAPHS.md), by road class and the real local hour, grey. Worker-safe and pure: a car is a function of the
 // graphs loaded, its slot and utcMs, so every player sees the same one. Each driven way of an edge has a stream of slots; a slot's car is born at the edge's
-// start at a hashed time in it if the hour's traffic says so, lives LIFE_MIN to LIFE_MAX s, and drives a hashed path from there: mostly straight on, never back
+// start at a hashed time in it if the hour's traffic says so, lives LIFE_MIN to LIFE_MAX s (to its run's end at the least, so a bridge keeps its cars all the way over), and drives a hashed path from there: mostly straight on, never back
 // the way it came, never onto an edge the world hasn't drawn yet (UNDRAWN: the decks the first account is building) or cars may not use (NO_CARS), each edge
 // at its own speed, in a lane on the right, round each bend rather than through its corner. Its place at utcMs is that path walked for its age: a closed form, so a
 // minute's steps end where one jump does. It grows in and out over FADE s where it's born and where it ends. In a tunnel it isn't drawn. Never saved: `car:`
@@ -105,6 +105,8 @@ export interface CarNet {
   deck: Uint8Array;
   /** s between its slots at the busiest hour; 0: none are born on it */
   head: Float32Array;
+  /** the least a car born on it lives (s): the drive to the end of its run, so a long road with no junction keeps its cars to its far end */
+  life: Float32Array;
   /** its start, and the way it leaves its start and comes into its end (unit, x and z) */
   x0: Float32Array;
   z0: Float32Array;
@@ -162,7 +164,7 @@ export function buildNet(graphs: RegionGraph[]): CarNet {
   }
   const net: CarNet = {
     n, graphs, g: new Uint16Array(n), e: new Uint32Array(n), rev: new Uint8Array(n), id: new Uint32Array(n), seed: new Uint32Array(n), len: new Float32Array(n), v: new Float32Array(n),
-    lanes: new Uint8Array(n), two: new Uint8Array(n), tunnel: new Uint8Array(n), deck: new Uint8Array(n), head: new Float32Array(n), x0: new Float32Array(n), z0: new Float32Array(n),
+    lanes: new Uint8Array(n), two: new Uint8Array(n), tunnel: new Uint8Array(n), deck: new Uint8Array(n), head: new Float32Array(n), life: new Float32Array(n), x0: new Float32Array(n), z0: new Float32Array(n),
     t0: new Float32Array(n * 2), t1: new Float32Array(n * 2), outAt: new Int32Array(n + 1), outs: new Int32Array(0), outW: new Float32Array(0), outH: new Float32Array(0),
     cls: new Uint8Array(n), link: new Uint8Array(n), vmax: 0,
   };
@@ -266,14 +268,19 @@ export function buildNet(graphs: RegionGraph[]): CarNet {
       net.head[w] = 0;
       continue;
     }
-    let run = net.len[w], x = w;
+    let run = net.len[w], runT = net.len[w] / net.v[w], x = w;
     for (let guard = 0; guard < 64 && net.outAt[x + 1] - net.outAt[x] === 1; guard++) {
       x = net.outs[net.outAt[x]];
       if (!isSplit[x] || x === w) break;
       run += net.len[x];
+      runT += net.len[x] / net.v[x];
     }
+    // (a car lives to its run's end at the least: one that died at 45 to 90 s left the far half of a bridge's deck empty, each carriageway of the Bay Bridge
+    // and the Golden Gate, the re-review's M9. Its rate is still the run's cars over a life, the longer of the two; and on a road of several lanes a start may
+    // give a car a lane as often as HEAD_MIN, where one lane's worth left a fast deck a third short)
     const c = net.cls[w];
-    net.head[w] = Math.max(HEAD_MIN, ((LIFE_MIN + LIFE_MAX) / 2) / ((PEAK[c] * run) / 1000));
+    net.life[w] = runT + FADE;
+    net.head[w] = Math.max(HEAD_MIN / net.lanes[w], Math.max((LIFE_MIN + LIFE_MAX) / 2, net.life[w]) / ((PEAK[c] * run) / 1000));
   }
   return net;
 }
@@ -443,13 +450,14 @@ function carsPlaced(net: CarNet, utcMs: number, tzMin: number, bx: number, bz: n
   for (let w0 = 0; w0 < net.n && at < max; w0++) {
     const H = net.head[w0];
     if (!H) continue;
-    const d0 = Math.hypot(net.x0[w0] - bx, net.z0[w0] - bz);
-    if (d0 - vmax * LIFE_MAX > reach) continue;
+    // (the longest any car born here lives: LIFE_MAX, or its run's drive)
+    const d0 = Math.hypot(net.x0[w0] - bx, net.z0[w0] - bz), most = Math.max(LIFE_MAX, net.life[w0]);
+    if (d0 - vmax * most > reach) continue;
     const seed = net.seed[w0];
-    for (let k = Math.floor((t - LIFE_MAX) / H), k1 = Math.floor(t / H); k <= k1 && at < max; k++) {
+    for (let k = Math.floor((t - most) / H), k1 = Math.floor(t / H); k <= k1 && at < max; k++) {
       // (born in its slot's first half: two from one edge's start are half a headway apart at the least)
       const tb = (k + 0.5 * unit(mix(seed, k))) * H, a = t - tb;
-      if (a < 0 || a > LIFE_MAX || d0 - vmax * a > reach) continue;
+      if (a < 0 || a > most || d0 - vmax * a > reach) continue;
       const s = mix(seed, k, 1);
       if (unit(s) >= traffic(tb / 3600 + tzMin / 60)) continue;
       // (what it is; and not born on top of the slot before's, if that one was born: their middles apart by their half lengths and 3 m at the way's speed)
@@ -458,7 +466,7 @@ function carsPlaced(net: CarNet, utcMs: number, tzMin: number, bx: number, bz: n
         const tp = (k - 1 + 0.5 * unit(mix(seed, k - 1))) * H, sp = mix(seed, k - 1, 1);
         if (unit(sp) < traffic(tp / 3600 + tzMin / 60) && (tb - tp) * net.v[w0] < (LOOK_LEN[typeOf(sp, cls)] + LOOK_LEN[type]) / 2 + 3) continue;
       }
-      const T = LIFE_MIN + (LIFE_MAX - LIFE_MIN) * unit(mix(s, 2));
+      const T = Math.max(LIFE_MIN + (LIFE_MAX - LIFE_MIN) * unit(mix(s, 2)), net.life[w0]);
       const share = unit(mix(s, 3));
       if (a > T || share >= keep) continue;
       // (its path walked for its age, each way at its own speed)
