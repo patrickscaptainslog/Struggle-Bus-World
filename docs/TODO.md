@@ -2,9 +2,9 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
-## Run report: the second account (2026-11-09, still running)
+## Run report: the second account (2026-11-09)
 
-Your list of seven, in your order. Done so far: 1, 2 and 3. Next: 4, the buses on Muni's real routes. Nothing went live.
+Your list of seven, in your order, all of it but one piece of the ferries (below). Nothing went live: `main` is untouched.
 
 **What to fly**
 - **1. The duel:** https://struggle-bus-world-git-feat-recess-patricks-projects-9ff6e721.vercel.app/?recess
@@ -19,23 +19,44 @@ Your list of seven, in your order. Done so far: 1, 2 and 3. Next: 4, the buses o
   - Flick down twice to land on the street, then tap to splat the cars round you. Each car your paint lands on honks, hops off its road and falls in behind the bus, up to six, bouncing in a wave. A seventh only honks, low.
   - Ride beside a car a second and a half: it gets painted, and joins too.
   - Flick up to leave: the line rolls to a stop, waits, and the cars pop away home.
+- **4. Buses on Muni's real routes:** https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&lat=37.7895&lon=-122.4014&heading=45&skipintro (Market and Montgomery)
+  - White buses drive the lines they really drive: the 5 and 5R on Market Street's car-free blocks, the 38 on Geary, the 14 on Mission, 67 lines in all. They pull in at their real stops, wait 18 seconds and pull away.
+  - By the real local hour: one every 8 minutes at the rush, every 20 late, and between 1 and 5 am only the Owl lines.
+  - The cars' own random buses are gone where a city has its lines. Paint a bus from the street and it joins your Parade.
+- **5. The first account's four asks** are all in: nothing new to fly.
+- **7. The release candidate, `rc/1`:** https://struggle-bus-world-git-rc-1-patricks-projects-9ff6e721.vercel.app/?life&skipintro
+  - `main` with the shots, the factions, life and Recess all in one build. Everything above works here too; add `?recess&life` for a match with the city alive round it.
+
+**6. The reviews, and life's owed fixes**
+- Three reviews written, in `docs/reviews/`: the shots ([shots-lob-2026-11-09.md](reviews/shots-lob-2026-11-09.md)), the sky pieces at 300 m ([factions-sky300-2026-11-09.md](reviews/factions-sky300-2026-11-09.md)) and the decks' fixes ([decks-fixes-2026-11-09.md](reviews/decks-fixes-2026-11-09.md)). No blocker in any.
+- One thing in the shots for the first account to fix before `main`: mash taps after a Lob and a second Lob flies off 1.2 km away from a level bus, seconds later.
+- Life's M9, fixed: the Bay Bridge and the Golden Gate keep their cars the whole way across. One carriageway of each was empty, and the other's far half.
+- Life's M10, fixed: aim at a building's wall and the building glints, not a car in the street beyond it. A vehicle stole it on up to 3.4 % of frames; now under 0.7 %.
+- Life's M11, fixed: a painted plane's contrail no longer vanishes when the plane leaves the screen, and a boat's wake no longer starts over when you look back.
+- Life's M8, half done: one line's two ferries now pass each other instead of sailing through each other. Ferries still slide through the ones parked at the Ferry Building. That needs berths worked out from the water itself, which is a job of its own.
 
 **What isn't right yet**
-- Nothing ran on a phone or a GPU: software graphics here, at a fixed step.
+- Nothing ran on a phone or a GPU: software graphics here, at a fixed step. No long real-time flights.
 - Parade: the street's camera sits behind the bus, right where the line is, so you see the first two cars and the rest are behind you until you pinch out. A camera that stands back as the line grows is the first account's to build; I've asked.
 - Parade's honk is my stand-in sound. The first account voices the game.
 - The duel: street signs still draw over a captain and its ring. The flick's dodge move is a stand-in for the flight's own. At Express the first dodge ends at about 9.5 s, inside your 10 but close.
 - The Torpedo: a splat on water still gives back half the belly, even when the Torpedo then hits a boat. Taking that back is the shot code's.
+- Buses: every one is the same white bus, with no Muni colours, trolley poles or bendy 38. At a stop it waits in the lane, not at the kerb, and cars drive through it. About a quarter of Muni's lines are in two or three pieces where the map's data has gaps, and a bus fades out at a piece's end.
+- `rc/1` carries the Lob's bug above, and four of the shots' 363 simulated rows fail on it exactly as they do on `feat/shots`. Both are the first account's.
 
 **One question**
 - Parade's cars hop into the line over the block, rather than drive round to it (driving would cut through buildings). I'd keep the hop. OK?
 
-**For the first account, on Wednesday** (it's all in `docs/specs/shots/HOOKS.md` on each branch)
-- `feat/recess` ec46fdc, "The duel, as built on these": nothing in the shot code changed. It reads `white` live off the options, borrows `audio.bombTier` and `audio.homingWhistle`, and asks for signs to stand back from a captain's tag.
-- `feat/life` bd38c83, "The Torpedo": one line in main.ts's `miss:` block, `life?.torpedo(pos, hue)`, for your review; and the refund question.
-- `feat/life` 7b7d8e8, "Parade": nothing of yours changed. Yours to pick up: the lens (`life.parade.count`) and the honk (`src/life/paradeSfx.ts`).
-
-**Checks run** (each printed all pass): the duel's 37 simulated rows, 3,000 brain duels, and 23 rows on the screen; life's `parade.mjs` (10 rows), `torpedo.mjs` (9), `lock.mjs` (6), `curb.mjs` (13), `blast.mjs`, `alloc.mjs`; types clean and both builds parse on Safari 15. Not run: `flag-off.mjs`, and no long real-time flights.
+**For the first account, on Wednesday**
+- **Three reviews for you**, above. The shots': M90 (the Lob's latch never has to end, `Lob.ts:112-128`, `Aim.ts:359`, `:534`), five minors, three nits; every earlier fix holds, M71's from about 300 m and lower. The factions': two minors on `sbCut` (its `discard`'s cost on Apple GPUs, unmeasured; its size from a far lens). The decks': both majors hold; one question.
+- **`rc/1`** (7f5edbf): `feat/life`, then `feat/recess`, then `feat/factions`, so `main` and `feat/shots` are in it. Five conflicts, both sides kept in each, three of them in your files, for your eye: `main.ts` twice (the match's boot before life's lock, Torpedo and Parade; `&paintas` with `?lift&lifted`'s faction, through `paintAsFaction`), `buildingMaterial.ts` (`vSnap` beside the Waterfall's fragment block), `props/sprouts.ts` (`sbYaw` in the garden's tilt, then the Bomb's hop), `HOOKS.md`.
+  - Run here on it, each all pass: life's `parade` 10 rows, `torpedo` 10, `lock` 6, `blast` 6, `buses` 8, `bridges` 2, `alloc` 9, `curb` 13, `determinism` 26, `s_glint`; `s_duel` 37, `duels.mjs` 20 rows, `factions/check.mjs`, `lift-check.mjs`; `s_hold`, `s_gesture`, `s_curb` 52, `s_lob` 1213, `s_boom` 199, `s_falls` 201. `s_shots`: "FAILED 4 of 363", the four BUILT.md names. `tsc` clean, the build parses on iOS 15.
+  - In the browser, software graphics, four pages stood up with no page error and every program compiled: the plain page (38 programs at the warm-up), `?life&bomb&falls&boom` (41), `?lift&lifted=hyperglow&life&bomb&falls` (45, the Lift staged and its sky piece built) and `?recess&life` (44, the match in play, the holds' handlers `recess-lock`, `life-lock`, `hose` in that order). A fresh browser's first page logs a 404 for `/favicon.ico`: `index.html` has no `rel="icon"`, on `main` too.
+  - Yours on the GPU: `warmcheck`, the frame's cost, `flag-off.mjs`, `controls.mjs`, the long flights. None ran here.
+- **In your files, by me, for review.** `src/game/Aim.ts`, life's lines only: `landsOnBuilding` also reads the obstacle grid, and its caller gives life's aim a `past` and a tighter miss where the line ends on a building (`ROOF_PAST`, `ROOF_MISS`, `ROOF_NEAR`; life's M10, `feat/life` db1f4d5). `main.ts`: `life?.torpedo(pos, hue)` in the Splatter's `miss:` (bd38c83), and life's and the match's own blocks. `public/city/DATA_LICENSE.md`: a row for `buses.bin`. `public/city/sf/city.json`: `life.buses`.
+- **`tools/bake/graphs.py` rewrites city.json's whole `life` block**, which drops `life.buses`. After a re-bake run `tools/life/busbake.mjs` again, or keep the field (`docs/specs/earth/LIFE.md`, "Bus routes").
+- **Asks of you**, each in `docs/specs/shots/HOOKS.md`: a lens that stands back for the Parade (`life.parade.count`); the Parade's honk (`src/life/paradeSfx.ts`) and the duel's borrowed clack and whistle; street signs standing back from a captain's tag; whether a Torpedo's hit takes back the water miss's refund.
+- **`feat/recess` 31e81c7**: the match's aim dropped `ground` on its way to life, so in a match the nose's ask for a plane took cars too. Fixed; `rc/1` also passes on life's new `past`.
 
 ## Night report: the second account (2026-11-08)
 
@@ -307,7 +328,7 @@ The producer approved the factions plan, [specs/factions/FACTIONS.md](specs/fact
     - how often a god falls when a person raids.
   - **Done by the first account 2026-11-06**, [reviews/recess-screen-2026-11-06.md](reviews/recess-screen-2026-11-06.md): two whole matches on the laptop's GPU with real touches (Rival and Veteran), the review of ab6c67c to bced508 and the cf6687f merge, and the heal's middle rule, each read twice. Both matches ran to the bell with no page error and nothing compiled after the warm-up, and nothing changes without the flag. But the frame climbs from 16.7 ms to 50 ms as the arena paints: the rooftop sprouts, 3 to 5 M triangles by the bell. One blocker, for `main`. The findings are the next item.
 - [x] When there's time: review `feat/decks`, 34d55cf to 492a953 (`specs/bridges/BRIDGES.md`'s notes on steps 3 and 4 say what was built and what was checked). **Done 2026-11-06**, [reviews/decks-steps34-2026-11-06.md](reviews/decks-steps34-2026-11-06.md). No blocker; two majors before step 6 turns the gate on: M1, a city's `"qa"` can loosen any check with `NaN` (`qa.py:190`); M2, `deckFreeEnd` excuses any deck end with a kept road within 12 m, whatever its height, so step 4's 0.00 m is that exemption. Four minors, six nits. Only `qacheck.py` ran here, 1 of 3: the other two, and `segcheck.py`, need shapely and pyarrow, which this machine hasn't got; nothing was baked.
-- [ ] `feat/life`: the re-review's findings, [reviews/life-fixes-2026-11-06.md](reviews/life-fixes-2026-11-06.md), before `main`. The majors first:
+- [ ] `feat/life`: the re-review's findings, [reviews/life-fixes-2026-11-06.md](reviews/life-fixes-2026-11-06.md), before `main`. The majors first. **2026-11-09:** M9 (cdc74b9), M10 (db1f4d5) and M11 (dd77508) fixed, each with a check that fails before it; M8 half (a02d253: sisters pass port to port; a ferry through a berthed one still, 2,466 s a day, until berths are laid from the water). The rest of this list is open:
   - M8, ferries still pass through one another (188 times a day, 184 of them by the Ferry Building), and the Pier 41 line's berth is on the Ferry Plaza; the ferry row at 1 s steps, ferries under way included.
   - M9, cars born only at a run's start leave each bridge carriageway empty for its far half (the Bay Bridge at 34 % of its cars, the Golden Gate at 42 %).
   - M10, the glint still jumps from a building to a vehicle where the aim lands on a wall or a roof's grid cell outside its footprint; decide it from the grid, with a row that does too.
