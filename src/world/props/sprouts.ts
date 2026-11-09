@@ -340,7 +340,7 @@ ${
     vec4 lf = sbLift(aLiftB.x, ipos.xz, lT2);
     o.world.y += lf.x + aLiftB.y * lf.y;
     vec3 piv = vec3(lT2.x, lT2.y + lf.x, lT2.z);
-    o.world.xyz = piv + sbTilt(o.world.xyz - piv, lf.zw);
+    o.world.xyz = piv + sbTilt(sbYaw(o.world.xyz - piv), lf.zw);
   }`)}${pogoed(`
   // (&bomb: a Bomb's stage hops its house, world/pogo.ts, and the garden rides the hop. Its paint is read only in the Bomb's circle while its pops last, not by
   // every garden every frame)

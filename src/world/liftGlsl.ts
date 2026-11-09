@@ -4,11 +4,18 @@
 // the Node checks bundle it (tools/factions/lift-check.mjs). With the flag off nothing here reaches a shader (sky/flag.ts's law): `lifted()`
 // is '' and no source differs by a byte.
 
+import { FACTION_ATLANTIS, FACTION_ELDERWOOD, FACTION_HYPERGLOW, FACTION_INFERNO, FACTION_RAINBOW, FACTIONS } from '../game/factions';
+
 const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
 /** ?lift: the first look at the stages, in one neighbourhood (off unless asked for; never on a Moon page) */
 export const liftOn = !!q && q.has('lift') && !q.has('moon') && !q.has('moonland') && !q.has('moonrun');
 /** &lifted: the neighbourhood staged at level 3, Rainbow, for the session, and lifted as a wave from its heart */
 export const liftedOn = liftOn && q!.has('lifted');
+/**
+ * &lifted=<faction>: whose the staged neighbourhood is, and whose paint the Lift lifts (game/factions.ts's keys: atlantis, elderwood, hyperglow,
+ * inferno; rainbow, none or one it doesn't know: Rainbow, as &lifted always was). ?lift alone lifts Rainbow on Rainbow.
+ */
+export const liftFaction = liftedOn ? (FACTIONS.find((f) => f.key === q!.get('lifted'))?.id ?? FACTION_RAINBOW) : FACTION_RAINBOW;
 /** &slowmo=0 turns the lift-off's slow motion off (decision 13: the producer judges it) */
 export const slowmoOn = liftOn && q!.get('slowmo') !== '0';
 /** GLSL only ?lift compiles (sky/flag.ts's held()) */
@@ -65,6 +72,16 @@ export const LIFT = {
   /** at most this many houses up at once: the gardens' bound */
   cap: 600,
 } as const;
+
+/**
+ * Hyperglow's turns (FACTIONS.md section 2, "4 · Overdrive": towers turn in sharp snaps on the beat): a floating house turns 45 degrees (a big
+ * building 90) once every `beats` beats of `beat` s, on its own beat of them, in `snap` s, each a way of its own; from the first of its beats
+ * after the swell has it, counted from its own lift, so a house lifted late snaps like one lifted early. Drawn only: the flight and the aim see
+ * it unturned (LIFT.md, "Stage 4 in the other factions").
+ */
+export const LIFT_TURN = { beat: 0.5, beats: 8, snap: 0.09 } as const;
+/** tLift's first texel's w for a turning house: 1 + its seed (45 degrees) or 2 + it (90), 0 for none */
+export const liftTurnCode = (index: number, big: boolean) => (big ? 2 : 1) + 0.999 * liftSeed(index, 7);
 
 /**
  * The swells: two long waves crossing the neighbourhood the same way in every city (a block or two long, several seconds apart, one from the
@@ -298,6 +315,29 @@ vec4 sbLiftAt(float t, float now, float H, float sb, vec2 cxz, float heave) {
   if (l > ${F(LIFT.tiltMax)}) ln *= ${F(LIFT.tiltMax)} / l;
   return vec4(dy, sq, f * ln);
 }
+// (a turning house's yaw now (rad), sbLift's: tLift's first texel's w, 0 for every house but Hyperglow's, sbYawAt; and its snap's flash, 1 at
+// the snap falling to 0 over a quarter second, for its walls)
+float sbYawNow = 0.0;
+float sbSnapNow = 0.0;
+// (w the house's code, now the game clock, t0 when the swell has it: its turns are the game clock's beats from the first after t0)
+float sbYawAt(float w, float now, float t0) {
+  float big = floor(w), s = fract(w);
+  float ph = floor(s * ${F(LIFT_TURN.beats)}) * ${F(LIFT_TURN.beat)};
+  float n = floor((now - ph) / ${F(LIFT_TURN.beats * LIFT_TURN.beat)});
+  float n0 = floor((t0 - ph) / ${F(LIFT_TURN.beats * LIFT_TURN.beat)});
+  if (n <= n0) return 0.0;
+  float u = now - ph - n * ${F(LIFT_TURN.beats * LIFT_TURN.beat)};
+  float e = smoothstep(0.0, ${F(LIFT_TURN.snap)}, u);
+  // (a click past it and back: the lock-click)
+  e += 0.12 * sin(3.1416 * clamp((u - ${F(LIFT_TURN.snap)}) / 0.1, 0.0, 1.0));
+  sbSnapNow = 1.0 - smoothstep(0.0, 0.25, u);
+  return (fract(s * 7.31) < 0.5 ? -1.0 : 1.0) * (big > 1.5 ? 1.5707963 : 0.7853982) * (n - n0 - 1.0 + e);
+}
+vec3 sbYaw(vec3 v) {
+  if (sbYawNow == 0.0) return v;
+  float c = cos(sbYawNow), s = sin(sbYawNow);
+  return vec3(c * v.x - s * v.z, v.y, s * v.x + c * v.z);
+}
 vec4 sbLiftTexel(float idx) {
   return texelFetch(tLift, ivec2(int(mod(idx, uLiftW)), int(floor(idx / uLiftW))), 0);
 }
@@ -306,12 +346,16 @@ vec4 sbLiftTexel2(float idx) {
 }
 vec4 sbLift(float idx, vec2 cxz, out vec4 T2) {
   T2 = vec4(0.0);
+  sbYawNow = 0.0;
+  sbSnapNow = 0.0;
   if (idx < 0.0 || cxz.x < uLiftRect.x || cxz.x > uLiftRect.z || cxz.y < uLiftRect.y || cxz.y > uLiftRect.w) return vec4(0.0);
   vec4 L = sbLiftTexel(idx);
   float t = uTime - L.x;
   if (L.y <= 0.0 || t < 0.0) return vec4(0.0);
   T2 = sbLiftTexel2(idx);
-  return sbLiftAt(t, uTime, L.y, L.z, T2.xz, T2.w);
+  vec4 lf = sbLiftAt(t, uTime, L.y, L.z, T2.xz, T2.w);
+  if (L.w > 0.5) sbYawNow = sbYawAt(L.w, uTime, L.x + ${F(LIFT.crouch + LIFT.bobIn1)});
+  return lf;
 }
 // (v turned with its up leant to the slope s: up goes to the water's normal)
 vec3 sbTilt(vec3 v, vec2 s) {
@@ -326,7 +370,7 @@ vec3 sbLiftMove(vec3 p, float baseY, vec4 lf, vec4 T2) {
   p.y = baseY + (p.y - baseY) * sy + lf.x;
   p.xz = T2.xz + (p.xz - T2.xz) / sqrt(max(sy, 0.4));
   vec3 piv = vec3(T2.x, T2.y + lf.x, T2.z);
-  return piv + sbTilt(p - piv, lf.zw);
+  return piv + sbTilt(sbYaw(p - piv), lf.zw);
 }
 `;
 
@@ -341,7 +385,8 @@ export const LAKE_FLOOD = 12;
  * house lifted by a hit leaves a pool to its grounded neighbours' halfway. The swell runs across it, lighter on its crests with foam along them,
  * the same swell the houses ride; rings of the faction's hues, tinted by the house above, ripple out from under each house, pushed out as it
  * comes down and drawn in as it rises, with foam in them and a foam shore; it glows a little, so from a kilometre the lifted block reads as a
- * pool of light. Needs GLSL_LIFT, GLSL_FACTION, uPaint and uPaintW, uGroundTone.
+ * pool of light. The other four factions' lakes are their own (liftLakes.ts's GLSL_LAKE_LOOKS, sbLakeOf). Needs GLSL_LIFT, GLSL_FACTION,
+ * GLSL_LAKE_LOOKS, uPaint and uPaintW, uGroundTone.
  */
 export const GLSL_LAKE = /* glsl */ `
 uniform highp sampler2D tLake;
@@ -376,6 +421,8 @@ bool sbLake(vec3 wp, float flatL, out float ramp, out float light, out float glo
   float hv = sbSwellH(best.zw, uTime - ${F(LIFT.lag)} * fract(L.z * 5.31)) * sbLiftTexel2(idx).w;
   // rings out from under the house, stirred by its heave, tinted by the house above (its hue, a step either way), every fifth one foam
   float dj = length(wp.xz - best.zw);
+  // (the other four's lakes: the sea, a marsh, a black mirror, fire: liftLakes.ts's GLSL_LAKE_LOOKS)
+  if (fac == ${FACTION_ATLANTIS} || fac == ${FACTION_ELDERWOOD} || fac == ${FACTION_HYPERGLOW} || fac == ${FACTION_INFERNO}) return sbLakeOf(fac, wp, flatL, sd + ${F(LAKE_FLOOD)}, sw, hv, dj, idx, best.zw, ramp, light, glow);
   float band = floor(dj / 1.7 - 1.15 * uTime - 0.6 * hv + idx * 0.37);
   float m4 = mod(band, 4.0);
   bool foam = mod(band, 5.0) < 0.5;
