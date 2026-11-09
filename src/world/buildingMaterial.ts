@@ -11,7 +11,7 @@ import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
 import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
 import { GLSL_POGO, pogoed, pogoedOr, pogoUniforms } from './pogo';
-import { fallsed, fallsUniforms, GLSL_FALLS_F, GLSL_FALLS_V } from './falls';
+import { FALLS, fallsed, fallsUniforms, GLSL_FALLS_F, GLSL_FALLS_V } from './falls';
 
 /**
  * ?lift: the Lift's uniforms (world/Lift.ts fills them), spread into every material that moves with a floating house. Null with the flag off, and
@@ -559,7 +559,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // ---- paint state + flood front (color pours down from the roof with drips)
         float level = vPaint.g;
         bool painted = level > 0.5;
-        float tb = uTime - vPaint.b;
+        float tb = uTime - vPaint.b;${fallsed(`
+        // (&falls: a struck tower's own coat floods in FALLS.hold s late, so its runs lead it down the walls as paint running, not lost in the coat)
+        if (vFall > -0.5) tb -= ${FALLS.hold.toFixed(2)};`)}
         // escalations (already painted) stay painted while the blast wave travels to them
         if (painted && vPaint.a < ${PAINT_KEPT - 0.5}) {
           float drip = h21(vec2(floor(f.x * 1.3), bIdx)) * 2.6 + h21(vec2(floor(f.x * 0.4), bIdx + 7.0)) * 1.4;

@@ -135,6 +135,8 @@ export class CameraRig {
   /** The live sky's lift (SKY.md 4.15): the view tips up toward this (deg), eased, and holds there; skyLift is where it is now */
   skyLiftTarget = 0;
   skyLift = 0;
+  /** ...eased at this rate (1/s), config.sky.liftRate when 0 (a Lob's tip follows its star faster: main.ts) */
+  skyLiftRate = 0;
   /** the look (setLook): how far a thumb has the view off the rig (rad, x = +right, y = +up; exactly 0 once home) */
   private readonly lookYaw = { x: 0, v: 0 };
   private readonly lookPitch = { x: 0, v: 0 };
@@ -165,6 +167,9 @@ export class CameraRig {
   shake = 0;
   private kickT = 1e3;
   private kickA = 0;
+  /** &boom's crack (TurboFx.crack): a turn of the view that rings down, where the kick only moves it */
+  private joltT = 1e3;
+  private joltA = 0;
   private readonly kickUp = new THREE.Vector3();
   private readonly kickRight = new THREE.Vector3();
   private readonly bus = new THREE.Vector3();
@@ -320,7 +325,7 @@ export class CameraRig {
     // (it moves briefly, then holds still and exactly: a rotation can't be snapped, so the frame swims only while it moves; never so far that the bus leaves the frame)
     const lift = Math.min(this.skyLiftTarget, cam.fov / 2 - 6);
     const dl2 = Math.max(0, lift) - this.skyLift;
-    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-config.sky.liftRate * dt));
+    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-(this.skyLiftRate || config.sky.liftRate) * dt));
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
     // Curb: the chase comes down to the kerb, a dolly with no cut, on the rig's own yaw so a turn still sweeps; out again, a crane up to the chase
     const dc = this.curb - this.curbIn;
@@ -503,6 +508,13 @@ export class CameraRig {
     this.kickT = 0;
   }
 
+  /** &boom's crack: the view jolted `rad` in pitch and roll, ringing down over about 0.45 s. The kick moves the camera, which leaves the sky where it was (it's
+   *  drawn by direction alone): this turns it, so the horizon and the whole sky shake. */
+  jolt(rad: number) {
+    this.joltA = rad;
+    this.joltT = 0;
+  }
+
   /**
    * Applies the kick after update(), on REAL time (it keeps shaking through
    * the hit-stop freeze). Translation only, along the camera's own up/right
@@ -510,6 +522,13 @@ export class CameraRig {
    * rest goes to the upscale shift), so a kick never shimmers. No rotation.
    */
   applyKick(cam: THREE.PerspectiveCamera, realDt: number) {
+    if (this.joltT < 0.45) {
+      // (&boom's jolt: a turn, so it shimmers for its half second; it's the sky cracking)
+      const t = this.joltT, env = this.joltA * Math.exp(-7 * t);
+      this.joltT += realDt;
+      cam.rotateX(env * Math.cos(2 * Math.PI * 9 * t));
+      cam.rotateZ(env * 0.7 * Math.sin(2 * Math.PI * 7 * t));
+    }
     const D = Math.max(0.05, config.splat.kickDecay);
     if (this.kickT > D * 1.5) return;
     const t = this.kickT;

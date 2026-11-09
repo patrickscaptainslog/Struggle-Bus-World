@@ -15,11 +15,14 @@ import { SHAPE_LUT } from '@src/game/blastLayout';
 import { GROUND_N } from '@src/world/groundMask';
 import { FALLS, fallsLast, fallTime } from '@src/world/falls';
 import { globals } from '@src/render/materials';
+import { blastRadiusFor } from '@src/game/blastLayout';
+import { blastUniforms } from '@src/world/GroundPaint';
 
 const city = await newCity();
 const fails: string[] = [];
 let checks = 0;
 const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
+const okAll = ok;
 const r1 = (x: number) => Math.round(x * 10) / 10;
 const counting = { properties: { get: () => ({}) }, getContext: () => ({ texSubImage2D() {} }), state: { activeTexture() {}, bindTexture() {}, pixelStorei() {} } } as any;
 const [cx, cz] = ll(37.7946, -122.3999);
@@ -204,6 +207,103 @@ const [low, drive, mover, air, hose] = spare;
     rows.push({ label: 'pool on fresh ground', index: ref.index, near: nearR, far: farR });
     ok(nearR.length >= 6 && farR.length >= 3, `tower ${ref.index}: its pool on the open ground round it, 1.5 and 8.5 m out from its walls (${nearR.length} and ${farR.length} of 16)`);
     ok(nearMax <= 0.6 && farMin >= 1.2, `tower ${ref.index}: its pool spreads out from its walls (1.5 m out by ${r1(nearMax)} s, 8.5 m out from ${r1(farMin)} s after it lands)`);
+  }
+}
+// the reviews of the Sonic Boom pass and of feat/extras (BUILT.md, "The reviews of the Sonic Boom pass and of feat/extras, and what they came to"), each on
+// towers no row above has struck
+{
+  // (each row's verdict printed, for BUILT.md's numbers)
+  const ok = (c: boolean, m: string) => {
+    okAll(c, m);
+    console.log(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  };
+  // (the Splatter's clock brought up to the page's: the rows on fresh ground above ran the game's clock alone, and on the page they're one)
+  (splatter as any).t = t;
+  const taken = new Set([...used, ...spare.map((r) => r.index)]);
+  // (the tallest first: its coat floods longest)
+  const fresh = pick(tall.filter((r) => r.roofY - r.baseY > 100), 12, taken).sort((a, b) => b.roofY - b.baseY - (a.roofY - a.baseY));
+  const houses2 = pick(short, 8, new Set([...taken, ...fresh.map((r) => r.index)]));
+  ok(fresh.length >= 9 && houses2.length >= 4, `the review rows' towers over 100 m and houses (${fresh.length}, ${houses2.length})`);
+  const front = (ref: BuildingRef) => {
+    const rec = city.paint.get(ref.index), held = fallsLast.some((s) => s.index === ref.index);
+    return Math.min(ref.roofY - ref.baseY, config.bloom.floodSpeed * Math.max(0, t - rec.bloomTime - (held ? FALLS.hold : 0)));
+  };
+  // a fifth tower struck while four run takes the slot of the one drying soonest: that tower's coat floods on as it was, where it jumped FALLS.hold of the
+  // flood's 55 m/s (27 m) down its walls in a frame, the building program's hold gone with the slot (the Sonic Boom pass's review, 9)
+  if (fresh.length >= 9) {
+    await pump(city, fresh[0].cx, fresh[0].cz, 150);
+    city.paint.resetAll();
+    // (the rows above's slots dry and given back first: the fifth's is then the first of these)
+    run(FALLS.dry * 1.3 + 4);
+    const A = fresh[0];
+    let last = 0, jump = 0, atSteal = -1, steps = 0, was = false;
+    const p0 = falls.stats.pours;
+    for (let k = 0; k < 8; k++) {
+      // (taps 0.2 s apart on seven towers, until one takes the first's slot, and a second on for the last to land)
+      if (k < 7 && atSteal < 0) splatter.barf(fresh[k].cx, fresh[k].cz, { target: fresh[k], drop: 120, hitStop: 0 });
+      for (let i = 0; i < (k < 7 ? 12 : 60); i++) {
+        run(1 / 60);
+        const fr = front(A), held = fallsLast.some((s) => s.index === A.index);
+        if (steps++ > 0) jump = Math.max(jump, fr - last - config.bloom.floodSpeed / 60);
+        if (held) was = true;
+        else if (was && atSteal < 0) atSteal = fr;
+        last = fr;
+      }
+    }
+    run(1);
+    ok(atSteal >= 0 && atSteal < A.roofY - A.baseY - 30 && jump < 1, `a fifth tower takes the slot of a ${r1(A.roofY - A.baseY)} m one still flooding (${r1(atSteal)} m down its walls then, ${falls.stats.pours - p0} pours): its coat floods on, ${r1(jump)} m past the flood in a frame at most`);
+  }
+  // m71: a free slot isn't set again every frame
+  {
+    run(FALLS.dry * 1.3 + 4);
+    const free = fallsLast.findIndex((s) => s.index < 0);
+    if (free >= 0) fallsLast[free].t0 = 12345;
+    run(0.1);
+    ok(free >= 0 && fallsLast[free].t0 === 12345, `a free slot left alone frame to frame (slot ${free}: ${free >= 0 ? fallsLast[free].t0 : 'none free'})`);
+  }
+  // M71: a Bomb III that pours, its wide ground spread over its deadline, not finished in the frame it lands by the pool's begin (GroundPaint.begin draws
+  // every wide job still drawing whole first); and the pool after it, in the tower's hue round its foot
+  if (fresh.length >= 9) {
+    const B = fresh[7];
+    await pump(city, B.cx, B.cz, 150);
+    city.paint.resetAll();
+    const Q = city.ground.wideQa, r = blastRadiusFor(60) * config.bomb.radius3;
+    Q.due = 0;
+    Q.done = 0;
+    const p0 = falls.stats.pours, n0 = pools.length;
+    const tImpact = splatter.barf(B.cx, B.cz, { target: B, drop: 60, radius: r, super: { kind: 'bomb', charge: 1, id: 7 }, hitStop: 0, jump: config.bomb.jump3 });
+    run(4);
+    const pool = pools.length > n0 ? pools[pools.length - 1] : null, rec = city.paint.get(B.index), foot = footLut(B);
+    let wet = 0;
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2, d = foot[(i * SHAPE_LUT) / 16] + 4, s = city.ground.sample(B.cx + Math.cos(a) * d, B.cz + Math.sin(a) * d);
+      if (s && s.cov >= 0.5 && s.hue === rec.color) wet++;
+    }
+    ok(falls.stats.pours > p0 && Q.due > tImpact && Q.done >= tImpact + 3 / 60 && !!pool && pool.arrive >= Q.done - 1e-6 && wet >= 8, `a Bomb III pours on a ${r1(B.roofY - B.baseY)} m tower: its wide ground spread from its landing at ${r1(tImpact)} s to ${r1(Q.done)} s (due ${r1(Q.due)}), the pool after it at ${pool && r1(pool.arrive)} s, ${wet} of 16 round its foot in its hue`);
+  }
+  // m70: the pool keeps its live slot for its reveal through four more blasts begun after its tower is struck
+  if (fresh.length >= 9 && houses2.length >= 4) {
+    const C = fresh[8];
+    await pump(city, C.cx, C.cz, 150);
+    city.paint.resetAll();
+    splatter.barf(C.cx, C.cz, { target: C, drop: 120, hitStop: 0 });
+    run(config.splat.impactDelay + 0.02);
+    for (const h of houses2.slice(0, 4)) {
+      splatter.barf(h.cx, h.cz, { target: h, drop: 120, hitStop: 0 });
+      run(0.1);
+    }
+    let job: { serial: number | null } | null = null, land = Infinity;
+    const runs = (falls as any).runs as Array<{ ref: BuildingRef; pool: { serial: number | null } | null; land: number }>;
+    for (let i = 0; i < 240 && !(t > land + 1); i++) {
+      const rr = runs.find((x) => x.ref === C);
+      if (rr?.pool) {
+        job = rr.pool;
+        land = rr.land;
+      }
+      run(1 / 60);
+    }
+    const L1 = blastUniforms.uGroundLive.value, L2 = blastUniforms.uGroundLive2.value, ser = job?.serial ?? -1;
+    ok(!!job && t > land + 1 && [L1.x, L1.z, L2.x, L2.z].includes(ser), `the pool on a ${r1(C.roofY - C.baseY)} m tower after four more blasts: its live slot held a second past its landing for its reveal (serial ${ser}, slots ${[L1.x, L1.z, L2.x, L2.z].join(', ')})`);
   }
 }
 save('falls', rows);

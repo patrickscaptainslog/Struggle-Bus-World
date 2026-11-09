@@ -103,7 +103,7 @@ export function blastRadiusFor(drop = 0): number {
 
 /**
  * The most buildings a blast of radius r paints: config.splat.maxBuildings at the tap's 85 m, growing with the circle's area (the buildings in reach do), up
- * to `most`: a tap's maxBuildingsCap, a super's megaBuildingsCap, a Bomb's config.bomb.cap (900: a Bomb III from 300 m reaches 540-750 over dense housing).
+ * to `most`: a tap's maxBuildingsCap, a super's megaBuildingsCap, a Bomb's config.bomb.cap (2,400: at 900 a Bomb III from 600 m left hundreds grey inside its painted ground, config.ts).
  */
 export function blastCap(r: number, most: number): number {
   const rk = r / config.splat.blastRadius;

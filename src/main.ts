@@ -50,6 +50,7 @@ import { Falls } from './fx/Falls';
 import { SuperFx } from './fx/SuperFx';
 import { CometFx } from './fx/CometFx';
 import { Comet } from './game/Comet';
+import { Lob, lobRadius, lobTop } from './game/Lob';
 import { SuperMeter } from './ui/SuperMeter';
 import { farFlags } from './world/farMaterial';
 import { earthFly, earthResume, heldHour, lifeOn, moonLand, moonLow, moonrun, recessOn, skyLive } from './sky/flag';
@@ -625,8 +626,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const flashPos = new THREE.Vector3();
   /** Where a flung blob comes down: the roof it hits, else the ground (seen from fromY: never on a deck over it). */
   const landingY = (x: number, z: number, fromY: number) => city.roofAt(x, z, fromY) ?? city.groundAt(x, z);
-  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. */
-  const paintTrees = (b: Blast, freshOnly = false) => {
+  /** Trees standing in the blast's fresh ground paint bloom (or escalate) as the shockwave reaches them: a level, or a Bomb's jump, never past 3. None
+   *  nearer its middle than `inner` m (&boom's ring: its bare hole, where older paint under a tree raised it) */
+  const paintTrees = (b: Blast, freshOnly = false, inner = 0) => {
     const ts = manifest.tileSize;
     const { x, z, r } = b.spec;
     const reach = r * b.spec.reach;
@@ -641,7 +643,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         for (let i = 0; i < list.length; i++) {
           const t = list[i];
           const d = Math.hypot(t.x - x, t.z - z);
-          if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
+          if (d > reach || d < inner || (freshOnly && tf.paintLevel(i) > 0)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) {
             if (wide) treesDue.push({ key, tf, i, x: t.x, z: t.z, at: b.t + arrival(d, r), jump: b.jump });
@@ -679,7 +681,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     return y > ground + 4 && city.overheadAt(x, z, ground + 1) <= y ? y - 0.5 : ground;
   };
   // the Comet's looks (src/fx/CometFx.ts): its streak, its pillar of paint light, drops on the lens and its late boom with the camera's kick
-  const cometFx = new CometFx(particles, { launch: (k) => audio.cometLaunch(k), boom: (k, soft, still) => audio.cometBoom(k, soft, still), kick: (m) => rig.kick(m) }, mouthWorld);
+  const cometFx = new CometFx(particles, { launch: (k) => audio.cometLaunch(k), boom: (k, soft, still) => audio.cometBoom(k, soft, still), kick: (m) => rig.kick(m), lob: (travel) => audio.lobLaunch(travel), whump: (k, still) => audio.lobWhump(k, still), dip: () => (lobDipAt = simTime), hatch: (out) => bus.root.localToWorld(out.copy(bus.hatchLocal)) }, mouthWorld);
   cometFx.moon = !!moon;
   scene.add(cometFx.pillars, cometFx.drops);
   const cometBus = new THREE.Vector3();
@@ -805,25 +807,32 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** &bomb: the Bomb's look takes the faction's spray too (set once the Bomb is up); &boom's hoop too */
   let bombLook: ((f: number) => void) | null = null;
   let boomLook: ((f: number) => void) | null = null;
+  /** the contrail takes the faction's spray (set once the Controls are up: Rainbow's is its hues, as before) */
+  let trailLook: ((f: number) => void) | null = null;
   const paintAsFaction = (f: number) => {
     splatter.faction = f;
     particles.palette = lookOf(f).spray;
+    trailLook?.(f);
     bombLook?.(f);
     boomLook?.(f);
   };
   /** &boom's ring lands (src/game/Boom.ts): no splash or fountain at its middle, where nothing is painted; its blobs fly out from the band's inner edge, a
-   *  softer flash and kick than a tap's (the crack had the big one), the splat's boom and the bells */
+   *  softer flash and kick than a tap's (the crack had the big one), the splat's boom at its loudest with a Comet's thunder under it, and the bells */
   const boomImpact = (b: Blast) => {
     const S = config.splat, inner = b.spec.ring;
     for (const dot of b.dots) {
       if (!dot.blob) continue;
       const a = Math.atan2(dot.z - b.spec.z, dot.x - b.spec.x);
-      flingFrom.set(b.spec.x + Math.cos(a) * inner, b.pos.y + 1 + Math.random() * 2, b.spec.z + Math.sin(a) * inner);
+      // (from what stands at the band's inner edge there, a roof or the ground: from the middle's ground they started underground on a slope, or in a tower)
+      const sx = b.spec.x + Math.cos(a) * inner, sz = b.spec.z + Math.sin(a) * inner;
+      flingFrom.set(sx, landingY(sx, sz, Infinity) + 1 + Math.random() * 2, sz);
       flingTo.set(dot.x, landingY(dot.x, dot.z, flingFrom.y + 40) + 0.15, dot.z);
       particles.fling(flingFrom, flingTo, blobFlight(dot), dot.hue, 0.7 + dot.rad * 0.5);
     }
-    paintTrees(b);
-    audio.splatImpact(b.strength);
+    // (none in its hole, more than its inner edge's warp in: buildings wholly there are left out, Splat.ts)
+    paintTrees(b, false, inner - 2.2);
+    audio.splatImpact(Math.max(1.4, b.strength));
+    audio.cometBoom(1.2, false, false);
     audio.bloomBurst(b.count, b.spec.hue, b.maxLevel);
     flashPos.copy(b.pos).project(camera);
     pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength * 0.6);
@@ -1102,8 +1111,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const comet = new Comet(city, splatter);
   comet.lens = camera;
   aimer.comet = comet;
+  // the Lob (src/game/Lob.ts): a tap with the bus's body nose up throws it into the distance, in view of the same lens, on the Comet's odometer
+  const lob = new Lob(city, splatter, comet);
+  lob.lens = camera;
+  aimer.lob = lob;
   // (a Comet planned late, its landing's tile not in at the tap, that comes down on the water: part of the belly back, as for any miss)
-  splatter.onLateMiss = () => (flight.refund = config.splat.missRefund);
+  // (a Lob's, 1.4-3.2 s up, comes down after its breath has ended: the belly takes it back then, as much as it holds already or more)
+  splatter.onLateMiss = () => {
+    if (flight.barfT >= 0) flight.refund = config.splat.missRefund;
+    else flight.fullness = Math.max(flight.fullness, config.splat.missRefund);
+  };
   /** (?moon: the craters are the buildings here, src/moon/CraterPaint.ts) */
   const moonPaint = moon?.paint ?? null;
   /** Breathe a shot: the blast is timed to the projectile's flight (inhale + travel), at the glinting building. */
@@ -1229,19 +1246,29 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const landsAt = breathe(shot, mega);
     // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast. A Bomb's at Comet range plays the full show, every time)
     if (shot.comet) cometFx.launch(shot.comet, simTime + config.splat.inhale, simTime + config.splat.inhale + shot.travel, splatter.faction, hue, simTime, mega?.tag.kind === 'bomb');
+    if (shot.comet?.kind === 'lob') {
+      controls.lobbed();
+      // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
+      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, top: 0.5, hue: 0 }) - 1] : lobsUp[0]);
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, top: lobTop(shot.comet), hue });
+    }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
   };
   const tapSplat = () => {
-    // (taps fire between frames: what fire() hands over is exactly the building on screen glinting)
+    // (taps fire between frames: what fire() hands over is exactly the building on screen glinting; an aim not ready with the belly full again, refreshed)
+    aimer.refresh(flight);
     const shot = aimer.fire(flight);
     if (flight.tryBarf()) {
       breatheNow(shot);
       controls.splatted();
-    } else audio.denied();
+    } else {
+      aimer.unfire();
+      audio.denied();
+    }
   };
   input.onTap = () => {
-    if (tuner.visible || superSplat.hosing || hose.pouring) return;
+    if (tuner.visible || superSplat.hosing || hose.tapWhilePouring()) return;
     // (the tap that skips the opening doesn't splat as well)
     if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
       openingSkip = true;
@@ -1348,7 +1375,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   input.onAimStart = () => {
     if (!tuner.visible) holds.begin();
   };
-  input.onAimEnd = (cancelled) => holds.end(cancelled);
+  input.onAimEnd = (cancelled, late) => holds.end(cancelled, late);
 
   // ---- the Bomb (src/game/Bomb.ts, behind &bomb until the producer's grip test): a still hold on the bus charges it, and the lift lets it go as MEGA's
   // breath where the tap would land (at Nonstop and faster, the Comet's landing). On the Moon's ground too, where the craters take its jumps (CraterPaint)
@@ -1371,19 +1398,29 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   holds.bomb = bomb;
   // (&bomb: MEGA's look, the Bomb's, in the bus's faction's spray: SuperFx's motes, halo and sparks, and the ring where it lands. Without the link both stay
   // Rainbow's, and with it Rainbow's spray is the rainbow: one program each either way, warmed at boot)
+  // (the Lob's dotted ring takes the same rows, the Bomb or not: it draws only where a ring shows, so no frame without one differs)
   bombLook = (f) => {
-    if (!bomb.on) return;
     const spray = lookOf(f).spray;
-    superFx.palette = spray;
     pipeline.setBombRows(spray.map((r) => [r, ...glowSteps(r)] as const));
+    if (bomb.on) superFx.palette = spray;
   };
   bombLook(splatter.faction);
+  /** the Lob's ring where it will land, eased in and out (main.ts's frame), and the landings of those thrown, each until it lands */
+  const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
+  const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; top: number; hue: number }> = [];
+  const lobOnto = { x: 0, y: 0, z: 0 };
+  /** when the last Lob left the mouth (game s): the bus's dip under its throw */
+  let lobDipAt = -1e9;
+  /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
+  const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3();
+  /** how far over the lens's middle a point shows (degrees, the sky lift's own taken off: where it would be with the view untipped); p is moved into the lens's space */
+  const lobUpDeg = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), (Math.atan2(p.y, -p.z) * 180) / Math.PI + rig.skyLift);
 
   // ---- Sonic Boom (src/game/Boom.ts, behind &boom): the flick into Turbo 3 cracks the sky, and its hoop lands as a ring of paint where the bus will be
   // 1.3 s on, which it flies through as the band's crown goes up. On the Moon's ground too, where its craters in the hole are left out (CraterPaint)
   const crownAt = new THREE.Vector3(), crownV = new THREE.Vector3();
   const boom = new Boom(city, splatter, {
-    crack: (p) => controls.crack(p, boom.time),
+    crack: (p) => controls.crack(p),
     crown: (p) => {
       const B = boomTune, n = B.crown, water = p.kind === 'water';
       for (let i = 0; i < n; i++) {
@@ -1410,6 +1447,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (boom.on) controls.fx.setHoopRows(lookOf(f).spray);
   };
   boomLook(splatter.faction);
+  trailLook = (f) => controls.fx.setTrailRows(lookOf(f).spray);
+  trailLook(splatter.faction);
 
   // ---- resize (applied once per frame: iOS fires bursts of resize / visualViewport events while its toolbars move)
   const onResize = () => {
@@ -1512,7 +1551,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     };
     curbFlight = new CurbFlight(flight, controls.turbo, rig, life, city, {
-      hint: (learn) => controls.curbHint(learn),
+      hint: (learn, climbFirst) => controls.curbHint(learn, climbFirst),
       event: curbEvent,
       // (the lane paints itself: a small dab every few metres, in rainbow rings round where the wheels came down, the splatter's faction's)
       dab: (x, z, ox, oz) => {
@@ -1667,6 +1706,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (jet) for (const t of jet.targets) t.set(t.x - dx, t.y, t.z - dz);
     cometFx.slide(dx, dz);
     comet.slide(dx, dz);
+    lob.slide(dx, dz);
+    lobRing.x -= dx;
+    lobRing.z -= dz;
+    for (const u of lobsUp) {
+      u.x -= dx;
+      u.z -= dz;
+    }
     boom.slide(dx, dz);
     slides++;
   };
@@ -1852,6 +1898,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       bus.root.quaternion.slerpQuaternions(fromSky.busQuat, q, fromSky.t * fromSky.t * (3 - 2 * fromSky.t));
     }
     bus.root.position.set(flight.x, flight.y, flight.z).add(superSplat.shake).add(hose.shake);
+    // (a Lob's throw: the bus dips under it, quick down and eased back, its look alone)
+    {
+      const u = (simTime - lobDipAt) / config.lob.dipTime;
+      if (u >= 0 && u < 1) bus.root.position.y -= config.lob.dip * Math.min(1, u * 6) * (1 - u) * (1 - u);
+    }
     controls.afterPose(bus.root);
 
     // drop shadow on whatever is below: the roof of the part under the bus, else the street (under a deck, the water)
@@ -1883,10 +1934,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
     // (a committed thumb thaws the glint, as keys and a QA stick do; and a press that fires on its lift
     // keeps what it froze, whatever else is steering)
-    const steering = (qaStick || st.thumb || (st.dragging && input.mode === 'keyboard')) && !input.pressHeld;
-    const glint = aimer.update(flight, simTime, steering);
+    const thumbDown = qaStick || st.thumb || (st.dragging && input.mode === 'keyboard');
+    const steering = thumbDown && !input.pressHeld;
+    // (the Lob's body reads the steering thumb itself: a second thumb's tap while it's down reads it live, its lift latches it)
+    const glint = aimer.update(flight, simTime, steering, thumbDown);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
+    // (the Lob's hint: its ring shows)
+    controls.lobRing = aimer.lobPlan !== null;
+    // (and Input's: an aim begun while it shows, its lift's own time a tap's, is that tap)
+    input.lobUp = controls.lobRing;
     if (bomb.on) controls.bombGlint = Aimer.loaded(flight) && (moonPaint ? (moonPaint.target?.rec?.level ?? 0) > 0.5 : glint !== null && city.paint.level(glint.index) > 0.5) && flight.y - flight.groundBroad < 300;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     paintUniforms.uTargetT.value = aimer.shownSince;
@@ -1894,6 +1951,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
     // (the live sky's lift: pulling at the ceiling, the view tips up to the sky the bus can't reach yet, SKY.md 4.15)
     if (live) rig.skyLiftTarget = flight.strain > 0.3 && flight.y > config.sky.liftFrom ? config.sky.liftPull : 0;
+    // (a Lob up: the view tips up after it, the sky lift's way, at least config.lob.tip while it climbs and as far as keeps its arc's top, then its star,
+    // config.lob.tipTop under the frame's top, but never so far the bus sinks lower than tipBus of the half height under the middle; down again as it falls
+    // onto its ring. From the roofs the star left the frame by 0.3 of its flight, its top 13-25 degrees over the frame, and nothing showed for 1.4 s)
+    rig.skyLiftRate = 0;
+    if (cometFx.lobFrame(simTime, lobSeen)) {
+      const L = config.lob, half = camera.fov / 2;
+      const star = lobUpDeg(lobSeen), busUp = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
+      const want = Math.min(star - half + L.tipTop, busUp + half * L.tipBus);
+      rig.skyLiftTarget = Math.max(rig.skyLiftTarget, cometFx.lobClimbing(simTime) ? L.tip : 0, want);
+      rig.skyLiftRate = L.tipRate;
+    } else if (!live) rig.skyLiftTarget = 0;
     rig.update(camera, focus, flight, dt);
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
@@ -1992,7 +2060,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     splatter.update(dt);
     boom.update(dt);
     falls.update(simTime);
-    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z));
+    const lobAt = aimer.lobPlan;
+    moonPaint?.update(dt, simTime, flight, aimer.aim.x, aimer.aim.z, Aimer.loaded(flight), steering, flight.y - city.groundAt(flight.x, flight.z), lobAt ? Math.hypot(lobAt.x - flight.x, lobAt.z - flight.z) : 0);
     if (jet && simTime >= jet.at) {
       // the inhale is over: the jet leaves the mouth and lands exactly at the impact
       particles.geyser({ source: mouthWorld, sourceVel: busVel, targets: jet.targets, duration: Math.max(0.05, jet.end - simTime), travelTime: Math.max(0.05, jet.impact - simTime), hues: jet.hues, width: jet.width, arc: moonPaint?.arc(mouthWorld(), jet.targets[0]) });
@@ -2100,7 +2169,31 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const sz = 5.6 * rig.heroScale * (1 + 2.4 * superSplat.circle);
       pipeline.setHeroCircle(superSplat.circle, superSplat.circleSpin, sz, sz * 0.5);
       const R = bomb.ring;
-      pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
+      // (the Lob's ring where it will land, dotted, while one is planned with a full belly: the Bomb's ring has the slot while it charges)
+      // (and on after the tap, where the one thrown comes down, until it lands: the first thrown of those still up. Not while a hold aims: its lift is
+      // its own shot)
+      let first: (typeof lobsUp)[number] | null = null;
+      for (const u of lobsUp) if (u.until > simTime && (!first || u.until < first.until)) first = u;
+      const L = input.state.aim.on ? null : aimer.lobPlan, flying = first !== null;
+      lobRing.k = (L || flying) && R.k < 0.01 ? Math.min(1, lobRing.k + realDt * 6) : Math.max(0, lobRing.k - realDt * 6);
+      if (first) {
+        // (its dots close in as it falls from its top, a countdown on the ground, to a quarter of its circle as it lands: the blast then blooms out to it. From
+        // its top, lobTop's share of its flight: half way only where it lands as high as it left)
+        const u = clamp((simTime - first.from) / Math.max(0.05, first.until - first.from), 0, 1), c = clamp((u - first.top) / Math.max(0.05, 1 - first.top), 0, 1);
+        Object.assign(lobRing, { x: first.x, y: first.y, z: first.z, r: first.r * (1 - config.lob.close * c * c * (3 - 2 * c)), until: first.until });
+      } else if (L && R.k < 0.01) {
+        // (on the Moon's ground, on the crater the tap will move it onto: CraterPaint.aim's rule)
+        const on = moonPaint?.onto(L.x, L.z, lobOnto);
+        lobRing.x = on ? on.x : L.x;
+        lobRing.y = on ? on.y + 0.5 : L.y;
+        lobRing.z = on ? on.z : L.z;
+        lobRing.r = lobRadius(L);
+      }
+      // (and a dim pillar of its paint stands on the landing while its ring shows: from the roofs the ring is a thin arc on the skyline, the pillar what reads)
+      const marked = lobRing.k > 0.3 && R.k < 0.01 && (first !== null || L !== null);
+      cometFx.beacon(marked, lobRing.x, lobRing.y, lobRing.z, splatter.faction, first ? first.hue : splatter.hueNext, simTime);
+      if (R.k > 0.01 || lobRing.k <= 0) pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
+      else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true, lobRing.y);
     }
     // the eye's beam, from the lens along the nose, a little down: wide open on relief, a sliver
     // while barfing (it squints); the bus's matrix is final here
@@ -2442,9 +2535,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: the Comet (src/game/Comet.ts): its plan this frame (where a tap now lands, null when it's the classic shot), and its looks' counts */
       comet,
       cometFx,
+      /** QA: the Lob (src/game/Lob.ts): its plan this frame (where a tap now lands, null when it isn't one), the body it would throw at, its ring and counts */
+      lob,
+      lobState: () => ({ plan: aimer.lobPlan ? { ...aimer.lobPlan, target: aimer.lobPlan.target ? aimer.lobPlan.target.index : null } : null, body: lob.body(flight, simTime), pitch: flight.pitch, ring: { ...lobRing }, stats: { ...lob.stats }, lobs: cometFx.stats.lobs }),
       cometState: () => ({ plan: aimer.planned ? { ...aimer.planned, target: aimer.planned.target ? aimer.planned.target.index : null } : null, gear: controls.turbo.name, speed: flight.ground, drive: flight.turbo.speed, ...cometFx.stats }),
       hoseState: () => ({ pouring: hose.pouring, tank: flight.fullness, stats: { ...hose.stats }, hold: holds.current ? { ...holds.current, point: holds.current.point.toArray() } : null, holds: { ...holds.stats } }),
-      forceReady: () => (flight.fullness = 1),
+      // (a breath under way ends at its refund, which empties the belly: forced full in one, it ends full too, so a probe needn't wait for it. The review of
+      // the picks, 6: controls.mjs's Bomb rows lost that race)
+      forceReady: () => ((flight.fullness = 1), flight.barfT >= 0 && (flight.refund = 1)),
       /** QA: barf at a lat/lon through the real splat pipeline (blast, blooms, sign, sound). Returns the impact time (game clock). */
       barfAtLatLon: (lat: number, lon: number, drop?: number) => {
         const [x, z] = latLonToLocal(lat, lon, manifest.origin);

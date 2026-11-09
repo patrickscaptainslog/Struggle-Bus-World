@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { config } from '../config';
-import { GLSL_FACTION } from '../render/factionLook';
+import { GLSL_FACTION, lookOf } from '../render/factionLook';
 import { globals } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
@@ -679,6 +679,12 @@ export class GroundPaint {
     const j = Math.min(GROUND_N - 1, Math.max(0, Math.floor((z - oz) / this.cell)));
     const o = (j * GROUND_N + i) * 4;
     return { cov: m.data[o] / 255, hue: Math.min(5, Math.floor(m.data[o + 1] / 32)), faction: m.data[o] ? texelOwner(m.data[o + 1]) : 0 };
+  }
+
+  /** A wide blast is still drawing (begin() would finish it first, all of it in that frame). */
+  wideBusy(): boolean {
+    for (const j of this.jobs) if (j.wide) return true;
+    return false;
   }
 
   /**
@@ -1394,6 +1400,8 @@ export class GroundPaint {
     const live = serial !== null;
     const S = s.sectors;
     const ringW = 1 / Math.max(1, s.ring);
+    // (&boom's ring in a faction with its strongest rows named: only those slots)
+    const strong = s.layout === LAYOUT_RING ? lookOf(s.faction ?? FACTION_RAINBOW).ring?.ground : undefined;
     const lut = p.lut, warp = p.warp, wave = p.wave, foot = p.foot;
     const lutK = SHAPE_LUT / (Math.PI * 2);
     const R2 = R * R;
@@ -1431,6 +1439,7 @@ export class GroundPaint {
           const ring = Math.floor((dist + wd) * ringW);
           const off = s.layout === 1 ? ring : s.layout === 2 ? sector + ring : sector;
           hue = (((s.hue + off) % 6) + 6) % 6;
+          if (strong) hue = strong[hue % strong.length];
         }
         // (&falls's pool with its footprint: revealed by the distance past the wall at its angle)
         const rv = !live ? 0 : foot ? Math.max(0, dist - (foot[k] * (1 - t) + foot[k1] * t)) / POOL_SPREAD : wave[Math.min(WAVE_LUT - 1, Math.round(dist * waveK))];

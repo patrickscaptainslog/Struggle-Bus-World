@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { config } from '../config';
 import { makeBlastSpec, LAYOUT_POOL, SHAPE_LUT, type BlastSpec } from '../game/blastLayout';
 import type { Blast, SuperTag } from '../game/Splat';
 import { ringContains, type City, type BuildingRef } from '../world/City';
 import type { GroundJob } from '../world/GroundPaint';
-import { FALLS, fallsOn, fallTime, setFall } from '../world/falls';
+import { FALLS, fallsLast, fallsOn, fallTime, setFall } from '../world/falls';
 import { fxTune, type Particles } from './Particles';
 
 // The Waterfall's play (behind &falls; src/world/falls.ts has the runs on the walls): a blast whose primary is over 40 m tall and that struck it 40 m up or
@@ -29,6 +30,10 @@ export const fallsTune = {
   /** splashes round the foot as the pool lands, and their strength (Particles.splash): the pool coming up into view where it lands on the tap's own paint */
   footSplashes: 14,
   footSplash: 1.1,
+  /** the pool's ground begins this long before it lands (s): drawn hidden over those frames, its live slot held for its own reveal alone; and after a wide
+   *  blast still drawing, this long past the runs' reaching the street at most (s) */
+  poolLead: 0.25,
+  poolWait: 1.2,
 };
 
 /** The walls' distance from (cx, cz) by angle (SHAPE_LUT steps from +x toward +z): along each ray the farthest crossing of the ground tier's rings, so the
@@ -73,9 +78,10 @@ interface Run {
   ref: BuildingRef;
   y0: number;
   t0: number;
-  /** the street under it, and when the fastest run reaches it */
+  /** the street under it, when the fastest run reaches it, and when its pool lands (Infinity until its ground is begun) */
   floor: number;
   down: number;
+  land: number;
   hue: number;
   faction: number;
   drops: number;
@@ -98,6 +104,8 @@ export class Falls {
   /** per slot: the game time its runs are all dry (FALLS.dry's longest, from the street up), when it's given back (setFall -1) so its tower's pixels stop
    *  paying for the test; -Infinity free */
   private readonly dryAt = new Float64Array(FALLS.slots).fill(-Infinity);
+  /** per slot: its tower's height (m), how far its coat floods */
+  private readonly tall = new Float64Array(FALLS.slots);
   private serial = 0;
   private seed = 0x5eed1234;
   private readonly from = new THREE.Vector3();
@@ -131,15 +139,17 @@ export class Falls {
     // whose runs go in a frame, the farthest behind the bus)
     let slot = 0;
     for (let i = 1; i < FALLS.slots; i++) if (this.dryAt[i] < this.dryAt[slot]) slot = i;
+    if (this.dryAt[slot] > -Infinity) this.release(slot, now);
     setFall(slot, p.index, y0, now);
+    this.tall[slot] = p.roofY - p.baseY;
     this.dryAt[slot] = now + (y0 - floor) / FALLS.speed + FALLS.dry * 1.3 + 0.5;
     this.seed = (Math.imul(this.seed ^ 0x2545f491, 0x9e3779b1) + 0x7f4a7c15) >>> 0;
     const spec = makeBlastSpec(p.cx, p.cz, p.rad + T.pool, rec.color, this.seed);
     // (10 m past the walls in their shape (foot), its rim wobbling 3 m or so: a tap's 0.8 of its circle, lobed by a quarter, would leave the walls dry, and a
     // circle round a long slab's farthest corner runs 50 m out past its long sides)
     Object.assign(spec, { layout: LAYOUT_POOL, sectors: 1, ring: p.rad, edge: 1, ragged: Math.min(0.15, 3 / spec.r), rays: 0, blobs: 0, dots: 6, faction: rec.faction, foot: footLut(p) });
-    const pool = this.city.ground.begin(spec, down);
-    this.runs.push({ ref: p, y0, t0: now, floor, down, hue: rec.color, faction: rec.faction, drops: Math.min(T.drops, Math.floor((y0 - floor) / T.dropEvery)), dropped: 0, pool, spec, landed: false });
+    // (its ground begun later, update(): here, inside the impact, it finished a Bomb's own wide ground in the frame it landed, GroundPaint.begin)
+    this.runs.push({ ref: p, y0, t0: now, floor, down, land: Infinity, hue: rec.color, faction: rec.faction, drops: Math.min(T.drops, Math.floor((y0 - floor) / T.dropEvery)), dropped: 0, pool: null, spec, landed: false });
     this.stats.pours++;
     this.hooks.trickle(down - now + 0.8);
     return true;
@@ -147,27 +157,44 @@ export class Falls {
 
   /** Once a frame on the game clock: the drops as the runs come down, the pool as they reach the street, the slots of runs gone dry given back. */
   update(now: number) {
-    for (let i = 0; i < FALLS.slots; i++)
-      if (now >= this.dryAt[i]) {
-        setFall(i, -1, 0, -1e3);
-        this.dryAt[i] = -Infinity;
-      }
+    const T = fallsTune;
+    for (let i = 0; i < FALLS.slots; i++) if (this.dryAt[i] > -Infinity && now >= this.dryAt[i]) this.release(i, now);
     for (let i = 0; i < this.runs.length; ) {
       const r = this.runs[i];
       const span = Math.max(0.05, r.down - r.t0);
       const due = Math.min(r.drops, Math.floor((r.drops * (now - r.t0)) / span));
       for (; r.dropped < due; r.dropped++) this.drop(r, r.dropped / Math.max(1, r.drops));
-      if (!r.landed && now >= r.down) {
+      // (the pool's ground poolLead s before it lands: begun at the impact it held a live slot for seconds, and four more blasts took it, its slow reveal
+      // lost; and not while a wide blast still draws, a Bomb's that pours among them, its deadline kept, unless the runs have waited poolWait for it)
+      if (!r.pool && now >= r.down - T.poolLead && (!this.city.ground.wideBusy() || now >= r.down + T.poolWait)) {
+        r.land = Math.max(r.down, now + T.poolLead);
+        r.pool = this.city.ground.begin(r.spec, r.land);
+      }
+      if (!r.landed && now >= r.land) {
         r.landed = true;
         if (r.pool) this.city.ground.land(r.pool);
         this.stats.pools++;
-        this.hooks.pool(r.ref.cx, r.floor, r.ref.cz, r.spec.r, r.hue, { kind: 'falls', charge: 0, id: ++this.serial }, r.down, r.faction);
+        this.hooks.pool(r.ref.cx, r.floor, r.ref.cz, r.spec.r, r.hue, { kind: 'falls', charge: 0, id: ++this.serial }, r.land, r.faction);
         this.hooks.slap();
         this.splashFoot(r);
       }
       if (r.landed && r.dropped >= r.drops) this.runs.splice(i, 1);
       else i++;
     }
+  }
+
+  /**
+   * Slot i given back (its runs dry) or given up (a fifth tower's): its tower's own coat, still flooding down its walls, takes the FALLS.hold the building
+   * program held it back by in a slot into its bloom time, so it floods on as it was; given up mid-flood it jumped on 27 m down a 300 m tower in a frame.
+   */
+  private release(i: number, now: number) {
+    const idx = fallsLast[i].index;
+    if (idx >= 0) {
+      const rec = this.city.paint.get(idx);
+      if (rec.level > 0.5 && now < rec.bloomTime + FALLS.hold + this.tall[i] / config.bloom.floodSpeed + 1) this.city.paint.delay(idx, FALLS.hold);
+    }
+    setFall(i, -1, 0, -1e3);
+    this.dryAt[i] = -Infinity;
   }
 
   /** One drop as far down as the runs are (k: 0 at the impact, 1 at the street): off a wall standing at that height, onto what's under it. */

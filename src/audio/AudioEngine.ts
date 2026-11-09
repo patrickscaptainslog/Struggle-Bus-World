@@ -1,6 +1,7 @@
 import { SoundGraph } from './SoundGraph';
 import { LOOKAHEAD, synthAll, type Kit, type SynthData } from './dsp';
 import { cometBoom, cometLaunch } from './cometSfx';
+import { lobLaunch, lobWhump } from './lobSfx';
 import { fallsPlop, fallsSlap, fallsTrickle } from './fallsSfx';
 import { audioTune, registerAudioTunables } from './tune';
 
@@ -240,6 +241,18 @@ export class AudioEngine {
   cometBoom(k: number, soft: boolean, moon: boolean): void {
     const g = this.live();
     if (g) cometBoom(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, soft, moon);
+  }
+
+  /** The Lob off the mouth (src/audio/lobSfx.ts): a mortar's thunk, and its whistle up and down over its `travel` s. */
+  lobLaunch(travel: number): void {
+    const g = this.live();
+    if (g) lobLaunch(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, travel);
+  }
+
+  /** The Lob's whump where it lands, its sound at most config.lob.boomLate late (k ~ its strength; moon: the thud alone). */
+  lobWhump(k: number, moon: boolean): void {
+    const g = this.live();
+    if (g) lobWhump(g.voiceKit, g.voiceKit.ctx.currentTime + LOOKAHEAD, k, moon);
   }
 
   /** &falls (src/audio/fallsSfx.ts): the runs' trickle for `secs`, a drop's plop `delay` s on, the pool's slap and its falling notes. */

@@ -23,6 +23,8 @@ import type { Particles } from './Particles';
 //   and fade;
 // - the late boom: when its sound would reach the bus (CometSounds.boom), with the camera's kick then.
 // Into the water it's a miss: a splash thrown up there and a soft boom, and the full show it would have played is still to come.
+// The Lob (src/game/Lob.ts) is a Comet thrown high: the same streak on its taller arc, config.lob.motes over its whole flight, the full show every time, a
+// mortar's thunk and a whistle up and down instead of the whoosh (CometSounds.lob), and its whump at most config.lob.boomLate s late, with no kick.
 // The full show plays on the first Comet in config.comet.showEvery s, on every Bomb's, and while Streak's seam says a streak is on; the rest get the lighter one: a
 // config.comet.pillarLight m pillar for config.comet.fadeLight s (you fly over it), half the motes, no drops, a softer boom.
 //
@@ -136,10 +138,12 @@ float bayer(vec2 p) {
   return (b + 0.5) / 16.0;
 }
 void main() {
+  // (a Lob's beacon, vB.z 2: dim and steady while its ring shows, a sparse stipple a step down its ramp)
+  bool beacon = vB.z > 1.5;
   float life = vB.z > 0.5 ? uComet.z : uComet.y;
-  float k = clamp(vAge / max(0.01, life), 0.0, 1.0);
+  float k = beacon ? 0.0 : clamp(vAge / max(0.01, life), 0.0, 1.0);
   // (light, not a wall: a stipple that thins up the column and over its life, and its wall near the lens dithered away, so the bus is never lost in it)
-  float keep = (1.0 - k * k) * (0.85 - 0.45 * vH) * smoothstep(uComet2.x, uComet2.y, length(vWorldPos - cameraPosition));
+  float keep = (beacon ? ${config.lob.beaconKeep.toFixed(3)} : 1.0 - k * k) * (0.85 - 0.45 * vH) * smoothstep(uComet2.x, uComet2.y, length(vWorldPos - cameraPosition));
   if (bayer(gl_FragCoord.xy) > keep) discard;
   int f = int(vB.x + 0.5), hue = int(vB.y + 0.5);
   float t = vA / 6.2832 + 0.5;
@@ -169,7 +173,7 @@ void main() {
   i = int(mod(float(i), 6.0));
   float ramp = RAMPS[f * 6 + i];
   // (its paint's own colour, lit from within at its own ramp's step, and little fog: light carries through the haze)
-  sbWrite(ramp, clamp(LIT[int(ramp + 0.5)] + dl / 7.0, 0.0, 1.0), sbFog(vWorldPos) * 0.3, 1.0, vViewNormal, 0.617, 0.5);
+  sbWrite(ramp, clamp(LIT[int(ramp + 0.5)] + (dl - (beacon ? 1.0 : 0.0)) / 7.0, 0.0, 1.0), sbFog(vWorldPos) * 0.3, 1.0, vViewNormal, 0.617, 0.5);
 }
 `;
 
@@ -278,11 +282,16 @@ registerWarm('comet', () => {
   return [p, d];
 });
 
-/** The sounds and the kick (main.ts): the launch's whoosh; the boom where it reaches the bus (soft: the lighter show's; moon: no air, a ground thump). */
+/** The sounds and the kick (main.ts): the launch's whoosh; the boom where it reaches the bus (soft: the lighter show's; moon: no air, a ground thump). A Lob's:
+ *  its thunk and whistle over its `travel` s, and its whump (src/audio/lobSfx.ts); its throw's dip of the bus, and where the bus's roof hatch is. */
 export interface CometSounds {
   launch(k: number): void;
   boom(k: number, soft: boolean, moon: boolean): void;
   kick(m: number): void;
+  lob?(travel: number): void;
+  whump?(k: number, moon: boolean): void;
+  dip?(): void;
+  hatch?(out: THREE.Vector3): THREE.Vector3;
 }
 
 interface Live {
@@ -298,6 +307,8 @@ interface Live {
   faction: number;
   hue: number;
   full: boolean;
+  /** a Lob's (CometPlan.kind) */
+  lob: boolean;
   /** its plan (the blast's, a miss's and a late plan's say which Comet they are); when it took the full show, and the full show's time before it */
   plan: CometPlan | null;
   fullAt: number;
@@ -312,7 +323,7 @@ export class CometFx {
   /** ?moon: no air, so the boom is a ground thump */
   moon = false;
   /** QA */
-  readonly stats = { fired: 0, full: 0, booms: 0, drops: 0, pillars: 0, motes: 0, misses: 0, lastBoomAt: -1, lastImpactAt: -1 };
+  readonly stats = { fired: 0, full: 0, booms: 0, drops: 0, pillars: 0, motes: 0, misses: 0, lastBoomAt: -1, lastImpactAt: -1, lobs: 0 };
   private readonly live: Live[] = [];
   private readonly pA: THREE.InstancedBufferAttribute;
   private readonly pB: THREE.InstancedBufferAttribute;
@@ -321,12 +332,15 @@ export class CometFx {
   /** a pillar's foot (m), its time, its show, whether its drops have fallen */
   private readonly base = Array.from({ length: MAX_PILLARS }, () => ({ x: 0, y: 0, z: 0, t: -1e9, h: 0, life: 0, full: false, dropped: false, faction: 0, hue: 0 }));
   private nextPillar = 0;
+  /** a Lob's beacon on its landing while its ring shows (beacon): where, since when (it rises once, and stays where it steps along), whose */
+  private readonly mark = { on: false, x: 0, y: 0, z: 0, t: -1e9, faction: 0, hue: 0 };
   private nextDrop = 0;
   private lastFull = -1e9;
-  private booms: Array<{ at: number; k: number; soft: boolean }> = [];
+  private booms: Array<{ at: number; k: number; soft: boolean; lob: boolean }> = [];
   private readonly m = new THREE.Matrix4();
   private readonly p = new THREE.Vector3();
   private readonly q = new THREE.Vector3();
+  private readonly v = new THREE.Vector3();
   private readonly side = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
 
@@ -340,7 +354,7 @@ export class CometFx {
     this.dA = this.drops.geometry.getAttribute('dA') as THREE.InstancedBufferAttribute;
     this.dB = this.drops.geometry.getAttribute('dB') as THREE.InstancedBufferAttribute;
     for (let i = 0; i < MAX_COMETS; i++)
-      this.live.push({ on: false, t0: 0, t1: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), arc: 0, launched: false, u: 0, faction: 0, hue: 0, full: false, plan: null, fullAt: -1, prevFull: -1e9 });
+      this.live.push({ on: false, t0: 0, t1: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), arc: 0, launched: false, u: 0, faction: 0, hue: 0, full: false, lob: false, plan: null, fullAt: -1, prevFull: -1e9 });
   }
 
   /** The Comet in flight on this plan, or null. */
@@ -349,12 +363,44 @@ export class CometFx {
     return null;
   }
 
+  /** A Lob in the air still climbing, on the frame's clock (the view tips up while it does: main.ts). */
+  lobClimbing(now: number): boolean {
+    for (const c of this.live) if (c.on && c.lob && now < c.t0 + 0.45 * (c.t1 - c.t0)) return true;
+    return false;
+  }
+
+  /** A Lob up (the first thrown of those in flight): what the view keeps under its top, written to out: its arc's top while it climbs to it, then its star
+   *  falling, and from 0.85 of its flight where it lands (the hit is what comes next). False: none up. */
+  lobFrame(now: number, out: THREE.Vector3): boolean {
+    let first: Live | null = null;
+    for (const c of this.live) if (c.on && c.lob && now < c.t1 && (!first || c.t1 < first.t1)) first = c;
+    if (!first) return false;
+    const c = first, u = Math.max(0, (now - c.t0) / (c.t1 - c.t0)), rise = c.to.y - c.from.y;
+    const top = c.arc > 0 ? Math.min(1, Math.max(0, 0.5 + rise / (8 * c.arc))) : 0;
+    this.at(c, u < top ? top : u < 0.85 ? u : 1, out);
+    return true;
+  }
+
+  /** A Lob's landing marked while its ring shows (main.ts): a dim, steady pillar of its paint, config.lob.beacon m, an instance of the pillars' own (their
+   *  program and draw, warmed at boot). */
+  beacon(on: boolean, x: number, y: number, z: number, faction: number, hue: number, now: number): void {
+    const M = this.mark;
+    if (on && !M.on) M.t = now;
+    M.on = on;
+    M.x = x;
+    M.y = y;
+    M.z = z;
+    M.faction = slotOf(faction);
+    M.hue = hue;
+  }
+
   /** The full show for this one: the first in config.comet.showEvery s, or a streak on. */
   private show(now: number): boolean {
     return now - this.lastFull >= config.comet.showEvery || !!this.streakOn?.();
   }
 
-  /** A Comet leaves the mouth at t0 (after the inhale) and lands at t1 (the blast's impact time), on its plan's arc. full: the full show whatever its clock (a Bomb's). */
+  /** A Comet leaves the mouth at t0 (after the inhale) and lands at t1 (the blast's impact time), on its plan's arc. full: the full show whatever its clock (a Bomb's;
+   *  a Lob's always). */
   launch(p: CometPlan, t0: number, t1: number, faction: number, hue: number, now: number, full = false): void {
     const l = this.live.find((c) => !c.on) ?? this.live[0];
     l.on = true;
@@ -369,9 +415,12 @@ export class CometFx {
     l.hue = hue;
     l.plan = p;
     l.prevFull = this.lastFull;
-    l.full = full || this.show(now);
+    l.lob = p.kind === 'lob';
+    l.full = full || l.lob || this.show(now);
+    if (l.lob) this.stats.lobs++;
     if (l.full) {
-      this.lastFull = now;
+      // (a Lob's full show is its own: it doesn't spend the Comet's, which a Comet after it within showEvery got the lighter one for)
+      if (!l.lob) this.lastFull = now;
       l.fullAt = now;
       this.stats.full++;
     }
@@ -395,7 +444,7 @@ export class CometFx {
     const l = this.liveOf(p), full = l ? l.full : false;
     if (l) {
       l.on = false;
-      if (l.full && this.lastFull === l.fullAt) this.lastFull = l.prevFull;
+      if (l.full && !l.lob && this.lastFull === l.fullAt) this.lastFull = l.prevFull;
     }
     const n = Math.round(C.splash * (full ? 1 : 0.5)), pal = this.particles.palette;
     for (let k = 0; k < n; k++) {
@@ -410,7 +459,7 @@ export class CometFx {
     this.stats.misses++;
     const d = this.q.copy(pos).sub(bus);
     const dist = d.length(), into = dist > 1 ? Math.max(0, busVel.dot(d) / dist) : 0;
-    this.booms.push({ at: now + dist / Math.max(50, C.sound + into), k: 0.7, soft: true });
+    this.booms.push({ at: now + dist / Math.max(50, C.sound + into), k: 0.7, soft: true, lob: false });
   }
 
   /** Its blast lands: the pillar and its crown, the ring over the roofs, and the boom set for when its sound reaches the bus. */
@@ -463,7 +512,9 @@ export class CometFx {
     // the boom: when its sound would reach the bus, the bus flying into it
     const d = this.q.copy(b.pos).sub(bus);
     const dist = d.length(), into = dist > 1 ? Math.max(0, busVel.dot(d) / dist) : 0;
-    this.booms.push({ at: now + dist / Math.max(50, C.sound + into), k: Math.min(1.6, b.strength), soft: !full });
+    // (a Lob's whump: 1.6 km is 4.7 s of sound, too long after what you saw land)
+    const late = dist / Math.max(50, C.sound + into), lob = !!l?.lob;
+    this.booms.push({ at: now + (lob ? Math.min(config.lob.boomLate, late) : late), k: Math.min(1.6, b.strength), soft: !full, lob });
   }
 
   /** ?moon: the map slid by (dx, dz). */
@@ -488,8 +539,10 @@ export class CometFx {
       const b = this.booms[i];
       if (now < b.at) continue;
       this.booms.splice(i, 1);
-      this.sounds.boom(b.k, b.soft, this.moon);
-      this.sounds.kick((b.soft ? C.kickLight : C.kick) * Math.sqrt(b.k));
+      // (a Lob's: its whump, and no kick that far off)
+      if (b.lob && this.sounds.whump) this.sounds.whump(b.k, this.moon);
+      else this.sounds.boom(b.k, b.soft, this.moon);
+      if (!b.lob) this.sounds.kick((b.soft ? C.kickLight : C.kick) * Math.sqrt(b.k));
       this.stats.booms++;
       this.stats.lastBoomAt = now;
     }
@@ -516,6 +569,21 @@ export class CometFx {
         this.splatLens(now, P.faction, P.hue);
       }
     }
+    const M = this.mark;
+    if (M.on && k < MAX_PILLARS) {
+      this.m.makeTranslation(M.x, M.y, M.z);
+      this.pillars.setMatrixAt(k, this.m);
+      // (element by element, as above: no array made a frame while the ring shows)
+      A[k * 4] = M.t;
+      A[k * 4 + 1] = config.lob.beacon;
+      A[k * 4 + 2] = C.pillarRadius * 0.6;
+      A[k * 4 + 3] = 1e6;
+      B[k * 4] = M.faction;
+      B[k * 4 + 1] = M.hue;
+      B[k * 4 + 2] = 2;
+      B[k * 4 + 3] = 0.5;
+      k++;
+    }
     this.pillars.count = k;
     this.pillars.visible = k > 0;
     if (k > 0) {
@@ -539,7 +607,9 @@ export class CometFx {
       // (from the mouth as it is now: the inhale is over)
       c.from.copy(this.mouth());
       c.launched = true;
-      this.sounds.launch(c.full ? 1 : 0.6);
+      if (c.lob && this.sounds.lob) this.sounds.lob(c.t1 - c.t0);
+      else this.sounds.launch(c.full ? 1 : 0.6);
+      if (c.lob) this.lobPuff(c);
     }
     // (a frozen frame, a hit-stop or a held game, moves nothing: no motes piled up at the head. The review of step 3, 9)
     if (dt <= 0) return;
@@ -548,7 +618,7 @@ export class CometFx {
     if (u1 >= 1) c.on = now < c.t1 + 0.1;
     const pal = this.particles.palette;
     const C = config.comet;
-    const n = Math.max(2, Math.round(((C.motes * (c.full ? 1 : 0.5)) * Math.max(dt, 1 / 60)) / Math.max(0.05, c.t1 - c.t0)));
+    const n = Math.max(2, Math.round(((c.lob ? config.lob.motes : C.motes * (c.full ? 1 : 0.5)) * Math.max(dt, 1 / 60)) / Math.max(0.05, c.t1 - c.t0)));
     this.at(c, u1, this.p);
     this.particles.comet(this.p, 0, 0, 0, Ramp.GLOW_WHITE, 9, 0.07);
     // the way it flies, and a side to it (for the tails' shapes)
@@ -573,6 +643,22 @@ export class CometFx {
       this.particles.comet(this.q, (Math.random() - 0.5) * 3, vy + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, i < 2 ? Ramp.GLOW_WHITE : ramp, i === 0 ? 6.5 : size, life);
     }
     this.stats.motes += n + 1;
+  }
+
+  /** A Lob leaving: a cloud of its faction's paint out of the roof hatch, the mortar's smoke, and the bus dips under the throw (main.ts), no hit-stop and no
+   *  kick (the outside look: two white sparkles over the bus were all its throw had, then sparkles up its way, a stand-in). The particles' puffs, their one
+   *  program; at the mouth with no hatch given. */
+  private lobPuff(c: Live) {
+    const L = config.lob, pal = this.particles.palette, at = this.sounds.hatch ? this.sounds.hatch(this.q) : this.q.copy(c.from);
+    this.up.copy(c.to).sub(c.from).setY(0).normalize();
+    for (let i = 0; i < L.puff; i++) {
+      const a = (i / L.puff) * Math.PI * 2, out = L.puffSpeed * (0.35 + 0.4 * Math.random());
+      // (up and a little back off the way it flies, spread round: a cloud that rolls off behind the bus)
+      this.v.set(Math.cos(a) * out - this.up.x * L.puffSpeed * 0.3, L.puffSpeed * (0.5 + 0.5 * Math.random()), Math.sin(a) * out - this.up.z * L.puffSpeed * 0.3);
+      this.particles.puff(at, this.v, pal[(c.hue + i) % 6], L.puffSize * (0.7 + 0.6 * Math.random()), true);
+    }
+    this.stats.motes += L.puff;
+    this.sounds.dip?.();
   }
 
   /** The arc at u (0 the mouth, 1 the landing). */

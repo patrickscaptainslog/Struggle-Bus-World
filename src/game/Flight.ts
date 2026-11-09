@@ -76,6 +76,9 @@ export class Flight {
   vy = 0;
   /** the way the bus is going (rad, + up): on the path it flies the bus; off it, it follows where the bus really goes */
   nose = 0;
+  /** on the path, the way the stick has the nose going (rad, + up; it follows at noseRate): where &boom's hoop reads the bus will be (src/game/Boom.ts).
+   *  NaN off the path */
+  noseTo = NaN;
   yawRate = 0;
   private yawAcc = 0; // spring velocity of yawRate
   bank = 0;
@@ -157,6 +160,9 @@ export class Flight {
   /** Curb's dive (CurbFlight, ?life): the road under the bus while the stick is held pushed low over it (m ASL), and the floor comes down to it,
    *  config.curb.dip over it, whatever holds it up ahead. NaN: none, the floor as ever */
   street = NaN;
+  /** &boom's hoop standing over a tower in its way (src/game/Boom.ts): the floor it lifts the bus to as it closes on it (m ASL), as a turbo gear's floor
+   *  does. -Infinity: none */
+  hoopFloor = -Infinity;
 
   get fx() {
     return Math.sin(this.heading);
@@ -198,12 +204,17 @@ export class Flight {
     this.height = y - this.groundUnder;
   }
 
-  /** Returns true if a barf started. `min`: what the belly must hold (a tap: full; a lock's homing shot takes what the Hose left, Holds.fire). */
+  /**
+   * Returns true if a barf started. `min`: what the belly must hold (a tap: full; a lock's homing shot takes what the Hose left, Holds.fire). The belly then
+   * refills as after a tap, whatever a pour before it set (a lock that took a hold mid-pour: the review of fd6d413, m83); a breath with its own refill sets it
+   * after (the Bomb).
+   */
   tryBarf(min = 0.999): boolean {
     if (this.barfT >= 0 || this.fullness < min) return false;
     this.barfT = 0;
     this.preBarfSpeed = this.speed;
     this.refund = 0;
+    this.rechargeSeconds = 0;
     return true;
   }
 
@@ -349,7 +360,7 @@ export class Flight {
     // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof; nothing, not a gear and not a tower
     // in the look-ahead, lifts it into a deck: what it can't climb under one, underDeck() steers it around)
     // (and Curb's dive held over a road takes it down to the street)
-    const floor = Math.min(Math.max(roofFloor, Tb.floor), over - DECK_GAP, Number.isNaN(this.street) ? Infinity : this.street + config.curb.dip);
+    const floor = Math.min(Math.max(roofFloor, Tb.floor, this.hoopFloor), over - DECK_GAP, Number.isNaN(this.street) ? Infinity : this.street + config.curb.dip);
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
     // steps it by whole storeys; chased raw, that kicked vy by up to 30 m/s in one frame); it falls at once
@@ -425,6 +436,7 @@ export class Flight {
       this.pathVy = this.vy;
       this.onPath = true;
     }
+    this.noseTo = this.onPath ? noseWant : NaN;
     if (this.onPath) {
       // ---- the path: the speed goes where the nose points. The nose is the only lag, so nothing lurches forward on the way
       this.nose += (noseWant - this.nose) * (1 - Math.exp(-Math.max(0.1, F.noseRate) * dt));

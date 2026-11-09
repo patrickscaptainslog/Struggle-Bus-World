@@ -30,7 +30,10 @@ for (const [name, lat, lon] of spots) {
       if (!tr || tr.roofY - tr.baseY < 2.5) continue;
       got++; n++;
       const p = sp.pick(x, z);
-      if (p !== tr) { bad++; if (p) wrong++; else miss++; }
+      // (two footprints that overlap with roofs just as tall are both the tallest: the truth takes the nearer middle, pick the first in its cell's list,
+      // whose order is the tiles' load order, and the aims themselves follow loadedRefs' order. Sunset's row houses have such pairs, at 77.4 and 98.4 m)
+      const tied = !!p && p !== tr && p.roofY === tr.roofY && city.contains(p, x, z);
+      if (p !== tr && !tied) { bad++; if (p) wrong++; else miss++; }
     }
     if (got) { areaAll += r.area; areaBad += (r.area * bad) / got; }
     if (r.roofY - r.baseY > 40 && got) { towers += got; towersBad += bad; }

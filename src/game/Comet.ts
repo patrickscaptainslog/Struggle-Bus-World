@@ -28,12 +28,16 @@ import type { Shot } from './Aim';
 // standing into it (a hillside) is lobbed over too, and where even the highest arc doesn't clear it, it lands on the hillside.
 //
 // Its blast is a tap's (Splatter.barf: blastRadiusFor(drop), life.blast with the whole circle, one level a building), with no ribbon from the mouth
-// (the streak is the jet: src/fx/CometFx.ts) and no hit-stop that far off. This file picks the tap's shot in one place (chooseShot), with the Lob's slot.
+// (the streak is the jet: src/fx/CometFx.ts) and no hit-stop that far off. This file picks the tap's shot in one place (chooseShot): the Comet's, or the
+// Lob's (src/game/Lob.ts) where that lands farther, every frame and at the tap.
 //
-// For the second account: Recess sets `clamp` to keep a match's Comet inside its fence; a captain's Comet is its own Comet, `track`ed every frame and
+// For the second account: Recess sets `clamp` to keep a match's Comet inside its fence (told the kind: a Lob asks it too); a captain's Comet is its own Comet, `track`ed every frame and
 // `plan`ned with its own flight (lens null). HOOKS.md has both, and that a Comet takes the place of the aim's mover.
 
-/** A Comet's flight, planned at the tap (Shot.comet) and every frame for what glints (Aimer). */
+/** What a planned flight is, as Recess's clamp is told it: the Comet, the Lob (src/game/Lob.ts), the Cloudburst (later). */
+export type ShotKind = 'comet' | 'lob' | 'cloud';
+
+/** A Comet's flight, planned at the tap (Shot.comet) and every frame for what glints (Aimer). A Lob's is one too. */
 export interface CometPlan {
   /** where it leaves the mouth, after the inhale (m) */
   x0: number;
@@ -62,6 +66,9 @@ export interface CometPlan {
   loaded: boolean;
   /** how far over the bus it lands on the screen at the impact, by the lens moved on (share of the height; 1 without a lens) */
   above: number;
+  /** a Lob's (Lob.plan), and the angle it leaves the mouth at (rad); a Comet's has neither */
+  kind?: ShotKind;
+  angle?: number;
 }
 
 /** A Comet now: a gear drives the bus at config.comet.speed or more. */
@@ -69,11 +76,16 @@ export function cometOn(f: Flight): boolean {
   return f.turbo.speed >= config.comet.speed - 0.5;
 }
 
-/** The tap's shot, in one place: the Comet's when it applies, else the aim's, and when the Lob's applies too, the farther landing wins (SHOTS.md, "How they fit together"). */
-export function chooseShot(f: Flight, aim: Shot, comet: Shot | null, lob: Shot | null): Shot {
-  const far = (s: Shot) => Math.hypot(s.x - f.x, s.z - f.z);
-  const fast = comet ?? aim;
-  return lob && far(lob) > far(fast) ? lob : fast;
+/**
+ * The tap's shot, in one place (Aimer.update every frame, so what glints is what a tap fires): the Lob's when it applies, the Comet's when it does, and when
+ * both do the farther landing wins (SHOTS.md, "How they fit together"); else the aim's. The Lob weighs only the Comet: against today's shot, which from about
+ * 450 m up lands farther than a Lob would, it always wins.
+ */
+export function chooseShot<A, T extends { x: number; z: number }>(f: Flight, aim: A, comet: T | null, lob: T | null): A | T {
+  if (!lob) return comet ?? aim;
+  if (!comet) return lob;
+  const far = (s: T) => Math.hypot(s.x - f.x, s.z - f.z);
+  return far(lob) > far(comet) ? lob : comet;
 }
 
 const STEP = 1 / 60;
@@ -82,10 +94,9 @@ const SPAN = 4;
 export class Comet {
   /** The lens the player sees (main.ts: the render camera, as last drawn; the probe its own). Null: no in-view rule (a captain's). */
   lens: THREE.Camera | null = null;
-  /** Recess (src/recess): keep a match's Comet inside its fence. Moves the landing's point on the line (x, z) in place, or returns false for no Comet (the classic shot). */
-  clamp: ((p: { x: number; z: number }) => boolean) | null = null;
-  /** The Lob's slot (SHOTS.md, "Lob"; not built): its shot for this tap, or null. */
-  lob: ((f: Flight) => Shot | null) | null = null;
+  /** Recess (src/recess): keep a match's Comet inside its fence. Moves the landing's point on the line (x, z) in place, or returns false for no Comet (the classic
+   *  shot). `kind` says whose landing it is: a Comet's, or a Lob's (src/game/Lob.ts asks it the same way). */
+  clamp: ((p: { x: number; z: number }, kind: ShotKind) => boolean) | null = null;
   /** the bus's distance flown over the ground since the tap, every STEP s to SPAN s, at the speed `table` was made for */
   private readonly table = new Float32Array(Math.ceil(SPAN / STEP) + 1);
   private tableV = -1;
@@ -106,6 +117,10 @@ export class Comet {
   private heldZ = 0;
   private heldT: BuildingRef | null = null;
   private latchUntil = -1;
+  /** what the last shotOf changed, for unshot: the side, and the held landing it dropped */
+  private wasSide = 1;
+  private wasHeld = false;
+  private wasLatch = -1;
   /** this plan's lens moved on by the bus's travel to the impact (m), and the bus's height on it (NDC) */
   private ox = 0;
   private oy = 0;
@@ -125,6 +140,11 @@ export class Comet {
     else this.odo += step;
     this.odoX = f.x;
     this.odoZ = f.z;
+  }
+
+  /** The odometer (m): the bus's travel over the ground, counted along it, that the stretches are counted along (the Lob's too). */
+  get odometer(): number {
+    return this.odo;
   }
 
   /** ?moon: the map slid by (dx, dz) (main.ts): the held landing and the odometer's last point slide with it. */
@@ -366,7 +386,7 @@ export class Comet {
     if (this.clamp) {
       this.pt.x = lx;
       this.pt.z = lz;
-      if (!this.clamp(this.pt)) return false;
+      if (!this.clamp(this.pt, 'comet')) return false;
       lx = this.pt.x;
       lz = this.pt.z;
     }
@@ -440,9 +460,19 @@ export class Comet {
 
   /** The shot a plan fires (Aimer.fire): the next Comet lands on the other side. */
   shotOf(p: CometPlan): Shot {
+    this.wasSide = this.side;
+    this.wasHeld = this.heldOk;
+    this.wasLatch = this.latchUntil;
     this.side = -this.side;
     this.heldOk = false;
     this.latchUntil = -1;
     return { target: p.target, x: p.x, z: p.z, y: p.wall || !p.target ? p.y : undefined, exact: p.wall, drop: p.drop, travel: p.travel, comet: { ...p } };
+  }
+
+  /** The shot the last shotOf gave didn't leave (the belly said no, a Bomb fizzled): its side and its held landing as they were (the review of fd6d413, n82). */
+  unshot(): void {
+    this.side = this.wasSide;
+    this.heldOk = this.wasHeld;
+    this.latchUntil = this.wasLatch;
   }
 }
