@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 // ?recess on screen, at a fixed step in software graphics: node tools/recess/screen.mjs <out dir>. BASE is the page (http://localhost:4179/). A short match
-// (&recesslen=45), Learner captains, so one match shows every row. The phone and the GPU are the producer's and the first account's.
+// (&recesslen=80), Learner captains, so one match shows every row. The phone and the GPU are the producer's and the first account's.
 //   kickoff   while the first bell rings, both captains ahead inside 10 degrees of the nose about 500 m off, the camera high behind the bus (kickoff.png)
 //   findable  the lens about 40 degrees, pulled back with a rival near; both captains tagged; the fence up; ribbons behind captains 1.4 times bigger
 //   up        the page boots into the match: two captains' buses in the scene, in their colours, over the arena, the player on its edge, no Golden Gate opening
 //   programs  nothing compiles after the warm-up: the programs at the first frame are the programs 200 frames on
 //   paint     the captains paint the real city where their blasts land, saved as theirs and so drawn in their own colours (factions' step 5), and their squares count
 //             (paint's owner is Rainbow's in PaintState until factions' step 1 teaches it others)
-//   gotcha    the player behind a captain, its glint on it: a real tap's breath at it rides it (Possessed), or it hops out (tried three times)
+//   duel      the first duel (SHOTS.md, "The duel"): the easiest captain has the player, its line of beads runs to the bus and its tag flashes; its shot flies,
+//             goes white and FLICK! is said; one flick in the white dodges it, DODGED!, inside the match's first 10 s (duel-aim.png, duel-shot.png)
+//   splash    only an aimed shot possesses: a real tap whose splat lands by a captain is a splash for show, and the captain flies on its own
+//   lock      a still hold on a captain, off the bus's lane: the ring of bubbles closes, shut at the clack and doubled at the full charge (duel-lock.png);
+//             the lift's shot homes, and it rides the captain (Possessed) or the captain dodged (tried three times)
+//   marker    a captain's shot from behind the player, off the screen: the white chevron at the frame's bottom points back at it
 //   possessed the player ridden: the real gear goes to Nonstop, a flick down only wheezes, full right still turns the bus, its hiccups paint the hitter's, on grey
 //   hit       Inferno's breath lands through the brain's step: flung, the bus's yellow flooded crimson, and drained back after the ride
 //   fence     past the edge flying out, the bus bounces back in, pointing in; &hit=jet's forced gear is Jet
@@ -39,7 +44,7 @@ const errors = [];
 try {
   const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1 });
   await ctx.addInitScript(() => (window.__qa = { holdFrames: 4, held: false }));
-  const page = await ctx.newPage();
+  const page = await ctx.newPage(), cdp = await ctx.newCDPSession(page);
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && errors.push(m.text().slice(0, 300)));
   const frames = async (n, extra = {}) => {
@@ -55,7 +60,7 @@ try {
   const SAVED = { 'strugglebus.paint.v3': '{"9":[1,2,3]}', 'strugglebus.paint.v1': '{"9":[1,2,3]}', 'strugglebus.landmarks.v1': '{"lm:coit":[1,2,2]}', 'strugglebus.ground.v4:0,0': 'saved', 'strugglebus.ground.v2:0,0': 'saved' };
   await page.evaluate((S) => { for (const [k, v] of Object.entries(S)) localStorage.setItem(k, v); }, SAVED);
   const paintKeys = () => page.evaluate(() => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^strugglebus\.(paint|ground|landmarks)/.test(k)) o[k] = localStorage.getItem(k); } return o; });
-  await open('&recess&recesslen=45&bots=learner');
+  await open('&recess&recesslen=80&bots=learner');
   // (the captains' paint where it landed: the buildings within 25 m of each of their blasts that have landed, painted, and how many are its faction's)
   const landed = (faction) => page.evaluate((h) => {
     const g = window.__game, R = window.__recess, P = g.city.paint, pts = R.painted.filter((p) => p.at < R.now - 1.5 && (h === undefined || p.faction === h));
@@ -91,6 +96,34 @@ try {
     return { matchFov: +g.rig.matchFov.toFixed(1), hfov: +g.rig.hfov.toFixed(1), pull: +g.rig.matchPull.toFixed(1), tags: [...document.querySelectorAll('[data-hud=recess-tag]')].filter((e) => e.style.display !== 'none').length, fence: g.scene.getObjectByName('RecessFence')?.count ?? 0, ribbons: g.scene.children.filter((o) => o.name === 'RecessRibbon').length, captainScale: +g.scene.getObjectByName('RecessCaptain1').children[0].scale.x.toFixed(2) };
   });
   row('findable: the lens wider (about 40 degrees), pulled back with a rival near, both captains tagged, the fence up, ribbons behind bigger captains', find.hfov > 38 && find.hfov < 46 && find.pull > 10 && find.tags >= 2 && find.fence > 900 && find.ribbons === 2 && find.captainScale > 2.2, find);
+  // ---- the first duel: the easiest captain's lock at about 3.6 s, its shot, the white, one flick, DODGED! inside 10 s ----
+  const fd = { beads: 0, flashed: false, said: [], flew: false, white: false, took: null, at: {} };
+  for (let k = 0; k < 190; k++) {
+    await frames(1);
+    const s = await page.evaluate(() => {
+      const g = window.__game, R = window.__recess, D = R.duel, inc = D.incoming[0], id = [1, 2].find((i) => D.aimedBy(i)) ?? 0, line = id ? g.scene.getObjectByName(`RecessLine${id}`) : null;
+      const tag = id ? [...document.querySelectorAll('[data-hud=recess-tag]')][id - 1] : null;
+      return { t: +R.sim.t.toFixed(2), first: { ...D.first }, aimer: id, beads: line?.visible ? line.count : 0, dim: tag?.style.opacity === '0.25', flying: !!inc?.shot && !inc.shot.done, white: !!inc?.shot && !inc.shot.done && !!inc.shot.white, said: R.said ?? '' };
+    });
+    if (s.beads > 0 && !fd.beads) await page.screenshot({ path: join(dir, 'duel-aim.png') });
+    if (s.flying && !fd.flew) await page.screenshot({ path: join(dir, 'duel-shot.png') });
+    fd.beads = Math.max(fd.beads, s.beads);
+    fd.flashed ||= s.dim;
+    fd.flew ||= s.flying;
+    if (s.said && !fd.said.includes(s.said)) fd.said.push(s.said);
+    // (one flick, on the first frame that sees the shot white: what a player told FLICK! does)
+    if (s.white && fd.took === null) {
+      fd.white = true;
+      fd.took = await page.evaluate(() => window.__game.controls.flickGate(1));
+    }
+    fd.at = { ...s.first, simT: s.t };
+    if (s.first.ended >= 0) break;
+  }
+  await frames(4);
+  fd.counts = await page.evaluate(() => { const c = window.__recess.counts; return { dodged: c.dodged ?? 0, flickDodge: c.flickDodge ?? 0, hit: c.hit ?? 0 }; });
+  fd.said.push(await page.evaluate(() => window.__recess.said ?? ''));
+  row('duel: the first shot at the player is told (the line of beads, the flashing tag, FLICK!), and one flick in its white dodges it inside the first 10 s',
+    fd.beads >= 8 && fd.flashed && fd.flew && fd.white && fd.took === true && fd.at.how === 'dodged' && fd.at.ended > 0 && fd.at.ended <= 10 && fd.counts.dodged === 1 && fd.said.some((x) => x.includes('FLICK')) && fd.said.some((x) => x.includes('DODGED')), fd);
   // ---- M46 and M61: a captain behind the player, 400 m off: its chevron at the bottom of its frame pointing down, its name level; the clock under the words ----
   // (pinned again every few frames from where the captain is now, so the chase camera has swung round behind the bus when it's read)
   for (let k = 0; k < 8; k++) {
@@ -117,20 +150,105 @@ try {
   // (what the game's clock lost in the window, against what the player's own hits in it may cost: two frames each at most; none, and it lost nothing)
   const frozeHere = +(c1.lag - c0.lag).toFixed(3), playerHits = Math.round((c1.frozen - c0.frozen) / (5 / 60)), mayLose = playerHits * 2 * 0.066667;
   row('freezes: captains paint and freeze nothing; only hits on the player do, and the match\'s clock runs all 90 frames through them', ran.captainPaints > 0 && frozeHere <= mayLose + 1e-3 && Math.abs(ran.match - ran.want) < 0.1, { ...ran, frozeHere, playerHits });
-  // ---- gotcha: behind captain 1, nose on it ----
-  let gotcha = null;
-  for (let k = 0; k < 3 && !gotcha?.rode; k++) {
-    await page.evaluate(() => {
-      const R = window.__recess, b = R.sim.buses[1], hg = b.heading + Math.PI / 2;
-      window.__qa.pin = { x: R.cx + b.x - Math.sin(hg) * 170, y: R.ys?.[1] ?? 80, z: R.cz + b.z + Math.cos(hg) * 170, heading: hg };
-    });
-    await frames(3, { pin: await page.evaluate(() => window.__qa.pin) });
-    const before = await page.evaluate(() => ({ lock: window.__recess.sim.buses[0].lock, glint: window.__game.aimer.mover?.key ?? null }));
-    await page.evaluate(() => { delete window.__qa.pin; window.__game.flight.barfT = -1; window.__game.flight.fullness = 1; window.__game.tapSplat(); });
-    await frames(30);
-    gotcha = await page.evaluate((b) => ({ ...b, fired: window.__recess.counts.fire ?? 0, hits: window.__recess.counts.hit ?? 0, hops: window.__recess.counts.hop ?? 0, misses: window.__recess.counts.miss ?? 0, rode: window.__recess.sim.buses[1].state === 'ride' || window.__recess.sim.buses[1].state === 'shield' }), before);
+  // ---- splash: only an aimed shot possesses. Behind captain 1, far enough back that the tap's splat lands where it will be: a splash for show, and no ride ----
+  let splash = null;
+  for (let k = 0, back = 150; k < 4 && !(splash?.splashes > 0); k++) {
+    for (let j = 0; j < 3; j++) {
+      await page.evaluate((back) => {
+        const R = window.__recess, b = R.sim.buses[1], hg = b.heading + Math.PI / 2;
+        window.__qa.pin = { x: R.cx + b.x - Math.sin(hg) * back, y: R.ys?.[1] ?? 80, z: R.cz + b.z + Math.cos(hg) * back, heading: hg };
+      }, back);
+      await frames(3, { pin: await page.evaluate(() => window.__qa.pin) });
+      // (how far past the captain the aim stands, along its way: it should lead it by about a second of its flying)
+      const off = await page.evaluate(() => {
+        const g = window.__game, R = window.__recess, b = R.sim.buses[1], f = g.flight;
+        g.aimer.refresh(f);
+        return { past: (g.aimer.aim.x - R.cx - b.x) * Math.cos(b.heading) + (g.aimer.aim.z - R.cz - b.z) * Math.sin(b.heading), lead: b.speed * 0.9 };
+      });
+      back = Math.max(20, Math.min(600, back + off.past - off.lead));
+    }
+    const before = await page.evaluate(() => ({ splashes: window.__recess.counts.splash ?? 0, glint: window.__game.aimer.mover?.key ?? null }));
+    await page.evaluate(() => { window.__game.flight.barfT = -1; window.__game.flight.fullness = 1; window.__game.tapSplat(); });
+    await frames(30, { pin: await page.evaluate(() => window.__qa.pin) });
+    splash = await page.evaluate((b) => { const R = window.__recess, c = R.sim.buses[1]; return { glint: b.glint, splashes: (R.counts.splash ?? 0) - b.splashes, ridden: c.state === 'ride' && c.by === 0, state: c.state, picks: R.duel.qa.picks, fired: R.duel.qa.fired }; }, before);
+    splash.back = Math.round(back);
   }
-  row('gotcha: the glint on a captain, a real tap rides it', !!gotcha && gotcha.glint === 'recess:1' && gotcha.rode, gotcha);
+  await page.evaluate(() => delete window.__qa.pin);
+  row('splash: a tap that lands by a captain is a splash for show: no glint on it, no shot, no ride', !!splash && splash.splashes >= 1 && !splash.ridden && splash.fired === 0 && !/^recess:/.test(splash.glint ?? ''), splash);
+  // ---- lock: a still hold on captain 1, drawn up and to the left of the bus, off its lane: the ring closes, clacks and doubles; the lift's shot homes ----
+  let lock = null;
+  for (let k = 0; k < 3 && !lock?.ok; k++) {
+    const pinBy = () => page.evaluate(() => {
+      const R = window.__recess, b = R.sim.buses[1], hg = b.heading + Math.PI / 2, fx = Math.sin(hg), fz = -Math.cos(hg);
+      return (window.__qa.pin = { x: R.cx + b.x - fx * 230 - fz * 70, y: (R.ys?.[1] ?? 80) - 10, z: R.cz + b.z - fz * 230 + fx * 70, heading: hg });
+    });
+    for (let j = 0; j < 6; j++) await frames(4, { pin: await pinBy() });
+    const at = await page.evaluate(() => {
+      const g = window.__game, R = window.__recess, S = R.sim, p = g.scene.getObjectByName('RecessCaptain1').position.clone().project(g.camera), x = (p.x * 0.5 + 0.5) * innerWidth, y = (0.5 - p.y * 0.5) * innerHeight;
+      // (the row is the lock's: the captain free to be locked, the belly full, and no earlier pair's rule in the way)
+      S.pairs.clear();
+      if (S.buses[1].state !== 'free') S.buses[1].state = 'free';
+      g.flight.barfT = -1;
+      g.flight.fullness = 1;
+      return { x: Math.round(x), y: Math.round(y), ahead: p.z < 1, look: g.input.inLookZone(x, y), fired0: R.duel.qa.fired, hits0: R.duel.qa.hits, dodged0: R.counts.theyDodged ?? 0 };
+    });
+    // (a touch, since a mouse's left button always flies (Input.pointerDown) and never aims; and the page's clock stepped with the frames, since the hold's times
+    // are the wall's and a frame of software graphics takes most of a second: the clack and the full charge would land on one frame)
+    await page.evaluate(() => { const real = performance.now.bind(performance); window.__clock = { real, t: real() }; performance.now = () => window.__clock.t; });
+    const tick = () => page.evaluate(() => (window.__clock.t += 66.667));
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x, y: at.y, id: 1, radiusX: 4, radiusY: 4, force: 1 }] });
+    const seen = { locked: -1, clackRing: 0, fullRing: 0, clacked: false, charged: false, owner: '', aimAt: -1 };
+    for (let j = 0; j < 22 && !seen.charged; j++) {
+      await tick();
+      await frames(1, { pin: await pinBy() });
+      const s = await page.evaluate(() => { const g = window.__game, D = window.__recess.duel, ring = g.scene.getObjectByName('RecessLock'); return { locked: D.locked, clacked: D.clacked, charged: D.charged, ring: ring.visible ? ring.count : 0, aim: g.input.state.aim.on, owner: g.holds.stats.lastOwner }; });
+      seen.locked = Math.max(seen.locked, s.locked);
+      seen.owner = s.owner;
+      if (s.aim && seen.aimAt < 0) seen.aimAt = j;
+      if (s.clacked && !seen.clacked) {
+        seen.clacked = true;
+        seen.clackRing = s.ring;
+        await page.screenshot({ path: join(dir, 'duel-lock.png') });
+      }
+      if (s.charged) {
+        seen.charged = true;
+        seen.fullRing = s.ring;
+      }
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    for (let j = 0; j < 2; j++) {
+      await tick();
+      await frames(1, { pin: await pinBy() });
+    }
+    const fired = await page.evaluate((a) => window.__recess.duel.qa.fired - a.fired0, at);
+    await page.evaluate(() => { delete window.__qa.pin; performance.now = window.__clock.real; });
+    await frames(45);
+    const end = await page.evaluate((a) => { const R = window.__recess, c = R.sim.buses[1], q = R.duel.qa; return { hits: q.hits - a.hits0, misses: q.misses, why: q.why, theyDodged: (R.counts.theyDodged ?? 0) - a.dodged0, rode: c.state === 'ride' && c.by === 0, state: c.state }; }, at);
+    lock = { at, ...seen, fired, ...end };
+    lock.ok = at.look && seen.locked === 1 && seen.clacked && seen.clackRing === 14 && seen.charged && seen.fullRing === 28 && fired === 1 && (end.rode || end.theyDodged >= 1);
+  }
+  row('lock: a still hold on a captain closes the ring, shut at the clack and doubled at the full charge; the lift\'s shot rides it, or it dodged', !!lock?.ok, lock);
+  // ---- marker: captain 2 behind the player fires: its shot is off the screen, and the white chevron at the frame's bottom points back at it ----
+  for (let k = 0; k < 6; k++) {
+    await page.evaluate(() => {
+      const R = window.__recess, b = R.sim.buses[2], hg = b.heading + Math.PI / 2;
+      window.__qa.pin = { x: R.cx + b.x + Math.sin(hg) * 320, y: R.ys?.[2] ?? 80, z: R.cz + b.z - Math.cos(hg) * 320, heading: hg };
+    });
+    await frames(4, { pin: await page.evaluate(() => window.__qa.pin) });
+  }
+  await page.evaluate(() => window.__recess.duel.captainFire(2));
+  await frames(2, { pin: await page.evaluate(() => window.__qa.pin) });
+  const marker = await page.evaluate(() => {
+    const R = window.__recess, D = R.duel, inc = D.incoming.find((x) => x.shot && !x.shot.done), el = [...document.querySelectorAll('[data-hud=recess-tag]')].pop(), H = window.innerHeight, rc = el.getBoundingClientRect(), rot = /rotate\(([-\d.]+)rad\)/.exec(el.children[0].style.transform);
+    const got = { flying: !!inc, from: inc?.from ?? 0, shown: el.style.display !== 'none', midY: Math.round(rc.top + rc.height / 2), H, arrowRad: rot ? +(+rot[1]).toFixed(2) : null, capFired: D.qa.capFired, refused: D.qa.capRefused };
+    // (the row is the marker's: the shot is called off, so the rows after it start from a bus that wasn't hit)
+    inc?.shot.cancel();
+    return got;
+  });
+  await page.screenshot({ path: join(dir, 'duel-marker.png') });
+  await page.evaluate(() => delete window.__qa.pin);
+  await frames(2);
+  row('marker: a captain\'s shot from behind, off the screen, is the white chevron at the frame\'s bottom, pointing back', marker.flying && marker.from === 2 && marker.shown && marker.midY >= marker.H * 0.5 && marker.arrowRad !== null && Math.abs(Math.abs(marker.arrowRad) - Math.PI) < 0.9, marker);
   // ---- possessed: the player ridden by Inferno ----
   // (Inferno's breath, white-hot and on the player, landing on the next step: the hit through the brain's own events, as a captain's lands)
   // (the bus's own yellow: what its colours drain back to)
@@ -207,17 +325,15 @@ try {
     me.state = 'free';
     // (a fresh pair: Atlantis may already have ridden the player twice in two minutes, when the pair rule turns a third away)
     S.pairs.clear();
-    // (landing on the next step where the bus will be then: the player may be at Nonstop just off the fence, where a homing breath's lead misses it, the review's
-    // M28, still open; this row is about the forced gear)
-    const nx = me.x + Math.cos(me.heading) * me.speed * S.dt, nz = me.z + Math.sin(me.heading) * me.speed * S.dt;
-    S.breaths.push({ id: 9998, from: 1, target: 0, x: nx, z: nz, tx: nx, tz: nz, vx: 0, vz: 0, arrive: S.t + S.dt * 0.5, born: S.t - 1, white: true });
+    // (the duel's own door: a captain's shot that reached the bus lands at the next step, as Duel.ts hands it over)
+    S.aimedHit(1, 0);
   });
   const jet0 = await page.evaluate(() => ({ ...window.__recess.counts }));
   await frames(20);
   const jet = await page.evaluate((c0) => {
     const R = window.__recess, d = {};
-    for (const k of ['hit', 'miss', 'bounce', 'sparkle', 'whiteHot', 'fire']) d[k] = (R.counts[k] ?? 0) - (c0[k] ?? 0);
-    return { state: R.sim.buses[0].state, gear: window.__game.controls.turbo.gear, phase: R.phase, simT: +R.sim.t.toFixed(1), breathLeft: R.sim.breaths.some((b) => b.id === 9998), ...d };
+    for (const k of ['hit', 'miss', 'bounce', 'sparkle', 'fire']) d[k] = (R.counts[k] ?? 0) - (c0[k] ?? 0);
+    return { state: R.sim.buses[0].state, gear: window.__game.controls.turbo.gear, phase: R.phase, simT: +R.sim.t.toFixed(1), ...d };
   }, jet0);
   row('&hit=jet: the forced gear is Jet', jet.state === 'ride' && jet.gear === 3, jet);
   await page.evaluate(() => (window.__recess.hitGear = 2));
@@ -279,7 +395,7 @@ try {
     return { stage: s?.stage ?? 0, faction: s?.faction ?? 0, neighbour: n ? [n.faction, n.stage] : null, bombs: window.__recess.counts.bomb ?? 0 };
   }, bomb.at);
   // ---- the bell ----
-  for (let k = 0; k < 20 && (await page.evaluate(() => window.__recess.phase)) !== 'over'; k++) await frames(30);
+  for (let k = 0; k < 44 && (await page.evaluate(() => window.__recess.phase)) !== 'over'; k++) await frames(30);
   await frames(75);
   const bell = await page.evaluate(() => {
     const g = window.__game, R = window.__recess, c = g.camera.position;
@@ -289,7 +405,7 @@ try {
   const clampOver = await page.evaluate(() => (window.__game.comet.clamp ? window.__game.comet.clamp({ x: 0, z: 0 }) : null));
   row('hooks: no Comet while the match is on, back at the bell; a Bomb III on grey jumps its square to 3 and spills the grey round it at 1', bomb.clampPlaying === false && clampOver === true && bombAfter?.stage === 3 && bombAfter.faction === 1 && bombAfter.neighbour?.[0] === 1 && bombAfter.neighbour?.[1] === 1,
     { clampPlaying: bomb.clampPlaying, clampOver, at: bomb.at, ...bombAfter });
-  row('bell: the brain stops, the camera at 1,500 m over the arena, the score up', bell.phase === 'over' && bell.simT <= 45.1 && Math.abs(bell.camAGL - 1500) < 60 && bell.camFromMiddle < 700 && bell.hud === 1, bell);
+  row('bell: the brain stops, the camera at 1,500 m over the arena, the score up', bell.phase === 'over' && bell.simT <= 80.1 && Math.abs(bell.camAGL - 1500) < 60 && bell.camFromMiddle < 700 && bell.hud === 1, bell);
   const programs1 = await page.evaluate(() => window.__game.pipeline.renderer.info.programs.length);
   row('programs: nothing compiled after the warm-up, the whole match on', programs1 === programs0, { atFirst: programs0, atTheEnd: programs1 });
   // ---- B21: the player's saved city untouched by the match, and nothing of it, nor of the match, loaded by the next one ----

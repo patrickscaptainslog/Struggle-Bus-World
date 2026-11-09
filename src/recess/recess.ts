@@ -43,6 +43,12 @@ export const recessTune = {
   /** a flick in the white-hot hops the bus this far sideways (m) over hopTime (s) */
   hop: 30,
   hopTime: 0.25,
+  /** the duel's dodge (Duel.ts): a captain that dodges lunges this far forward (m) over hopTime */
+  lunge: 40,
+  /** the duel: no captain locks the player's bus before this (s of the match), so the first shot at you comes at about 5 s, and it's the easiest captain's:
+   *  the others leave you alone `firstGap` s longer (SHOTS.md, "First contact") */
+  firstLock: 3.6,
+  firstGap: 4,
   /** a breath at no bus lands this far ahead (m) and this many s of the bus's speed further */
   aheadMin: 80,
   aheadT: 0.6,
@@ -123,6 +129,8 @@ export interface Bus {
   /** a hop under way: s left, and its way (+1 right of the nose) */
   hopLeft: number;
   hopWay: number;
+  /** the duel's lunge under way (s left) */
+  lungeLeft: number;
   /** its camp: the neighbourhood its start is in, -1 for none */
   home: number;
   /** driven from outside (the player's real flight, on screen): the sim steers and moves it not at all, its place set each step */
@@ -162,6 +170,7 @@ export interface Drop {
 export type EventKind =
   | 'glint' // a locks b: b glints on a's screen, and flashes a's colour on b's
   | 'fire' // a breathes at b (-1: the ground)
+  | 'aim' // a captain a's breath at the player's bus b is the duel's to fly (Recess.duel)
   | 'whiteHot' // a's breath at b, its last third of a second
   | 'hop' // a hops
   | 'hit' // a rides b: GOTCHA and NO BRAKES
@@ -213,6 +222,12 @@ export class Recess {
   readonly mode: Mode;
   readonly dt: number;
   t = 0;
+  /** The screen's duel (Duel.ts) flies the shots at and from the player's bus: a captain's breath at an external bus is only said ('aim'), and what such a shot
+   *  does comes back through aimedHit. Off, as in the headless duels, the brain flies every breath itself. */
+  duel = false;
+  private readonly aimed: number[] = [];
+  /** the easiest captain (the first of them): the duel's first lock on the player's bus is its */
+  private easiest = -1;
   private nextBreath = 1;
   /** rides by pair: "a>b" to their times */
   private readonly pairs = new Map<string, number[]>();
@@ -231,13 +246,15 @@ export class Recess {
       this.buses.push({
         id: i, faction: s.faction, bot: s.bot ?? null, x: s.x ?? Math.cos(a) * r, z: s.z ?? Math.sin(a) * r, heading: s.heading ?? wrap(a + Math.PI), speed: recessTune.gears[0],
         gear: 0, state: 'free', until: 0, by: -1, from: 0, to: 0, newcomer: !!s.newcomer, lessonDone: false, given: 0, wanted: false, belly: 0, mega: 0, superReady: false,
-        lock: -1, lockSince: 0, avenge: -1, avengeUntil: 0, hopLeft: 0, hopWay: 1, home: -1, external: false, driverYaw: 0, edgeYaw: 0,
+        lock: -1, lockSince: 0, avenge: -1, avengeUntil: 0, hopLeft: 0, hopWay: 1, lungeLeft: 0, home: -1, external: false, driverYaw: 0, edgeYaw: 0,
       });
       const b = this.buses[i];
       b.home = this.areas.realm ? this.areas.realm.of(squareKey(b.x, b.z)) : -1;
       // (the studio's answer, 2026-11-06: each camp starts with its god standing, so three minutes are for defending yours, toppling theirs and painting the rest)
       if (o.gods !== false && b.home >= 0 && !this.areas.realm!.godless(b.home)) this.areas.setGod(b.home, b.faction);
     });
+    const rank = (l: Level | null) => (l === 'learner' ? 0 : l === 'rival' ? 1 : 2);
+    for (const b of this.buses) if (b.bot && (this.easiest < 0 || rank(b.bot) < rank(this.buses[this.easiest].bot))) this.easiest = b.id;
   }
 
   /** The yaw a driver's full stretch gives at a speed (rad/s): never nothing, at any gear. */
@@ -254,6 +271,9 @@ export class Recess {
   step(hands: Hands[]): void {
     const T = recessTune, dt = this.dt, t0 = this.t, t = (this.t = t0 + dt);
     this.events.length = 0;
+    // (the duel's hits since the last step: only these possess, as a brain's own breath does)
+    for (let i = 0; i < this.aimed.length; i += 2) this.land(this.buses[this.aimed[i]], this.buses[this.aimed[i + 1]]);
+    this.aimed.length = 0;
     for (const b of this.buses) this.drive(b, hands[b.id] ?? { steer: 0, tap: false, flick: 0 }, dt);
     for (const b of this.buses) this.lockFor(b);
     for (const b of this.buses) if (hands[b.id]?.tap) this.fire(b);
@@ -341,6 +361,22 @@ export class Recess {
       b.z += fx * s;
       b.hopLeft -= dt;
     }
+    if (b.lungeLeft > 0) {
+      const s = (Math.min(dt, b.lungeLeft) / T.hopTime) * T.lunge;
+      b.x += fx * s;
+      b.z += fz * s;
+      b.lungeLeft -= dt;
+    }
+  }
+
+  /** The duel's shot from bus `a` reached bus `v`: it lands at the next step, by the rules a breath lands by. */
+  aimedHit(a: number, v: number): void {
+    this.aimed.push(a, v);
+  }
+
+  /** The duel: captain `id` dodges, a lunge forward. */
+  lunge(id: number): void {
+    this.buses[id].lungeLeft = recessTune.hopTime;
   }
 
   /** A breath at bus `id` is white-hot. */
@@ -375,6 +411,8 @@ export class Recess {
     let best = -1, score = Infinity;
     for (const b of this.buses) {
       if (!this.canLock(a, b)) continue;
+      // (the duel's first contact: the player gets their first seconds to themselves)
+      if (this.duel && a.bot && b.external && this.t < T.firstLock + (a.id === this.easiest ? 0 : T.firstGap)) continue;
       const d = Math.hypot(b.x - a.x, b.z - a.z), o = off(b);
       if (d > this.reach(a, b) || o > T.lockCone) continue;
       const s = o * 1000 + d;
@@ -410,6 +448,7 @@ export class Recess {
     if (a.state === 'shield' || a.state === 'bubble' || this.t < a.belly) return;
     a.belly = this.t + T.recharge;
     const target = a.lock >= 0 && (!a.bot || this.t - a.lockSince >= T.botGlint - 1e-9) ? a.lock : -1;
+    if (this.duel && target >= 0 && this.buses[target].external) return this.emit('aim', a.id, target);
     const fx = Math.cos(a.heading), fz = Math.sin(a.heading);
     let tx: number, tz: number;
     if (target >= 0) {

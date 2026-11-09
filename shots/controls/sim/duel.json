@@ -1,0 +1,964 @@
+{
+ "n": 60,
+ "tune": {
+  "pickPx": 48,
+  "sizePx": 16,
+  "reach": 900,
+  "lockAt": 0.55,
+  "full": 1,
+  "keep": 4,
+  "keepDodged": 2,
+  "speed": 420,
+  "turn": 2.2,
+  "white": 0.7,
+  "whiteFull": 0.45,
+  "fullSpeed": 1.2,
+  "fullSize": 1.5,
+  "weakSpeed": 0.8,
+  "weakTurn": 0.3,
+  "hitMin": 7,
+  "hitPer": 30,
+  "assist": 22,
+  "dodge": {
+   "learner": 0.3,
+   "rival": 0.55,
+   "veteran": 0.75
+  },
+  "fullDodge": 0.6,
+  "capSpeed": 560,
+  "capSlow": 140,
+  "firstSlow": 80,
+  "capTurn": 1.8,
+  "capWhite": {
+   "learner": 1,
+   "rival": 0.8,
+   "veteran": 0.7
+  },
+  "capFlight": {
+   "learner": 1.5,
+   "rival": 1.15,
+   "veteran": 0.95
+  },
+  "capHit": 5,
+  "leadMost": 2.5,
+  "clear": 12,
+  "lunge": 40,
+  "lungeTime": 0.25,
+  "brake": 24,
+  "hop": 6,
+  "hardTurn": 0.6,
+  "firstTurn": 0.3,
+  "firstWhite": 1.2,
+  "firstFlight": 1.8
+ },
+ "nothing": {
+  "learner 30 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.46,
+   "white": 0.96
+  },
+  "learner 30 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.45,
+   "white": 0.96
+  },
+  "learner 30 m/s thumb -1": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.47,
+   "white": 0.96
+  },
+  "learner 112 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.48,
+   "white": 0.96
+  },
+  "learner 112 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.35,
+   "white": 0.94
+  },
+  "learner 112 m/s thumb -1": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.36,
+   "white": 0.96
+  },
+  "learner 225 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.41,
+   "white": 0.99
+  },
+  "learner 225 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 9,
+   "why": {
+    "dodged": 1
+   },
+   "flew": 1.47,
+   "white": 1.03
+  },
+  "learner 225 m/s thumb -1": {
+   "n": 10,
+   "hit": 9,
+   "why": {
+    "time": 1
+   },
+   "flew": 1.8,
+   "white": 0.82
+  },
+  "rival 30 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.14,
+   "white": 0.76
+  },
+  "rival 30 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.14,
+   "white": 0.76
+  },
+  "rival 30 m/s thumb -1": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.13,
+   "white": 0.76
+  },
+  "rival 112 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.12,
+   "white": 0.76
+  },
+  "rival 112 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.14,
+   "white": 0.76
+  },
+  "rival 112 m/s thumb -1": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.15,
+   "white": 0.77
+  },
+  "rival 225 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.19,
+   "white": 0.8
+  },
+  "rival 225 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 1.12,
+   "white": 0.74
+  },
+  "rival 225 m/s thumb -1": {
+   "n": 10,
+   "hit": 9,
+   "why": {
+    "dodged": 1
+   },
+   "flew": 1.19,
+   "white": 0.82
+  },
+  "veteran 30 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.94,
+   "white": 0.67
+  },
+  "veteran 30 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.94,
+   "white": 0.67
+  },
+  "veteran 30 m/s thumb -1": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.95,
+   "white": 0.68
+  },
+  "veteran 112 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.96,
+   "white": 0.67
+  },
+  "veteran 112 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.92,
+   "white": 0.67
+  },
+  "veteran 112 m/s thumb -1": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.92,
+   "white": 0.67
+  },
+  "veteran 225 m/s thumb 0": {
+   "n": 10,
+   "hit": 10,
+   "why": {},
+   "flew": 0.97,
+   "white": 0.58
+  },
+  "veteran 225 m/s thumb 0.5": {
+   "n": 10,
+   "hit": 9,
+   "why": {
+    "dodged": 1
+   },
+   "flew": 1.05,
+   "white": 0.71
+  },
+  "veteran 225 m/s thumb -1": {
+   "n": 10,
+   "hit": 7,
+   "why": {
+    "dodged": 3
+   },
+   "flew": 1.04,
+   "white": 0.81
+  }
+ },
+ "flick": {
+  "learner 30": {
+   "n": 20,
+   "dodged": 20,
+   "took": 20
+  },
+  "learner 112": {
+   "n": 20,
+   "dodged": 20,
+   "took": 20
+  },
+  "learner 225": {
+   "n": 20,
+   "dodged": 19,
+   "took": 19
+  },
+  "rival 30": {
+   "n": 20,
+   "dodged": 16,
+   "took": 20
+  },
+  "rival 112": {
+   "n": 20,
+   "dodged": 16,
+   "took": 19
+  },
+  "rival 225": {
+   "n": 20,
+   "dodged": 19,
+   "took": 20
+  },
+  "veteran 30": {
+   "n": 20,
+   "dodged": 14,
+   "took": 17
+  },
+  "veteran 112": {
+   "n": 20,
+   "dodged": 13,
+   "took": 15
+  },
+  "veteran 225": {
+   "n": 20,
+   "dodged": 13,
+   "took": 16
+  }
+ },
+ "turn": {
+  "learner 30": {
+   "n": 20,
+   "dodged": 20,
+   "took": 0
+  },
+  "learner 112": {
+   "n": 20,
+   "dodged": 20,
+   "took": 0
+  },
+  "learner 225": {
+   "n": 20,
+   "dodged": 19,
+   "took": 0
+  },
+  "rival 30": {
+   "n": 20,
+   "dodged": 17,
+   "took": 0
+  },
+  "rival 112": {
+   "n": 20,
+   "dodged": 15,
+   "took": 0
+  },
+  "rival 225": {
+   "n": 20,
+   "dodged": 16,
+   "took": 0
+  },
+  "veteran 30": {
+   "n": 20,
+   "dodged": 13,
+   "took": 0
+  },
+  "veteran 112": {
+   "n": 20,
+   "dodged": 13,
+   "took": 0
+  },
+  "veteran 225": {
+   "n": 20,
+   "dodged": 15,
+   "took": 0
+  }
+ },
+ "early": {
+  "flick": {
+   "n": 45,
+   "hit": 45,
+   "took": 0
+  },
+  "turn": {
+   "n": 45,
+   "hit": 45
+  }
+ },
+ "lock": {
+  "on": true,
+  "sx": 271.5594621826611,
+  "sy": 394.7334213591589,
+  "lockedAt": 0.4333333333333346,
+  "qa": {
+   "picks": 1,
+   "clacks": 1,
+   "fulls": 0,
+   "fired": 1,
+   "weak": 0,
+   "hits": 1,
+   "misses": 0,
+   "why": "",
+   "broken": 0,
+   "capRolls": 1,
+   "capDodges": 0,
+   "capFired": 0,
+   "capRefused": 0,
+   "capWhite": 0,
+   "capHits": 0,
+   "capMisses": 0,
+   "capWhy": "",
+   "flicks": 0,
+   "turns": 0,
+   "early": 0
+  },
+  "clacks": [
+   false
+  ],
+  "first": {
+   "fired": 1,
+   "hits": 1,
+   "why": "",
+   "rode": true,
+   "state": "ride"
+  },
+  "tapped": [],
+  "was": [],
+  "counts": {},
+  "locked": -1,
+  "bus0": "free",
+  "breaths": 0
+ },
+ "captains": {
+  "learner clack": {
+   "n": 60,
+   "dodged": 19,
+   "hit": 41,
+   "rode": 41,
+   "other": 0
+  },
+  "learner full": {
+   "n": 60,
+   "dodged": 11,
+   "hit": 49,
+   "rode": 49,
+   "other": 0
+  },
+  "rival clack": {
+   "n": 60,
+   "dodged": 35,
+   "hit": 25,
+   "rode": 25,
+   "other": 0
+  },
+  "rival full": {
+   "n": 60,
+   "dodged": 20,
+   "hit": 40,
+   "rode": 40,
+   "other": 0
+  },
+  "veteran clack": {
+   "n": 60,
+   "dodged": 44,
+   "hit": 16,
+   "rode": 16,
+   "other": 0
+  },
+  "veteran full": {
+   "n": 60,
+   "dodged": 28,
+   "hit": 32,
+   "rode": 32,
+   "other": 0
+  }
+ },
+ "first": [
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.4
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 6.599999999999986,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.7,
+    "dir": -1
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 7.033333333333318,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT"
+    ],
+    "brainShots": 0,
+    "rode": "ride",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "turn",
+    "react": 0.5
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 6.966666666666652,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT"
+    ],
+    "brainShots": 0,
+    "rode": "ride",
+    "counts": {
+     "turnDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "turn",
+    "react": 0.6,
+    "dir": -1
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 6.966666666666652,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "turnDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.5,
+    "gear": 112
+   },
+   "r": {
+    "glint": 5.9999999999999885,
+    "fired": 7.46666666666665,
+    "white": 8.066666666666649,
+    "ended": 9.499999999999977,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@6.0"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "turn",
+    "react": 0.5,
+    "gear": 112
+   },
+   "r": {
+    "glint": 5.9999999999999885,
+    "fired": 7.46666666666665,
+    "white": 8.066666666666649,
+    "ended": 9.266666666666644,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "turnDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@6.0"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.5,
+    "steer": 0.3
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 7.233333333333317,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.5,
+    "steer": -0.3
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 7.166666666666651,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.5,
+    "gear": 225
+   },
+   "r": {
+    "glint": 4.333333333333328,
+    "fired": 5.799999999999989,
+    "white": 6.4666666666666535,
+    "ended": 7.799999999999982,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@4.3"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "turn",
+    "react": 0.5,
+    "steer": 1
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 6.9333333333333185,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "turnDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  },
+  {
+   "p": {
+    "act": "flick",
+    "react": 0.5,
+    "steer": -1
+   },
+   "r": {
+    "glint": 3.63333333333333,
+    "fired": 5.099999999999992,
+    "white": 5.6999999999999895,
+    "ended": 7.166666666666651,
+    "how": "dodged",
+    "from": 2,
+    "level": "learner",
+    "said": [
+     "FLICK!",
+     "DODGED! / HOLD ON A BUS TO LOCK IT",
+     "FLICK!"
+    ],
+    "brainShots": 0,
+    "rode": "free",
+    "counts": {
+     "flickDodge": 1,
+     "dodged": 1
+    },
+    "glints": [
+     "2@3.6"
+    ]
+   }
+  }
+ ],
+ "rows": [
+  {
+   "name": "doing nothing, a captain's shot hits (SHOTS.md: about 95 %)",
+   "got": "97 % of 270; the worst cell veteran 225 m/s thumb -1: 70 % {\"dodged\":3}",
+   "ok": true
+  },
+  {
+   "name": "  the thumb held at 0",
+   "got": "100 % of 90",
+   "ok": true
+  },
+  {
+   "name": "  the thumb held at 0.5",
+   "got": "98 % of 90",
+   "ok": true
+  },
+  {
+   "name": "  the thumb held at -1",
+   "got": "94 % of 90",
+   "ok": true
+  },
+  {
+   "name": "  at 30 m/s",
+   "got": "100 % of 90",
+   "ok": true
+  },
+  {
+   "name": "  at 112 m/s",
+   "got": "100 % of 90",
+   "ok": true
+  },
+  {
+   "name": "  at 225 m/s",
+   "got": "92 % of 90",
+   "ok": true
+  },
+  {
+   "name": "  learner: white for about 1 s, in the air about 1.5 s",
+   "got": "white 0.95 s, in the air 1.47 s",
+   "ok": true
+  },
+  {
+   "name": "  rival: white for about 0.8 s, in the air about 1.15 s",
+   "got": "white 0.77 s, in the air 1.15 s",
+   "ok": true
+  },
+  {
+   "name": "  veteran: white for about 0.7 s, in the air about 0.95 s",
+   "got": "white 0.68 s, in the air 0.97 s",
+   "ok": true
+  },
+  {
+   "name": "a flick in the white, 0.25 to 0.75 s after it starts, dodges (SHOTS.md: about 85 %)",
+   "got": "83 % of 180: learner 98 %, rival 85 %, veteran 67 %; 30 m/s 83 %, 112 m/s 82 %, 225 m/s 85 %",
+   "ok": true
+  },
+  {
+   "name": "a hard turn in the white, 0.25 to 0.75 s after it starts, dodges (SHOTS.md: about 85 %)",
+   "got": "82 % of 180: learner 98 %, rival 80 %, veteran 68 %; 30 m/s 83 %, 112 m/s 80 %, 225 m/s 83 %",
+   "ok": true
+  },
+  {
+   "name": "a flick in the white is the dodge's: the gears never hear it",
+   "got": "up true dodged, down true dodged",
+   "ok": true
+  },
+  {
+   "name": "a flick up lunges the bus on, a flick down brake-hops it",
+   "got": "after the flick the bus went 68 m (up) and 26 m (down), and rose 0.0 and 4.9 m",
+   "ok": true
+  },
+  {
+   "name": "a flick before the white is a gear's, and no dodge",
+   "got": "0 taken of 45; the shot hit 100 %",
+   "ok": true
+  },
+  {
+   "name": "a turn begun as the shot leaves, and held, is followed",
+   "got": "the shot hit 100 % of 45",
+   "ok": true
+  },
+  {
+   "name": "the match's first shot at you: white longer, and a gentle turn dodges it",
+   "got": "dodged, white 1.72 s (a later one 0.77 s)",
+   "ok": true
+  },
+  {
+   "name": "a still hold on a captain picks it (the hold starts at about 0.42 s)",
+   "got": "on screen at 272, 395; locked at 0.43 s; picks 1",
+   "ok": true
+  },
+  {
+   "name": "held past 0.55 s it clacks, and the lift fires a homing shot",
+   "got": "{\"clacks\":[false],\"fired\":1,\"weak\":0,\"fulls\":0}",
+   "ok": true
+  },
+  {
+   "name": "held past 1.0 s it charges full (a second clack)",
+   "got": "{\"clacks\":[false,true],\"fulls\":1,\"fired\":1}",
+   "ok": true
+  },
+  {
+   "name": "a lift before the clack still fires, weakly: nothing is wasted",
+   "got": "{\"lockedAt\":0.43,\"clacks\":0,\"fired\":1,\"weak\":1}",
+   "ok": true
+  },
+  {
+   "name": "a hold the system takes away fires nothing",
+   "got": "{\"fired\":0,\"locked\":-1}",
+   "ok": true
+  },
+  {
+   "name": "for 4 s after the lift a tap goes to the same captain, and after that it doesn't",
+   "got": "{\"tapped\":[true,false],\"fired\":2,\"was\":[{\"t\":2,\"locked\":1,\"state\":\"free\",\"taps\":0},{\"t\":6.5,\"locked\":-1,\"state\":\"free\",\"taps\":1}]}",
+   "ok": true
+  },
+  {
+   "name": "a captain that's hit rides, and the lock lets go: the next tap is a plain splat",
+   "got": "{\"rode\":true,\"tapped\":[false],\"fired\":1,\"was\":[{\"t\":1.5,\"locked\":-1,\"state\":\"ride\",\"taps\":0}]}",
+   "ok": true
+  },
+  {
+   "name": "a learner dodges a locked shot about 30 % of the time",
+   "got": "32 % of 60 (hit 41, other 0)",
+   "ok": true
+  },
+  {
+   "name": "  and a full charge about 18 %",
+   "got": "18 % of 60 (hit 49, other 0)",
+   "ok": true
+  },
+  {
+   "name": "a rival dodges a locked shot about 55 % of the time",
+   "got": "58 % of 60 (hit 25, other 0)",
+   "ok": true
+  },
+  {
+   "name": "  and a full charge about 33 %",
+   "got": "33 % of 60 (hit 40, other 0)",
+   "ok": true
+  },
+  {
+   "name": "a veteran dodges a locked shot about 75 % of the time",
+   "got": "73 % of 60 (hit 16, other 0)",
+   "ok": true
+  },
+  {
+   "name": "  and a full charge about 45 %",
+   "got": "47 % of 60 (hit 32, other 0)",
+   "ok": true
+  },
+  {
+   "name": "a locked shot that hits rides the captain (Possessed)",
+   "got": "203 rides of 203 hits",
+   "ok": true
+  },
+  {
+   "name": "the first duel: the easiest captain locks you at about 4 s and fires at about 5 s (SHOTS.md, \"First contact\")",
+   "got": "locked 3.6 s, fired 5.1 s, by the learner; the others' locks before 7.5 s: 2@3.6",
+   "ok": true
+  },
+  {
+   "name": "a dodge the player wins inside 10 s, by a flick or a turn, at Cruise or faster, flying straight or turning",
+   "got": "flick: locked 3.6, fired 5.1, white 5.7, dodged at 6.6 s; flick: locked 3.6, fired 5.1, white 5.7, dodged at 7.0 s; turn: locked 3.6, fired 5.1, white 5.7, dodged at 7.0 s; turn: locked 3.6, fired 5.1, white 5.7, dodged at 7.0 s; flick 112: locked 6.0, fired 7.5, white 8.1, dodged at 9.5 s; turn 112: locked 6.0, fired 7.5, white 8.1, dodged at 9.3 s; flick thumb 0.3: locked 3.6, fired 5.1, white 5.7, dodged at 7.2 s; flick thumb -0.3: locked 3.6, fired 5.1, white 5.7, dodged at 7.2 s; flick 225: locked 4.3, fired 5.8, white 6.5, dodged at 7.8 s; turn thumb 1: locked 3.6, fired 5.1, white 5.7, dodged at 6.9 s; flick thumb -1: locked 3.6, fired 5.1, white 5.7, dodged at 7.2 s",
+   "ok": true
+  },
+  {
+   "name": "  it says FLICK! in the white, then DODGED! and how to shoot back",
+   "got": "FLICK! | DODGED! / HOLD ON A BUS TO LOCK IT | FLICK!",
+   "ok": true
+  },
+  {
+   "name": "  and no brain's breath is aimed at the player's bus: its shots are the duel's",
+   "got": "0 seen",
+   "ok": true
+  },
+  {
+   "name": "doing nothing, that first shot hits, and the ride is the aimed shot's (Possessed)",
+   "got": "hit at 6.8 s; the player's bus: ride",
+   "ok": true
+  },
+  {
+   "name": "  with a Veteran and a Rival, the first shot is the Rival's, and dodged the same",
+   "got": "rival: dodged at 6.4 s",
+   "ok": true
+  }
+ ]
+}

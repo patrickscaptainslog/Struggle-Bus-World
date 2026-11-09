@@ -2,7 +2,7 @@
 // the street, three minutes between two bells, and at the bell the camera rises to 1,500 m and the painted map is the scoreboard. The rules are the headless
 // brain's (recess.ts, captain.ts), stepped at its own fixed step; the player's bus is its bus 0, placed from the real flight each step. What this adds is the
 // picture: the captains as buses in their colours, their breaths, their paint on the real city (plain paint in one hue a faction, until the stages' looks land),
-// Possessed on the real flight (Nonstop, NO BRAKES, the hiccups on the beat), the flick in a breath's white-hot that hops out of it, the clock and the score.
+// Possessed on the real flight (Nonstop, NO BRAKES, the hiccups on the beat), the duel's lock, line, ring and chevron (Duel.ts has its rules), the clock and the score.
 // Territory is the brain's three camps of about 36 squares (neighbourhoods.ts) until the first account's neighbourhood files land.
 //
 // Under the flag only, a chunk of its own; its meshes are the bus's and a toon blob, so it compiles nothing the street doesn't (the warm-up sees them first).
@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { BusModel, type BusPose } from '../bus/BusModel';
 import { areaTune, Faction, squareCentre, squareKey } from '../factions/areas';
 import type { Flight } from '../game/Flight';
+import type { Holds } from '../game/Hold';
 import { latLonToLocal } from '../game/geo';
 import type { MoverAim, MoverTarget } from '../game/Aim';
 import type { BarfOpts } from '../game/Splat';
@@ -20,6 +21,7 @@ import { makeRampMaterial } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { C, HUD_FONT, PixelCanvas, rgba, textWidth } from '../ui/pixelUi';
 import { Captain } from './captain';
+import { Duel, duelTune } from './Duel';
 import { Recess, recessTune, type Level, type Mode } from './recess';
 
 /** The factions on the field (decision 21): the player's Rainbow and the two captains, Atlantis and Inferno. Since factions' step 5 every paint draws in its
@@ -83,6 +85,9 @@ export const recessScreen = {
   tagTop: 150,
   tagBottom: 0.74,
   tagSide: 30,
+  /** the incoming shot's chevron keeps clear of a captain's tag: within `tagWide` px across and `tagTall` px up or down of one, it stands a row nearer the middle */
+  tagWide: 110,
+  tagTall: 48,
   /** the captains fly this high over the ground, and this over what's under them and ahead (m) */
   captainAGL: 45,
   captainClear: 22,
@@ -91,6 +96,23 @@ export const recessScreen = {
    *  as big as fits */
   paintR: 40,
   paintEdge: 10,
+  /** the duel (SHOTS.md, "The duel"). The player's lock: `lockBubbles` white bubbles `lockSize` px across on a ring round the captain, closing from `lockOpen`
+   *  of its drawn size to `lockShut` as the hold fills and never shut under `lockMinPx` px of radius (the thumb is on it: a ring under a thumb isn't seen), a
+   *  second ring `lockTwice` wider at the full charge. A captain that has the player: a line of
+   *  `lineBeads` beads in its colour from it to the bus, each `lineSize` px across, running at the bus `lineRun` times a second, and its tag flashing
+   *  `lineFlash` times a second */
+  lockBubbles: 14,
+  lockSize: 5,
+  lockOpen: 2.6,
+  lockShut: 1.15,
+  lockMinPx: 36,
+  lockTwice: 1.35,
+  lineBeads: 28,
+  lineSize: 2.6,
+  lineRun: 1.6,
+  lineFlash: 6,
+  /** a splash for show (SHOTS.md, "Only aimed shots possess"): a rival within this many m of the player's landed paint gets a flash of it, and nothing else */
+  splash: 85,
 };
 
 /** The arena (FACTIONS.md section 4: "a 1.5 km circle the game picks where any city is densest"): San Francisco's where Alamo Square, the Lower Haight and Hayes
@@ -122,6 +144,13 @@ export interface RecessHost {
   rig: { matchFov: number; matchPull: number; kick(k: number): void };
   /** the player's bus: its colours flood with a hitter's, and it rolls when it's flung (main.ts sets its pose each frame before the match's frame) */
   bus: BusModel;
+  /** the shots' holds: the duel is a handler on them, its shots are theirs (game/Hold.ts) */
+  holds: Holds;
+  /** the steering thumb, -1 to 1: a hard turn in a shot's white dodges it */
+  steer(): number;
+  /** the lock's clack (and its full charge's), and the rising tone while a captain has the player (s long) */
+  clack(full: boolean): void;
+  tone(seconds: number): void;
 }
 
 type Phase = 'ready' | 'play' | 'over';
@@ -143,13 +172,19 @@ export class RecessGame implements MoverAim {
   private readonly ys: number[] = [];
   private readonly blobs: THREE.Mesh[] = [];
   private readonly blobMats: Map<number, THREE.ShaderMaterial> = new Map();
-  private readonly target: MoverTarget = { mover: true, key: '', x: 0, y: 0, z: 0, arrive: 0, pickR: 0, onLine: true, miss: 0, half: 12 };
-  private glintKey: string | null = null;
   private now = 0;
   private acc = 0;
   private readonly pending: { x: number; z: number; at: number; bomb?: { jump: number; superId: number; r: number } }[] = [];
-  private hopLeft = 0;
-  private hopWay = 1;
+  /** the duel: the player's lock on a captain and the captains' shots at the player (Duel.ts) */
+  readonly duel: Duel;
+  private lockRing: THREE.InstancedMesh | null = null;
+  private readonly lines: THREE.InstancedMesh[] = [];
+  private toneAt = -Infinity;
+  private beadsWarm = 3;
+  private readonly splashAt: number[] = [];
+  private readonly camX = new THREE.Vector3();
+  private readonly camY = new THREE.Vector3();
+  private readonly v3b = new THREE.Vector3();
   private bubbleAt: { x: number; z: number } | null = null;
   private saidAt = -Infinity;
   private saidRank = 0;
@@ -169,6 +204,8 @@ export class RecessGame implements MoverAim {
   private readonly ribbons: Ribbon[] = [];
   private fence: THREE.InstancedMesh | null = null;
   private readonly tags: Tag[] = [];
+  /** where each captain's tag stands this frame (px, x then y): the shot's chevron keeps clear of them */
+  private readonly tagAt = new Float32Array(16);
   private readonly v3 = new THREE.Vector3();
   private readonly rigPos = new THREE.Vector3();
   private readonly rigQuat = new THREE.Quaternion();
@@ -221,6 +258,8 @@ export class RecessGame implements MoverAim {
       { mode, log: false },
     );
     this.sim.buses[0].external = true;
+    // (the duel: a captain's lock on the player comes out of the brain as its 'aim', and its shot is Duel.ts's on the shots' holds; nothing is rolled)
+    this.sim.duel = true;
     // (each camp's heart, where its god stands from the start: watched each step for its cracks, its fall, a god rising again)
     const R = this.sim.areas.realm!;
     for (let n = 0; n < R.count; n++) {
@@ -252,6 +291,32 @@ export class RecessGame implements MoverAim {
     }
     this.fence = makeFence(this.cx, this.cz, (x, z) => h.groundAt(x, z));
     h.scene.add(this.fence);
+    this.duel = new Duel({
+      holds: h.holds,
+      sim: this.sim,
+      flight: h.flight,
+      cx: this.cx,
+      cz: this.cz,
+      yOf: (id) => this.ys[id],
+      sizeOf: (id) => (this.models[id]?.length ?? 16) * 0.5,
+      level: (id) => this.captains[id - 1].level,
+      playing: () => this.phase === 'play',
+      steer: () => h.steer(),
+      clack: (full) => h.clack(full),
+      say: (lines, seconds, rank) => this.say(lines, seconds, rank),
+      count: (k) => this.count(k),
+      kick: (k) => h.rig.kick(k),
+      seed: 0x5eed,
+    });
+    // (the lock's ring and each captain's line at the player: bubbles as the fence's and the hearts' rings, so nothing new compiles)
+    this.lockRing = makeBeads(Ramp.GLOW_WHITE, recessScreen.lockBubbles * 2, 'RecessLock');
+    h.scene.add(this.lockRing);
+    for (const b of this.sim.buses) {
+      if (b.id === 0) continue;
+      const line = makeBeads(SIDES[b.faction].ramp, recessScreen.lineBeads, `RecessLine${b.id}`);
+      h.scene.add(line);
+      this.lines[b.id] = line;
+    }
     // (breaths in flight and Piñata's drops: toon blobs, one material a hue and a white-hot one)
     const geo = new THREE.IcosahedronGeometry(3.2, 1);
     for (const ramp of [...new Set(Object.values(SIDES).map((x) => x.ramp)), Ramp.GLOW_WHITE]) this.blobMats.set(ramp, makeRampMaterial({ ramp, glow: 0.7, noOutline: true, shadowMul: 0 }));
@@ -272,37 +337,24 @@ export class RecessGame implements MoverAim {
     (globalThis as { __recess?: RecessGame }).__recess = this;
   }
 
-  // ---- the aim (Aim.ts's mover hand): the captain bus 0's lock is on glints, and a tap goes at it ----
+  // ---- the aim (Aim.ts's mover hand): life's movers only. A captain is locked by a hold (Duel.ts), and a tap near one is a splash for show ----
 
   ours(key: string): boolean {
     return key.startsWith('recess:');
   }
 
   aim(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, pickR: number, travel: number): MoverTarget | null {
-    const me = this.sim.buses[0];
-    if (this.phase === 'play' && me.lock >= 0 && this.sim.buses[me.lock].faction !== me.faction) {
-      const v = this.sim.buses[me.lock], d = Math.hypot(v.x - me.x, v.z - me.z), fly = recessTune.breathMin + d / recessTune.breathSpeed;
-      const t = this.target;
-      t.key = `recess:${v.id}`;
-      t.x = this.cx + v.x + Math.cos(v.heading) * v.speed * fly;
-      t.z = this.cz + v.z + Math.sin(v.heading) * v.speed * fly;
-      t.y = this.ys[v.id];
-      t.arrive = this.now + fly;
-      t.pickR = pickR;
-      return t;
-    }
     return this.life ? this.life.aim(ox, oy, oz, dx, dy, dz, pickR, travel) : null;
   }
 
   glint(key: string | null): void {
-    this.glintKey = key && this.ours(key) ? key : null;
     this.life?.glint(key && this.ours(key) ? null : key);
   }
 
-  /** The player's breath at a captain, let go now, landing at game time `arrive`. */
-  playerFire(key: string, arrive: number): void {
+  /** A breath the aim sent at a captain (none does since the duel: the aim hands out life's movers only). Kept for main.ts's call: a splash for show. */
+  playerFire(key: string, _arrive: number): void {
     if (this.phase !== 'play') return;
-    this.sim.fireAt(0, Number(key.slice(7)), this.simAt(arrive));
+    this.splash(Number(key.slice(7)));
   }
 
   /**
@@ -344,16 +396,12 @@ export class RecessGame implements MoverAim {
     return game - this.t0 + this.lag;
   }
 
-  /** A flick, before the gears see it: in a breath's white-hot it hops out of it; in a ride it only wheezes. True: taken. */
+  /** A flick, before the gears see it: in the white of a shot at the bus it dodges it (Duel.flick: a lunge or a brake-hop, no gear); in a ride it only
+   *  wheezes. True: taken. */
   flick(dir: 1 | -1): boolean {
     if (this.phase !== 'play') return false;
     const me = this.sim.buses[0];
-    if (this.sim.breaths.some((s) => s.target === 0 && s.white) && this.hopLeft <= 0 && me.state !== 'bubble') {
-      this.hopLeft = recessTune.hopTime;
-      this.hopWay = dir > 0 ? 1 : -1;
-      this.count('hop');
-      return true;
-    }
+    if (me.state !== 'bubble' && this.duel.flick(dir)) return true;
     if (me.state === 'ride') {
       if (dir < 0) this.say(['NO BRAKES'], 1.2, 2);
       return true;
@@ -390,10 +438,14 @@ export class RecessGame implements MoverAim {
         this.place(f);
         const hands = this.sim.buses.map((b) => (b.id === 0 ? { steer: 0, tap: false, flick: 0 } : this.captains[b.id - 1].think(this.sim, b)));
         this.sim.step(hands);
+        // (a captain's lock on the player is ready: its shot, on the shots' holds)
+        this.duel.heard();
         for (let i = this.pending.length - 1; i >= 0; i--) {
           const p = this.pending[i];
           if (this.sim.t < p.at) continue;
           const A = this.sim.areas, b = p.bomb;
+          // (a rival inside the splat: a splash of paint for show, no Possessed and no lost time. Only an aimed shot possesses)
+          for (const v of this.sim.buses) if (v.id !== 0 && v.faction !== Faction.RAINBOW && Math.hypot(v.x - p.x, v.z - p.z) <= Math.max(recessScreen.splash, b?.r ?? 0)) this.splash(v.id);
           const o = A.hit(p.x, p.z, Faction.RAINBOW, this.sim.t, b ? { superId: b.superId, jump: b.jump, cap: 3 } : {}).outcome, a = A.get(p.x, p.z);
           this.pending.splice(i, 1);
           if (b) {
@@ -420,6 +472,9 @@ export class RecessGame implements MoverAim {
       // (not after the bell: a ride going then would shift the gears back up and hold its flood, the day review's n57)
       if (this.phase === 'play') this.player(clock, f);
     }
+    // (the duel on the game's own step, as the shots are: Holds.frame ran on it just before)
+    this.duel.frame(dt);
+    this.drawDuel(camera, simTime);
     this.draw(dt, simTime);
     this.drawRings();
     this.hitFx(simTime);
@@ -528,19 +583,13 @@ export class RecessGame implements MoverAim {
     }
   }
 
-  /** The player's own bus: Possessed holds Nonstop, a hop slides it, a bubble holds it still; out of the circle, a word. */
+  /** The player's own bus: Possessed holds Nonstop, a bubble holds it still; out of the circle, a word. (A dodge's lunge is the duel's: Duel.frame.) */
   private player(dt: number, f: Flight): void {
     const me = this.sim.buses[0], T = this.h.turbo;
     if (me.state === 'ride') {
       const want = this.hitGear;
       if (T.gear < want) T.shift(1, f);
       else if (T.gear > want) T.shift(-1, f);
-    }
-    if (this.hopLeft > 0) {
-      const k = (Math.min(dt, this.hopLeft) / recessTune.hopTime) * recessTune.hop * this.hopWay;
-      f.x += Math.cos(f.heading) * k;
-      f.z += Math.sin(f.heading) * k;
-      this.hopLeft -= dt;
     }
     if (me.state === 'bubble') {
       this.bubbleAt ??= { x: f.x, z: f.z };
@@ -591,7 +640,12 @@ export class RecessGame implements MoverAim {
           if (e.b === 0) this.say(['FLICK!'], 0.6, 2);
           break;
         case 'glint':
-          if (e.b === 0 && a && a.id !== 0) this.say([`${sec(a.id).name} HAS YOU`], 0.9, 1);
+          // (they see it coming, as the player's rivals do: the words, a rising tone, and the line and the flashing tag while the lock holds, drawDuel's)
+          if (e.b === 0 && a && a.id !== 0) {
+            this.say([`${sec(a.id).name} HAS YOU`], 0.9, 1);
+            if (this.now - this.toneAt > 1) this.h.tone(recessTune.botGlint + 0.4);
+            this.toneAt = this.now;
+          }
           break;
         case 'sparkle':
           if (e.b === 0) this.say(['SPARKLES', 'NEW BUSES ARE SHIELDED'], 1.2, 2);
@@ -600,6 +654,8 @@ export class RecessGame implements MoverAim {
           if (e.b === 0) {
             this.say(['DING DING', 'STOP ARM OUT'], 2, 2);
             if (this.flood) this.flood.drainAt = this.now;
+            // (SHOTS.md, "End": the next hold on the bus arms a Bomb III at once, one time)
+            this.h.holds.bomb.gift(3);
           }
           break;
         case 'wanted':
@@ -694,10 +750,19 @@ export class RecessGame implements MoverAim {
     this.h.barf(wx, wz, { travel: 0.02, mover: { x: wx, y, z: wz }, moverFresh: false, ...(freeze ? {} : { hitStop: 0 }), ...(player ? {} : { tag: QUIET }) });
   }
 
+  /** A splash for show on captain `id`, caught in the player's splat: a quiet flash of the paint on it, at most one every half second. Nothing in the brain. */
+  private splash(id: number): void {
+    if (this.now - (this.splashAt[id] ?? -Infinity) < 0.5) return;
+    this.splashAt[id] = this.now;
+    this.count('splash');
+    this.flash(id, false);
+  }
+
   /** The last bell: the brain stops, and the camera goes up to see the map. */
   private bell(simTime: number): void {
     this.phase = 'over';
     this.overAt = simTime;
+    this.duel.reset();
     // (recess is over: the gears back to Cruise, a ride ended and its flood drained)
     for (let k = 0; k < 8 && this.h.turbo.gear > 0; k++) this.h.turbo.shift(-1, this.h.flight);
     if (this.flood) this.flood.drainAt = Math.min(this.flood.drainAt, this.now);
@@ -736,7 +801,8 @@ export class RecessGame implements MoverAim {
       // (their height: over the ground and what's under them and ahead, eased)
       const want = this.altFor(wx + Math.cos(b.heading) * 40, wz + Math.sin(b.heading) * 40, wx, wz);
       this.ys[b.id] += (want - this.ys[b.id]) * (1 - Math.exp(-1.8 * dt));
-      const p = this.pose, glint = this.glintKey === `recess:${b.id}`;
+      // (a captain that has the player glints: SHOTS.md, "They see it coming")
+      const p = this.pose, glint = this.phase === 'play' && this.duel.aimedBy(b.id);
       p.speed = b.speed;
       p.fullness = S.t >= b.belly ? 1 : 0.3;
       p.wheeze = b.state === 'ride' ? 0.8 : 0;
@@ -774,6 +840,73 @@ export class RecessGame implements MoverAim {
       blob.scale.setScalar(1.3);
     }
     for (; n < this.blobs.length; n++) this.blobs[n].visible = false;
+  }
+
+  /**
+   * The duel's marks. The player's lock: a ring of white bubbles round the captain, facing the camera, closing as the hold fills, shut at the clack and doubled
+   * at the full charge (the Bomb's ring's language). A captain that has the player: a line of beads in its colour running from it to the bus, each bead sized by
+   * how far it is so the line is a few pixels wide near and far, and spaced evenly on the screen.
+   */
+  private drawDuel(camera: THREE.Camera, simTime: number): void {
+    const R = recessScreen, D = this.duel, f = this.h.flight, m = this.m4, v = this.v3, play = this.phase === 'play';
+    const cam = camera as THREE.PerspectiveCamera, e = cam.matrixWorld.elements;
+    // (m a CSS pixel at 1 m from the camera, and how far ahead of it a point is)
+    const px = (2 * Math.tan(((cam.fov ?? 42) * Math.PI) / 360)) / (typeof innerHeight === 'number' ? innerHeight : 852);
+    const depth = (p: THREE.Vector3) => -((p.x - e[12]) * e[8] + (p.y - e[13]) * e[9] + (p.z - e[14]) * e[10]);
+    const ring = this.lockRing;
+    // (nothing compiles in flight: each is drawn once, one bead of no size, in the page's first frames)
+    if (this.beadsWarm > 0) {
+      this.beadsWarm--;
+      for (const b of [ring, ...this.lines]) {
+        if (!b) continue;
+        b.setMatrixAt(0, m.makeScale(0, 0, 0));
+        b.count = 1;
+        b.visible = true;
+        b.instanceMatrix.needsUpdate = true;
+      }
+      return;
+    }
+    if (ring) {
+      const id = D.locked, fill = D.clacked ? 1 : D.holding ? Math.min(1, D.held / duelTune.lockAt) : 0;
+      ring.visible = play && id > 0 && fill > 0;
+      if (ring.visible) {
+        const c = D.at(id, this.v3b), d = Math.max(1, depth(c)), n = R.lockBubbles, twice = D.charged;
+        const r = Math.max(((this.models[id]?.length ?? 16) / 2) * (R.lockOpen + (R.lockShut - R.lockOpen) * fill * fill), R.lockMinPx * px * d * (R.lockOpen + (R.lockShut - R.lockOpen) * fill) / R.lockShut);
+        // (it turns as it closes, and stands still once it's shut; a pulse at the clack is the scale's)
+        const spin = (1 - fill) * 2.4, size = R.lockSize * 0.5 * px * d * (D.clacked ? 1.25 : 1);
+        this.camX.set(e[0], e[1], e[2]);
+        this.camY.set(e[4], e[5], e[6]);
+        for (let k = 0; k < n * 2; k++) {
+          const a = spin + (k / n) * Math.PI * 2, rr = k < n ? r : r * R.lockTwice;
+          v.copy(c).addScaledVector(this.camX, Math.cos(a) * rr).addScaledVector(this.camY, Math.sin(a) * rr);
+          ring.setMatrixAt(k, m.makeScale(size, size, size).setPosition(v));
+        }
+        ring.count = twice ? n * 2 : n;
+        ring.instanceMatrix.needsUpdate = true;
+      }
+    }
+    for (const b of this.sim.buses) {
+      const line = this.lines[b.id];
+      if (!line) continue;
+      line.visible = play && D.aimedBy(b.id);
+      if (!line.visible) continue;
+      const from = D.at(b.id, this.v3b), n = R.lineBeads, da = Math.max(2, depth(from));
+      v.set(f.x, f.y, f.z);
+      const db = Math.max(2, depth(v)), len = from.distanceTo(v), run = (simTime * R.lineRun) % 1;
+      let c = 0;
+      for (let k = 0; k < n; k++) {
+        // (even on the screen: the share of the way there in the world that's this share of the way on the screen; and none inside the bus)
+        const s = (k + run) / n, u = (s * da) / ((1 - s) * db + s * da);
+        if ((1 - u) * len < 14) continue;
+        v.set(from.x + (f.x - from.x) * u, from.y + (f.y - from.y) * u, from.z + (f.z - from.z) * u);
+        const d = depth(v);
+        if (d < 1) continue;
+        const size = R.lineSize * 0.5 * px * d;
+        line.setMatrixAt(c++, m.makeScale(size, size, size).setPosition(v));
+      }
+      line.count = c;
+      line.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private altFor(ax: number, az: number, x = ax, z = az): number {
@@ -820,7 +953,8 @@ export class RecessGame implements MoverAim {
    *  distance; and a white chevron for a breath coming at the player from off screen (SHOTS.md, "Edge markers"). */
   private drawTags(camera: THREE.Camera): void {
     if (!this.tags.length) return;
-    const W = window.innerWidth, H = window.innerHeight, me = this.sim.buses[0], over = this.phase === 'over';
+    const W = window.innerWidth, H = window.innerHeight, me = this.sim.buses[0], over = this.phase === 'over', at = this.tagAt;
+    let shown = 0;
     for (const tag of this.tags) {
       let wx: number, wy: number, wz: number, d: number;
       if (tag.id >= 0) {
@@ -830,15 +964,16 @@ export class RecessGame implements MoverAim {
         wy = this.ys[b.id] + 14;
         d = Math.hypot(b.x - me.x, b.z - me.z);
       } else {
-        const s = this.sim.breaths.find((x) => x.target === 0);
+        // (a shot coming at the bus from off the screen: the white chevron, with how far)
+        const s = this.duel.incoming.find((x) => x.shot && !x.shot.done)?.shot;
         if (!s || over) {
           tag.hide();
           continue;
         }
-        wx = this.cx + s.x;
-        wz = this.cz + s.z;
-        wy = this.h.flight.y;
-        d = Math.hypot(s.x - me.x, s.z - me.z);
+        wx = s.pos.x;
+        wz = s.pos.z;
+        wy = s.pos.y;
+        d = Math.hypot(wx - this.cx - me.x, wz - this.cz - me.z);
       }
       if (over) {
         tag.hide();
@@ -855,14 +990,26 @@ export class RecessGame implements MoverAim {
         tag.hide();
         continue;
       }
-      if (onScreen) tag.show((x * 0.5 + 0.5) * W, (0.5 - y * 0.5) * H, null, d);
-      else {
+      // (a captain that has the player: its tag flashes)
+      tag.flash(tag.id > 0 && this.duel.aimedBy(tag.id) && Math.floor(this.now * recessScreen.lineFlash * 2) % 2 === 1);
+      let sx = (x * 0.5 + 0.5) * W, sy = (0.5 - y * 0.5) * H, angle: number | null = null;
+      if (!onScreen) {
         // (to the edge, along the way it lies from the middle, inside a frame clear of the status bar and the clock above and the thumb below: the day review's
         // M46. The arrow points at it, angle up positive; the name stays level)
         const R = recessScreen, top = this.safeTop + R.tagTop, bot = H * R.tagBottom, cx = W / 2, cy = H / 2, dx = x * W, dy = -y * H;
         const k = Math.min(dx > 0 ? (W - R.tagSide - cx) / dx : dx < 0 ? (R.tagSide - cx) / dx : Infinity, dy > 0 ? (bot - cy) / dy : dy < 0 ? (top - cy) / dy : Infinity);
-        tag.show(cx + dx * k, cy + dy * k, Math.atan2(y * H, x * W), d);
+        sx = cx + dx * k;
+        sy = cy + dy * k;
+        angle = Math.atan2(y * H, x * W);
+        // (the shot's chevron on its captain's, both behind the bus: a row nearer the middle, so each is read. The captains' tags come first)
+        if (tag.id < 0) for (let j = 0; j < shown; j++) if (Math.abs(sx - at[j * 2]) < R.tagWide && Math.abs(sy - at[j * 2 + 1]) < R.tagTall) sy += sy > cy ? -R.tagTall : R.tagTall;
       }
+      if (tag.id >= 0 && shown * 2 < at.length) {
+        at[shown * 2] = sx;
+        at[shown * 2 + 1] = sy;
+        shown++;
+      }
+      tag.show(sx, sy, angle, d);
     }
   }
 
@@ -962,6 +1109,15 @@ function makeRing(): THREE.InstancedMesh {
   return mesh;
 }
 
+/** A pool of bubbles placed each frame (the lock's ring, a captain's line at the player): 1 m round, scaled to a few pixels where they are. */
+function makeBeads(ramp: number, n: number, name: string): THREE.InstancedMesh {
+  const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), makeRampMaterial({ ramp, glow: 0.6, noOutline: true, shadowMul: 0 }), n);
+  mesh.count = 0;
+  mesh.visible = false;
+  mesh.frustumCulled = false;
+  mesh.name = name;
+  return mesh;
+}
 function makeFence(cx: number, cz: number, groundAt: (x: number, z: number) => number): THREE.InstancedMesh {
   const R = recessScreen, r = recessTune.radius, per = Math.round((Math.PI * 2 * r) / R.fenceStep), rows = R.fenceRows;
   const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.6, 0), makeRampMaterial({ ramp: Ramp.GLOW_WHITE, glow: 0.35, noOutline: true, shadowMul: 0 }), per * rows.length);
@@ -986,6 +1142,7 @@ class Tag {
   private readonly name: string;
   private readonly colour: number;
   private text = '';
+  private dim = false;
 
   constructor(name: string, colour: number, id: number) {
     this.name = name;
@@ -1008,6 +1165,13 @@ class Tag {
 
   hide(): void {
     this.el.style.display = 'none';
+  }
+
+  /** Dimmed for this frame (a flash is every other one of these). */
+  flash(dim: boolean): void {
+    if (dim === this.dim) return;
+    this.dim = dim;
+    this.el.style.opacity = dim ? '0.25' : '1';
   }
 
   /** At (x, y) CSS px: over the bus (`angle` null), or at the edge with its arrow pointing `angle` (rad, 0 to the right, up positive) and its name level. */

@@ -1511,13 +1511,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         barf: (x, z, o) => void splatter.barf(x, z, o), groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z) => city.obstacleAt(x, z), toast: (l, s) => controls.hud.toast(l, s),
         rig,
         bus,
+        // (the duel: a handler on the shots' holds; a hard turn of the steering thumb dodges; the lock's clack and the tone are the Bomb's clunk and the homing
+        // whistle until they get their own: HOOKS.md)
+        holds,
+        steer: () => input.state.stretch.x,
+        clack: (full) => audio.bombTier(full ? 3 : 2),
+        tone: (s) => audio.homingWhistle(s),
       })
     : null;
   if (recess) {
     recess.life = life;
     aimer.life = recess;
     controls.flickGate = (dir) => recess.flick(dir);
-    // (no Comet in a match: a tap in a forced gear stays a tap at what glints, a captain too, till the bell; HOOKS.md, the review of step 3's 2)
+    // (no Comet in a match, and no Lob: `kind` isn't asked, so every kind is a tap at what glints till the bell; HOOKS.md, the review of step 3's 2)
     comet.clamp = () => !recess.playing;
   }
   if (life) {
