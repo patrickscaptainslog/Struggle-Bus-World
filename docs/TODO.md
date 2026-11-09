@@ -2,6 +2,41 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Run report: the second account (2026-11-09, still running)
+
+Your list of seven, in your order. Done so far: 1, 2 and 3. Next: 4, the buses on Muni's real routes. Nothing went live.
+
+**What to fly**
+- **1. The duel:** https://struggle-bus-world-git-feat-recess-patricks-projects-9ff6e721.vercel.app/?recess
+  - Just fly. Within about five seconds the easiest captain locks on you: a line of white beads from it to your bus, its name flashing, a whistle, then FLICK!. Flick up or down when it says (or turn hard) and the blob misses: DODGED!. Flick too late and you're hit.
+  - Then yours: hold a finger still on a captain. A ring closes round it, clacks at half a second and doubles at a full second. Lift, and your blob homes in. Hit, the captain rides in your colours.
+  - A tap at a captain only splashes it. Only a locked shot takes a bus.
+  - A shot coming from behind shows as a white arrow at the bottom of the screen.
+- **2. The Torpedo and the plane ribbon:** https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&lat=37.7955&lon=-122.3880&heading=80&skipintro (by day, when the ferries run)
+  - Splat the open water within 300 m of a ferry or a sailboat: the paint runs along the water at the boat, spray at its head, and paints it. No boat near: it skips twice, like a stone.
+  - A boat hit by a lock or a Torpedo trails a wide one-colour wake for 30 s. A plane hit by a locked shot trails a long one-colour ribbon.
+- **3. Parade:** https://struggle-bus-world-git-feat-life-patricks-projects-9ff6e721.vercel.app/?life&lat=37.732412&lon=-122.388112&heading=305.6&skipintro
+  - Flick down twice to land on the street, then tap to splat the cars round you. Each car your paint lands on honks, hops off its road and falls in behind the bus, up to six, bouncing in a wave. A seventh only honks, low.
+  - Ride beside a car a second and a half: it gets painted, and joins too.
+  - Flick up to leave: the line rolls to a stop, waits, and the cars pop away home.
+
+**What isn't right yet**
+- Nothing ran on a phone or a GPU: software graphics here, at a fixed step.
+- Parade: the street's camera sits behind the bus, right where the line is, so you see the first two cars and the rest are behind you until you pinch out. A camera that stands back as the line grows is the first account's to build; I've asked.
+- Parade's honk is my stand-in sound. The first account voices the game.
+- The duel: street signs still draw over a captain and its ring. The flick's dodge move is a stand-in for the flight's own. At Express the first dodge ends at about 9.5 s, inside your 10 but close.
+- The Torpedo: a splat on water still gives back half the belly, even when the Torpedo then hits a boat. Taking that back is the shot code's.
+
+**One question**
+- Parade's cars hop into the line over the block, rather than drive round to it (driving would cut through buildings). I'd keep the hop. OK?
+
+**For the first account, on Wednesday** (it's all in `docs/specs/shots/HOOKS.md` on each branch)
+- `feat/recess` ec46fdc, "The duel, as built on these": nothing in the shot code changed. It reads `white` live off the options, borrows `audio.bombTier` and `audio.homingWhistle`, and asks for signs to stand back from a captain's tag.
+- `feat/life` bd38c83, "The Torpedo": one line in main.ts's `miss:` block, `life?.torpedo(pos, hue)`, for your review; and the refund question.
+- `feat/life` 7b7d8e8, "Parade": nothing of yours changed. Yours to pick up: the lens (`life.parade.count`) and the honk (`src/life/paradeSfx.ts`).
+
+**Checks run** (each printed all pass): the duel's 37 simulated rows, 3,000 brain duels, and 23 rows on the screen; life's `parade.mjs` (10 rows), `torpedo.mjs` (9), `lock.mjs` (6), `curb.mjs` (13), `blast.mjs`, `alloc.mjs`; types clean and both builds parse on Safari 15. Not run: `flag-off.mjs`, and no long real-time flights.
+
 ## Night report: the second account (2026-11-08)
 
 Your two calls are in `CLAUDE.md`: every pick of the first account's report (questions 1 to 18) and every studio's pick in BUILT.md, LIFT.md and CURB.md, approved, with street surfaces off hold for Curb and both downloads approved. Then, in your order: the review's three on Curb's road side and Recess's six, Curb's asks, the shots merged into both branches with their hooks, lock-on for boats and planes, the reviews, and a start on the bus routes. Nothing went live.
