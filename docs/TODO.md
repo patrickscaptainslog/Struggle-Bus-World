@@ -12,15 +12,16 @@ The producer flew the duel, found it bad, read the studio's rethink ([specs/fact
 - **Skid.** Pull all the way out to a side and hold. The bus goes broadside, squeals and sprays paint. Ease back and it snaps round the way it points, and throws its belly off the outside as a wave of paint. At Cruise you can hold it: a doughnut. If your thumb started near the screen's edge, pushing to the edge is enough.
 - **Swoop.** Pull down, sweep across, then push. It comes round over the top.
 - **The big swipe.** In any gear, one long stroke down, started above the bus. Straight to Cruise.
-- **The other crews.** Three of their buses are always somewhere ahead of you, each with its name over it.
+- **The other crews.** Twenty of their buses are in the city, each about its own business: painting a patch, then off across town to another. They don't follow you. The nearest wear a name and a distance; a chevron at the screen's edge points to one off it. Go and find one.
 - **The shell.** When white beads ring one, tap: your shot goes for it. It's thrown, in your colours, and your paint lands where it comes down.
-- **Ram them.** Fly into one. At Cruise it's a BUMP!. Go Express and it's a SMASH!: punted across the block. At Jet, a WRECK!.
-- **Head-on.** In Jet, find one coming the other way and don't turn. Time slows just before. Turn away then and it says CHICKEN!.
-- **They fight back.** One you've hit honks, then comes after you and fires. Turn hard as its shot whistles in and it misses.
+- **Ram them.** Fly into one. At Cruise it's a BUMP!. Go Express and it's a SMASH!: punted across the block. One painting is down at the roofs, so Express is the gear for it: Nonstop and Jet fly over its head.
+- **They fight back.** A bold one you've hit honks, then comes after you, in your gear, and fires. Turn hard as its shot whistles in and it misses. A timid one runs.
+- **Head-on.** Shift up with one after you, turn round on it and don't turn away. Time slows just before. Turn away then and it says CHICKEN!. Don't, and it's a WRECK!, or at Jet the HEAD-ON!.
 - `&norivals` on the link is the handling alone, over your saved city. `&life` adds the cars, the ferries and the street.
 
 **What's checked** (all on `feat/swerve`; [SWERVE.md](specs/flight/SWERVE.md) section 7 and [RAMPAGE.md](specs/factions/RAMPAGE.md) section 11 have the numbers)
-- 101 rows in Node on the real flight, stick and shot code, all passing: the turns in every gear at 30 and 60 frames a second, the skid's limits, the swoop, the swipe against every other gesture, the rivals' rules, both shells, the ram every way from 40 to 1,800 m/s.
+- 100 rows in Node on the real flight, stick and shot code, all passing: the turns in every gear at 30 and 60 frames a second, the skid's limits, the swoop, the swipe against every other gesture, the rivals' rules, both shells, the ram every way from 40 to 1,800 m/s.
+- The rivals mind their own business: twenty of them flown for ten minutes twice, the player parked and the player doing laps among them, fly the same lines to the last bit.
 - The skid over the real city, 80 times: never through a roof.
 - Two browser runs at 1x on the final build: the handling, and the rivals (the shell, a smash, being hit, the head-on). Nothing compiles in flight. And two pages loaded once each: `?swerve&life` together, and `?recess`, whose name tags moved to a file the rivals share.
 - The old gesture table comes out the same as `rc/1`'s, to the byte.
@@ -31,12 +32,13 @@ The producer flew the duel, found it bad, read the studio's rethink ([specs/fact
 - The sounds are stand-ins: the squeal, the brake, the horn, the clang, the head-on's boom. The first account voices the game.
 - Each crew's bus is yours in another colour. Soaked in Rainbow's colours one looks like a yellow school bus, which is yours.
 - In a skid only a tap aims down the nose. The Comet, the Lob and the Hose still go the way the bus is going.
-- The rivals come in ahead of you with a pop, in plain view.
-- Rivals never ram on purpose, never fight each other, and stop at Jet's speed.
+- With twenty in a whole city you can go a minute without one near you. More is one number.
+- Rivals never ram on purpose, and stop at Jet's speed. They shoot each other but don't ram each other.
 - Not built from the plan: the camera looking into a turn; the picnics' cheer, the comet of paint behind a wrecked bus and the ring racing out from a wreck (the head-on has its rings).
 
 **Calls I made, yours to overrule**
-- The rivals only fight back: they never start on you.
+- The rivals act like players, as you asked: each has its own patch and its own trips, and nothing puts one in front of you. One may come to where you've been painting, as a player would.
+- Now and then one takes a shot at whoever is in front of it, you included, with a honk first. If you'd rather they never start on you, that's one number.
 - On this link the paint lasts the visit and your saved city is left alone, because the rivals paint too.
 - The wave is thrown when a skid ends, not while it slides, so a tap in a skid is still a shot.
 - The swipe needs 40 % of the screen's height. If it's too long a stroke, that's one number.
