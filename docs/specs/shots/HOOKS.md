@@ -254,9 +254,14 @@ Its checks: `tools/swerve/` (`s_turns.ts` and `s_city.ts` under `tools/feel-sim/
 
 ## The rival buses (the second account's, `feat/swerve`, 2026-11-10)
 
-`docs/specs/factions/RAMPAGE.md` sections 2 and 3, approved to build the same day: the other crews' buses in the open world, the shell, the ram. `src/rivals/`, under `?swerve` (`&norivals` leaves them out; never on `?moon` or with `?recess`). RAMPAGE.md section 11 says what's built. Nothing in the shot code or the flight changed for it. What it leans on of yours:
+`docs/specs/factions/RAMPAGE.md` sections 2 and 3, approved to build the same day: the other crews' buses in the open world, the shell, the ram. `src/rivals/`, under `?swerve` (`&norivals` leaves them out; never on `?moon` or with `?recess`). RAMPAGE.md section 11 says what's built. Nothing in the shot code or the flight changed for it.
 
-- **`Holds.fire`** for both shells. The player's (`belly` true, so the shot code spends the belly and coughs as it always does): 420 m/s over the bus's speed, 2.4 rad/s, 0.5 s white, `vel` the rival's, `onWhite` the rival's cue to try a skid. A rival's at the player: `from` its nose, `belly: false`, `whistle: true`, `holds.bus` and `holds.busVel`, 0.6 s white.
+They act like players, by the producer's word on flying the first build ("Why are these bot buses following me around? Can't they just act like normal players?"): twenty in the city, each about its own business wherever it is, and nothing of that reads the player's bus (`tools/rivals/s_rivals.ts`, "own business"). Keep it so when you take it in: never place one by where the player is.
+
+What it leans on of yours:
+
+- **`City.groundAt` and `obstacleAt` anywhere in the city**, loaded or not (the far grid's answer is enough for a bus nobody can see), `manifest.bounds` for the city's edges, and `config.splat.missWaterY` for what is land.
+- **`Holds.fire`** for the shells, a rival's at another rival too (`shellBetween`). The player's (`belly` true, so the shot code spends the belly and coughs as it always does): 420 m/s over the bus's speed, 2.4 rad/s, 0.5 s white, `vel` the rival's, `onWhite` the rival's cue to try a skid. A rival's at the player: `from` its nose, `belly: false`, `whistle: true`, `holds.bus` and `holds.busVel`, 0.6 s white.
 - **`Splatter.barf`** for all the paint: a rival's own splats and its half of a ram's with `faction` and a quiet tag (`QUIET_RIVAL`, as a captain's `QUIET`); the head-on's rings with `inner` and `side`, a half each crew, and its crater with `jump: 2`; the player's paint where a soaked rival lands, with a tap's whole show.
 - **`Flight.x`, `.y`, `.z`** written while the player's bus is thrown (as Recess's fling did), and **`Flight.turbo.floor`** raised under a long throw, after `controls.preFlight` and before the steps, so it flies over what stands in its way on the flight's own floor.
 - **The bus's mesh**: its `ramp` attribute rewritten for the flood (as Recess's did), its `root.quaternion` rolled after `main.ts` has posed it. The rivals' buses are `BusModel`s, three, made at the boot, each crew's colour put on by the same attribute.
@@ -271,7 +276,7 @@ What it asks of `main.ts`, each marked `?swerve` where it stands:
 | the impact's show | `quiet` is also `rivals?.quiet(b.tag)` |
 | `input.onTap` | `if (rivals?.tap()) return;` after `holds.tap()`: with a rival in front the tap is the shell |
 | the frame's step | `dt *= rivals.timeScale(...)` after the Lift's: a ram's held beat, the head-on's quarter speed |
-| the frame | `rivals?.pre()` after `swerve?.pre`; `rivals?.frame(...)` after `recess?.frame` |
+| the frame | `rivals?.pre()` after `swerve?.pre`; `rivals?.frame(...)` after `recess?.frame`, told when the opening is over: they aren't out before it |
 
 `src/recess/tag.ts` is the match's HUD tag, moved out of `recessBoot.ts` so both wear it.
 

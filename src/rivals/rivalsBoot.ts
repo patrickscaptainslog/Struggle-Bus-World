@@ -10,22 +10,25 @@ import { makeRampMaterial } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { rgba } from '../ui/pixelUi';
 import { registerTunables } from '../ui/tunables';
-import { Rivals, rivalTune, RState, type Me, type Rival } from './rivals';
+import { Rivals, rivalTune, RState, type Me, type Rival, type RivalWorld } from './rivals';
 import { headOnBoom, ramClang, rivalHonk } from './rivalsSfx';
-import { shellAt, shellBack } from './shell';
+import { shellAt, shellBack, shellBetween } from './shell';
 
 // The rival buses on the screen (docs/specs/factions/RAMPAGE.md, sections 2 and 3). Their brain and the rules are rivals.ts, which the harness flies in Node;
 // this draws them and gives them hands. Under ?swerve, with the handling (main.ts); &norivals leaves them out.
 //
-//  - Their buses are the player's own model in each crew's body colour, a little bigger, popped in ahead; a tag over each (its crew and how far), a chevron at
-//    the screen's edge for one off it, flashing for one that's after the player.
+//  - Their buses are the player's own model in each crew's body colour, a little bigger. The city has a score of them and each is about its own business
+//    wherever it is; the nearest few are drawn, and those within `tagFar` wear a tag (its crew and how far), a chevron at the screen's edge for one off it,
+//    flashing for one that has started on the player. One near enough to see paints for real, in its crew's look; further off the tiles aren't there to paint.
 //  - The shell. With a full belly and a rival in front, a ring of beads stands round it: a tap then goes for it (`tap`, asked before the splat), a homing shot of
-//    the shot code's (Holds.fire). It soaks the rival: thrown, tumbling, in the player's colours, and where it comes down the player's paint lands.
+//    the shot code's (Holds.fire). It soaks the rival: thrown, tumbling, in the player's colours, and where it comes down the player's paint lands. Rivals
+//    fire the same shot at each other, now and then, and at the player.
 //  - Being hit, by a rival's shell or a ram: the hitter's colours flood the player's bus from the nose, it's thrown along the hit's line and rolls, over
 //    whatever stands in the way (the flight's own floor is lifted under it, `pre`), and it's the player's again all the way through: the stick never lets go.
 //  - The ram, by its tier: a clang, a kick, a held beat (`timeScale`), the word for it, the rammer's paint on the city under it.
 //  - The head-on: in the last half second before two buses meet nose to nose at over 500 m/s time runs at a quarter and the view stands back; swerve then and
 //    the screen says CHICKEN!. Neither does: a white beat, rings of both crews' paint racing out at the speed of sound, a crater of both, and both blown back.
+//  - Where the player's own paint lands is told to the brain (`heard`), as a rival's is: another crew's bus may come and see about it, as a player would.
 //
 // main.ts: pre() before the flight's steps; frame() late in the frame, after the bus is posed and the camera set; tap() before a tap splats; quiet() for a
 // blast the player didn't fire; timeScale() over the frame's step.
@@ -39,11 +42,14 @@ const WORD = ['BUMP!', 'SMASH!', 'WRECK!', 'HEAD-ON!'];
 
 /** Live-tunable looks (tuner group "Rivals", with the rules'). */
 export const rivalScreen = {
-  /** a rival's bus against the player's, and how long one takes to pop in (s) */
+  /** a rival's bus against the player's */
   scale: 1.15,
-  popIn: 0.35,
-  /** a tag shows out to this far (m), further at speed as they come in further */
-  tagFar: 1300,
+  /** one is drawn out to this far (m), the nearest four of them, and wears a tag out to this far, further at speed; within `paintFar` its taps paint, and
+   *  within `honkFar` its horn is heard */
+  drawFar: 2600,
+  tagFar: 2400,
+  paintFar: 1500,
+  honkFar: 900,
   /** being hit: the hitter's colours flood the bus in this long and drain in this long (s) */
   flood: 0.3,
   drain: 0.5,
@@ -71,7 +77,8 @@ export interface RivalsDeps {
   holds: Holds;
   /** the nose off the bus's way (rad): ?swerve's skid */
   slip(): number;
-  world: { groundAt(x: number, z: number): number; obstacleAt(x: number, z: number, fromY?: number): number };
+  /** the city: its ground and roofs, its edges, and what of it is land */
+  world: RivalWorld;
   barf(x: number, z: number, o: BarfOpts): void;
   /** the player's crew, and its next hue */
   faction(): number;
@@ -97,16 +104,17 @@ export interface RivalsDeps {
 interface Slot {
   bus: BusModel;
   orig: Float32Array;
-  tag: Tag | null;
   rival: Rival | null;
   /** the body's ramp as drawn */
   ramp: number;
   heading: number;
   bank: number;
-  born: number;
   /** s its stop arm stays out (a bump) */
   arm: number;
 }
+
+/** How many of the city's buses are drawn at once: the nearest. */
+const DRAWN = 4;
 
 export class RivalsGame {
   readonly sim = new Rivals();
@@ -128,6 +136,10 @@ export class RivalsGame {
   private readonly up = new THREE.Vector3();
   private now = 0;
   private pick: Rival | null = null;
+  /** the nearest few, and how far each is, this frame */
+  private readonly nearest: (Rival | null)[] = new Array<Rival | null>(DRAWN).fill(null);
+  private readonly nearestD = new Float64Array(DRAWN);
+  private breathing = false;
   /** the player's bus's own colours and where they sit along it, for the flood */
   private readonly busRamp: Float32Array;
   private readonly busZ: Float32Array;
@@ -150,20 +162,23 @@ export class RivalsGame {
   constructor(private readonly h: RivalsDeps) {
     const R = rivalScreen;
     registerTunables('Rivals', rivalTune as unknown as Record<string, unknown>, {
-      count: [0, 3, 1], near: [80, 800, 10], far: [200, 2000, 10], spread: [0, 60, 1], behind: [100, 1200, 10], withMe: [0, 10, 0.5], across: [0, 10, 0.5], weave: [0, 0.8, 0.01], crawl: [0, 30, 1],
-      clear: [4, 60, 1], agile: [0.5, 4, 0.1], paintEvery: [2, 60, 1], paintRadius: [15, 120, 1], cone: [5, 60, 1], reach: [100, 1200, 10], shellSpeed: [150, 900, 10], shellTurn: [0.5, 6, 0.1], shellWhite: [0.1, 1.5, 0.05], backTurn: [0.5, 6, 0.1], backWhite: [0.1, 1.5, 0.05],
-      dodge: [0, 1, 0.05], skidFor: [0.2, 1.5, 0.05], skidYaw: [0.5, 5, 0.1], honk: [0.2, 3, 0.1], huntFor: [5, 60, 1], shotEvery: [1.5, 12, 0.5], ramR: [6, 40, 1], ramUp: [4, 40, 1],
-      noseDeg: [20, 80, 1], flingSec: [0.3, 3, 0.1], flingMax: [200, 3000, 50], soakThrow: [10, 300, 5], soakFor: [0, 20, 0.5], level: [0, 1500, 10], levelSec: [0, 4, 0.1], levelUp: [0, 400, 10], line: [0, 30, 1],
+      count: [0, 32, 1], startNear: [0, 8, 1], startFrom: [100, 2000, 10], startTo: [300, 6000, 10], clear: [4, 60, 1], agile: [0.5, 4, 0.1], spool: [0.2, 4, 0.1], brake: [0.2, 4, 0.1],
+      patch: [60, 800, 10], linger: [0, 10, 0.5], tripExpress: [300, 4000, 50], tripNonstop: [600, 8000, 50], weave: [0, 0.8, 0.01], toPaint: [0, 10, 0.5], toOwn: [0, 10, 0.5],
+      hear: [500, 12000, 100], heardFor: [10, 600, 10], playEvery: [1, 12, 1], cone: [5, 60, 1], reach: [100, 1200, 10], shellSpeed: [150, 900, 10], shellTurn: [0.5, 6, 0.1],
+      shellWhite: [0.1, 1.5, 0.05], backTurn: [0.5, 6, 0.1], backWhite: [0.1, 1.5, 0.05], dodge: [0, 1, 0.05], skidFor: [0.2, 1.5, 0.05], skidYaw: [0.5, 5, 0.1], honk: [0.2, 3, 0.1],
+      huntFor: [5, 60, 1], shotEvery: [1.5, 12, 0.5], timid: [0, 1, 0.05], mischief: [0, 1, 0.05], eyeFor: [0.3, 5, 0.1], mischiefGap: [5, 120, 1], near: [500, 6000, 100],
+      ramR: [6, 40, 1], ramUp: [4, 40, 1], ramRPer: [0, 0.1, 0.005], ramUpPer: [0, 0.1, 0.005], noseDeg: [20, 80, 1], line: [0, 30, 1], lineUp: [20, 600, 10], flingSec: [0.3, 3, 0.1], flingMax: [200, 3000, 50],
+      soakThrow: [10, 300, 5], soakFor: [0, 20, 0.5],
     });
-    registerTunables('Rivals on screen', rivalScreen as unknown as Record<string, unknown>, { scale: [0.6, 2.5, 0.05], popIn: [0, 1.5, 0.05], tagFar: [300, 4000, 50], slow: [0.05, 1, 0.05], slowFor: [0.1, 1.5, 0.05], pull: [0, 300, 5], ring: [200, 2000, 50], band: [60, 400, 10], crater: [40, 200, 5] });
-    // (the buses: the player's own model, made before the warm-up reads the scene; each crew's colour goes on when one comes in)
-    for (let i = 0; i < 3; i++) {
+    registerTunables('Rivals on screen', rivalScreen as unknown as Record<string, unknown>, { scale: [0.6, 2.5, 0.05], drawFar: [500, 6000, 100], tagFar: [300, 6000, 50], paintFar: [300, 3000, 50], honkFar: [100, 3000, 50], slow: [0.05, 1, 0.05], slowFor: [0.1, 1.5, 0.05], pull: [0, 300, 5], ring: [200, 2000, 50], band: [60, 400, 10], crater: [40, 200, 5] });
+    // (the buses: the player's own model, made before the warm-up reads the scene; a crew's colour goes on as one comes near enough to draw)
+    for (let i = 0; i < DRAWN; i++) {
       const bus = new BusModel(1.6 * R.scale);
       const ra = bus.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute;
       bus.root.name = `Rival${i}`;
       bus.root.visible = false;
       h.scene.add(bus.root);
-      this.slots.push({ bus, orig: Float32Array.from({ length: ra.count }, (_, k) => ra.getX(k)), tag: null, rival: null, ramp: Ramp.BUS_YELLOW, heading: 0, bank: 0, born: 0, arm: 0 });
+      this.slots.push({ bus, orig: Float32Array.from({ length: ra.count }, (_, k) => ra.getX(k)), rival: null, ramp: Ramp.BUS_YELLOW, heading: 0, bank: 0, arm: 0 });
     }
     // (the ring round what a tap goes for: a dozen white beads, a toon blob as a shot's is)
     this.ring = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), makeRampMaterial({ ramp: Ramp.GLOW_WHITE, glow: 0.6, noOutline: true, shadowMul: 0 }), 12);
@@ -247,7 +262,7 @@ export class RivalsGame {
     f.turbo.floor = Math.max(f.turbo.floor, H.y0 + H.apex * 4 * u * (1 - u));
   }
 
-  /** Late in the frame, after main.ts has posed the bus and set the camera. `off`: none come in (the opening's gate, the street). */
+  /** Late in the frame, after main.ts has posed the bus and set the camera. `off`: the city's buses aren't out yet (the opening): once out they fly on. */
   frame(dt: number, simTime: number, realDt: number, off: boolean): void {
     const f = this.h.flight, me = this.me, S = rivalScreen;
     this.now = simTime;
@@ -260,6 +275,10 @@ export class RivalsGame {
     me.faction = this.h.faction();
     me.out = this.hurt.on;
     this.sim.on = !off;
+    // (where the player's own paint is landing: a breath has just begun, and it lands a little ahead)
+    const breath = f.barfT >= 0;
+    if (breath && !this.breathing) this.sim.heard(f.x + f.fx * 70, f.z + f.fz * 70, me.faction);
+    this.breathing = breath;
     if (dt > 0) this.sim.step(dt, me, this.h.world);
     this.pick = !off && !me.out && f.fullness >= 0.999 && f.barfT < 0 ? this.sim.inFront(me) : null;
     this.headOnWatch(me);
@@ -283,33 +302,28 @@ export class RivalsGame {
   private on(ev: string, r: Rival): void {
     const T = rivalTune, S = rivalScreen, h = this.h;
     this.count(ev);
+    const f = h.flight, far = Math.hypot(r.x - f.x, r.z - f.z);
     if (ev === 'spawn') {
-      const s = this.slots.find((x) => !x.rival);
-      if (!s) return;
-      s.rival = r;
-      s.born = this.now;
-      s.heading = r.heading;
-      s.bank = 0;
-      // (a tag is made once for a place and a crew: its name and colour are drawn into it)
-      s.tag?.hide();
-      const key = this.slots.indexOf(s) * 8 + r.faction;
-      let tag = this.tags.get(key);
-      if (!tag) this.tags.set(key, (tag = new Tag(NAME[r.faction] ?? '', rgba(BODY[r.faction] ?? Ramp.GLOW_WHITE, 6), key)));
-      s.tag = tag;
-      this.paintBody(s, BODY[r.faction] ?? Ramp.BUS_YELLOW);
-    } else if (ev === 'gone') {
-      const s = this.slotOf(r);
-      if (!s) return;
-      s.rival = null;
-      s.bus.root.visible = false;
-      s.tag?.hide();
+      // (its tag, made once: its crew's name and colour are drawn into it)
+      if (!this.tags.has(r.id)) this.tags.set(r.id, new Tag(NAME[r.faction] ?? '', rgba(BODY[r.faction] ?? Ramp.GLOW_WHITE, 6), r.id));
     } else if (ev === 'paint') {
-      // (what it's passing over, a little ahead of it, in its crew's look; soaked, it paints nothing)
+      // (what it's passing over, a little ahead of it, in its crew's look, as a tap paints. Too far off to see, the city isn't there to paint)
+      if (far > S.paintFar) return;
+      this.count('painted');
       const x = r.x + Math.sin(r.heading) * 30, z = r.z - Math.cos(r.heading) * 30;
-      h.barf(x, z, { drop: Math.max(0, r.y - h.world.groundAt(x, z)), travel: 0.4, stream: true, hitStop: 0, radius: T.paintRadius, faction: r.faction, tag: QUIET_RIVAL });
+      h.barf(x, z, { drop: Math.max(0, r.y - h.world.groundAt(x, z)), travel: 0.4, stream: true, hitStop: 0, faction: r.faction, tag: QUIET_RIVAL });
     } else if (ev === 'honk') {
-      const a = this.kitNow();
-      if (a) rivalHonk(a[0], a[1], r.id / 5);
+      const a = far < S.honkFar ? this.kitNow() : null;
+      if (a) rivalHonk(a[0], a[1], (r.id % 7) / 6);
+    } else if (ev === 'shellAt') {
+      // (one of them at another: the same shot, in its crew's colours)
+      const at = this.sim.aim;
+      if (!at || far > T.near * 1.2) return;
+      const from = this.v.set(r.x + Math.sin(r.heading) * 8, r.y, r.z - Math.cos(r.heading) * 8);
+      h.holds.fire(shellBetween(this.sim, r, at, from, (_w, s) => {
+        this.sim.soak(at, s.dir.x, s.dir.z, r.faction, false);
+        this.count('skirmish');
+      }));
     } else if (ev === 'shell') {
       const from = this.v.set(r.x + Math.sin(r.heading) * 8, r.y, r.z - Math.cos(r.heading) * 8);
       h.holds.fire(
@@ -328,9 +342,10 @@ export class RivalsGame {
       );
     } else if (ev === 'ram') this.ram(r);
     else if (ev === 'land') {
-      // (where a soaked rival comes down, the paint of whoever soaked it lands: the player's, with all a tap's show)
-      if (r.soaked !== this.h.faction()) return;
-      h.barf(r.x, r.z, { drop: Math.max(0, r.y - h.world.groundAt(r.x, r.z)), travel: 0.05, stream: true, radius: S.land[r.tier < 0 ? 0 : Math.min(3, r.tier)] });
+      // (where a soaked rival comes down, the paint of whoever soaked it lands: the player's with all a tap's show, another rival's quietly)
+      const o: BarfOpts = { drop: Math.max(0, r.y - h.world.groundAt(r.x, r.z)), travel: 0.05, stream: true, radius: S.land[r.tier < 0 ? 0 : Math.min(3, r.tier)] };
+      if (r.soaked === this.h.faction()) h.barf(r.x, r.z, o);
+      else if (r.soaked && far < S.paintFar) h.barf(r.x, r.z, { ...o, hitStop: 0, faction: r.soaked, tag: QUIET_RIVAL });
     }
   }
 
@@ -498,37 +513,31 @@ export class RivalsGame {
   }
 
   private draw(dt: number, simTime: number): void {
-    const S = rivalScreen, T = rivalTune, h = this.h, cam = h.camera, f = h.flight, W = window.innerWidth, H = window.innerHeight, hero = h.heroScale();
-    const far = S.tagFar * (1 + f.ground / T.nearPer);
-    for (const s of this.slots) {
-      const r = s.rival;
-      if (!r || !r.live) continue;
-      const root = s.bus.root;
-      root.visible = true;
-      root.position.set(r.x, r.y, r.z);
-      // (it banks into its turn, as the player's does; flung it tumbles; soaked it wears the hitter's colours)
-      const yaw = dt > 0 ? Math.atan2(Math.sin(r.heading - s.heading), Math.cos(r.heading - s.heading)) / dt : 0;
-      s.heading = r.heading;
-      s.bank += (Math.max(-0.6, Math.min(0.6, yaw * 0.3)) - s.bank) * (1 - Math.exp(-6 * dt));
-      const flung = r.state === RState.Flung;
-      this.eul.set(flung ? 0.5 * Math.sin(r.roll * 0.6) : 0, -(r.heading + r.slip), -(s.bank - 0.25 * r.slip) - r.roll, 'YXZ');
-      root.quaternion.setFromEuler(this.eul);
-      const pop = S.popIn > 0 ? Math.min(1, (simTime - s.born) / S.popIn) : 1;
-      root.scale.setScalar(hero * (pop >= 1 ? 1 : pop * (2 - pop) * (1 + 0.25 * (1 - pop))));
-      this.paintBody(s, BODY[r.soaked || r.faction] ?? Ramp.BUS_YELLOW);
-      const p = this.pose;
-      p.speed = r.speed;
-      p.eye = flung ? 1 : r.state === RState.Hunt ? 0.35 : 0.8;
-      p.wheeze = flung ? 0.6 : 0;
-      p.fullness = r.soaked ? 0 : 1;
-      s.arm = Math.max(0, s.arm - dt);
-      p.mouth = s.arm > 0 ? 0.13 : 0;
-      s.bus.update(dt, simTime, p);
-      // ---- its tag: over it on the screen, a chevron at the edge off it; flashing while it's after the player
-      const tag = s.tag;
-      if (!tag) continue;
+    const S = rivalScreen, h = this.h, cam = h.camera, f = h.flight, W = window.innerWidth, H = window.innerHeight, hero = h.heroScale();
+    const tagFar = S.tagFar * (1 + f.ground / 300), near = this.nearest, nearD = this.nearestD;
+    // ---- the nearest few are drawn; each within the tags' reach wears one: over it on the screen, a chevron at the edge off it, flashing while it's
+    // after the player
+    near.fill(null);
+    for (const r of this.sim.list) {
+      const tag = this.tags.get(r.id);
+      if (!r.live) {
+        tag?.hide();
+        continue;
+      }
       const d = Math.hypot(r.x - f.x, r.z - f.z);
-      if (d > far || flung) {
+      if (d < S.drawFar) {
+        let k = DRAWN - 1;
+        if (!near[k] || d < nearD[k]) {
+          for (; k > 0 && (!near[k - 1] || d < nearD[k - 1]); k--) {
+            near[k] = near[k - 1];
+            nearD[k] = nearD[k - 1];
+          }
+          near[k] = r;
+          nearD[k] = d;
+        }
+      }
+      if (!tag) continue;
+      if (d > tagFar || r.state === RState.Flung) {
         tag.hide();
         continue;
       }
@@ -549,6 +558,46 @@ export class RivalsGame {
         const t = Math.min(ux !== 0 ? hw / Math.abs(ux) : Infinity, uy < 0 ? top / -uy : uy > 0 ? bot / uy : Infinity);
         tag.show(W / 2 + ux * t, H / 2 + uy * t, Math.atan2(-uy, ux), d);
       }
+    }
+    // (a model stays with its bus while that's one of the nearest; one that isn't any more gives its model up, and a newcomer takes a free one)
+    for (const s of this.slots) {
+      if (s.rival && !near.includes(s.rival)) {
+        s.rival = null;
+        s.bus.root.visible = false;
+      }
+    }
+    for (const r of near) {
+      if (!r || this.slotOf(r)) continue;
+      const s = this.slots.find((x) => !x.rival);
+      if (!s) break;
+      s.rival = r;
+      s.heading = r.heading;
+      s.bank = 0;
+      s.arm = 0;
+    }
+    for (const s of this.slots) {
+      const r = s.rival;
+      if (!r) continue;
+      const root = s.bus.root;
+      root.visible = true;
+      root.position.set(r.x, r.y, r.z);
+      // (it banks into its turn and noses up and down, as the player's does; flung it tumbles; soaked it wears the hitter's colours)
+      const yaw = dt > 0 ? Math.atan2(Math.sin(r.heading - s.heading), Math.cos(r.heading - s.heading)) / dt : 0;
+      s.heading = r.heading;
+      s.bank += (Math.max(-0.6, Math.min(0.6, yaw * 0.3)) - s.bank) * (1 - Math.exp(-6 * dt));
+      const flung = r.state === RState.Flung;
+      this.eul.set(flung ? 0.5 * Math.sin(r.roll * 0.6) : r.pitch, -(r.heading + r.slip), -(s.bank - 0.25 * r.slip) - r.roll, 'YXZ');
+      root.quaternion.setFromEuler(this.eul);
+      root.scale.setScalar(hero);
+      this.paintBody(s, BODY[r.soaked || r.faction] ?? Ramp.BUS_YELLOW);
+      const p = this.pose;
+      p.speed = r.speed;
+      p.eye = flung ? 1 : r.state === RState.Hunt ? 0.35 : 0.8;
+      p.wheeze = flung ? 0.6 : 0;
+      p.fullness = r.soaked ? 0 : 1;
+      s.arm = Math.max(0, s.arm - dt);
+      p.mouth = s.arm > 0 ? 0.13 : 0;
+      s.bus.update(dt, simTime, p);
     }
     // ---- the ring round what a tap goes for
     const r = this.pick, ring = this.ring;

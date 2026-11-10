@@ -163,11 +163,17 @@ For later, one at a time.
 On `feat/swerve`, behind `?swerve` with the handling (`docs/specs/flight/SWERVE.md`); `&norivals` leaves the buses out. `src/rivals/`: `rivals.ts` their brain and the rules, with no page under it; `rivalsBoot.ts` their looks and hands; `rivalsSfx.ts` stand-in sounds. What sections 2 and 3 became, with the numbers as they stand (all in the tuner, "Rivals"):
 
 **Who's out there**
-- Three of the other crews' buses, always somewhere ahead of yours, each in its crew's colour with its name and distance over it; a chevron at the screen's edge for one off it.
-- Six in ten go your way at a fifth to under half your speed, so you come up behind them fast, as on a track. A quarter cross ahead of you. The rest come the other way.
-- One you leave behind goes, and another comes in ahead. Turn round and they're in front again. Flying straight, one is in front of you and in the lens 55 to 69 % of the time, by gear, and within 60 degrees of your nose about three quarters of it (the duel's captains were on the screen 36 to 42 %).
-- Near you they come level with you, so there's a line to ram or shoot along.
-- They paint: a small splat of their crew's every 13 s or so. The city is still yours to paint.
+
+The first build kept three buses placed ahead of yours, at a share of your speed, coming level with you, and put them back in front when you turned. The producer, on flying it: "Why are these bot buses following me around? Can't they just act like normal players?" So now they do.
+
+- Twenty of the other crews' buses in the whole city, each about its own business wherever it is, whether you're there or not.
+- Its business: it works a patch of the city, round and round it at Cruise, lingering now and then, a tap every few seconds. After half a minute or so it makes a trip to another patch, in a gear of its own choosing, climbing to that gear's height and braking as it arrives. Now and then it plays first: a doughnut, a swoop, a dash.
+- Where it goes next: somewhere new; or back to a patch of its own; or, three trips in ten, to where another crew has just been painting. That's how they come to meet each other, and how one comes to see about your paint.
+- Each has its own temper, timid to bold.
+- Nothing of that reads your bus. Twenty of them flown for ten minutes twice, once with the player parked and once with it doing laps of the city among them: every one flies the same line both times, to the last bit.
+- So the city isn't a guard of three round you, it's a city of twenty. Staying in one place for ten minutes, one is within a kilometre about half the time, one comes within 400 m about every minute and a half, and one is in reach of the tags nearly always.
+- The nearest four are drawn, each in its crew's colour. Those within about 2.4 km wear a name and a distance, a chevron at the screen's edge for one off it. One near enough to see paints for real.
+- As the page opens three of them are within a kilometre and a half of you, so there's somebody in sight. After that they're wherever they've got to.
 
 **The shell**
 - With a full belly and a rival within 25 degrees of your nose and 400 m, a ring of white beads stands round it. Tap, and the shot goes for it. Nobody in front: the splat you know.
@@ -176,10 +182,11 @@ On `feat/swerve`, behind `?swerve` with the handling (`docs/specs/flight/SWERVE.
 - A hit throws it 70 m, tumbling, in your colours, and where it comes down your paint lands.
 - In a skid the nose is what aims.
 
-**Fair**
-- Left alone they never fire: two minutes of it, not one shot.
-- One you shoot at, soak or ram has a score to settle. It honks, a second later it hunts you, and it fires only with you in front of it, as you must have it.
-- One at a time. It lets it go after 22 s, or one hit.
+**Fair, and like players**
+- One you shoot at, soak or ram has a score to settle. A bold one honks, a second later it hunts you, and it fires only with you in front of it, as you must have it. It lets it go after 22 s, or one hit, and goes back to its patch. A timid one makes off instead.
+- And as players do, one that has had another bus in front of it and in reach for a moment may take a shot at it: at one of its own kind, which you'll see across the city, or at you. At you it honks first, takes its one shot, and goes back to its business. Flying about among them without starting anything, that's rare: twice in half an hour.
+- Never two at you at once.
+- With that mischief turned off (one number) and left alone, they never fire: ten minutes of it, not one shot.
 - Its shell is yours to beat. Hold your line and it lands, 96 of 96. Turn hard, or skid, as it goes white (its whistle, its last 0.6 s) and you're clear of it half the time at Cruise, five times in six at Express and Nonstop, three in four at Jet.
 
 **Being hit**
@@ -190,26 +197,29 @@ On `feat/swerve`, behind `?swerve` with the handling (`docs/specs/flight/SWERVE.
 - Two buses touch when their ways come within 15 m, looked for along the whole of a frame's travel: every pairing from 40 to 1,800 m/s touches at 30 and at 60 frames a second, none passes through.
 - How hard goes by how fast they came together, alone: under 60 m/s a bump, to 200 a smash, to 500 a wreck.
 - A nose into a side or a tail: the one struck takes all of it. Nose to nose, both.
-- Coming up behind one that goes your way: a bump at Cruise, a smash at Express and Nonstop, a wreck from Jet up.
+- Into the tail of one painting at Cruise: a bump from a little over Cruise yourself, a smash at Express and Nonstop, a wreck from Jet up.
+- Height counts. A bus painting at Cruise is down at the roofs, and Nonstop and Jet fly well over it: to ram it, come down to Express, where everything it meets is a smash. The shell goes down to it from any height. One that's after you flies in your gear, at your height: turn on it.
 - The one that takes it flies a second and a half of that speed, 1.5 km at the most: 170 m at Express, 340 at Nonstop, 675 at Jet. In your colours if you did it, and your paint lands where it comes down.
 - The word for it on the screen, a held beat, a kick, a clang, and the rammer's paint on the city under it. A bump swings both stop arms out.
 
 **The head-on**
-- Nose to nose over 500 m/s, each on the other's line within 9 degrees: the rival is drawn onto your line.
+- Nose to nose and closing fast, each on the other's line within 9 degrees: the rival is drawn onto your line and your height. That, and a hunt, are all that ever turn one toward you.
 - In the last half second time runs at a quarter and the view stands back. Turn away then and the screen says CHICKEN!.
 - Neither does: a white beat, a crater of both crews' paint, rings of it racing out at the speed of sound to a kilometre, a half each, both buses blown back the way they came, and every horn in the neighbourhood.
 
 **Not built**
 - The picnics' cheer, the comet of paint behind a wrecked bus, and the ring racing out from a wreck (the head-on has its rings).
-- Rivals don't ram on purpose, don't fight each other, and don't go faster than Jet.
+- Rivals don't ram on purpose, and don't go faster than Jet. They shoot each other but don't ram each other.
 - Their buses are yours in another colour: no crew has a bus of its own yet.
 - The god (section 4), and people in your sky (section 6).
 
 **Calls I made, yours to overrule**
-- They only fight back. That was open in section 10, and I picked the quiet answer: the world isn't after you unless you start it.
+- They take the odd shot at you unprovoked, as a player would, with a honk first. That was open in section 10. If you'd rather the world never starts on you, it's one number (`mischief`).
+- Twenty in the city. More makes it busier and each one cheaper to find; fewer makes meeting one an event.
+- They paint as often and as wide as a casual player: a tap every few seconds while they're on a patch.
 - On this link the paint lasts the visit: the rivals paint too, so nothing is saved over your city. With `&norivals` your saved city is there as ever.
 
 Its checks, all on `feat/swerve`:
-- `node tools/feel-sim/run.mjs ../rivals/s_rivals.ts`: the rules, 12 rows (seen, in front, the ram every way and at every speed, the fling, fair).
+- `node tools/feel-sim/run.mjs ../rivals/s_rivals.ts`: the rules, 11 rows (their own business held to the last bit, their lives, how often one is met, in front, the ram every way and at every speed, the fling, fair).
 - `node tools/controls-sim/run.mjs ../rivals/s_shell.ts`: both shells flown by the shot code's own homing shot, 20 rows.
-- `node tools/rivals/smoke.mjs`: a browser at 1x: three come in, the shell, a smash, the player hit, the head-on, `&norivals`, nothing compiled.
+- `node tools/rivals/smoke.mjs`: a browser at 1x: the city's buses are out, each its own way, the shell, a smash, the player hit, the head-on, `&norivals`, nothing compiled.

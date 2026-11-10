@@ -1566,7 +1566,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (?swerve: the rival buses, in the scene before the warm-up reads it. Their blasts are quiet, as a captain's; the view's pull is the match's hook)
   const rivals = rivalsMod && swerve
     ? rivalsMod.bootRivals({
-        scene, camera, flight, bus, holds, slip: () => swerve.slip, world: { groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z, y) => city.obstacleAt(x, z, y) },
+        scene, camera, flight, bus, holds, slip: () => swerve.slip,
+        world: { groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z, y) => city.obstacleAt(x, z, y), bounds: manifest.bounds, land: (x, z) => city.groundAt(x, z) >= config.splat.missWaterY },
         barf: (x, z, o) => void splatter.barf(x, z, o), faction: () => splatter.faction, hue: () => splatter.hueNext, particles,
         kick: (k) => rig.kick(k), flash: () => pipeline.flash(0.5, 0.5, 5, 1, 1.6), pull: (m) => (rig.matchPull = m), kit: () => audio.voiceKit(), toast: (l, t) => controls.hud.toast(l, t),
         heroScale: () => rig.heroScale, arm: (t) => swerve.arm(t),
@@ -2207,8 +2208,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     signs.update(dt, camera);
     life?.frame(dt, simTime, skyClock.now(), flight, camera);
     recess?.frame(dt, simTime, camera, held ? 0 : realDt);
-    // (?swerve: the rivals fly, touch and are drawn; none come in under the opening's gate or while the bus is on the street)
-    rivals?.frame(dt, simTime, held ? 0 : realDt, gateShut || curbFlight?.state === 'on' || opening < config.fog.openingDuration);
+    // (?swerve: the city's other buses fly, touch and are drawn; they aren't out until the opening is over)
+    rivals?.frame(dt, simTime, held ? 0 : realDt, gateShut || opening < config.fog.openingDuration);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);

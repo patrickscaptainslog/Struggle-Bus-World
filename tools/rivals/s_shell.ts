@@ -1,8 +1,8 @@
 // The two shells, flown by the shot code's own homing shot (docs/specs/factions/RAMPAGE.md, "In front of you: the shell"): the REAL Holds, Flight, TurboDrive and
 // particles, the rivals' brain and ?swerve's handling over a flat world, offline, and the very options the game fires (src/rivals/shell.ts):
 //   node tools/controls-sim/run.mjs ../rivals/s_shell.ts
-//   holds    the player's shell at a rival that holds its line, from 120, 250 and 380 m, dead ahead and 18 degrees off the nose, in Cruise, Express, Nonstop
-//            and Jet, at 30 and at 60 frames a second: every one lands, and how long it took
+//   holds    the player's shell at a rival that holds its line (one at Cruise dead ahead, one on a trip in the gear under the player's 18 degrees off the
+//            nose), from 120, 250 and 380 m, in Cruise, Express, Nonstop and Jet, at 30 and at 60 frames a second: every one lands, and how long it took
 //   skid     the same shots at a rival that always tries its skid as the shot goes white: how many it gets clear of, by gear. No dice: the skid is a real turn
 //   back     a rival's shell at a player that holds its line: it lands. And at a player that turns hard, or skids, as it goes white: how many miss, by gear
 // Prints a row each, and exits 1 if one fails.
@@ -15,7 +15,7 @@ const { TurboDrive } = await import('@src/game/Turbo');
 const { Holds } = await import('@src/game/Hold');
 const { Particles } = await import('@src/fx/Particles');
 const { config } = await import('@src/config');
-const { Rivals, rivalTune: T, RState } = await import('@src/rivals/rivals');
+const { Rivals, rivalTune: T, RState, Act } = await import('@src/rivals/rivals');
 const { shellAt, shellBack } = await import('@src/rivals/shell');
 const { Swerve } = await import('@src/swerve/swerve');
 
@@ -48,8 +48,10 @@ function harness(rungs: number, dt: number) {
   const audio = { hosePour() {}, hoseLevel() {}, hoseStop() {}, denied() {}, superHoseHit() {}, homingWhistle() {}, homingHit() {}, homingMiss() {} } as never;
   const mouth = new THREE.Vector3();
   const holds = new Holds({ input, camera, city, flight, particles: new Particles(2000) as never, audio, mouth: () => mouth.set(flight.x + flight.fx * 6, flight.y, flight.z + flight.fz * 6), view: () => ({ w: 393, h: 852 }), faction: () => 1, breath: () => {} });
+  // (no city of them here: one rival, put where the row wants it)
+  const count = T.count, cruise = T.speeds[0];
+  T.count = 0;
   const R = new Rivals(11);
-  R.on = false;
   let thumb: number | null = null, t = 0;
   const frame = () => {
     const sx = thumb === null ? 0 : stickOf(thumb);
@@ -66,21 +68,20 @@ function harness(rungs: number, dt: number) {
   };
   for (let i = 0; i < rungs; i++) drive.rung(1, flight);
   for (let k = 0; k < 90 / dt && (k * dt < 4 || (rungs > 0 && !drive.engaged) || Math.abs(flight.speed - (flight.turbo.speed || flight.speed)) > 0.5); k++) frame();
-  /** A rival `d` m off at `bearing` degrees from the nose, going `turn` degrees off the player's way, level with it. */
-  const put = (d: number, bearing: number, turn: number, pace = 0.5) => {
-    const r = R.list[0], b = flight.heading + bearing * DEG;
-    Object.assign(r, { live: true, faction: 2, state: RState.Roam, x: flight.x + Math.sin(b) * d, z: flight.z - Math.cos(b) * d, y: flight.y, heading: flight.heading + turn * DEG, course: flight.heading + turn * DEG, pace, weave: 0, grudge: false, skidLeft: 0, slip: 0, ramIn: 1e9, paintIn: 1e9, lost: 0, shotIn: 1e9 });
+  /** A rival `d` m off at `bearing` degrees from the nose, on a trip the player's way at `v` m/s, at the height a bus at that speed flies at: its own, which
+   *  under a player in a high gear is well below it. */
+  const put = (d: number, bearing: number, turn: number, v: number) => {
+    const r = R.list[0], b = flight.heading + bearing * DEG, h = flight.heading + turn * DEG;
+    const x = flight.x + Math.sin(b) * d, z = flight.z - Math.cos(b) * d, y = Math.max(FLAT.obstacleAt() + T.clear, FLAT.groundAt() + T.heights[v < 70 ? 0 : v < 170 ? 1 : v < 340 ? 2 : 3]);
+    Object.assign(r, { live: true, faction: 2, bold: 0.5, state: RState.Roam, act: Act.Travel, tripGear: 0, x, z, y, heading: h, speed: v, tx: x + Math.sin(h) * 1e7, tz: z - Math.cos(h) * 1e7, grudge: false, skidLeft: 0, slip: 0, ramIn: 1e9, mischiefIn: 1e9, shotIn: 1e9 });
     r.px = r.x;
     r.py = r.y;
     r.pz = r.z;
-    // (at its pace's speed already)
-    frame();
-    r.along = bearing > -90 && bearing < 90;
-    const P = r.along ? T.paceWith : T.pace;
-    r.speed = Math.max(T.crawl, flight.ground * (P[0] + (P[1] - P[0]) * pace));
+    // (it holds that speed: its own gear's)
+    T.speeds[0] = v;
     return r;
   };
-  return { flight, holds, R, sw, frame, put, setThumb: (v: number | null) => (thumb = v), get t() { return t; }, done: () => { sw.release(); input.dispose(); } };
+  return { flight, holds, R, sw, frame, put, setThumb: (v: number | null) => (thumb = v), get t() { return t; }, done: () => { sw.release(); input.dispose(); T.count = count; T.speeds[0] = cruise; } };
 }
 
 // ---------------------------------------------------------------- the player's shell
@@ -93,7 +94,8 @@ for (const always of [false, true]) {
     for (const dt of [1 / 60, 1 / 30])
       for (const d of [120, 250, 380])
         for (const bearing of [0, 18, -18]) {
-          const h = harness(rungs, dt), r = h.put(d, bearing, 0);
+          // (a bus about its business: at Cruise, or on a trip in the gear under the player's)
+          const h = harness(rungs, dt), r = h.put(d, bearing, 0, bearing === 0 ? 28 : [28, 28, 112, 225][rungs]);
           h.flight.fullness = 1;
           let result = '';
           const t0 = h.t;
@@ -121,7 +123,7 @@ for (const [what, thumb] of [['holds its line', null], ['turns hard', 124], ['sk
       for (const d of [150, 260, 380])
         for (const bearing of [180, 150, -150, 90]) {
           // (the rival behind or beside the player, its nose on it)
-          const h = harness(rungs, dt), r = h.put(d, bearing, 0, 1), f = h.flight;
+          const h = harness(rungs, dt), f = h.flight, r = h.put(d, bearing, 0, Math.max(28, f.speed));
           r.heading = Math.atan2(f.x - r.x, -(f.z - r.z));
           const from = new THREE.Vector3(r.x, r.y, r.z);
           let result = '';
