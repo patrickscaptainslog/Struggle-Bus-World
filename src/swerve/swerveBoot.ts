@@ -78,6 +78,10 @@ export interface SwerveBoot {
   swipe(): void;
   /** A tool's thumb: the sideways travel (px) to fly with, or null for the real one. */
   thumb: number | null;
+  /** A wave landed at (x, z), this far round (m): the rival buses in it are soaked (src/rivals/rivalsBoot.ts). */
+  onWave: ((x: number, z: number, radius: number) => void) | null;
+  /** The stop arm out for this long (s): a bump between buses. */
+  arm(seconds: number): void;
 }
 
 export function bootSwerve(d: SwerveDeps): SwerveBoot {
@@ -93,7 +97,7 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
   });
   const stick = { dragging: false, dx: 0, sx: 0 };
   const p = new THREE.Vector3(), v = new THREE.Vector3(), to = new THREE.Vector3(), place = { x: 0, z: 0 };
-  let pitch = 0, braked = 0, sprayAcc = 0, sprayN = 0;
+  let pitch = 0, braked = 0, armLeft = 0, sprayAcc = 0, sprayN = 0;
   let stopSqueal: ((at: number) => void) | null = null;
   // (dev keys)
   let keyHard = false, keySkid = false;
@@ -180,6 +184,7 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
       const { x: cx, z: cz } = wavePlace(f, core.dir, place);
       const gy = d.groundAt(cx, cz), hue = d.hue();
       d.barf(cx, cz, { drop: Math.max(0, f.y - gy), travel: 0.3, stream: true, hitStop: 0, radius: T.waveRadius });
+      boot.onWave?.(cx, cz, T.waveRadius);
       f.fullness = 0;
       f.rechargeSeconds = 0;
       for (let i = 0; i < 14; i++) {
@@ -196,6 +201,7 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
   const boot: SwerveBoot = {
     core,
     thumb: null,
+    onWave: null,
     get slip() {
       return core.slip;
     },
@@ -235,12 +241,16 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
       } else sprayAcc = 0;
       // (the brake: the nose up and back, on the wall of air it made)
       braked = Math.max(0, braked - dt);
+      armLeft = Math.max(0, armLeft - dt);
       const want = braked > 0.45 ? (W.nose * Math.PI) / 180 : 0;
       pitch += (want - pitch) * (1 - Math.exp(-(want > pitch ? 16 : 5) * dt));
     },
     pose(q) {
       // (the stop arm swings out while it brakes: the model's arm goes with its door, a crack of which is enough)
-      if (braked > 0.2) q.mouth = Math.max(q.mouth, 0.13);
+      if (braked > 0.2 || armLeft > 0) q.mouth = Math.max(q.mouth, 0.13);
+    },
+    arm(seconds) {
+      armLeft = Math.max(armLeft, seconds);
     },
     flick() {
       return swiped;

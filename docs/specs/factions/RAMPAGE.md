@@ -1,6 +1,6 @@
 # The Rampage: gods in the cities, and buses against buses anywhere
 
-The second account, 2026-11-10, for the producer. A vision being formed, not a plan approved: the producer asked for help with it. It answers this, sent after reading `docs/specs/factions/PVP.md`:
+The second account, 2026-11-10, for the producer. The producer's reply the same day: "Let's build everything but the gods for now. Let's just put the gods on the back burner". So sections 2 and 3, buses against buses, are built, on `feat/swerve` behind `?swerve`: section 11 says what's there. The god's week, section 4 on, is on hold, a vision still being formed. It all answers this, sent after reading `docs/specs/factions/PVP.md`:
 
 > "Now that I think of it… I want to throw away the idea of having these localized matches entirely. Instead I want us to brainstorm something like this: maybe once a a day, (or once a week to start with?) big cities will have (if the initial player paint volume threshold has been reached to prevent low activity cities from forming gods etc) with the idea that we could have… idk.., three different cities around the world you can fight in on any given week, and then at the end, when a winner for each city is won, the god explodes and sprays the paint of the faction that dealt the most damage to it.
 >
@@ -157,3 +157,59 @@ For later, one at a time.
 - What a winning crew's buses keep.
 - Which crew's form the first god with a form takes.
 - Wet paint (PVP.md): whether paint that has to be flown home has a place in the week.
+
+## 11. Buses against buses, as built
+
+On `feat/swerve`, behind `?swerve` with the handling (`docs/specs/flight/SWERVE.md`); `&norivals` leaves the buses out. `src/rivals/`: `rivals.ts` their brain and the rules, with no page under it; `rivalsBoot.ts` their looks and hands; `rivalsSfx.ts` stand-in sounds. What sections 2 and 3 became, with the numbers as they stand (all in the tuner, "Rivals"):
+
+**Who's out there**
+- Three of the other crews' buses, always somewhere ahead of yours, each in its crew's colour with its name and distance over it; a chevron at the screen's edge for one off it.
+- Six in ten go your way at a fifth to under half your speed, so you come up behind them fast, as on a track. A quarter cross ahead of you. The rest come the other way.
+- One you leave behind goes, and another comes in ahead. Turn round and they're in front again. Flying straight, one is in front of you and in the lens 55 to 69 % of the time, by gear, and within 60 degrees of your nose about three quarters of it (the duel's captains were on the screen 36 to 42 %).
+- Near you they come level with you, so there's a line to ram or shoot along.
+- They paint: a small splat of their crew's every 13 s or so. The city is still yours to paint.
+
+**The shell**
+- With a full belly and a rival within 25 degrees of your nose and 400 m, a ring of white beads stands round it. Tap, and the shot goes for it. Nobody in front: the splat you know.
+- It flies at 420 m/s over your own speed, steers hard, and for its last half second flies straight. On a bus that holds its line it lands every time: 72 shots of 72, from 120 to 380 m, in every gear.
+- A rival tries to skid out of that half second 45 % of the time, and whether it gets clear is the shot's own geometry: when it tries, about half the time at Express, two times in three above, never at Cruise.
+- A hit throws it 70 m, tumbling, in your colours, and where it comes down your paint lands.
+- In a skid the nose is what aims.
+
+**Fair**
+- Left alone they never fire: two minutes of it, not one shot.
+- One you shoot at, soak or ram has a score to settle. It honks, a second later it hunts you, and it fires only with you in front of it, as you must have it.
+- One at a time. It lets it go after 22 s, or one hit.
+- Its shell is yours to beat. Hold your line and it lands, 96 of 96. Turn hard, or skid, as it goes white (its whistle, its last 0.6 s) and you're clear of it half the time at Cruise, five times in six at Express and Nonstop, three in four at Jet.
+
+**Being hit**
+- Their colours flood your bus from the nose, it's thrown along the hit's line and rolls, over whatever stands in the way, and then they drain off its tail. A second and a half for a shell.
+- The stick is yours all the way through.
+
+**The ram**
+- Two buses touch when their ways come within 15 m, looked for along the whole of a frame's travel: every pairing from 40 to 1,800 m/s touches at 30 and at 60 frames a second, none passes through.
+- How hard goes by how fast they came together, alone: under 60 m/s a bump, to 200 a smash, to 500 a wreck.
+- A nose into a side or a tail: the one struck takes all of it. Nose to nose, both.
+- Coming up behind one that goes your way: a bump at Cruise, a smash at Express and Nonstop, a wreck from Jet up.
+- The one that takes it flies a second and a half of that speed, 1.5 km at the most: 170 m at Express, 340 at Nonstop, 675 at Jet. In your colours if you did it, and your paint lands where it comes down.
+- The word for it on the screen, a held beat, a kick, a clang, and the rammer's paint on the city under it. A bump swings both stop arms out.
+
+**The head-on**
+- Nose to nose over 500 m/s, each on the other's line within 9 degrees: the rival is drawn onto your line.
+- In the last half second time runs at a quarter and the view stands back. Turn away then and the screen says CHICKEN!.
+- Neither does: a white beat, a crater of both crews' paint, rings of it racing out at the speed of sound to a kilometre, a half each, both buses blown back the way they came, and every horn in the neighbourhood.
+
+**Not built**
+- The picnics' cheer, and the comet of paint behind a wrecked bus.
+- Rivals don't ram on purpose, don't fight each other, and don't go faster than Jet.
+- Their buses are yours in another colour: no crew has a bus of its own yet.
+- The god (section 4), and people in your sky (section 6).
+
+**Calls I made, yours to overrule**
+- They only fight back. That was open in section 10, and I picked the quiet answer: the world isn't after you unless you start it.
+- On this link the paint lasts the visit: the rivals paint too, so nothing is saved over your city. With `&norivals` your saved city is there as ever.
+
+Its checks, all on `feat/swerve`:
+- `node tools/feel-sim/run.mjs ../rivals/s_rivals.ts`: the rules, 12 rows (seen, in front, the ram every way and at every speed, the fling, fair).
+- `node tools/controls-sim/run.mjs ../rivals/s_shell.ts`: both shells flown by the shot code's own homing shot, 20 rows.
+- `node tools/rivals/smoke.mjs`: a browser at 1x: three come in, the shell, a smash, the player hit, the head-on, `&norivals`, nothing compiled.

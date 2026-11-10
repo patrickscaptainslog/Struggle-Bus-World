@@ -187,6 +187,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /* storage blocked: nothing to clear */
     }
   }
+  // (?swerve with its rivals: the other crews paint too, so the session's paint keeps to itself, as a match's does, and the saved city is left as it was. With
+  // &norivals, the handling alone, the city is the saved one)
+  if (params.has('swerve') && !params.has('norivals') && !recessOn && !moon) {
+    manifest.slug = `${manifest.slug}~swerve`;
+    try {
+      localStorage.removeItem(landmarkStoreKey(manifest.slug));
+    } catch {
+      /* storage blocked: nothing to clear */
+    }
+  }
   live?.place(manifest.origin, (manifest as { tz?: string }).tz);
   // ?lift (docs/specs/factions/LIFT.md): the neighbourhood the Lift stages, from hoods.bin (C18's first reader). Without the flag nothing is fetched
   let liftHood: { hoods: HoodsTable; n: number } | null = null;
@@ -257,6 +267,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const recessMod = recessOn ? await import('./recess/recessBoot') : null;
   // (?swerve: the handling's stand-in, laid over the flight until the flight has it itself: src/swerve/, docs/specs/flight/SWERVE.md)
   const swerveMod = params.has('swerve') ? await import('./swerve/swerveBoot') : null;
+  // (and the rival crews' buses in the open world, the shell and the ram: src/rivals/, docs/specs/factions/RAMPAGE.md sections 2 and 3. &norivals: the handling alone)
+  const rivalsMod = swerveMod && !moon && !params.has('norivals') && !recessOn ? await import('./rivals/rivalsBoot') : null;
   const recessArena = recessMod ? recessMod.arenaFor(manifest, params, flight) : null;
   if (recessArena) {
     params.set('lat', '');
@@ -743,7 +755,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         return;
       }
       // (?recess: a blast the player didn't fire, a captain's, a hiccup's, a heart's, paints and pops but plays no flash, kick, sound or sign, recessBoot's M22)
-      const quiet = !!recess?.quiet(b.tag);
+      const quiet = !!recess?.quiet(b.tag) || !!rivals?.quiet(b.tag);
       // (?recess: a captain's blast splashes, bursts and flings in its own faction's colours, not the player's: the day review's M44)
       const palette0 = particles.palette;
       if (quiet && b.spec.faction !== undefined && b.spec.faction !== splatter.faction) particles.palette = lookOf(b.spec.faction).spray;
@@ -1287,6 +1299,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     // (a lock life or Recess holds takes the tap: its next shot homes, Holds.tap)
     if (holds.tap()) return;
+    // (?swerve: with a rival's bus in front of the nose the tap is the shell, and goes for it)
+    if (rivals?.tap()) return;
     tapSplat();
   };
 
@@ -1548,6 +1562,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const gate = controls.flickGate;
     controls.flickGate = (dir) => swerve.flick(dir) || !!gate?.(dir);
     (window as unknown as { __swerve?: unknown }).__swerve = swerve;
+  }
+  // (?swerve: the rival buses, in the scene before the warm-up reads it. Their blasts are quiet, as a captain's; the view's pull is the match's hook)
+  const rivals = rivalsMod && swerve
+    ? rivalsMod.bootRivals({
+        scene, camera, flight, bus, holds, slip: () => swerve.slip, world: { groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z, y) => city.obstacleAt(x, z, y) },
+        barf: (x, z, o) => void splatter.barf(x, z, o), faction: () => splatter.faction, hue: () => splatter.hueNext, particles,
+        kick: (k) => rig.kick(k), flash: () => pipeline.flash(0.5, 0.5, 5, 1, 1.6), pull: (m) => (rig.matchPull = m), kit: () => audio.voiceKit(), toast: (l, t) => controls.hud.toast(l, t),
+        heroScale: () => rig.heroScale, arm: (t) => swerve.arm(t),
+      })
+    : null;
+  if (rivals && swerve) {
+    swerve.onWave = (x, z, r) => rivals.wave(x, z, r);
+    (window as unknown as { __rivals?: unknown }).__rivals = rivals;
   }
   // (lock-on for boats and planes, life's: a still hold on one within reach locks it, the lift fires a shot that homes in, and the lock holds 4 s for taps:
   // src/life/Lock.ts, SHOTS.md "Lock-on". The clack borrows the Bomb's II until it has a sound of its own)
@@ -1819,6 +1846,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     // ?lift: the lift-off's slow motion (decision 13), on the wall clock; the look, the music and the live sky stay on it
     if (lift) dt *= lift.timeScale(held ? 0 : realDt);
+    // (?swerve: a ram's held beat, and the head-on's last half second at a quarter speed)
+    if (rivals) dt *= rivals.timeScale(held ? 0 : realDt);
     simTime += dt;
     globals.uTime.value = simTime;
     updateSun(); // cheap; keeps the tuner's light + fog sliders live
@@ -1901,6 +1930,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     curbStick.dragging = dragging || leaving || sx !== st.stretch.x;
     // (?swerve: over what the gears wrote and before the steps; not on the street, under the opening's gate or on the Moon's way in and out)
     swerve?.pre(dt, st, !!curbFlight?.rolling || gateShut || leaving || !!land?.arriving);
+    rivals?.pre();
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
     if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
     swerve?.post(dt);
@@ -2177,6 +2207,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     signs.update(dt, camera);
     life?.frame(dt, simTime, skyClock.now(), flight, camera);
     recess?.frame(dt, simTime, camera, held ? 0 : realDt);
+    // (?swerve: the rivals fly, touch and are drawn; none come in under the opening's gate or while the bus is on the street)
+    rivals?.frame(dt, simTime, held ? 0 : realDt, gateShut || curbFlight?.state === 'on' || opening < config.fog.openingDuration);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);
