@@ -1,0 +1,274 @@
+// The handling's numbers and its rules (docs/specs/flight/SWERVE.md, "Solid before it's flown"): the real Flight, TurboDrive and CameraRig with ?swerve's
+// stand-in over them (src/swerve/swerve.ts), on a flat world, no browser: node tools/feel-sim/run.mjs ../swerve/s_turns.ts
+// The thumb is a place on the glass (px from where it landed), put through the stick's own curve (Input.applyStretch's, copied below: its dead zone, its knee, its
+// leash), and each frame goes as main.ts's does: the gears, the stand-in's pre, the flight's steps at 120 Hz, the stand-in's post.
+//   table    half a turn in every gear: today's (the stand-in off, the thumb at the leash), hard (120 px), and the skid (the leash, held till the nose is round,
+//            then let go); its time and its width, at 30 and at 60 frames a second, the two within 3 % of each other
+//   smooth   the same thumb inside 78 px, level, flies the same line with it on as with it off, in every gear, to the last bit
+//   skid     the slip never over its cap; grip within 0.4 s of easing off; never under 20 m/s (or what it began at); the gear never changed; with a gear in,
+//            over by itself in under 2 s, and with none held as long as the thumb is; a thumb that twitches out and back doesn't start one
+//   swoop    up, over and down at Cruise, Express and Jet: how long the reversal takes with it and without; the turn never over three times its flat rate
+//   brake    the long swipe's brake: at Cruise's speed from every gear in under 0.8 s
+//   camera   the bus stays in the frame through a hard turn, a skid and its grip, in every gear
+// Prints each, and exits 1 if a row fails.
+import { config, makeCam } from '../feel-sim/lib';
+import { Flight } from '@src/game/Flight';
+import { TurboDrive } from '@src/game/Turbo';
+import { Swerve, swerveTune as T } from '@src/swerve/swerve';
+
+const flat = { obstacleAt: () => 20, groundAt: () => 10 };
+const DEG = Math.PI / 180;
+const r1 = (v: number) => +v.toFixed(1), r2 = (v: number) => +v.toFixed(2);
+// (Input.applyStretch and softSat, with inputTune's knee and leash)
+const KNEE = 0.72, LEASH = 2.2;
+function stickOf(dx: number, dy: number): { sx: number; sy: number } {
+  const F = config.flight, px = F.stretchPx;
+  let d = Math.hypot(dx, dy);
+  const max = LEASH * px;
+  if (d > max) {
+    dx *= max / d;
+    dy *= max / d;
+    d = max;
+  }
+  if (d <= F.deadZonePx) return { sx: 0, sy: 0 };
+  const s0 = (d - F.deadZonePx) / px, r = 1 - KNEE, s = s0 <= KNEE ? s0 : KNEE + r * Math.tanh((s0 - KNEE) / r);
+  return { sx: (dx / d) * s, sy: (-dy / d) * s };
+}
+
+const GEARS: Array<[string, number]> = [['Cruise', 0], ['Express', 1], ['Nonstop', 2], ['Jet', 3], ['Turbo 1', 4], ['Turbo 2', 5], ['Turbo 3', 6]];
+
+interface Bus {
+  f: Flight;
+  drive: TurboDrive;
+  sw: Swerve | null;
+  t: number;
+  /** One frame with the thumb at (dx, dy) px from its landing; null: lifted. */
+  frame(dt: number, thumb: [number, number] | null): void;
+}
+/** A bus in a gear, settled at its speed and height, the stand-in on or off. */
+function bus(rungs: number, on: boolean, dt: number): Bus {
+  const f = new Flight();
+  f.y = 26.5;
+  f.glideSpeed = 0;
+  const drive = new TurboDrive([-1e9, -1e9, 1e9, 1e9]);
+  drive.edgeless = true;
+  const sw = on ? new Swerve() : null;
+  const b: Bus = {
+    f, drive, sw, t: 0,
+    frame(h, thumb) {
+      const st = thumb ? stickOf(thumb[0], thumb[1]) : { sx: 0, sy: 0 };
+      drive.update(h, f);
+      sw?.pre(h, { dragging: !!thumb, dx: thumb ? thumb[0] : 0, sx: st.sx }, f);
+      const n = Math.max(1, Math.ceil(h / (1 / 120)));
+      for (let i = 0; i < n; i++) f.step(h / n, { sx: st.sx, sy: st.sy, dragging: !!thumb }, flat);
+      sw?.post(h, f);
+      b.t += h;
+    },
+  };
+  for (let i = 0; i < rungs; i++) drive.rung(1, f);
+  // (up to its height and its speed: a gear lifts, engages and spools)
+  for (let k = 0; k < 90 / dt; k++) {
+    b.frame(dt, null);
+    if (k * dt > 4 && (rungs === 0 || drive.engaged) && Math.abs(f.speed - (f.turbo.speed || f.speed)) < 0.5 && Math.abs(f.vy) < 0.2) break;
+  }
+  b.t = 0;
+  return b;
+}
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+let bad = 0;
+const row = (ok: boolean, name: string, o: unknown) => {
+  if (!ok) bad++;
+  console.log(`${ok ? 'pass' : 'FAIL'}  ${name.padEnd(30)} ${typeof o === 'string' ? o : JSON.stringify(o)}`);
+};
+
+// ---------------------------------------------------------------- the table
+/** Half a turn to the right: the thumb at `px` until the bus's way is round. kind 'skid': at the leash till the nose is round, then lifted. */
+function halfTurn(rungs: number, kind: 'today' | 'hard' | 'skid', dt: number) {
+  const b = bus(rungs, kind !== 'today', dt), f = b.f, h0 = f.heading, x0 = f.x, z0 = f.z, v0 = f.speed;
+  const px = kind === 'hard' ? 124 : 172, rx = Math.cos(h0), rz = Math.sin(h0);
+  let wide = 0, noseAt = NaN, least = v0, slip = 0, let_go = false, gear = b.drive.gear + b.drive.level, sameGear = true;
+  while (b.t < 60) {
+    const nose = f.heading + (b.sw?.slip ?? 0) - h0;
+    if (kind === 'skid' && !let_go && nose >= Math.PI) let_go = true;
+    if (Number.isNaN(noseAt) && nose >= Math.PI) noseAt = b.t;
+    b.frame(dt, let_go ? null : [px, 0]);
+    wide = Math.max(wide, (f.x - x0) * rx + (f.z - z0) * rz);
+    least = Math.min(least, f.speed);
+    slip = Math.max(slip, Math.abs(b.sw?.slip ?? 0));
+    if (b.drive.gear + b.drive.level !== gear) sameGear = false;
+    if (f.heading - h0 >= Math.PI - (kind === 'skid' ? 2 * DEG : 0) && !(b.sw?.skidding ?? false)) break;
+  }
+  b.sw?.release();
+  return { t: b.t, wide, speed: v0, least, noseAt, slip: slip / DEG, sameGear };
+}
+console.log('half a turn at the thumb\'s limit, by gear: seconds, and metres wide');
+for (const [name, rungs] of GEARS) {
+  const out: Record<string, unknown> = {};
+  let ok = true;
+  for (const kind of ['today', 'hard', 'skid'] as const) {
+    const a = halfTurn(rungs, kind, 1 / 60), c = halfTurn(rungs, kind, 1 / 30);
+    const dT = Math.abs(a.t - c.t) / a.t, dW = Math.abs(a.wide - c.wide) / a.wide;
+    // (a frame is 0.033 s: under a second and a half that alone is over 3 %, so the time may differ by a frame)
+    if (dT > 0.03 && Math.abs(a.t - c.t) > 1 / 30 + 1e-9) ok = false;
+    if (dW > 0.03) ok = false;
+    if (!a.sameGear || !c.sameGear) ok = false;
+    out[kind] = `${r2(a.t)} s, ${a.wide < 100 ? r1(a.wide) : Math.round(a.wide)} m` + (kind === 'skid' ? ` (nose round at ${r2(a.noseAt)} s, slowest ${Math.round(a.least)} of ${Math.round(a.speed)} m/s)` : '') + ` [30 fps: ${r2(c.t)} s, ${c.wide < 100 ? r1(c.wide) : Math.round(c.wide)} m]`;
+  }
+  row(ok, name, out);
+}
+
+// ---------------------------------------------------------------- smooth is today's
+{
+  // (a weave, a held carve and a lift, all inside hardFrom sideways, level: no pull or push past the yoke's dead band)
+  const thumbAt = (t: number): [number, number] | null => (t < 3 ? [T.hardFrom * Math.sin(t * 2.1), 8 * Math.sin(t * 3.3)] : t < 5 ? [-T.hardFrom, 0] : t < 5.5 ? null : [T.hardFrom * 0.6, -6]);
+  for (const [name, rungs] of GEARS) {
+    const a = bus(rungs, false, 1 / 60), b = bus(rungs, true, 1 / 60);
+    let worst = 0;
+    for (let k = 0; k < 8 * 60; k++) {
+      a.frame(1 / 60, thumbAt(a.t));
+      b.frame(1 / 60, thumbAt(b.t));
+      worst = Math.max(worst, Math.abs(a.f.x - b.f.x), Math.abs(a.f.z - b.f.z), Math.abs(a.f.y - b.f.y), Math.abs(a.f.heading - b.f.heading), Math.abs(a.f.speed - b.f.speed), Math.abs(a.f.bank - b.f.bank));
+    }
+    b.sw!.release();
+    row(worst === 0, `smooth, ${name}`, { apartAtMost: worst });
+  }
+}
+
+// ---------------------------------------------------------------- the skid
+for (const [name, rungs] of GEARS) {
+  for (const dt of [1 / 60, 1 / 30]) {
+    const b = bus(rungs, true, dt), f = b.f, sw = b.sw!, cap = T.slipMax * DEG, v0 = f.speed, gear = b.drive.gear + b.drive.level;
+    let slip = 0, least = v0, sameGear = true, began = NaN, ended = NaN, events = '', gripAt = NaN, back = NaN;
+    sw.onEvent = (ev, self) => {
+      events += `${ev}${self ? '*' : ''} `;
+      if (ev === 'grip') gripAt = b.t;
+    };
+    // (how long after its grip the speed is the gear's again, within 3 %)
+    const watch = () => {
+      if (!Number.isNaN(gripAt) && Number.isNaN(back) && f.speed >= v0 * 0.97) back = b.t - gripAt;
+    };
+    // (the thumb out for 5 s: with a gear in it's over by itself, with none it's held; then eased back to the hard part)
+    for (let k = 0; k < 5 / dt; k++) {
+      b.frame(dt, [172, 0]);
+      if (sw.sliding && Number.isNaN(began)) began = b.t;
+      if (!sw.sliding && !Number.isNaN(began) && Number.isNaN(ended)) ended = b.t;
+      slip = Math.max(slip, Math.abs(sw.slip));
+      least = Math.min(least, f.speed);
+      if (b.drive.gear + b.drive.level !== gear) sameGear = false;
+      watch();
+    }
+    const heldToEnd = sw.sliding, easedAt = b.t;
+    let gripped = NaN;
+    for (let k = 0; k < 1.5 / dt; k++) {
+      b.frame(dt, [100, 0]);
+      if (!sw.skidding && Number.isNaN(gripped)) gripped = b.t - easedAt;
+      slip = Math.max(slip, Math.abs(sw.slip));
+      least = Math.min(least, f.speed);
+      watch();
+    }
+    for (let k = 0; k < 12 / dt; k++) {
+      b.frame(dt, null);
+      watch();
+    }
+    sw.release();
+    const floor = Math.min(T.floor, v0);
+    const ok = slip <= cap + 1e-9 && least >= floor - 1e-6 && sameGear && began <= 0.2 && (rungs === 0 ? heldToEnd && gripped <= 0.4 : ended - began < 2 && !heldToEnd) && !Number.isNaN(back);
+    row(ok, `skid, ${name}, ${Math.round(1 / dt)} fps`, { began: r2(began), slidFor: rungs === 0 ? 'held' : r2(ended - began), slipAtMostDeg: r1(slip / DEG), slowest: `${r1(least)} of ${r1(v0)} m/s`, gripAfterEasing: rungs === 0 ? r2(gripped) : 'by itself', speedBackAfterGrip: r2(back), events: events.trim() });
+  }
+}
+{
+  // (a twitch: out past the skid's line and back inside its hold starts nothing)
+  const b = bus(1, true, 1 / 60), sw = b.sw!;
+  let any = false;
+  for (let k = 0; k < 4; k++) b.frame(1 / 60, [172, 0]);
+  for (let k = 0; k < 60; k++) {
+    b.frame(1 / 60, [60, 0]);
+    any ||= sw.skidding;
+  }
+  sw.release();
+  row(!any, 'skid, a twitch', { started: any, heldFor: r2(4 / 60), needs: T.skidHold });
+}
+
+// ---------------------------------------------------------------- the swoop
+for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
+  const out: Record<string, unknown> = {};
+  let worstGain = 0;
+  for (const on of [false, true]) {
+    // (one arc: straight down for `up` s, then down and across until the bus has come round, then pushed till it's level)
+    const b = bus(rungs, on, 1 / 60), f = b.f, h0 = f.heading, y0 = f.y;
+    const up = rungs === 0 ? 0.9 : 1.1;
+    let round = NaN, top = 0;
+    while (b.t < 40) {
+      const flatRate = Math.abs(f.yawRate);
+      const thumb: [number, number] = b.t < up ? [0, 150] : Number.isNaN(round) ? [124, 110] : [0, -150];
+      b.frame(1 / 60, thumb);
+      top = Math.max(top, f.y - y0);
+      if (Number.isNaN(round) && Math.abs(f.heading - h0) >= Math.PI) round = b.t;
+      if (!Number.isNaN(round) && b.t > round + 0.3 && f.nose <= 0.05 && f.vy >= -1) break;
+      void flatRate;
+    }
+    out[on ? 'with' : 'today'] = `round at ${r2(round)} s, ${Math.round(top)} m up, done at ${r2(b.t)} s`;
+    b.sw?.release();
+  }
+  // (the turn against its flat rate: the same stick level and at the steepest nose, the stand-in on)
+  for (const steep of [false, true]) {
+    const b = bus(rungs, true, 1 / 60), f = b.f;
+    for (let k = 0; k < 150; k++) b.frame(1 / 60, steep ? [0, 170] : null);
+    let w = 0;
+    for (let k = 0; k < 40; k++) {
+      b.frame(1 / 60, steep ? [124, 118] : [124, 0]);
+      w = Math.max(w, Math.abs(f.yawRate) / Math.max(1e-6, Math.abs(f.turbo.yaw)));
+    }
+    b.sw!.release();
+    if (steep) worstGain = w / (out.flat as number);
+    else out.flat = w;
+  }
+  delete out.flat;
+  row(worstGain <= T.swoopMax * 1.6, `swoop, ${name}`, out);
+}
+
+// ---------------------------------------------------------------- the long swipe's brake
+for (const [name, rungs] of GEARS.slice(1)) {
+  const b = bus(rungs, true, 1 / 60), f = b.f, v0 = f.speed, y0 = f.y;
+  // (the rungs go first, as the boot drops them, then the brake)
+  while (b.drive.rung(-1, f)) if (b.drive.gear === 0 && b.drive.level === 0) break;
+  b.sw!.brake(f);
+  let at = NaN;
+  for (let k = 0; k < 3 * 60; k++) {
+    b.frame(1 / 60, null);
+    if (Number.isNaN(at) && f.speed <= config.flight.cruiseSpeed * 1.15) at = b.t;
+  }
+  b.sw!.release();
+  row(at <= 0.8 && b.drive.gear === 0 && b.drive.below === 0, `brake, from ${name}`, { from: Math.round(v0), atCruiseIn: r2(at), speedAfter3s: r1(f.speed), heightKept: r1(f.y - y0) });
+}
+
+// ---------------------------------------------------------------- the camera
+for (const [name, rungs] of GEARS) {
+  const out: Record<string, unknown> = {};
+  let ok = true;
+  for (const kind of ['today', 'hard', 'skid'] as const) {
+    const b = bus(rungs, kind !== 'today', 1 / 60), f = b.f, c = makeCam();
+    for (let k = 0; k < 240; k++) {
+      b.frame(1 / 60, null);
+      c.update(f, 1 / 60);
+    }
+    let off = 0, low = 1, high = 0;
+    // (4 s of it, and for the skid the thumb then comes in to the hard part: its grip is in the picture too)
+    for (let k = 0; k < 6 * 60; k++) {
+      b.frame(1 / 60, kind === 'skid' ? (b.t < 2.5 ? [172, 0] : [110, 0]) : [kind === 'hard' ? 124 : 172, 0]);
+      c.update(f, 1 / 60);
+      const p = c.project(f.x, f.y, f.z);
+      off = Math.max(off, Math.abs(p.x - 0.5));
+      low = Math.min(low, p.y);
+      high = Math.max(high, p.y);
+    }
+    b.sw?.release();
+    if (kind !== 'today' && (off > 0.42 || low < 0.05 || high > 0.95)) ok = false;
+    out[kind] = `${r2(off)} of the width off the middle, ${r2(low)}-${r2(high)} down the frame`;
+  }
+  row(ok, `camera, ${name}`, out);
+}
+
+console.log(bad ? `${bad} FAIL` : 'all pass');
+process.exit(bad ? 1 : 0);

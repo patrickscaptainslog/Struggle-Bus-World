@@ -986,8 +986,9 @@ export class Input {
     return s.type !== 'mouse' && s.y0 <= this.rectH - inputTune.flickBottomPx && s.x0 >= inputTune.flickSidePx && s.x0 <= this.rectW - inputTune.flickSidePx;
   }
 
-  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that, and nowhere while lookOff. Only the landing counts: a look that wanders out of it is still a look. */
-  private inLookZone(x: number, y: number): boolean {
+  /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that, and nowhere while lookOff. Only the landing counts: a look that wanders out of it is still a look.
+   *  (Public for ?swerve's long swipe, which starts off the lane: src/swerve/swerveBoot.ts, docs/specs/shots/HOOKS.md.) */
+  inLookZone(x: number, y: number): boolean {
     if (this.lookOff) return false;
     const b = this.busZone;
     if (b) {

@@ -226,6 +226,32 @@ Checked in Node, `node --expose-gc --no-warnings tools/life/parade.mjs` (10 rows
 
 The brain's side (`src/recess/recess.ts`): `Recess.duel` on makes a captain's breath at the player's bus only said (`'aim'`, which the duel answers with the shot); `aimedHit(from, to)` lands a shot that arrived, at the next step, by the rules a breath lands by; `lunge(id)` is a captain's dodge; `recessTune.firstLock` (3.6 s) and `firstGap` (4 s) keep the first contact to the easiest captain.
 
+## Swerve (the second account's stand-in, `feat/swerve`, 2026-11-10)
+
+The producer approved the handling of `docs/specs/flight/SWERVE.md` on 2026-11-10 ("Let's build everything but the gods for now") while the first account was out. So the producer can fly it, it's built as a stand-in behind `?swerve`, in `src/swerve/`, laid over the flight from outside. `Flight.ts`, `CameraRig.ts`, `Turbo.ts` and `Controls.ts` are untouched. It's yours to take into the flight properly, and to drop when you have.
+
+What it reaches of yours, so a change doesn't break it quietly:
+
+- **`Flight.turbo.yaw`, `.speed`, `.rate`**, after `controls.preFlight` has written them and before the flight's steps: the hard turn and the swoop multiply `yaw`; a skid scales `speed` and raises `rate` to 6 while it slides; the long swipe's brake raises `rate` until the speed is Cruise's.
+- **`Flight.speedScale`**, lowered while a skid slides with no gear in (`SuperSplat.update` puts it back to 1 each frame, after the flight's steps, as it always did).
+- **`Flight.heading`**, written as a skid grips: over 0.3 s the slip goes into it. And `Flight.speed`, held up to 20 m/s in a slide. `Flight.fullness` set to 0 by the wave.
+- **`config.flight.bungeeHz` and `config.camera.yawHz`**, raised in the hard part of the stick and put back to what they were when it's out of it. A tuner's change to either is taken as the new base.
+- **`TurboDrive.rung(-1, flight)`**, called until the gear and the level are 0, for the long swipe (so its events fire, a rung each).
+
+What it asks of your files, each marked `?swerve` where it stands:
+
+| Where | What |
+|---|---|
+| `main.ts`, the boot | `swerveMod` beside `recessMod`; `bootSwerve({...})` before life's lock; `controls.flickGate` wrapped, so the long swipe's own lift is no flick |
+| `main.ts`, the frame | `swerve?.pre(dt, st, off)` before the flight's steps and `swerve?.post(dt)` after them |
+| `main.ts`, the bus's pose | `swerve?.pose(pose)` after `controls.pose` (the stop arm on the brake: `mouth` 0.13, since the arm goes with the door); the `eul.set` line takes `swerve.pitch`, `swerve.slip` and `swerve.roll` |
+| `main.ts`, the look and the aim | `rig.setLook(st.look.on && !swerve?.swiped, ...)`; `aimer.lookYaw = rig.aimYaw + (swerve?.slip ?? 0)` |
+| `Input.ts` | `inLookZone` is public: the long swipe starts off the lane. Its own pointer listeners sit on the canvas beside yours, passive, and touch no state of yours |
+
+What a proper build would do that this can't: the slip as the flight's own field, so the Comet, the Lob, the Hose and the speed lines follow the nose or the way as each should (today only a tap's aim does); the swipe read in `Input` with the other gestures; a stop arm pose of its own; the camera looking into a turn; real sounds for the squeal, the grip's hiss and the brake's clunk (`src/swerve/swerveSfx.ts` are stand-ins on the kit).
+
+Its checks: `tools/swerve/` (`s_turns.ts` and `s_city.ts` under `tools/feel-sim/run.mjs`, `s_swipe.ts` under `tools/controls-sim/run.mjs`, `smoke.mjs` in a browser). SWERVE.md, section 7, says what each row holds.
+
 ## Not here yet
 
 - The flick's lunge and brake-hop in the white, and the white never shifting a gear (SHOTS.md, "Dodging"): the flight's, so the first account's, and the duel's dodge waits on it. Until then a dodge is a hard turn.

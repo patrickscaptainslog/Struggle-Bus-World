@@ -255,6 +255,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
   // (?recess: the bots match, src/recess/recessBoot.ts. The bus starts on its arena's edge facing in, and the opening's Golden Gate and fog are skipped, as under ?lat)
   const recessMod = recessOn ? await import('./recess/recessBoot') : null;
+  // (?swerve: the handling's stand-in, laid over the flight until the flight has it itself: src/swerve/, docs/specs/flight/SWERVE.md)
+  const swerveMod = params.has('swerve') ? await import('./swerve/swerveBoot') : null;
   const recessArena = recessMod ? recessMod.arenaFor(manifest, params, flight) : null;
   if (recessArena) {
     params.set('lat', '');
@@ -1534,6 +1536,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (no Comet in a match, and no Lob: `kind` isn't asked, so every kind is a tap at what glints till the bell; HOOKS.md, the review of step 3's 2)
     comet.clamp = () => !recess.playing;
   }
+  // (?swerve: the longer stick's hard turn, the swoop, the skid and its wave, the long swipe down to Cruise. Its gate takes the swipe's own lift before a match's)
+  const swerve = swerveMod
+    ? swerveMod.bootSwerve({
+        el: canvas, flight, turbo: controls.turbo, offLane: (x, y) => input.inLookZone(x, y),
+        barf: (x, z, o) => void splatter.barf(x, z, o), groundAt: (x, z) => city.groundAt(x, z), particles, hue: () => splatter.hueNext,
+        kick: (k) => rig.kick(k), kit: () => audio.voiceKit(),
+      })
+    : null;
+  if (swerve) {
+    const gate = controls.flickGate;
+    controls.flickGate = (dir) => swerve.flick(dir) || !!gate?.(dir);
+    (window as unknown as { __swerve?: unknown }).__swerve = swerve;
+  }
   // (lock-on for boats and planes, life's: a still hold on one within reach locks it, the lift fires a shot that homes in, and the lock holds 4 s for taps:
   // src/life/Lock.ts, SHOTS.md "Lock-on". The clack borrows the Bomb's II until it has a sound of its own)
   if (life) life.lockOn({ holds, faction: () => splatter.faction, hue: () => splatter.hueNext, dealHue: () => splatter.dealHue(), clack: () => audio.bombTier(2), hint: (l) => controls.hud.toast(l, 2.4) });
@@ -1884,8 +1899,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     curbStick.sx = sx;
     curbStick.sy = sy;
     curbStick.dragging = dragging || leaving || sx !== st.stretch.x;
+    // (?swerve: over what the gears wrote and before the steps; not on the street, under the opening's gate or on the Moon's way in and out)
+    swerve?.pre(dt, st, !!curbFlight?.rolling || gateShut || leaving || !!land?.arriving);
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
     if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
+    swerve?.post(dt);
     curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);
     // QA: the bus held at a pose, for a look at something from one place
@@ -1925,10 +1943,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     pose.wheeze = flight.barfT >= 0 ? 0 : Math.max(flight.fullness * 0.8, flight.strain);
     pose.eye = barfing ? 0.25 : flight.relief > 0 ? 1 : 0.55 + 0.45 * (1 - flight.fullness * 0.6);
     controls.pose(pose);
+    swerve?.pose(pose);
     superSplat.pose(pose, superPose);
     bomb.pose(superPose);
     bus.update(dt, simTime, superPose);
-    eul.set(flight.pitch + superSplat.pitch + hose.pitch, -flight.heading, -flight.bank, 'YXZ');
+    // (?swerve: in a skid the nose is off the way the bus is going, by its slip, and the bus leans out of it; the long swipe's brake stands it on its tail a little)
+    eul.set(flight.pitch + superSplat.pitch + hose.pitch + (swerve?.pitch ?? 0), -flight.heading - (swerve?.slip ?? 0), -flight.bank - (swerve?.roll ?? 0), 'YXZ');
     q.setFromEuler(eul);
     land?.shown(q, camera, flight.x, flight.y, flight.z, rig.dive);
     bus.root.quaternion.copy(q);
@@ -1966,8 +1986,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       rig.openingLow = lift.lowTarget(flight, realDt, rig.lowDist, Math.sin(THREE.MathUtils.degToRad(rig.lowEl)) * rig.lowDist);
     }
     // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
-    rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
-    aimer.lookYaw = rig.aimYaw;
+    // (?swerve: a stroke that turned out to be the long swipe lets its look go; and in a skid a tap goes where the nose points)
+    rig.setLook(st.look.on && !swerve?.swiped, st.look.x, st.look.y, realDt);
+    aimer.lookYaw = rig.aimYaw + (swerve?.slip ?? 0);
     // (on the street a tap is a drive-by on the side the look is, else the kerb's)
     aimer.street = curbFlight?.state === 'on' ? curbFlight.side : 0;
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
