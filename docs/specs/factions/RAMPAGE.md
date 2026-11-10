@@ -200,7 +200,7 @@ On `feat/swerve`, behind `?swerve` with the handling (`docs/specs/flight/SWERVE.
 - Neither does: a white beat, a crater of both crews' paint, rings of it racing out at the speed of sound to a kilometre, a half each, both buses blown back the way they came, and every horn in the neighbourhood.
 
 **Not built**
-- The picnics' cheer, and the comet of paint behind a wrecked bus.
+- The picnics' cheer, the comet of paint behind a wrecked bus, and the ring racing out from a wreck (the head-on has its rings).
 - Rivals don't ram on purpose, don't fight each other, and don't go faster than Jet.
 - Their buses are yours in another colour: no crew has a bus of its own yet.
 - The god (section 4), and people in your sky (section 6).
