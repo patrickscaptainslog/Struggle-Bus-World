@@ -7,8 +7,10 @@ The second account, 2026-11-10, for the producer. Nothing here is ruled until th
 Both notes are right, and they point at the same thing. The short of it:
 
 - **What's wrong:** the fight happens where you can't see it, your thumb is asked to be in two places, and the bus can be fast or nimble but never both.
-- **What to build:** you aim with the bus, not with a finger; a match has its own handling, with a hard turn that is a move; nothing can hit you from off your screen; a hit is loud and costs seconds, not your bus.
+- **What to build:** you aim with the bus, not with a finger; a match has its own handling, with a hard turn that is a move and an attack; nothing can hit you from off your screen; a hit is loud and costs seconds, not your bus; and a chase is for something, the wet paint the other bus is carrying.
 - **How:** a playground first. You and one rival, no rules, the new handling, on your phone, before anything is built round it.
+
+Two independent reads were asked for, with the facts and without this proposal. Section 8 has what they changed.
 
 ## 1. What's wrong
 
@@ -19,6 +21,7 @@ From the game's own numbers, and from whole matches of Recess's brain flown in N
 - They aren't far. The nearest is within 300 m half to two thirds of the time. But when it's that near it's on your screen only 27 to 34 % of the time: off to one side 27 %, behind you 39 to 45 %.
 - Each time one comes onto the screen it stays 1.2 to 1.4 s. A quarter of the time, under 0.6 s.
 - So the game tells you about the fight with arrows and words at the screen's edge, where it should be showing you the fight.
+- Part of this is the hold itself. Nothing asks you to point the bus at a rival, and the camera looks where the bus points.
 
 **2. The hold asks your thumb to be in two places** (your first note).
 - The thumb that steers is under the bus. The rival is up the screen. Lift to hold on it and the bus stops turning and flies straight at 30 m/s while you aim.
@@ -59,7 +62,7 @@ Six rules. Everything in section 3 comes from them.
 
 1. **Your thumb never leaves the stick to fight.** Aiming is steering.
 2. **Fast and tight at once.** A hard turn is a move you make, with a sound and a spray of paint, not a number that's a little bigger.
-3. **Nothing hits you from off your screen.** What can hurt you is as close as what you can see.
+3. **Nothing hits you from off your screen.** What can hurt you is as close as what you can see. And your own bus is the one thing that's always on it, so what's coming at you shows on your bus: its colour, a shadow over it.
 4. **Hits are earned and dodges are flown.** No dice. No prompts.
 5. **A hit is a moment.** Loud, funny, over in three seconds, and the bus stays yours.
 6. **One line to win.** Everything else waits until the fight is fun.
@@ -79,42 +82,61 @@ First numbers throughout. The phone changes them.
 
 It suits the phone. The screen is tall and narrow, so the game can show what's ahead and what's just behind, not what's beside. A chase is the one fight that lives on that line: the bus you're hunting is up the screen, and the one hunting you is at your tail, where its stream is already on your bus.
 
-**The other way to finish, to try in the same playground:** the ring closes by itself as above, and a tap throws a blob that really flies and really has to be out-turned. More of a shot, less of a chase. I'd try the stream first.
+**The other way to finish, to try in the same playground:** the ring closes by itself as above, and a tap, or just letting go of the stick, throws a blob that really flies and really has to be out-turned. More of a shot, less of a chase. I'd try the stream first.
 
 ### A match's own handling
 
 In a match, and only there:
 
-- **One pace.** About 60 m/s, twice Cruise: the arena in 25 s. No gears, so nobody picks a speed that can't turn.
-- **A sharp turn at full stick.** A U-turn in about 2 s, 75 m wide, at that pace. The spring stiffer, so it bites at once.
-- **The skid.** Pull the thumb further than full and the tail kicks out: tyres squeal, paint fans off the outside, and the bus comes round in about a second. It bleeds speed while you hold it and kicks forward as you let go. This is "turning harder" as a thing you do. No new gesture: you pull harder and it turns harder.
-- **The flicks become moves.** They keep their meaning, up is faster and down is slower:
-  - a flick up is a dash, a second of speed, then a few seconds to get it back;
-  - a flick down slams the brakes for half a second, so whoever is on your tail flies past.
+- **Two gears, the ones you know.** Cruise and Express, a flick each way, as always. But a gear changes in half a second, not three, so a flick up is a dash and a flick down is the brakes. Nothing over Express in a match: no speed that can't turn. How fast each is, the phone says.
+- **A sharp turn at full stick, at either gear.** A U-turn in about 2 s, where Express takes 4.2 today. The spring stiffer, so it bites at once.
+- **The skid.** Pull the thumb to the end of its reach and the tail lets go. The nose swings round in about a second while the bus slides on the way it was going, broadside, tyres squealing in mid-air, a crescent of paint landing under the slide. So your nose, and your stream, are on a rival before your bus has turned. It sheds speed while it slides, grips, and pulls back up to its gear. From Express that's round in a second and a half and 100 m wide, where today it's 4.2 s and 300 m. This is "turning harder" as a thing you do, and no new gesture: you pull harder and it turns harder.
+- **The puddle.** With a full belly the skid throws a wave of your paint off the outside of the slide, like a car through a puddle, over whoever is close beside you or on your tail. It spends the belly. Rivals are beside or behind you two times in three, and this hits them where they are: turning hard is itself an attack, and the answer to a bus on your tail.
 - **Shooting costs nothing.** No stall and no steering cut in a match.
+- **With the camera, not before it.** A bus that turns harder under today's camera only sweeps a rival across the screen sooner. The two change together.
 
 ### The camera
 
-- **It looks into your turn.** It leads the nose a little where today it trails it, so what you're turning toward is on the screen.
-- **It turns as fast as the bus,** the skid included.
-- **It leans to the fight.** With a rival within about 250 m, the view eases toward the two of you, never by much, and never against your own pan.
-- **It stands a little higher and nearer** in a match, so the bus behind you is in the picture above your thumb.
+- **It follows the way the bus is going, not its nose,** a beat behind. So a skid shows: you see your own bus broadside, sliding.
+- **It looks into your turn.** It leads a little where today it trails by 15 degrees, so what you're turning toward is on the screen.
+- **It leans to the fight.** With a rival within a few hundred metres the view swings round the bus toward it: the one you're on first, else the one on you, else the nearest. 15 to 35 degrees to try, never fast, and never against your own pan.
+- **A little wider and a little nearer,** so more is in the picture and the bus is as big as it was.
+- **Behind you:** the bottom edge of the screen glows in the hunter's colour, and its horn comes from its side.
+- The aim: the nearest rival on your screen 70 % of a match, for three seconds a time, where it's 34 % and one second today.
 
 ### Being hit
 
-- Full of their colour: a burst, one barrel roll, your bus theirs for 3 s.
-- You keep flying at the match's pace, with your steering and your brakes.
-- For those 3 s your stream is off and the paint you drop is theirs.
-- **A splatted bus is a paint bomb.** Where it's splatted, a big splash of the hitter's colour lands on the city under it. That's the prize, and it's how a dogfight makes turf.
+- Full of their colour: the picture holds for a frame or two, a burst, one barrel roll, and your bus is flung, on the screen, with the steering still yours.
+- **A splatted bus is a paint bomb.** Where it's splatted a big splash of the hitter's colour lands on the city under it, and a fat stripe of it along the fling. That's the prize, both of you see it, and it's how a dogfight makes turf. (With wet paint, below, the prize is bigger: everything it was carrying.)
+- Then the bus shakes it off like a wet dog, and it's yellow and yours again. One and a half to three seconds in all, for the phone to say. No forced gear, no "no brakes".
 - Then a second or two when nobody can start on you again.
+
+### The rivals
+
+- **They say so first.** A rival honks and its stream shows on your bus before it counts. One hunter on you at a time.
+- **They get away by flying.** A rival dodges by skidding, as you do. After a skid it puffs exhaust for a couple of seconds and can't skid again. You can see it, and that's your moment. No dice.
 
 ### The goal
 
-One line: **most of the neighbourhood in your colour at the bell.** Paint it with your taps; take a chunk by splatting a rival over it. The gods, their rings and cracks, the heal and the seal wait until the fight is fun, and come back as the finale if you want them.
+One line: **most of the neighbourhood in your colour at the bell.** Paint it with your taps; take a chunk by splatting a rival over it. The gods' rings and cracks, the heal and the seal wait until the fight is fun, and come back as the finale if you want them. The statues stay where they are, as each crew's home.
+
+### What a chase is for: wet paint
+
+For step 2, and the idea I'd most like to try there. It came from the second independent read (section 8).
+
+- **Your paint is wet until you fly it home.** Fresh paint glistens and doesn't score. Fly over your own statue and everything you've painted since goes solid: it's yours.
+- **Catch a bus and its wet paint is yours.** Every wet square it was carrying flips to your colour at once, a whole swath of the city, for both of you to see. It's wet still: now you have to get it home.
+- So the longer you stay out, the more you carry, and the more you're worth chasing. A bus fresh from home isn't worth the trouble. A bus with a dozen wet squares is the game.
+- The gears get a job: paint out slow, run home fast. The statue, 300 m tall, is the one thing you can see from anywhere.
+- One line: **paint it, and get it home before somebody catches you.**
+
+The read's own version takes the paint by flying across it on the ground, not by catching the bus, as Paper.io takes a trail. That makes the target a wide stripe that stays still ahead of you, which this camera shows best, and it would forgive a slow connection between two phones. But your own wet paint is behind you, where this camera can't look, so you'd lose it to something you never saw. Catching the bus keeps the fight between buses, and keeps it on the screen. Both are worth a link.
 
 ### What a fight is like
 
 Atlantis is ahead, cutting left over the rooftops. You pull hard, the tail kicks out, the tyres squeal. Your nose comes round onto it and your red reaches out. Its yellow goes red from the tail. It slams its brakes. You fly past, and now its blue is on your tail and your own bus is turning blue. You flick up, dash for the tower on the corner, and skid round behind it. The stream breaks. You come out the other side on its tail.
+
+And with wet paint: you've six squares glistening along Fillmore and Atlantis on your tail, its blue creeping up your bus. You skid, the wave soaks it, it drops back. You flick up and run for the red statue on the hill. Over it: the six go solid. Now Inferno is crossing the park with nine.
 
 ## 4. More ideas
 
@@ -125,7 +147,10 @@ In the order I'd try them. None is needed for the playground.
   - **Keep-away.** One golden paint can. Whoever carries it paints three times as wide. Splat the carrier to take it. Everyone always knows where the game is: at the gold bus.
   - **King of the hill.** The god's heart is the hill: your squares count double while you're the only bus over it.
   - **Dodgeball.** The blob version of the fight, in a small ring.
+  - **Musical chairs.** When a bell rings, be over your own colour or lose squares. Nobody touches a bus: you paint over the ground a rival is counting on, just before the bell.
+- **Home turf.** Over your own colour the skid costs no speed. So painting ground is also making the ground you fight best over.
 - **Paint tails.** In a match the bus trails a ribbon of its colour for a few seconds, a curtain of paint hanging to the roofs. Fly through a rival's and you're splatted. Then a tight turn is an attack: you cut across their nose. All steering, no aiming, and the ribbon paints the ground under it as it drips.
+- **Leapfrog.** Drop onto another bus's roof and squash it into a splat of your colour: put your shadow on theirs and dive. The one underneath sees a shadow grow over its own bus, which is always on its screen, and swerves. It's the Belly Flop, on a bus.
 - **Bumper buses.** A dash into a rival's side or tail splats it. Nose to nose, both stop arms clang and both bounce.
 - **The stop arm bats it back.** Tap as a blob reaches you and the STOP arm swings out and sends it home. Two good players get a rally, faster each time.
 - **Water balloons.** Balloons of paint hang over a few rooftops. Fly through one and your next tap is something big.
@@ -133,15 +158,23 @@ In the order I'd try them. None is needed for the playground.
 
 ## 5. The plan
 
-**Step 1: the playground.** A link, `?recess&toy`. You and one easy rival in a small ring over the city. No clock, no squares, no gods, no score. In it: the match's pace, the sharp turn, the skid, the two flick moves, the camera, the paint stream, the 3 s hit. And links to compare on the phone, as `&hit=nonstop|jet` was:
+**Step 1: the playground.** A link, `?recess&toy`. You and one easy rival in a small ring over the city. No clock, no squares, no gods, no score. In it: the match's two quick gears, the sharp turn, the skid, the camera, the paint stream, the short hit. And links to compare on the phone, as `&hit=nonstop|jet` was:
 
 - `&aim=stream` or `&aim=blob`;
 - `&turn=now`, `sharp` or `skid`;
-- `&cam=now` or `fight`.
+- `&cam=now` or `fight`;
+- `&wave=0` for the skid with no puddle.
 
-You fly it and say what's right. Nothing else is built until chasing one bus is fun for a minute.
+It starts with a rival that only runs, and nothing coming back at you. **How you'll know in five minutes:**
 
-**Step 2: the match.** The winner goes into three buses over a neighbourhood: turf, the paint bomb, the bell. Captains that chase tails, skid and brake, and never roll a die.
+- you catch it ten times in two minutes with nothing explained;
+- your thumb never reaches up the screen for it;
+- you flick up to go fast, by yourself, and still get round;
+- you skid a doughnut for no reason.
+
+Two of those missing and the handling is wrong, and that's put right before anything is built on it. Then the rival fights back. Nothing else is built until chasing one bus is fun for a minute.
+
+**Step 2: the match.** The winner goes into three buses over a neighbourhood, 90 seconds in a circle about 1 km across to start: turf and the bell, with wet paint on one link and plain turf with the paint bomb on another. Captains that paint out and run home, chase tails, skid and brake, and never roll a die.
 
 **Step 3:** the gods as the finale, or the first of the playground games from section 4. Your call then.
 
@@ -155,10 +188,10 @@ If approved. Until then they stand.
 |---|---|
 | Lock-on: a still hold on a boat, a plane **or a bus** locks (CLAUDE.md, "Shots"; SHOTS.md, "Lock-on") | Boats and planes as they are. A bus is aimed at with the bus |
 | The duel: hold to lock and charge, a white window when a hard turn or a flick dodges it (SHOTS.md) | The stream, or the blob that has to be out-turned. No window, no FLICK! |
-| "A quick flick up or down is one gear, anywhere" (CLAUDE.md, "Controls") | Outside a match, as it is. In a match a flick up is a dash and a flick down the brakes |
-| Being hit: the flood, a roll, a fling, the forced gear, Nonstop or Jet (SHOTS.md); Possessed for two bars (FACTIONS.md section 6, decision 3) | The flood and the roll, 3 s in their colours at your own speed. No forced gear |
-| "Captains fly your ladder" (SHOTS.md) | Captains fly the match's one pace |
-| Three minutes in a 1.5 km circle, the gods and their rings in every match (FACTIONS.md) | The playground decides the size and the length. The gods wait |
+| "A quick flick up or down is one gear, anywhere" (CLAUDE.md, "Controls") | Still true. In a match the ladder stops at Express, and a gear changes in half a second |
+| Being hit: the flood, a roll, a fling, the forced gear, Nonstop or Jet (SHOTS.md); Possessed for two bars (FACTIONS.md section 6, decision 3) | The flood, the roll and a fling, then the bus shakes it off: 1.5 to 3 s, at your own speed. No forced gear |
+| "Captains fly your ladder" (SHOTS.md) | They do: Cruise and Express |
+| Three minutes in a 1.5 km circle, the gods and their rings in every match (FACTIONS.md) | 90 seconds in a circle about 1 km across to start, for the playground and the phone to change. The statues stay, as homes; the gods' rules wait |
 
 No new button, joystick or menu. One thumb is enough for all of it.
 
@@ -187,3 +220,27 @@ No new button, joystick or menu. One thumb is enough for all of it.
 - **The camera's lag:** its yaw follows the bus on a critically damped spring at `config.camera.yawHz` 1.6: behind a steady turn by the turn's rate times 0.2 s, 15 degrees at Cruise's 77 degrees a second, in a lens 21 degrees either side.
 - **The lane:** from the camera's geometry, a bus dead ahead at 100 m is about 100 px over the player's, inside the lane's 106.
 - **Not measured:** anything on a phone. Which speed a person flies a match at. The brain's pilots fly at Cruise 91 % of the time; a person chasing somebody flicks up.
+
+## 8. The two independent reads
+
+Two designers' reads were asked for on 2026-11-10 with the facts of sections 1 and 7 and the producer's words, and without this proposal: one on handling and feel, one on what the fight should be. What each came to by itself, and what it changed here.
+
+**Where all three agree.** The finger on the rival is the first thing wrong: one thumb with two jobs, each switching the other off. The bus and the camera were made for sightseeing. A hit takes the bus away for far too long. Dice and prompts have to go. Nonstop has no place inside the fence. A toy on the phone comes before any rules.
+
+**From the read on handling.**
+- More turn alone would make it worse: under today's camera a rival is swept off the screen sooner. Handling and camera change together.
+- The flicks stay gears. In a match the ladder stops at Express and a gear changes fast, so nothing is relearned. This replaced my "one pace, and the flicks become a dash and a brake".
+- The skid as a slide: the nose comes round while the bus goes on the way it was going, and the camera follows the bus's way, so the slide is seen.
+- A rival says so before it starts on you (a honk), one hunter at a time, and dodges by a skid you can see, with a puff when it can't.
+- The playground's first rival only runs, and the four signs to look for in five minutes.
+- Over your own colour the skid costs no speed (section 4, "Home turf").
+- It would finish with a ring and a blob thrown by a tap or by letting go of the stick; this tries the stream first. Both are in the playground's links.
+
+**From the read on the fight.**
+- Wet paint (section 3): paint is wet until it's flown home, and wet paint can be taken. Its pick, in the version where the paint is taken by flying across it.
+- The puddle (section 3): the skid's wave, which hits rivals where they already are, beside and behind. It asked for a sideways flick to do it; here the skid is the stick pulled to its end, so there's no new gesture.
+- Leapfrog and Musical chairs (section 4), and Keep-away, which it came to as well.
+- The threat shown on your own bus, the one thing always on your screen (section 2, rule 3).
+- 90 seconds and a circle about 1 km across. The statues kept as homes, every other god rule cut for now.
+- A caution worth keeping: the hard turn alone fixes little. At Cruise the bus already comes round in 2.3 s. What's wrong is what you can see and what your thumb is asked to do.
+

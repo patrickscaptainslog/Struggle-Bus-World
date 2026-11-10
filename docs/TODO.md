@@ -2,6 +2,14 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## PvP, rethought: waiting on the producer (2026-11-10)
+
+The producer flew the duel and found it bad: "The pvp is so so bad ... I think holding onto the other car is the wrong idea ... I need to be able to maneuver easier, especially turning left and right harder" (`CLAUDE.md`, "PvP", has it whole). Nothing more is built on the duel as it is.
+
+- **The studio's answer:** [specs/factions/PVP.md](specs/factions/PVP.md). What's wrong, in numbers; what a fight needs; what to build (aim with the bus, a match's own handling with a skid that throws a wave, the camera, a short hit, wet paint); a playground first. None of it ruled. The question put to the producer: build the playground?
+- **The numbers:** `node --no-warnings tools/recess/feel.mjs 120` on `feat/recess` (216fef1). A rival is on the player's screen 36 to 42 % of a match; when the nearest is within 300 m it's on screen a third of the time.
+- **For the first account.** If the producer says yes, the playground is built from `src/recess` alone: it sets `config.flight`'s and `config.camera`'s numbers for as long as a match lasts and puts them back, and uses what a match already has (`rig.matchFov`, `rig.matchPull`, `controls.flickGate`). What the producer then likes becomes yours to take in properly, as hooks: the skid (the stick pulled to its end: the nose round while the bus slides on), a gear's quick change in a match and no gear over Express there, no stall or steering cut on a tap in a match, and a camera that follows the bus's way, leads the turn and leans to a rival.
+
 ## Run report: the second account (2026-11-09)
 
 Your list of seven, in your order, all of it but one piece of the ferries (below). Nothing went live: `main` is untouched.
