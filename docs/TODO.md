@@ -2,13 +2,17 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
-## PvP, rethought: waiting on the producer (2026-11-10)
+## No matches: swerve, bumper buses and the god's week (2026-11-10)
 
-The producer flew the duel and found it bad: "The pvp is so so bad ... I think holding onto the other car is the wrong idea ... I need to be able to maneuver easier, especially turning left and right harder" (`CLAUDE.md`, "PvP", has it whole). Nothing more is built on the duel as it is.
+The producer flew the duel, found it bad, read the studio's rethink ([specs/factions/PVP.md](specs/factions/PVP.md)) and changed the shape of it. `CLAUDE.md`, "PvP", has their words. In short:
 
-- **The studio's answer:** [specs/factions/PVP.md](specs/factions/PVP.md). What's wrong, in numbers; what a fight needs; what to build (aim with the bus, a match's own handling with a skid that throws a wave, the camera, a short hit, wet paint); a playground first. None of it ruled. The question put to the producer: build the playground?
-- **The numbers:** `node --no-warnings tools/recess/feel.mjs 120` on `feat/recess` (216fef1). A rival is on the player's screen 36 to 42 % of a match; when the nearest is within 300 m it's on screen a third of the time.
-- **For the first account.** If the producer says yes, the playground is built from `src/recess` alone: it sets `config.flight`'s and `config.camera`'s numbers for as long as a match lasts and puts them back, and uses what a match already has (`rig.matchFov`, `rig.matchPull`, `controls.flickGate`). What the producer then likes becomes yours to take in properly, as hooks: the skid (the stick pulled to its end: the nose round while the bus slides on), a gear's quick change in a match and no gear over Express there, no stall or steering cut on a tap in a match, and a camera that follows the bus's way, leads the turn and leans to a rival.
+- **Ruled:** a bus is aimed at with the bus, a tap with a rival in front of you going for it like a red shell; bumper buses, the impact growing with the speed; all of it everywhere, with no localized matches, so **Recess as built is shelved**; the gears never change; the turning is recalibrated in every gear, harder and still smooth.
+- **Two plans, not approved yet:**
+  - [specs/flight/SWERVE.md](specs/flight/SWERVE.md): a longer stick (today's 78 px untouched, hard to about 120 px, the skid past it), the skid in full, the swoop (the steeper the nose, the faster it comes round), the producer's long swipe down to Cruise, and the Node rows that would show it solid.
+  - [specs/factions/RAMPAGE.md](specs/factions/RAMPAGE.md): rival crews' buses in the open world, the shell, the wave and the ram with its tiers by speed; and the god's week, a god woken by a city's painting, tamed by painting it, rampaging for the crew that has it, bursting on Sunday. One small scoreboard in the cloud, which the producer hasn't approved.
+- **The question put to the producer:** build the handling first, on a link, `?swerve`?
+- **The numbers behind it:** `node --no-warnings tools/recess/feel.mjs 120` on `feat/recess` (216fef1).
+- **For the first account.** The flight, the stick and the camera are yours, and SWERVE.md is yours to build properly. If the producer says yes before you're back, the second account builds a stand-in behind `?swerve` without editing `Flight.ts`, `Input.ts` or `CameraRig.ts`: the extra turn and the slip laid over the flight after its step, from `Input.state.anchor` and `finger`, with one call in `main.ts`. It's said here when it exists. RAMPAGE.md's god is mostly yours too: a sky piece let loose.
 
 ## Run report: the second account (2026-11-09)
 

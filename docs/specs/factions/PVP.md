@@ -4,7 +4,12 @@ The second account, 2026-11-10, for the producer. Nothing here is ruled until th
 
 > "The pvp is so so bad. Like really bad. We need to do a deep dive analysis on how to make this playable and fun. I don't even know what's wrong. 1) I think holding onto the other car is the wrong idea. 2) I need to be able to maneuver easier, especially turning left and right harder. Any creative ideas hear would be much appreciated"
 
-Both notes are right, and they point at the same thing. The short of it:
+**Since, the same day: the producer's reply.** Taken: aim with the bus ("a superb idea ... Whoever is in front gets what's coming to them"), bumper buses ("Love love love"), and the skid once it's explained ("I need to know they're solid"). Changed: there are to be no localized matches at all, the gears don't change anywhere, and the turning is recalibrated in every gear. So nothing below is "in a match" any more: it's how the bus flies everywhere. Sections 1, 2 and 7 stand: what's wrong, what a fight needs, and the numbers. Section 3's handling and goal, and section 5's playground and match, are replaced by:
+
+- `docs/specs/flight/SWERVE.md`: the longer stick, the skid in full, the swoop, the long swipe to Cruise;
+- `docs/specs/factions/RAMPAGE.md`: buses against buses anywhere, the ram, and the god's week.
+
+Both notes are right, and they point at the same thing. The short of it, as first written:
 
 - **What's wrong:** the fight happens where you can't see it, your thumb is asked to be in two places, and the bus can be fast or nimble but never both.
 - **What to build:** you aim with the bus, not with a finger; a match has its own handling, with a hard turn that is a move and an attack; nothing can hit you from off your screen; a hit is loud and costs seconds, not your bus; and a chase is for something, the wet paint the other bus is carrying.
