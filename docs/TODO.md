@@ -2,17 +2,48 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
-## Building: everything but the gods (2026-11-10)
+## Built: everything but the gods (2026-11-10)
 
-The producer flew the duel, found it bad, read the studio's rethink ([specs/factions/PVP.md](specs/factions/PVP.md)) and changed the shape of it, then read the two plans and said: "Let's build everything but the gods for now. Let's just put the gods on the back burner". `CLAUDE.md`, "PvP", has all their words. In short:
+The producer flew the duel, found it bad, read the studio's rethink ([specs/factions/PVP.md](specs/factions/PVP.md)), changed the shape of it, read the two plans and said: "Let's build everything but the gods for now. Let's just put the gods on the back burner". `CLAUDE.md`, "PvP", has all their words. It's built, by the second account, on `feat/swerve` (cut from `rc/1`), behind `?swerve`. Not live: `main` is untouched.
 
-- **Ruled:** a bus is aimed at with the bus, a tap with a rival in front of you going for it like a red shell; bumper buses, the impact growing with the speed; all of it everywhere, with no localized matches, so **Recess as built is shelved**; the gears never change; the turning is recalibrated in every gear, harder and still smooth.
-- **Being built, by the second account, on `feat/swerve` (cut from `rc/1`) behind `?swerve`:**
-  - [specs/flight/SWERVE.md](specs/flight/SWERVE.md): the longer stick and its hard turn, the skid and its wave, the swoop, the producer's long swipe down to Cruise, the camera with them, and the Node rows that show it solid.
-  - [specs/factions/RAMPAGE.md](specs/factions/RAMPAGE.md) sections 2 and 3: rival crews' buses in the open world, the shell, the wave on a bus, the ram with its tiers by speed and the head-on.
-- **On hold:** RAMPAGE.md's god (section 4 on) and its scoreboard in the cloud.
-- **The numbers behind it:** `node --no-warnings tools/recess/feel.mjs 120` on `feat/recess` (216fef1).
-- **For the first account.** The flight, the stick and the camera are yours, and SWERVE.md is yours to build into them properly. What's on `feat/swerve` is a stand-in laid over the flight from outside, with a few small named hooks in your files: its `docs/HOOKS.md` names each one, and this list says so when it's pushed. RAMPAGE.md's god is mostly yours too, when it comes off hold: a sky piece let loose.
+**What to fly:** https://struggle-bus-world-git-feat-swerve-patricks-projects-9ff6e721.vercel.app/?swerve
+
+- **Turn harder.** Pull your thumb further sideways than you used to. The first bit is exactly as before; past that it bites, about twice as hard in every gear.
+- **Skid.** Pull all the way out to a side and hold. The bus goes broadside, squeals and sprays paint. Ease back and it snaps round the way it points, and throws its belly off the outside as a wave of paint. At Cruise you can hold it: a doughnut. If your thumb started near the screen's edge, pushing to the edge is enough.
+- **Swoop.** Pull down, sweep across, then push. It comes round over the top.
+- **The big swipe.** In any gear, one long stroke down, started above the bus. Straight to Cruise.
+- **The other crews.** Three of their buses are always somewhere ahead of you, each with its name over it.
+- **The shell.** When white beads ring one, tap: your shot goes for it. It's thrown, in your colours, and your paint lands where it comes down.
+- **Ram them.** Fly into one. At Cruise it's a BUMP!. Go Express and it's a SMASH!: punted across the block. At Jet, a WRECK!.
+- **Head-on.** In Jet, find one coming the other way and don't turn. Time slows just before. Turn away then and it says CHICKEN!.
+- **They fight back.** One you've hit honks, then comes after you and fires. Turn hard as its shot whistles in and it misses.
+- `&norivals` on the link is the handling alone, over your saved city. `&life` adds the cars, the ferries and the street.
+
+**What's checked** (all on `feat/swerve`; [SWERVE.md](specs/flight/SWERVE.md) section 7 and [RAMPAGE.md](specs/factions/RAMPAGE.md) section 11 have the numbers)
+- 101 rows in Node on the real flight, stick and shot code, all passing: the turns in every gear at 30 and 60 frames a second, the skid's limits, the swoop, the swipe against every other gesture, the rivals' rules, both shells, the ram every way from 40 to 1,800 m/s.
+- The skid over the real city, 80 times: never through a roof.
+- Two browser runs at 1x on the final build: the handling, and the rivals (the shell, a smash, being hit, the head-on). Nothing compiles in flight. And two pages loaded once each: `?swerve&life` together, and `?recess`, whose name tags moved to a file the rivals share.
+- The old gesture table comes out the same as `rc/1`'s, to the byte.
+- `npm run build` passes and Safari 15 parses it. Vercel's own status wasn't read: this session can't.
+
+**What isn't right yet**
+- Nothing ran on a phone or a GPU. How it feels is yours to say: every number is in the tuner, under Swerve, Swipe and Rivals.
+- The sounds are stand-ins: the squeal, the brake, the horn, the clang, the head-on's boom. The first account voices the game.
+- Each crew's bus is yours in another colour. Soaked in Rainbow's colours one looks like a yellow school bus, which is yours.
+- In a skid only a tap aims down the nose. The Comet, the Lob and the Hose still go the way the bus is going.
+- The rivals come in ahead of you with a pop, in plain view.
+- Rivals never ram on purpose, never fight each other, and stop at Jet's speed.
+- Not built from the plan: the camera looking into a turn; the picnics' cheer, the comet of paint behind a wrecked bus and the ring racing out from a wreck (the head-on has its rings).
+
+**Calls I made, yours to overrule**
+- The rivals only fight back: they never start on you.
+- On this link the paint lasts the visit and your saved city is left alone, because the rivals paint too.
+- The wave is thrown when a skid ends, not while it slides, so a tap in a skid is still a shot.
+- The swipe needs 40 % of the screen's height. If it's too long a stroke, that's one number.
+
+**For the first account.** It's a stand-in laid over your flight, stick and camera, yours to take in properly and then drop: [specs/shots/HOOKS.md](specs/shots/HOOKS.md) on `feat/swerve`, "Swerve" and "The rival buses", lists every line it asks of `main.ts` and `Input.ts`, and what it reaches of yours from outside. `Flight.ts`, `CameraRig.ts`, `Turbo.ts`, `Controls.ts` and the shot code are untouched. It needs your review before anything merges.
+
+**On hold:** RAMPAGE.md's god (section 4 on) and its scoreboard in the cloud.
 
 ## Run report: the second account (2026-11-09)
 

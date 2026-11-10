@@ -141,7 +141,7 @@ node tools/moon/smoke.mjs shots/tmp/smoke          # ?moon and ?moonrun stand up
 
 Keep frames and logs in `shots/tmp/`, which git ignores.
 
-Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, paint, home. `?moon&site=TYCHO&fps` starts low anywhere, `?moon&lat=&lon=` too. `&t=2026-11-25T04:00:00Z` sets the date, and so the Sun: that one is full Moon. `window.__game` and `window.__qa` are the low game, `window.__space` the flight.
+Pages: `?swerve` (on `feat/swerve`) is the new handling with the rival crews' buses; `&norivals` the handling alone. `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, paint, home. `?moon&site=TYCHO&fps` starts low anywhere, `?moon&lat=&lon=` too. `&t=2026-11-25T04:00:00Z` sets the date, and so the Sun: that one is full Moon. `window.__game` and `window.__qa` are the low game, `window.__space` the flight.
 
 | Tool | What it does |
 |---|---|
@@ -157,6 +157,7 @@ Pages: `?moonland&fps` is the whole trip, Earth orbit to the Moon, land, skim, p
 | `tools/sky/route-check.mjs`, `trip-fuzz.mjs` | The flight's maths under Node, no browser |
 | `tools/warmcheck.mjs` | Nothing compiles in flight |
 | `tools/controls.mjs`, `tools/controls-sim/` | The controls. What tests the two thumbs and the lane is on main since 6b494b7 |
+| `tools/swerve/`, `tools/rivals/` (on `feat/swerve`) | `?swerve` in Node and in a browser: the handling's turns, skids, swoop and swipe (`s_turns.ts`, `s_city.ts`, `s_swipe.ts`, `smoke.mjs`), the rival buses' rules, both shells and the ram (`s_rivals.ts`, `s_shell.ts`, `smoke.mjs`). SWERVE.md section 7 and RAMPAGE.md section 11 say how each is run |
 
 **On a cloud machine** there's no GPU. Software graphics run about 1.5 frames a second, so the game runs about 14 times slower than real time and frame times mean nothing. Tools wait on the game clock, so they still work, and `tools/browser.mjs` finds the machine's Chrome by itself. Short runs at a fixed step are fine. Say in the hand-in which long real-time flights you left for a laptop or the phone.
 
