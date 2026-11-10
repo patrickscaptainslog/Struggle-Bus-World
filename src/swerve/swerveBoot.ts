@@ -7,14 +7,16 @@ import type { InputState } from '../game/Input';
 import type { BarfOpts } from '../game/Splat';
 import type { TurboDrive } from '../game/Turbo';
 import { registerTunables } from '../ui/tunables';
-import { Swerve, swerveTune, wavePlace } from './swerve';
+import { Swerve, squeeze, swerveTune, wavePlace } from './swerve';
 import { airHiss, brakeClunk, skidSqueal } from './swerveSfx';
 
 // ?swerve on the screen (docs/specs/flight/SWERVE.md): the stand-in's hands and its looks. The handling itself is swerve.ts, which the harness flies in Node;
 // what's here needs a page.
 //
-//  - The thumb. Each frame main.ts hands over Input's state: the sideways travel is its finger less its anchor, as the stick itself reads them. Keys have no
-//    travel, so on a desktop C held is the hard part and V the skid, with the arrows; X is the long swipe. (Dev keys: the phone has none.)
+//  - The thumb. Each frame main.ts hands over Input's state: the sideways travel is its finger less its anchor, as the stick itself reads them. A thumb that
+//    landed near a side of the glass has less room that way than the hard part and the skid need: they squeeze into what there is (swerve.ts's `squeeze`), so
+//    a thumb against the edge is always asking for all of it. Keys have no travel, so on a desktop C held is the hard part and V the skid, with the arrows; X
+//    is the long swipe. (Dev keys: the phone has none.)
 //  - The long swipe, the producer's: "a large swipe from top to bottom of screen" that "brings the bus to gear 1, just above school zone, very quickly". One
 //    stroke down of `share` of the screen's height, landed off the bus's lane (in the lane a stroke down is the stick's pull), nearly straight, in `ms` or
 //    less: every rung above Cruise goes at once and the speed with it (Swerve.brake). It is judged as the stroke passes its length, not at its lift, so the bus
@@ -34,6 +36,8 @@ export const swipeTune = {
   deg: 28,
   /** ...and the nose comes up this much as it brakes (deg). */
   nose: 9,
+  /** A thumb can be read to within this of the glass's sides (px): the room it has, for the squeeze. */
+  inset: 14,
   /** The slide's spray: puffs a second, and how hard a skid kicks the view. */
   spray: 42,
   kick: 0.35,
@@ -88,12 +92,12 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
   const core = new Swerve(), f = d.flight, T = swerveTune, W = swipeTune;
   registerTunables('Swerve', swerveTune as unknown as Record<string, unknown>, {
     hardFrom: [40, 170, 1], hardFull: [60, 172, 1], hardHz: [2, 9, 0.1], hardCam: [1, 3, 0.05], swoopMax: [1, 4, 0.1], swoopFrom: [0, 0.9, 0.01], swoopFull: [0.1, 1, 0.01],
-    swoopEase: [1, 20, 0.5], swoopFall: [0.5, 20, 0.5], skidFrom: [90, 172, 1], skidBack: [0, 40, 1], skidHold: [0, 0.4, 0.01], skidMin: [0, 60, 1], slipMin: [0, 2, 0.05],
+    swoopEase: [1, 20, 0.5], swoopFall: [0.5, 20, 0.5], skidFrom: [90, 172, 1], skidBack: [0, 40, 1], squeezeSmooth: [20, 78, 1], squeezeHard: [4, 42, 1], squeezeSkid: [0, 40, 1], skidHold: [0, 0.4, 0.01], skidMin: [0, 60, 1], slipMin: [0, 2, 0.05],
     slipMax: [20, 89, 1], scrub: [0, 1.5, 0.01], floor: [5, 40, 1], scrubRate: [1, 12, 0.5], grip: [0.05, 1, 0.01], hold: [0.3, 5, 0.1], lean: [0, 40, 1],
     waveAfter: [0, 1, 0.01], waveSlip: [0, 70, 1], waveOut: [0, 100, 1], waveBack: [0, 60, 1], waveRadius: [15, 90, 1], brakeFor: [0.2, 2, 0.05],
   });
   registerTunables('Swipe', swipeTune as unknown as Record<string, unknown>, {
-    share: [0.2, 0.8, 0.01], ms: [200, 1200, 10], deg: [5, 60, 1], nose: [0, 25, 1], spray: [0, 120, 1], kick: [0, 1.5, 0.05],
+    share: [0.2, 0.8, 0.01], ms: [200, 1200, 10], deg: [5, 60, 1], nose: [0, 25, 1], inset: [0, 40, 1], spray: [0, 120, 1], kick: [0, 1.5, 0.05],
   });
   const stick = { dragging: false, dx: 0, sx: 0 };
   const p = new THREE.Vector3(), v = new THREE.Vector3(), to = new THREE.Vector3(), place = { x: 0, z: 0 };
@@ -105,6 +109,8 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
   // ---- the long swipe: one stroke at a time, read from its landing as it moves
   const S = { id: -1, x0: 0, y0: 0, t0: 0, h: 1, fired: false, dead: false };
   let swiped = false, lifted = false;
+  /** the element's width (CSS px), read at each landing: the thumb's room to a side */
+  let elW = d.el.getBoundingClientRect().width;
   const swipe = () => {
     const t = d.turbo;
     // (from Cruise and under it's nothing: School Zone and Curb are a flick each)
@@ -124,8 +130,9 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
     }
   };
   const down = (e: PointerEvent) => {
-    if (e.pointerType === 'mouse' || S.id >= 0) return;
     const r = d.el.getBoundingClientRect();
+    elW = r.width;
+    if (e.pointerType === 'mouse' || S.id >= 0) return;
     if (!d.offLane(e.clientX - r.left, e.clientY - r.top)) return;
     S.id = e.pointerId;
     S.x0 = e.clientX;
@@ -219,7 +226,11 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
       stick.dragging = st.dragging;
       stick.sx = st.stretch.x;
       // (a thumb: its travel on the glass. Keys: none, so the stick's own, out to the hard part with C and to the skid with V)
-      stick.dx = st.anchor && st.finger ? st.finger.x - st.anchor.x : st.stretch.x * (keySkid ? 172 : keyHard ? T.hardFull + 4 : T.hardFrom);
+      if (st.anchor && st.finger) {
+        // (the room from where it landed to the side it's going toward, on the element's own width)
+        const dx = st.finger.x - st.anchor.x, room = (dx > 0 ? elW - st.anchor.x : st.anchor.x) - W.inset;
+        stick.dx = Math.sign(dx) * squeeze(Math.abs(dx), room);
+      } else stick.dx = st.stretch.x * (keySkid ? 172 : keyHard ? T.hardFull + 4 : T.hardFrom);
       if (boot.thumb !== null) {
         stick.dragging = true;
         stick.dx = boot.thumb;

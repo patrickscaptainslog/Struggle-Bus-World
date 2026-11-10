@@ -44,6 +44,8 @@ In the skid the nose is round sooner than the bus is: at 1.05 s at Cruise, 1.3 s
 
 The leash stays where it is: the stick's middle follows a thumb that goes past 172 px, so the reach is always there.
 
+**A thumb near a side of the screen.** A thumb that lands 100 px from the screen's right edge can't travel 138 px right. So the hard part and the skid squeeze into the room there is on that side: with 130 px of room the hard part runs from 64 to 106 px and the skid is at 120; with 95 px, 52 to 71 and 85. The smooth part is never squeezed under 52 px. A thumb pushed against the edge of the glass is always asking for all there is. (Within about 85 px of an edge there's no skid that way.) With room to spare, 148 px or more, nothing is squeezed.
+
 ## 3. The skid, exactly
 
 **How it starts.** The thumb past 138 px sideways for 0.08 s. A twitch doesn't do it. Not in School Zone or on the street: the hover and Curb have their own turn. After a skid the thumb has to come back inside 138 px before the next can start.
@@ -123,9 +125,10 @@ The producer's gesture: "a large swipe from top to bottom of screen".
 
 In Node, on the real flight code, each a row that fails when its rule is broken. On `feat/swerve`:
 
-- `node tools/feel-sim/run.mjs ../swerve/s_turns.ts`, on a flat world, 45 rows:
+- `node tools/feel-sim/run.mjs ../swerve/s_turns.ts`, on a flat world, 46 rows:
   - **The table of section 2,** measured in every gear, smooth, hard and skidding, at 30 and at 60 frames a second, the two within 3 % of each other (or a frame).
   - **Smooth is today's.** The same thumb inside 78 px, level, flies the same line with it on as with it off, in every gear: not a bit apart.
+  - **A thumb near a side:** the parts squeeze into the room, in order, the skid within reach of the edge.
   - **The skid:** the slip never over its cap; grip 0.3 s after easing off; never under 20 m/s; the gear never changed; with a gear in, over by itself at 1.5 s; held as long as the thumb is at Cruise; a twitch starts none.
   - **The swoop:** the table of section 4; the turn never over three times its flat rate.
   - **The swipe's brake:** at Cruise's speed from every gear in under 0.8 s.

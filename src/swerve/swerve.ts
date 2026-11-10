@@ -49,6 +49,10 @@ export const swerveTune = {
   /** The skid: the thumb's sideways travel (px) past which, held skidHold s, it starts; back inside by skidBack (px) it grips. Not under skidMin m/s. */
   skidFrom: 138,
   skidBack: 12,
+  /** A thumb short of room to a side (`squeeze`): the smooth part is kept down to this (px), the hard part gets at least this, the skid is this short of the edge. */
+  squeezeSmooth: 52,
+  squeezeHard: 16,
+  squeezeSkid: 10,
   skidHold: 0.08,
   skidMin: 10,
   /** ...the nose's swing (rad/s) by the speed (m/s), and what the slip grows by at the least (rad/s: the nose always leads). */
@@ -86,6 +90,23 @@ function byLog(at: readonly number[], v: readonly number[], speed: number): numb
   while (speed > at[i]) i++;
   const u = Math.log(speed / at[i - 1]) / Math.log(at[i] / at[i - 1]);
   return v[i - 1] + (v[i] - v[i - 1]) * u;
+}
+
+/**
+ * A thumb that lands near a side of the glass has less room that way than the stick's parts need: `room` px from its landing to where a thumb can still be
+ * read. The hard part and the skid squeeze into what there is, and this is the travel on the stick's own scale: the smooth part kept down to `squeezeSmooth`
+ * px, then the hard part in at least `squeezeHard` px, and the skid `squeezeSkid` px short of the edge. With room to spare (skidFrom and a little over) it is
+ * the travel itself. So a thumb pushed against the edge of the glass is always asking for all there is.
+ */
+export function squeeze(travel: number, room: number): number {
+  const T = swerveTune, need = T.skidFrom + T.squeezeSkid;
+  if (room >= need || travel <= 0) return travel;
+  const skid = Math.max(T.squeezeSmooth + T.squeezeHard + 4, room - T.squeezeSkid), full = Math.min(T.hardFull, Math.max(T.squeezeSmooth + T.squeezeHard, skid - 14));
+  const from = Math.min(T.hardFrom, Math.max(T.squeezeSmooth, full - (T.hardFull - T.hardFrom)));
+  if (travel <= from) return (travel * T.hardFrom) / from;
+  if (travel <= full) return T.hardFrom + ((travel - from) / (full - from)) * (T.hardFull - T.hardFrom);
+  if (travel <= skid) return T.hardFull + ((travel - full) / (skid - full)) * (T.skidFrom - T.hardFull);
+  return T.skidFrom + (travel - skid);
 }
 
 /** How many times today's most the hard turn is at this speed. */

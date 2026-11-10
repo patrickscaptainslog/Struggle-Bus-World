@@ -4,6 +4,7 @@
 // leash), and each frame goes as main.ts's does: the gears, the stand-in's pre, the flight's steps at 120 Hz, the stand-in's post.
 //   table    half a turn in every gear: today's (the stand-in off, the thumb at the leash), hard (120 px), and the skid (the leash, held till the nose is round,
 //            then let go); its time and its width, at 30 and at 60 frames a second, the two within 3 % of each other
+//   squeeze  a thumb that lands near a side of the glass: the hard part and the skid squeeze into the room it has, in order, the skid within reach of the edge
 //   smooth   the same thumb inside 78 px, level, flies the same line with it on as with it off, in every gear, to the last bit
 //   skid     the slip never over its cap; grip within 0.4 s of easing off; never under 20 m/s (or what it began at); the gear never changed; with a gear in,
 //            over by itself in under 2 s, and with none held as long as the thumb is; a thumb that twitches out and back doesn't start one
@@ -14,7 +15,7 @@
 import { config, makeCam } from '../feel-sim/lib';
 import { Flight } from '@src/game/Flight';
 import { TurboDrive } from '@src/game/Turbo';
-import { Swerve, swerveTune as T } from '@src/swerve/swerve';
+import { Swerve, squeeze, swerveTune as T } from '@src/swerve/swerve';
 
 const flat = { obstacleAt: () => 20, groundAt: () => 10 };
 const DEG = Math.PI / 180;
@@ -116,6 +117,28 @@ for (const [name, rungs] of GEARS) {
     out[kind] = `${r2(a.t)} s, ${a.wide < 100 ? r1(a.wide) : Math.round(a.wide)} m` + (kind === 'skid' ? ` (nose round at ${r2(a.noseAt)} s, slowest ${Math.round(a.least)} of ${Math.round(a.speed)} m/s)` : '') + ` [30 fps: ${r2(c.t)} s, ${c.wide < 100 ? r1(c.wide) : Math.round(c.wide)} m]`;
   }
   row(ok, name, out);
+}
+
+// ---------------------------------------------------------------- a thumb short of room
+{
+  // (by the room from the landing to the side: where the hard part begins, where it is all in, and where the skid's line is, in px of real travel; with room to
+  // spare they are the stick's own, and short of it they squeeze in, in that order, the skid always within reach of the edge)
+  const out: string[] = [];
+  let ok = true;
+  for (const room of [200, 148, 130, 110, 95, 80, 70]) {
+    const at = (want: number) => {
+      let x = 0;
+      while (x < room + 40 && squeeze(x, room) < want - 1e-9) x += 0.25;
+      return x;
+    };
+    const from = at(T.hardFrom), full = at(T.hardFull), skid = at(T.skidFrom);
+    let mono = true;
+    for (let x = 0.5; x <= room; x += 0.5) if (squeeze(x, room) < squeeze(x - 0.5, room)) mono = false;
+    const good = mono && from < full && full < skid && skid <= Math.max(room, 72) && from >= T.squeezeSmooth - 1e-6 && (room < T.skidFrom + T.squeezeSkid || (from === T.hardFrom && skid === T.skidFrom));
+    if (!good) ok = false;
+    out.push(`${room} px of room: hard from ${Math.round(from)}, all in at ${Math.round(full)}, the skid at ${Math.round(skid)}${good ? '' : ' (!)'}`);
+  }
+  row(ok, 'a thumb near a side', out);
 }
 
 // ---------------------------------------------------------------- smooth is today's
