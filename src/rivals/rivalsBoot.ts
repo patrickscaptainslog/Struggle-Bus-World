@@ -254,13 +254,8 @@ export class RivalsGame {
     if (n) this.count('waveHit');
   }
 
-  /** Before the flight's steps: a flung bus flies over whatever stands in its way, on the flight's own floor lifted under it. */
-  pre(): void {
-    const H = this.hurt, f = this.h.flight;
-    if (!H.on || H.apex <= 0) return;
-    const u = Math.min(1, H.t / H.air);
-    f.turbo.floor = Math.max(f.turbo.floor, H.y0 + H.apex * 4 * u * (1 - u));
-  }
+  /** Before the flight's steps. (A flung bus's floor was lifted here; the flight's throw flies it over what stands in its way now, Flight.shove.) */
+  pre(): void {}
 
   /** Late in the frame, after main.ts has posed the bus and set the camera. `off`: the city's buses aren't out yet (the opening): once out they fly on. */
   frame(dt: number, simTime: number, realDt: number, off: boolean): void {
@@ -450,6 +445,8 @@ export class RivalsGame {
     let top = f.y;
     for (let d = 0; d <= far; d += 25) top = Math.max(top, w.obstacleAt(f.x + ux * d, f.z + uz * d, 1e9) + 12);
     H.apex = far > 90 ? Math.max(top - f.y, Math.min(260, far * 0.12)) : 0;
+    // (the throw itself is the flight's, through its own floors, ending inside the map: Flight.shove, the first account's, for your review)
+    f.shove(far, ux, uz, air, w.bounds);
     this.flood = { at: this.now, ramp: BODY[faction] ?? Ramp.GLOW_WHITE, drainAt: Infinity, shown: -1 };
     this.h.kick(1.4);
     this.count('flung');
@@ -481,9 +478,7 @@ export class RivalsGame {
       H.t += dt;
       const k = Math.min(1, H.t / H.air), e = k * k * (3 - 2 * k), de = e - H.e;
       H.e = e;
-      f.x += H.ux * H.far * de;
-      f.z += H.uz * H.far * de;
-      // (a short throw hops; a long one rides the floor pre() lifts under it)
+      // (the flight carries it along the throw, Flight.shove; a short throw hops, a long one rides the flight's arc)
       if (H.apex <= 0) f.y += 9 * de * (k < 0.5 ? 1 : -0.4);
       roll = Math.PI * 2 * H.rolls * e + 0.3 * Math.sin(k * Math.PI * 3) * (1 - k);
       if (k >= 1) {
