@@ -681,10 +681,11 @@ export class GroundPaint {
     return { cov: m.data[o] / 255, hue: Math.min(5, Math.floor(m.data[o + 1] / 32)), faction: m.data[o] ? texelOwner(m.data[o + 1]) : 0 };
   }
 
-  /** A wide blast is still drawing (begin() would finish it first, all of it in that frame). */
-  wideBusy(): boolean {
-    for (const j of this.jobs) if (j.wide) return true;
-    return false;
+  /** When the last wide blast still drawing is due (game s; begin() before then would finish it first, all of it in that frame), or -Infinity with none. */
+  wideDue(): number {
+    let due = -Infinity;
+    for (const j of this.jobs) if (j.wide && j.wide.due > due) due = j.wide.due;
+    return due;
   }
 
   /**

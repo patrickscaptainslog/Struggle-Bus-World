@@ -7,6 +7,8 @@
 // there, and lands under where it let go (the review: a third flew up onto the tower's own roof). The pool keeps the footprint's shape (its walls by angle)
 // and spreads from them: on fresh ground a texel 1.5 m out from a wall shows within 0.6 s of the landing (0.25 s at 6 m/s, and a texel's own reach), one
 // 8.5 m out 1.2 s or more after it, where the circle round the farthest corner had half its open ground show at once (the review).
+// Last, at 30 fps, the floor's (the Lob review's m90): a Bomb III from 600 m onto a tower whose roof is 40-60 m up pours, and its pool's ground waits for the
+// wide ground's own due: nothing of the circle left for begin to draw in one frame.
 //   node tools/feel-sim/run.mjs s_falls.ts
 import { newCity, pump, ll, save, MODE, config, type BuildingRef } from './lib';
 import { Splatter, type Blast } from '@src/game/Splat';
@@ -304,6 +306,44 @@ const [low, drive, mover, air, hose] = spare;
     }
     const L1 = blastUniforms.uGroundLive.value, L2 = blastUniforms.uGroundLive2.value, ser = job?.serial ?? -1;
     ok(!!job && t > land + 1 && [L1.x, L1.z, L2.x, L2.z].includes(ser), `the pool on a ${r1(C.roofY - C.baseY)} m tower after four more blasts: its live slot held a second past its landing for its reveal (serial ${ser}, slots ${[L1.x, L1.z, L2.x, L2.z].join(', ')})`);
+  }
+  // the Lob review's m90: a Bomb III from 600 m onto a tower whose roof is 40-60 m up, the runs reaching the street 1.6 s or so after it lands and its wide
+  // ground due 2.3 s after: the pool waits for that due, where 1.2 s past the street it began, and begin drew the rest of the circle whole in that frame.
+  // What the wide job had left to draw when the pool's ground began (GroundPaint's own count, its texels and 4 a dot) must be nothing. At 30 fps, the floor's:
+  // at 60 the queue's 1,500 texels a frame drew it all 0.6 s before its due, and before the pool
+  {
+    const D = tall.find((r) => r.roofY - r.baseY <= 60 && !taken.has(r.index) && !fresh.includes(r));
+    if (D) {
+      await pump(city, D.cx, D.cz, 600);
+      city.paint.resetAll();
+      run(FALLS.dry * 1.3 + 4);
+      const Q = city.ground.wideQa, h = D.roofY - city.groundAt(D.cx, D.cz), drop = 600 - h, r = blastRadiusFor(drop) * config.bomb.radius3;
+      Q.due = 0;
+      Q.done = 0;
+      const p0 = falls.stats.pours, n0 = pools.length;
+      const tImpact = splatter.barf(D.cx, D.cz, { target: D, drop, radius: r, super: { kind: 'bomb', charge: 1, id: 8 }, hitStop: 0, jump: config.bomb.jump3 });
+      const G = city.ground as any, begin0 = G.begin;
+      let left = -1, at = -1;
+      G.begin = function (spec: unknown, tImp: number, deadline = 0) {
+        if (deadline === 0 && left < 0) {
+          left = 0;
+          at = t;
+          for (const j of G.jobs) if (j.wide) left += j.p ? G.left(j) : Infinity;
+        }
+        return begin0.call(this, spec, tImp, deadline);
+      };
+      for (let i = 0; i < 150; i++) {
+        t += 1 / 30;
+        splatter.update(1 / 30);
+        falls.update(t);
+        globals.uTime.value = t;
+        city.ground.work();
+        city.ground.flush(counting, 1 / 30);
+      }
+      G.begin = begin0;
+      const pool = pools.length > n0 ? pools[pools.length - 1] : null;
+      ok(falls.stats.pours > p0 && Q.due > tImpact + 2 && left === 0 && !!pool && pool.arrive >= Q.done - 1e-6, `a Bomb III from 600 m pours on a tower ${r1(h)} m up: its wide ground (${r1(r)} m) left to draw when the pool's began at ${r1(at)} s: ${left}; landing at ${r1(tImpact)} s, all down at ${r1(Q.done)} s (due ${r1(Q.due)}), the pool after it at ${pool && r1(pool.arrive)} s`);
+    } else ok(false, 'a tower whose roof is 40-60 m up for the 600 m Bomb');
   }
 }
 save('falls', rows);
