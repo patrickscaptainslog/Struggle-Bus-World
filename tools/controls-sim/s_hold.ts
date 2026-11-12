@@ -339,7 +339,7 @@ if (process.argv.includes('--review')) {
     const aimer = new Aimer({} as any, {} as any) as any;
     let own = 0;
     aimer.comet = comet;
-    aimer.lob = { fired: () => {} };
+    aimer.lob = { fired: () => {}, unfired: () => {} };
     aimer.fireAim = () => (own++, {});
     // (what this frame planned: the Comet's plan, the Lob's over it, or neither, and for a Bomb under a Lob the Comet's alone)
     const as = (lobbing: boolean, cometPlan: unknown, cometOnly: unknown = null) => Object.assign(aimer, { lobbing, cometPlan, cometOnly });
