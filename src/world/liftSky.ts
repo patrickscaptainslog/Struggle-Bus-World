@@ -912,6 +912,8 @@ function* hyperglowGeo(p: SkyPlace, g: Geo): Steps {
           const j3 = g.v(ax - ex + ox, Y - 3, az - ez + oz, nx * sd, 0, nz * sd, kd, [sd, s, da]);
           g.quad(j0, j1, j2, j3);
         }
+      // (a box a lane and its sides: one round the whole Skyway kept the cut's program in wherever the line to the bus crossed its height)
+      g.box(i0, 1);
       s += len;
       if (!rank && k === 0) node(ax, az);
       if (!rank && k + 4 >= xz.length) node(bx, bz);
@@ -923,9 +925,9 @@ function* hyperglowGeo(p: SkyPlace, g: Geo): Steps {
     const d = Math.hypot(x - hx, z - hz), r = 11;
     const ids = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => g.v(x + u * r, Y + 0.3, z + v * r, 0, 1, 0, [1, 0, 0, 0], [u, v, d]));
     g.quad(ids[0], ids[3], ids[2], ids[1]);
+    g.box(ids[0], 1);
   }
   // (no fence round the neighbourhood's edge: from a kilometre it framed the Skyway like a selection box)
-  g.box(0, 1);
   return { R: hoodRadius(p), Y, feet: [], cols: [] };
 }
 
@@ -998,6 +1000,8 @@ void main() {
 /** The black sun's radius (m) and how far out its corona's square reaches (in its radii) */
 const RS_ = 60;
 const HALO = 1.85;
+/** When the columns have poured up into the sun and are gone (s from the piece's start) */
+const COLS_GONE = 6.4;
 
 function* infernoGeo(p: SkyPlace, g: Geo): Steps {
   const [hx, hz] = p.heart;
@@ -1087,7 +1091,7 @@ function* infernoGeo(p: SkyPlace, g: Geo): Steps {
   // (it turns round the heart within its own disc and billows 8 m. The embers have no box: a chip 2 m across over the bus is a spark, not
   // a piece standing between it and the lens, and with them the cut would be in from the ground to 240 m over the whole neighbourhood)
   g.box(o, 9);
-  return { R: hoodRadius(p), Y, feet: pts, cols };
+  return { R: hoodRadius(p), Y, feet: pts, cols, colsGone: COLS_GONE };
 }
 
 const INFERNO_VS = /* glsl */ `
@@ -1115,7 +1119,7 @@ void main() {
   } else if (kind < 2.5) {
     // a column: it rises (0-2.4 s), and once the sun has swollen out of where they meet it pours up into it, its foot rising after it
     float rise = sbForm(0.0, 2.4);
-    if (aE.x > rise + 0.02 || aE.x < sbForm(4.4, 6.4) * 1.02 - 0.02) { ${HIDE} }
+    if (aE.x > rise + 0.02 || aE.x < sbForm(4.4, ${F(COLS_GONE)}) * 1.02 - 0.02) { ${HIDE} }
     float w = sin(aE.y * 6.2832 * 2.0 + uTime * 5.0 + aK.y * 20.0) * 0.5 + sin(aE.x * 25.0 - uTime * 6.0) * 0.6;
     p += n * w * (1.0 + beat);
   } else if (kind < 3.5) {
@@ -1228,6 +1232,8 @@ interface Built {
   feet: Array<[number, number]>;
   /** each fall's or column's centre and reach at 41 heights (x, y, z, m: sampleRiser), for the checks */
   cols: number[][];
+  /** when its risers are gone (s from its start), if they go */
+  colsGone?: number;
 }
 
 /** Each faction's piece: its build, its shaders, and the kinds of its parts that HOLE (drawn apart, the rest in the solid program) */
@@ -1263,16 +1269,17 @@ function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.S
 }
 
 /**
- * Can the cut's cone (sbCut) reach any of the boxes (x0, y0, z0, x1, y1, z1 each): every point it cuts is within its radius at its far end
- * (SKY_CUT_PAST past the bus) of the line from the lens there, so a box that line misses, grown by that and by `slack`, has nothing in it.
+ * Can the cut's cone (sbCut) reach any of the boxes in `box`'s first n numbers (x0, y0, z0, x1, y1, z1 each): every point it cuts is within
+ * its radius at its far end (SKY_CUT_PAST past the bus) of the line from the lens there, so a box that line misses, grown by that and by
+ * `slack`, has nothing in it.
  */
-function cutReaches(box: Float32Array, cx: number, cy: number, cz: number, bx: number, by: number, bz: number, w: number, slack: number): boolean {
+function cutReaches(box: Float32Array, n: number, cx: number, cy: number, cz: number, bx: number, by: number, bz: number, w: number, slack: number): boolean {
   const lb = Math.hypot(bx - cx, by - cy, bz - cz);
   if (!(w > 0) || lb < 1e-3) return false;
   const L = lb + SKY_CUT_PAST, s = L / lb;
   const d0 = (bx - cx) * s, d1 = (by - cy) * s, d2 = (bz - cz) * s;
   const r = L * Math.min(w, SKY_CUT_R / lb) + slack;
-  for (let i = 0; i < box.length; i += 6) {
+  for (let i = 0; i < n; i += 6) {
     // (the line from the lens, t 0..1, clipped to the grown box axis by axis)
     let t0 = 0, t1 = 1;
     for (let a = 0; a < 3 && t0 <= t1; a++) {
@@ -1325,7 +1332,7 @@ export function makeSkyPiece(faction: number, place: SkyPlace): { step(): SkyPie
   };
 }
 
-function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, cols }: Built): SkyPiece {
+function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, cols, colsGone = Infinity }: Built): SkyPiece {
   const { cut, plain, solid } = materials(faction);
   (cut.uniforms.uSkyC.value as THREE.Vector4).set(place.heart[0], Y, place.heart[1], size);
   if (faction === FACTION_ELDERWOOD) {
@@ -1334,7 +1341,8 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
     isles(place).forEach(({ x, y, z, rise }, i) => v[i].set(x, y, z, rise));
   }
   // where it can be drawn: its parts' boxes, and each riser's between each two of its heights, grown by their reach (and 1 m: its bend between)
-  const boxes = g.boxes.slice();
+  // (the risers' after the parts': once they're gone only the parts' are tried)
+  const boxes = g.boxes.slice(), parts = boxes.length;
   for (const c of cols)
     for (let k = 0; k + 7 < c.length; k += 4) {
       const r = Math.max(c[k + 3], c[k + 7]) + 1;
@@ -1367,7 +1375,8 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
       b.y = y;
       b.z = z;
       // (the lens as the frame is drawn, Lift.lens: 4 m of slack for the pipeline's snapped copy of it, a pixel off)
-      const cuts = cutReaches(reach, cam.x, cam.y, cam.z, x, y, z, b.w, 4);
+      const n = (cut.uniforms.uTime.value as number) - (cut.uniforms.uSkyT0.value as number) >= colsGone ? parts : reach.length;
+      const cuts = cutReaches(reach, n, cam.x, cam.y, cam.z, x, y, z, b.w, 4);
       mesh.material = cuts ? cut : solid;
       if (apart) apart.material = cuts ? cut : plain;
     },
