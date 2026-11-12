@@ -765,13 +765,14 @@ export class Lift implements LiftHooks, FieldHouses {
   frame(renderer: THREE.WebGLRenderer, now: number, dt: number, realDt: number, bus: { x: number; y: number; z: number; ground: number }, cam: THREE.Vector3, fogGone: number) {
     this.now = now;
     this.wall += realDt;
-    this.sky?.bus(bus.x, bus.y, bus.z, cam);
     let busy = false;
     if (liftedOn && !this.staged && this.tilesWanted.size === 0) this.stage();
     else if (this.skyBuild) {
       this.skyStep();
       busy = true;
     }
+    // (after skyStep: a piece finished this frame, after the wave began, is drawn this frame, round the bus already)
+    this.sky?.bus(bus.x, bus.y, bus.z, cam);
     if (!busy && liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
       this.waveAt = now + 0.6;
       // (placed low ones first, out from the heart, then the rest: waveOrder, plan(). The crouches go by distance whatever the order)
