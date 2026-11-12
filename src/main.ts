@@ -1913,7 +1913,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (farN && st.look.on) farLooked = farN;
     if (farN && farN !== farLooked) {
       rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift);
-      rig.skyLiftRate = config.lob.tipRate;
+      rig.skyLiftRate = config.shotView.rate;
       rig.skyDipMost = config.shotView.most;
     } else if (cometFx.lobFrame(simTime, lobSeen)) {
       const star = lobUpDeg(lobSeen), busUp = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
@@ -1926,7 +1926,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (rig.skyLift >= -0.02) rig.skyDipMost = 0;
       else {
         rig.skyLiftTarget = Math.max(0, rig.skyLiftTarget);
-        rig.skyLiftRate = config.lob.tipRate;
+        rig.skyLiftRate = config.shotView.rate;
       }
     }
     rig.update(camera, focus, flight, dt);

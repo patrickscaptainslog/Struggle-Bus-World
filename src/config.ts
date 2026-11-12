@@ -961,9 +961,12 @@ export const config = {
   /** The view after a far shot (a far Lob's or a far Comet's: CameraRig.ts's shotTip, main.ts): while it flies and `hold` s after its impact the view dips
    *  toward its landing, so it shows no lower than `low` of the half height (NDC), but the bus never higher than `busMax` of it over the middle (35 % down
    *  the screen: the producer's call; 0.78 puts the hit at `low` from every height, `most` 0 is no dip), never more than `swing` degrees under the lift the
-   *  view had at the tap, at most `most` degrees and never past `pitchMax` degrees down in all. Eased at config.lob.tipRate; a look takes it back. */
+   *  view had at the tap, at most `most` degrees and never past `pitchMax` degrees down in all. Eased at `rate` (1/s): at config.lob.tipRate's 3 the view
+   *  lagged the landing a fast gear closes on, and from 1 km at Jet to Turbo 3 the hit was 0.06-0.07 of the half height under `low` at the impact
+   *  (s_lob --high). A look takes it back. */
   shotView: {
     hold: 0.6,
+    rate: 5,
     low: -0.2,
     busMax: 0.3,
     swing: 25,
