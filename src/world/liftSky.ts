@@ -45,7 +45,12 @@ export interface SkyPlace {
  * can't touch them, so they stand over its climb's chase view, not in it. Each piece stands higher where the floating roofs under it call for it.
  */
 export const SKY_Y = 300;
-/** QA, &skyy=<m>: the pieces' height over the heart's ground for the checks instead (clear3: lower, the floating roofs hold some of them up) */
+/**
+ * QA, &skyy=<m>: the pieces' height over the heart's ground for the checks instead (clear3: lower, the floating roofs hold some of them up).
+ * Read from the address in the shipped build too. Under LAYER plus 20 m it can stand the Sea, the sun or the Skyway among the floating houses
+ * (skyY's roof term keeps a piece over the roofs under its own discs, not over those beside them) and bends a fall or a column in to it inside
+ * their layer (riser); the Sky Wood's islands keep over the layer whatever it says (isles)
+ */
 const skyOver = (typeof location !== 'undefined' && Number(new URLSearchParams(location.search).get('skyy'))) || SKY_Y;
 /** How far each piece stays over the highest floating roof under it (m): over Lift.roofNear's reach, which has the overshoot and the heave in it. */
 const SKY_CLEAR = 12;
