@@ -265,7 +265,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
   // (?recess: the bots match, src/recess/recessBoot.ts. The bus starts on its arena's edge facing in, and the opening's Golden Gate and fog are skipped, as under ?lat)
   const recessMod = recessOn ? await import('./recess/recessBoot') : null;
-  // (?swerve: the handling's stand-in, laid over the flight until the flight has it itself: src/swerve/, docs/specs/flight/SWERVE.md)
+  // (?swerve: the handling is the flight's own (src/game/Swerve.ts, docs/specs/flight/SWERVE.md), and this the rest of the stand-in until it's moved: the long
+  // swipe's gesture, the sounds, the spray and the bus's pose (src/swerve/))
   const swerveMod = params.has('swerve') ? await import('./swerve/swerveBoot') : null;
   // (and the rival crews' buses in the open world, the shell and the ram: src/rivals/, docs/specs/factions/RAMPAGE.md sections 2 and 3. &norivals: the handling alone)
   const rivalsMod = swerveMod && !moon && !params.has('norivals') && !recessOn ? await import('./rivals/rivalsBoot') : null;
