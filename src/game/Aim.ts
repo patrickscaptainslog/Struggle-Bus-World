@@ -530,8 +530,8 @@ export class Aimer {
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
   press(): void {
     // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
-    // thumb's tap reads it live. On Curb's street, none)
-    if (this.lob && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
+    // thumb's tap reads it live. On Curb's street, none; nor with the belly not ready, whose taps ran a latch on until it was full: M90)
+    if (this.lob && this.ready && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
     if (this.mover && !this.moverLatch) {
       // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
       Object.assign(this.moverHeld, this.mover);

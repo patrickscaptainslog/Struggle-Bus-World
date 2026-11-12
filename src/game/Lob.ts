@@ -17,9 +17,11 @@ import { blastRadiusFor } from './blastLayout';
 // The body latches: lifted, the steering thumb lets the bus level out under the eyes (at Cruise 72 to 41 degrees in 0.2 s), so the body as it was when the
 // steering thumb lifted, or when the tap's finger landed with no steering thumb down, is what a tap throws for config.lob.latch s (0.8, where the aim
 // latches what glints for config.splat.aimLatch's 0.5: a tap half a second after the lift threw a plain splat); the tap's finger landing inside a latch
-// keeps its body and runs it on config.lob.latch from there, as the Comet's latch is renewed at the press. A
-// finger that slides past the tap slop commits as a steering thumb, but lifted within inputTune.quickTapMs it's still a tap: for that long the latch it
-// found stays the body a tap throws. A second thumb's tap, the first still steering, reads it live.
+// keeps its body and runs it on config.lob.latch from there, as the Comet's latch is renewed at the press, but never past twice config.lob.latch from when
+// the body was latched, and only with the belly ready (Aimer.press): taps mashed on an empty belly ran it on until it was full, and threw a Lob 2.7 s after
+// the last, the bus level (the Lob review's M90). A finger that slides past the tap slop commits as a steering thumb, but lifted within
+// inputTune.quickTapMs it's still a tap: for that long the latch it found stays the body a tap throws, with the end it had (a flick, a stroke as short,
+// gave it a new 0.8 s each time). A second thumb's tap, the first still steering, reads it live.
 //
 // In view: by the lens moved on by the bus's travel to the impact, it must land config.lob.above of the height over the bus, the Comet's rule on its own number; where it
 // doesn't it moves out along its line a stretch at a time, and past config.comet.reach the tap is today's. The landing is the middle of a stretch of its way
@@ -57,13 +59,17 @@ export function lobArc(L: number, a: number, drop: number): number {
 export class Lob {
   /** The lens the player sees (main.ts: the render camera, as last drawn; the sims their own). Null: no in-view rule. */
   lens: THREE.Camera | null = null;
-  /** the body latched (rad), and whether the path was under level then, until latchUntil (game s) */
+  /** the body latched (rad), and whether the path was under level then, from latchedAt (game s, when it was the body) until latchUntil */
   private latched = 0;
   private latchedDive = false;
+  private latchedAt = -1;
   private latchUntil = -1;
-  /** a latch a steering stroke found (game s it began, -1 none): while the stroke may still be a quick tap, it's the body a tap throws */
+  /** a latch a steering stroke found (game s it began, -1 none), with when it was latched and its end: while the stroke may still be a quick tap, it's
+   *  the body a tap throws */
   private parked = 0;
   private parkedDive = false;
+  private parkedFrom = -1;
+  private parkedUntil = -1;
   private parkedAt = -1;
   /** the landing held: the stretch its search began from (the throw's own), where it is, what it's on */
   private heldOk = false;
@@ -107,23 +113,26 @@ export class Lob {
 
   /** The steering thumb lifted (the body and path as they were with it down: Aimer.update), or a tap's finger landed with none down (Aimer.press): that body
    *  is what a tap throws until game time `until`. keep: a press inside a latch keeps its body, the body having dropped since the lift, and runs it on to
-   *  `until` (a tap lifted 0.53 s after the steering thumb threw the dropped body, a plain splat at 60 fps and a Lob at 30). quick: the steering stroke
-   *  lifting was short enough to be a tap (Aimer.update): the latch it found as it began, if any, is the one. */
+   *  `until` (a tap lifted 0.53 s after the steering thumb threw the dropped body, a plain splat at 60 fps and a Lob at 30), at most twice config.lob.latch
+   *  past when the body was latched. quick: the steering stroke lifting was short enough to be a tap (Aimer.update): the latch it found as it began, if any,
+   *  is the one, ending when it would have. */
   latch(body: number, nose: number, t: number, until: number, keep = false, quick = false): void {
     const parked = quick && this.parkedAt >= 0;
     this.parkedAt = -1;
     if (parked) {
       this.latched = this.parked;
       this.latchedDive = this.parkedDive;
-      this.latchUntil = until;
+      this.latchedAt = this.parkedFrom;
+      this.latchUntil = this.parkedUntil;
       return;
     }
     if (keep && t < this.latchUntil) {
-      this.latchUntil = Math.max(this.latchUntil, until);
+      this.latchUntil = Math.min(Math.max(this.latchUntil, until), this.latchedAt + 2 * config.lob.latch);
       return;
     }
     this.latched = body;
     this.latchedDive = nose < -config.lob.levelSlack * DEG;
+    this.latchedAt = t;
     this.latchUntil = until;
   }
 
@@ -132,6 +141,8 @@ export class Lob {
     if (t < this.latchUntil) {
       this.parked = this.latched;
       this.parkedDive = this.latchedDive;
+      this.parkedFrom = this.latchedAt;
+      this.parkedUntil = this.latchUntil;
       this.parkedAt = t;
     }
     this.latchUntil = -1;
@@ -390,10 +401,11 @@ export class Lob {
     this.lastZ -= dz;
   }
 
-  /** The shot a plan throws (Aimer.fire): the next one is picked afresh. */
+  /** The shot a plan throws (Aimer.fire): the next one is picked afresh, and the next tap reads the body anew. */
   fired(): void {
     this.heldOk = false;
     this.latchUntil = -1;
+    this.parkedAt = -1;
     this.stats.fired++;
   }
 }
