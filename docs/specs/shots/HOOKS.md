@@ -226,31 +226,29 @@ Checked in Node, `node --expose-gc --no-warnings tools/life/parade.mjs` (10 rows
 
 The brain's side (`src/recess/recess.ts`): `Recess.duel` on makes a captain's breath at the player's bus only said (`'aim'`, which the duel answers with the shot); `aimedHit(from, to)` lands a shot that arrived, at the next step, by the rules a breath lands by; `lunge(id)` is a captain's dodge; `recessTune.firstLock` (3.6 s) and `firstGap` (4 s) keep the first contact to the easiest captain.
 
-## Swerve (the second account's stand-in, `feat/swerve`, 2026-11-10)
+## Swerve (the second account's stand-in, `feat/swerve`, 2026-11-10; taken into the flight on `feat/handling`, 2026-11-12)
 
-The producer approved the handling of `docs/specs/flight/SWERVE.md` on 2026-11-10 ("Let's build everything but the gods for now") while the first account was out. So the producer can fly it, it's built as a stand-in behind `?swerve`, in `src/swerve/`, laid over the flight from outside. `Flight.ts`, `CameraRig.ts`, `Turbo.ts` and `Controls.ts` are untouched. It's yours to take into the flight properly, and to drop when you have.
+The producer approved the handling of `docs/specs/flight/SWERVE.md` on 2026-11-10 ("Let's build everything but the gods for now") while the first account was out, and the second account built it as a stand-in behind `?swerve`, laid over the flight from outside. On `feat/handling` the first account took it into the flight and the stick, in three stages; this is the first. Still behind `?swerve`, and with it off the flight is the same to the bit.
 
-What it reaches of yours, so a change doesn't break it quietly:
+What moved where:
 
-- **`Flight.turbo.yaw`, `.speed`, `.rate`**, after `controls.preFlight` has written them and before the flight's steps: the hard turn and the swoop multiply `yaw`; a skid scales `speed` and raises `rate` to 6 while it slides; the long swipe's brake raises `rate` until the speed is Cruise's.
-- **`Flight.speedScale`**, lowered while a skid slides with no gear in (`SuperSplat.update` puts it back to 1 each frame, after the flight's steps, as it always did).
-- **`Flight.heading`**, written as a skid grips: over 0.3 s the slip goes into it. And `Flight.speed`, held up to 20 m/s in a slide. `Flight.fullness` set to 0 by the wave.
-- **`config.flight.bungeeHz` and `config.camera.yawHz`**, raised in the hard part of the stick and put back to what they were when it's out of it. A tuner's change to either is taken as the new base.
-- **`TurboDrive.rung(-1, flight)`**, called until the gear and the level are 0, for the long swipe (so its events fire, a rung each).
+| What | Was (018c5d8) | Is now |
+|---|---|---|
+| The hard turn, the swoop, the skid (slip, scrub, least speed, lean, grip), the wave's event | `src/swerve/swerve.ts`, `pre()` and `post()` round the flight's steps | `src/game/Swerve.ts`, run by `Flight.step` inside each step (`Flight.swerve`, behind `swerve.on`, which only `?swerve` sets). `swerve.ts` is gone |
+| The numbers, tuner group "Swerve" | `swerveTune` in `swerve.ts` | `swerveTune` in `src/game/Swerve.ts`, every key kept; `rule` is new; `inset` came over from "Swipe" with its key. The boot still registers both groups |
+| The hard turn's gain | multiplied `Flight.turbo.yaw` after the gears wrote it | the step's own yaw target (`Swerve.gain`); nothing writes `turbo.yaw` but the gears |
+| The stiffer springs | rewrote `config.flight.bungeeHz` and `config.camera.yawHz` each frame | the step stiffens its own spring by `Swerve.hard`, and `CameraRig` its yaw spring by the same `hard` (`yawHz` x (1 + (`hardCam` - 1) x `hard`), exactly what the stand-in wrote into config). The camera's own redesign is the next stage's |
+| The swoop's nose | read `Flight.mode` as 2 or 3 | the step says whether the stick has the nose up or down |
+| The skid's scrub | wrote `Flight.turbo.speed` and `.rate`, and `speedScale` | the speed the step chases; `turbo.speed` stays the gear's, so a skid at Nonstop no longer turns the Comet off (m101) |
+| The thumb's travel and the room to the glass's edge | the boot read Input's anchor and finger and squeezed the travel | `Input`: `InputState.hard` (how far into the hard part, 0..1) and `.skid` (px past the skid's line), from its own width (`stickParts`, section 2 of SWERVE.md). C and V are Input's dev keys |
+| The long swipe's brake | `Swerve.brake`, raising `turbo.rate` | `TurboDrive.toCruise(flight, brakeFor)`: every rung at once with one event, `'cruise'`, and the brake in the gears' own rate. The swipe calls it |
+| A hit's throw | `rivalsBoot.ts` wrote `Flight.x` and `.z` after the steps and lifted `turbo.floor` in `pre()` | `Flight.shove(far, ux, uz, air, bounds)`: flown through the flight's own floors, climbing in time, the gear's drive held while it lasts, ending inside the map. `hurtMe` calls it; its `pre()` is empty and `hitFx` no longer writes x or z (the one change in `src/rivals`, for the second account's review) |
 
-What it asks of your files, each marked `?swerve` where it stands:
+What's left in `src/swerve/` until the next two stages move it: `swerveBoot.ts` (the long swipe's listeners, a tool's thumb, the spray, the wave's paint, the stop arm's pose, the tuner groups) and `swerveSfx.ts` (the stand-in sounds). The camera, the long swipe's rules, the aim and the shots, the one-thumb wave and the sounds are the next stages'.
 
-| Where | What |
-|---|---|
-| `main.ts`, the boot | `swerveMod` beside `recessMod`; `bootSwerve({...})` before life's lock; `controls.flickGate` wrapped, so the long swipe's own lift is no flick |
-| `main.ts`, the frame | `swerve?.pre(dt, st, off)` before the flight's steps and `swerve?.post(dt)` after them |
-| `main.ts`, the bus's pose | `swerve?.pose(pose)` after `controls.pose` (the stop arm on the brake: `mouth` 0.13, since the arm goes with the door); the `eul.set` line takes `swerve.pitch`, `swerve.slip` and `swerve.roll` |
-| `main.ts`, the look and the aim | `rig.setLook(st.look.on && !swerve?.swiped, ...)`; `aimer.lookYaw = rig.aimYaw + (swerve?.slip ?? 0)` |
-| `Input.ts` | `inLookZone` is public: the long swipe starts off the lane. Its own pointer listeners sit on the canvas beside yours, passive, and touch no state of yours |
+What main.ts does for it: `swerveMod` and `bootSwerve` as before; each frame `swerve?.pre(dt, st)` before the flight's steps and `swerve?.post(dt)` after them; the steps take `hard` (NaN under the opening's gate and on the Moon's way in and out, where none of it applies) and `skid` from `InputState`; the bus's pose and the aim read `swerve.slip`, `.roll` and `.pitch` as before.
 
-What a proper build would do that this can't: the slip as the flight's own field, so the Comet, the Lob, the Hose and the speed lines follow the nose or the way as each should (today only a tap's aim does); the swipe read in `Input` with the other gestures; a stop arm pose of its own; the camera looking into a turn; real sounds for the squeal, the grip's hiss and the brake's clunk (`src/swerve/swerveSfx.ts` are stand-ins on the kit).
-
-Its checks: `tools/swerve/` (`s_turns.ts` and `s_city.ts` under `tools/feel-sim/run.mjs`, `s_swipe.ts` under `tools/controls-sim/run.mjs`, `smoke.mjs` in a browser). SWERVE.md, section 7, says what each row holds.
+Its checks: `tools/swerve/` (`s_turns.ts`, `s_city.ts`, `s_stick.ts` and `s_throw.ts` under `tools/feel-sim/run.mjs`, `s_swipe.ts` under `tools/controls-sim/run.mjs`, `smoke.mjs` in a browser). SWERVE.md, section 7, says what each row holds.
 
 ## The rival buses (the second account's, `feat/swerve`, 2026-11-10)
 
@@ -263,7 +261,7 @@ What it leans on of yours:
 - **`City.groundAt` and `obstacleAt` anywhere in the city**, loaded or not (the far grid's answer is enough for a bus nobody can see), `manifest.bounds` for the city's edges, and `config.splat.missWaterY` for what is land.
 - **`Holds.fire`** for the shells, a rival's at another rival too (`shellBetween`). The player's (`belly` true, so the shot code spends the belly and coughs as it always does): 420 m/s over the bus's speed, 2.4 rad/s, 0.5 s white, `vel` the rival's, `onWhite` the rival's cue to try a skid. A rival's at the player: `from` its nose, `belly: false`, `whistle: true`, `holds.bus` and `holds.busVel`, 0.6 s white.
 - **`Splatter.barf`** for all the paint: a rival's own splats and its half of a ram's with `faction` and a quiet tag (`QUIET_RIVAL`, as a captain's `QUIET`); the head-on's rings with `inner` and `side`, a half each crew, and its crater with `jump: 2`; the player's paint where a soaked rival lands, with a tap's whole show.
-- **`Flight.x`, `.y`, `.z`** written while the player's bus is thrown (as Recess's fling did), and **`Flight.turbo.floor`** raised under a long throw, after `controls.preFlight` and before the steps, so it flies over what stands in its way on the flight's own floor.
+- **`Flight.shove`** for the player's bus thrown by a hit (since `feat/handling`: it was `Flight.x` and `.z` written after the steps and `turbo.floor` raised under a long throw); a short throw's hop still writes `Flight.y`.
 - **The bus's mesh**: its `ramp` attribute rewritten for the flood (as Recess's did), its `root.quaternion` rolled after `main.ts` has posed it. The rivals' buses are `BusModel`s, three, made at the boot, each crew's colour put on by the same attribute.
 - **`CameraRig.matchPull`** (the match's hook) for the head-on's wide view, `rig.kick`, `pipeline.flash`, `controls.hud.toast`, `audio.voiceKit()`.
 

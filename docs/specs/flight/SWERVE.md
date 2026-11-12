@@ -44,7 +44,16 @@ In the skid the nose is round sooner than the bus is: at 1.05 s at Cruise, 1.3 s
 
 The leash stays where it is: the stick's middle follows a thumb that goes past 172 px, so the reach is always there.
 
-**A thumb near a side of the screen.** A thumb that lands 100 px from the screen's right edge can't travel 138 px right. So the hard part and the skid squeeze into the room there is on that side: with 130 px of room the hard part runs from 64 to 106 px and the skid is at 120; with 95 px, 52 to 71 and 85. The smooth part is never squeezed under 52 px. A thumb pushed against the edge of the glass is always asking for all there is. (Within about 85 px of an edge there's no skid that way.) With room to spare, 148 px or more, nothing is squeezed.
+**A thumb near a side of the screen.** A thumb that lands 100 px from the screen's right edge can't travel 138 px right. The room is from where the stick's middle is (the landing, until the leash drags it) to 14 px short of the glass's edge, and with 148 px or more nothing moves. With less, as built (`Input`'s `stickParts`, the first account's, `feat/handling`; `swerveTune.rule` 0):
+
+- The skid is 10 px short of the edge.
+- The hard part is what's left between 78 px and the skid, at least 16 px wide (with 130 px of room: 78 to 106, the skid at 120).
+- The smooth part stays today's, the whole 78 px, while that fits: with 108 px of room or more. Under that it gives way, never under 52 px (with 99 px of room: 69 to 85, the skid at 89).
+- Under 82 px of room, a thumb landing within 96 px of a side, those floors and the skid can't all fit, and there the three shrink together, so the hard turn and the skid are always in reach (with 59 px: hard from 36, the skid at 49). That last is the studio's call: the phone says.
+
+On a 393 px glass that keeps today's smooth turn, both ways, for every landing from x = 122 to 271, and the hard turn and the skid in reach from every landing (`tools/swerve/s_stick.ts`). A thumb pushed against the edge of the glass is always asking for all there is.
+
+The stand-in's rule is kept beside it for the phone to compare (`swerveTune.rule` 1, tuner group "Swerve"): the smooth part squeezed first, down to 52 px, so the hard part and the skid fit (with 130 px of room the hard part runs from 64 to 106 px and the skid is at 120; with 95 px, 52 to 71 and 85). It turns a gentle thumb on the near side harder than today's: three landings in four on a phone (B101 of the review of 018c5d8).
 
 ## 3. The skid, exactly
 
@@ -134,6 +143,8 @@ In Node, on the real flight code, each a row that fails when its rule is broken.
   - **The swipe's brake:** at Cruise's speed from every gear in under 0.8 s.
   - **The camera:** the bus in the frame through a hard turn, a skid and its grip, in every gear.
 - `node tools/feel-sim/run.mjs ../swerve/s_city.ts 80`, over the real city, 10 rows: the skids of section 3, and the wave (it lands off the outside of the slide, paints what stands there, spends the belly; none with the belly empty).
+- `node tools/feel-sim/run.mjs ../swerve/s_stick.ts`, the stick on a 393 px glass (`feat/handling`): for every landing from x = 60 to 333 and both sides, a thumb held 70 px sideways turns as today in every gear wherever that side has 108 px of room or more, and the hard turn and the skid are in reach from every landing; the stand-in's squeeze (rule 1) printed as the review's probe printed it.
+- `node tools/feel-sim/run.mjs ../swerve/s_throw.ts`, a hit's throw over the real city (`feat/handling`): 48 throws each of a shell's, a smash's, a wreck's and a head-on's, Cruise to Jet, from the roofs of the Financial District, Nob Hill and SoMa, none through a drawn surface, none lifted over 12 m in a frame, none ending outside the map, and a head-on blows the bus back. `base` and `hard` print the same poses with no throw, and the review's hard turns with a pull or a push, with whether the flight's own obstacle field had what the bus went into.
 - `node tools/controls-sim/run.mjs ../swerve/s_swipe.ts`, through the real touch code, 23 rows: the swipe from every rung at a flick's pace and unhurried; nothing from Cruise or School Zone; a flick down still one rung; a slow stroke still a look; a stroke down the stick still a pull; a slanted one and one going up as they were; the swipe beside a steering thumb.
 - `node tools/swerve/smoke.mjs`, in a browser at 1x: it stands up, the hard turn bites, a skid slips and sprays, its grip throws the wave, the swipe takes Jet to Cruise, a page without `?swerve` has none of it, and nothing compiles on the way.
 
