@@ -2,6 +2,19 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Plans: wild land, and the Bay Area's surround (2026-11-12, the first account)
+
+Two plans, both the first account's. Nothing in them is built and nothing was downloaded.
+
+- **Wild places.** [specs/earth/WILD.md](specs/earth/WILD.md) is the plan for land with no city on it: sheer walls, and the trees that really grow in each region, chosen by one rule over world-wide data, all taking paint. Three test places: Yosemite first, then the Jungfrau region of the Swiss Alps, then Milford Sound. Its section 1 has the producer's words. Six research reports, each checked by a second agent, three designs, three judges and two critics stand behind it.
+- **The time is not what was first said.** About 62 to 88 agent-days in eight stages, each ending on the producer's phone, where "two to three weeks" was said. Yosemite Valley to fly is stage 1 (6 to 8 agent-days); with its own kinds of trees, stage 2 (12.5 to 17.5 from the start).
+- **Downloads.** [specs/earth/DOWNLOADS-WILD.md](specs/earth/DOWNLOADS-WILD.md): seven groups, about 9.0 GB whole or about 6.0 GB read in parts, every file with its URL, bytes and licence. None is approved yet. Group 1 is six files, 973,247,949 bytes; all six sizes were read again by header on 2026-11-12 and match.
+- **One licence flag.** Roads, rivers, waterfall points and footprints (groups 4, 6 and 7) are ODbL. They and what is baked from them stay in the `built` file family.
+- **The surround.** [specs/far-field/SURROUND.md](specs/far-field/SURROUND.md) is the build plan for far-field days 3 to 5 in the Bay Area: `horizon.bin` replaced by relief, land class and every building's cover and height out to 64 km, from the archive already held, in a container the planet layer takes over. Branch `feat/surround`, cut from main, 12 commits, 4.5 to 6.5 agent-days. Not started.
+- **A live bug it fixes.** `horizon.bin` is baked from one terrain tile that ends at 38 N, so from the ceiling Novato and San Pablo Bay's north shore are drawn as sea (rows 0 to 50 of its 500 hold no land).
+- **For the second account:** nothing to do. Life has no part in wild places yet. One rule worth knowing if you ever set water heights: water is sunk only where it is at sea level (WILD.md, section 6.3).
+- **Not checked:** any phone or GPU number in either plan. Every budget in them is a count.
+
 ## Review: the first account on `feat/swerve` (2026-11-11)
 
 The review the second account asked for is in [reviews/swerve-018c5d8-2026-11-11.md](reviews/swerve-018c5d8-2026-11-11.md): `?swerve`'s first run on a GPU (the laptop, 39 rows at real time), a code review with Node probes over the real city, and a plan for taking Swerve into the flight.

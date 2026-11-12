@@ -81,6 +81,8 @@ What life needs from the world, and what the producer asked for anyway: real ter
 
 Never FABDEM (CC BY-NC-SA) or any non-commercial source. Every download is the producer's to OK first, with file, source and size. Overture deletes a release about 60 days after it's out, and 2026-12-16.0 is a breaking release, so the Bay Area's inputs get archived in stage 0 (SOURCE: Overture's release calendar).
 
+**The wild test places** (the producer, 2026-11-12: "Yes, add them"). Yosemite, the Jungfrau region of the Swiss Alps and Milford Sound are where the world layer proves it can do wild land: sheer walls, and the trees that really grow in each region, chosen by one data rule with no place's name in it, all taking paint. Yosemite comes first, stage by stage on the producer's phone, then the Jungfrau region, then Milford Sound. About 62 to 88 agent-days in eight stages (ESTIMATE), not the two to three weeks first said. Every download is still the producer's to OK. The plan is `WILD.md`; the downloads are `DOWNLOADS-WILD.md`; the Bay Area's surround they stand on is `docs/specs/far-field/SURROUND.md`.
+
 ## Life's data
 
 | Thing | Source | Key | Browser can call it | Terms for a free game | Fallback |
