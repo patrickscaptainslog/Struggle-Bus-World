@@ -27,7 +27,7 @@
 // Where the tap is the classic shot (Turbo 3 from 300 m) so is the Bomb, on the tap's landing, with its hit-stop.
 // --lob flies the Lob's rows instead (src/game/Lob.ts), into shots-lob.json, and gates only them: the nose 30 and 75 degrees up from 300 m and 40 from the
 // roofs, the stick held through the tap (a second thumb's tap, the body read live) and let go 0.3 s after it, at every rung from Cruise to Turbo 3. At Cruise and Express each is a
-// Lob, at Nonstop and faster a Lob wherever one is planned; a Lob lands in frame config.lob.above or more over the bus at the impact, on its flight's time, within 2 m and 0.05 s at 30
+// Lob, at Nonstop and faster a Lob wherever one is planned; a Lob lands in frame config.lob.above or more over the bus at the impact (a far one, from 1 km up, has no such rule), on its flight's time, within 2 m and 0.05 s at 30
 // and 60 fps, a level each and lobRadius (its fall from the arc's top, at most config.lob.radius), with no hit-stop. Where a Comet applies too, the Lob wins whenever it's planned (config.lob.wins, chooseShot). Without --lob a row the Lob
 // throws (kind 'lob') is the Lob's, not the baseline's.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
@@ -306,7 +306,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     glintsPerS: turn ? r2(glints / TURN_S) : null,
     aimMs: r3(aimMs / Math.max(1, aimN)),
     ...(tier ? { bomb: tier, rose: rose.slice(1), wrong, past3, hitStops } : {}),
-    ...(LOB ? { lobPlanned, body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null } : {}),
+    ...(LOB ? { lobPlanned, body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null, ...(comet?.far ? { far: true } : {}) } : {}),
   };
 }
 
@@ -367,13 +367,15 @@ if (LOB) {
     const id = `${r.key}@${r.fps}`;
     console.log(`${id.padEnd(30)} ${r.kind.padEnd(6)} body ${String(r.body).padStart(5)} at ${String(r.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} two ${r.raisedTwo} on ${r.on} agl ${r.tap.agl}`);
     if (r.rung === 'cruise' || r.rung === 'express') ok(r.body < config.lob.from || r.kind === 'lob', `${id}: the body ${r.body} up at Cruise and Express, a Lob (${r.kind})`);
-    // (Nonstop and faster: the Lob wherever one is planned, else the Comet's or the tap's: config.lob.wins, chooseShot. From these poses, under 1 km, the
-    // near Lob alone)
+    // (Nonstop and faster: the Lob wherever one is planned, else the Comet's or the tap's: config.lob.wins, chooseShot. Turbo 3 nose 75 from 300 m is 1.4 km
+    // up by the tap, where the near search finds nothing: the far Lob)
     if (r.rung !== 'cruise' && r.rung !== 'express') ok(config.lob.wins ? r.kind === 'lob' || !r.lobPlanned : r.rung === 'nonstop' || r.kind !== 'lob', `${id}: at Nonstop and faster a Lob where one is planned (${r.kind}, planned ${r.lobPlanned})`);
     if (r.kind !== 'lob') continue;
     ok(Math.abs(r.angle - Math.min(config.lob.most, r.body)) <= 0.15, `${id}: thrown at the body, at most ${config.lob.most} (${r.angle} for ${r.body})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
-    ok(!!r.impactScreen?.in && r.impactScreen.above >= config.lob.above, `${id}: in frame at the impact, ${config.lob.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)})`);
+    // (a far one has no in-view rule, only from config.lob.highFrom up (highBack once a pull has one); the view dips after it, s_lob --high's to gate)
+    if (r.far) ok(r.tap.agl >= config.lob.highBack, `${id}: a far Lob, from high up (${r.tap.agl} m over the ground)`);
+    else ok(!!r.impactScreen?.in && r.impactScreen.above >= config.lob.above, `${id}: in frame at the impact, ${config.lob.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)})`);
     ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius its fall's from the arc's top, lobRadius (${r.radius} against ${r.wantRadius})`);
     ok(r.raisedTwo === 0 && r.hitStops === 0, `${id}: a level each and no hit-stop (${r.raisedTwo} raised two, ${r.hitStops} hit-stops)`);
     const s30 = r.fps === 60 ? rows.find((q) => q.key === r.key && q.fps === 30) : null;

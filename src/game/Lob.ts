@@ -123,8 +123,9 @@ export class Lob {
   /** this pull planned a far Lob (the far branch stays open down to config.lob.highBack), and a near one was found after it (no far one again) */
   private farOpen = false;
   private farBarred = false;
-  /** QA (the sims): the last far plan's stretch middle, what it aimed for, the bus's travel to its impact and the reach (m along the way), its flight (s) */
-  readonly farLast = { mid: 0, want: 0, atImp: 0, reach: 0, travel: 0 };
+  /** QA (the sims): the last far plan's stretch middle, what it aimed for, the bus's travel to its impact and the reach (m along the way), its flight (s),
+   *  and whether it kept a latched stretch (picked on an earlier frame) */
+  readonly farLast = { mid: 0, want: 0, atImp: 0, reach: 0, travel: 0, latched: false };
   /** the last plan's landing after its march (a wall's face, a hillside), for the landing held: a latch keeps it whole, so a grazed wall can't come and go */
   private lastOk = false;
   private lastX = 0;
@@ -498,6 +499,7 @@ export class Lob {
     q.atImp = atImp;
     q.reach = reach;
     q.travel = travel;
+    q.latched = latched;
     if (latched) {
       if (!this.farOk || mid(this.farK) < lo || mid(this.farK) > reach) return null;
       q.mid = mid(this.farK);

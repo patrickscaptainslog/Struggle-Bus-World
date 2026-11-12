@@ -1912,6 +1912,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     if (farN && st.look.on) farLooked = farN;
     if (farN && farN !== farLooked) {
+      // (its landing as the lens will see it config.shotView.lead s on: the bus's travel taken off it, so the eased view keeps up with a fast gear closing in)
+      const ld = config.shotView.lead;
+      shotSeen.set(shotSeen.x - flight.fx * flight.ground * ld, shotSeen.y - flight.vy * ld, shotSeen.z - flight.fz * flight.ground * ld);
       rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift);
       rig.skyLiftRate = config.shotView.rate;
       rig.skyDipMost = config.shotView.most;

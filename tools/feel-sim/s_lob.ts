@@ -259,6 +259,20 @@ async function run(c: Case, dt: number, slot = true) {
   let k = 0;
   // (--high: the view after a far shot, as main.ts sets it before rig.update, and the bus on the lens after: its highest, and the landing's at the impact)
   let pre: (() => void) | null = null, busHi = -Infinity, tipBound = false;
+  // (--high: the frame its far stretch was last picked, not kept from a latch: that stretch's middle, L3's want there by the check's own numbers, the
+  // odometer then. A latched stretch the bus has closed on to under aheadMin, or that a tile's march back put past the reach, is picked afresh on the frame
+  // it fails, between the lift's pose and the tap's)
+  const table = new Comet(city, g.splatter);
+  let pick: { mid: number; want: number; odo: number } | null = null;
+  const picked = () => {
+    const lp = g.aimer.lobLast, fl = g.aimer.lob?.farLast;
+    if (!lp?.far || !fl || fl.latched) return;
+    const L = config.lob, S = config.splat, a = lp.angle ?? 0, H = f.y - city.groundAt(f.x, f.z), reach = shotReach(city, f, f.fx, f.fz);
+    const vt = Math.max(Math.max(1, f.ground), f.turbo.speed > 0 ? f.turbo.speed : f.speed);
+    const l4 = Math.min(L.flightHigh, lobFlight(a) + (L.fallPerKm * Math.max(0, H - L.highFrom)) / 1000, table.timeTo(vt, reach - L.aheadMin - L.stretch) - S.inhale);
+    const want = Math.min(reach, Math.max(Math.hypot(lp.x0 - f.x, lp.z0 - f.z) + lobRange(a, H), table.flown(vt, S.inhale + l4) + L.aheadMin));
+    pick = { mid: fl.mid, want, odo: g.aimer.comet!.odometer };
+  };
   const ndcOf = (x: number, y: number, z: number) => {
     const v = new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse);
     return v.z >= 0 ? -Infinity : v.applyMatrix4(cam.projectionMatrix).y;
@@ -278,9 +292,10 @@ async function run(c: Case, dt: number, slot = true) {
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld(true);
     if (pre) busHi = Math.max(busHi, ndcOf(f.x, f.y, f.z));
+    else if (HIGH) picked();
   };
   const idle = { sx: 0, sy: 0, dragging: false };
-  let pullLob = 0, pullFlips = 0, pullN = 0, pullWas = false, pastAt = -1, hPast = 0, liftX = 0, liftZ = 0, liftAgl = 0, liftReach = 0, lobAt = -1, kinds = 0, kindWas = '';
+  let pullLob = 0, pullFlips = 0, pullN = 0, pullWas = false, pastAt = -1, hPast = 0, lobAt = -1, kinds = 0, kindWas = '';
   // ---- level in, then the pull (a dive first, from 800 m: 45 degrees down for 2 s, then the whole pull for 0.3 s)
   for (let j = 0; j < Math.round(lead / dt); j++) await frame(idle);
   if (c.mode === 'dive') {
@@ -295,8 +310,6 @@ async function run(c: Case, dt: number, slot = true) {
       await frame({ sx: 0, sy: sy, dragging: true });
       // (planned from the first frame past config.lob.from; and the plan's kind, near or far, as it changes)
       if (pastAt < 0 && bodyOf(f) >= config.lob.from * DEG) [pastAt, hPast] = [j, f.y - city.groundAt(f.x, f.z)];
-      // (where the bus was the last frame the thumb was down: one thumb's Lob is latched there, its stretch held where it was)
-      [liftX, liftZ, liftAgl, liftReach] = [f.x, f.z, f.y - city.groundAt(f.x, f.z), shotReach(city, f, f.fx, f.fz)];
       if (lobAt < 0 && g.aimer.lobPlan) lobAt = j;
       const kind = g.aimer.lobPlan ? (g.aimer.lobPlan.far ? 'far' : 'near') : 'none';
       if (kindWas && kind !== kindWas) kinds++;
@@ -362,7 +375,7 @@ async function run(c: Case, dt: number, slot = true) {
   const reachAtTap = shotReach(city, f, f.fx, f.fz);
   // (L4's flight, from the gear's speed and the reach at the tap, by a table of its own)
   const vt = Math.max(Math.max(1, f.ground), f.turbo.speed > 0 ? f.turbo.speed : f.speed), aglTap = f.y - city.groundAt(f.x, f.z);
-  const farMid = g.aimer.lob?.farLast.mid ?? 0;
+  const farMid = g.aimer.lob?.farLast.mid ?? 0, odoTap = g.aimer.comet!.odometer, pickTap = pick as { mid: number; want: number; odo: number } | null;
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, fx: f.fx, fz: f.fz };
@@ -373,7 +386,6 @@ async function run(c: Case, dt: number, slot = true) {
   } else res = g.tap();
   const plan = res.shot.comet ?? null;
   const lob = plan?.kind === 'lob';
-  const table = new Comet(city, g.splatter), one = c.thumbs === 1 && c.mode !== 'dive';
   const l4 = plan?.far ? Math.min(config.lob.flightHigh, lobFlight(plan.angle ?? 0) + (config.lob.fallPerKm * Math.max(0, aglTap - config.lob.highFrom)) / 1000, table.timeTo(vt, reachAtTap - config.lob.aheadMin - config.lob.stretch) - config.splat.inhale) : null;
   // (after a far one the view dips as main.ts dips it: toward the landing until config.shotView.hold after the impact, then back)
   const upDeg = (x: number, y: number, z: number) => {
@@ -384,7 +396,7 @@ async function run(c: Case, dt: number, slot = true) {
   if (HIGH && plan?.far)
     pre = () => {
       if (g.t < until) {
-        const half = cam.fov / 2, landUp = upDeg(plan.x, plan.y, plan.z);
+        const half = cam.fov / 2, ld = config.shotView.lead, landUp = upDeg(plan.x - f.fx * f.ground * ld, plan.y - f.vy * ld, plan.z - f.fz * f.ground * ld);
         rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap);
         // (the hit's own want: where shotTip's target is over it, the bus's limit or the swing binds)
         tipBound = rig.skyLiftTarget > landUp - (Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG) + 0.5;
@@ -410,7 +422,12 @@ async function run(c: Case, dt: number, slot = true) {
     const a = vis(p), bb = vis(b);
     return { x: r3(a.x), y: r3(a.y), in: a.front && a.x >= 0 && a.x <= 1 && a.y >= 0 && a.y <= 1, above: r3(bb.y - a.y) };
   };
+  // (the bus along the way at the frame before, to take its travel at the impact's own time: the event comes on the first frame past it, up to a 30 fps
+  // frame later, 30 m at Turbo 3)
+  let alongWas = 0, tWas = g.t;
+  const alongNow = () => (f.x - tap.x) * tap.fx + (f.z - tap.z) * tap.fz;
   for (let j = 0; res.fired && g.t - tap.t < 6; j++) {
+    if (!impact) [alongWas, tWas] = [alongNow(), g.t];
     await frame(c.thumbs === 2 && g.t - tap.t < 0.3 ? pulled : idle);
     for (let e = ev0; e < g.events.length && !impact; e++) {
       const ev = g.events[e];
@@ -422,7 +439,8 @@ async function run(c: Case, dt: number, slot = true) {
       scr = toScreen(at, busV.set(f.x, f.y, f.z));
       climb = f.y - tap.y;
       landNdc = ndcOf(at.x, at.y, at.z);
-      atImpAlong = (f.x - tap.x) * tap.fx + (f.z - tap.z) * tap.fz;
+      const tAt = tap.t + (plan ? config.splat.inhale + plan.travel : 0), u = g.t > tWas ? Math.min(1, Math.max(0, (tAt - tWas) / (g.t - tWas))) : 1;
+      atImpAlong = alongWas + (alongNow() - alongWas) * u;
       busImp = ndcOf(f.x, f.y, f.z);
       boundImp = tipBound;
       liftImp = rig.skyLift;
@@ -487,10 +505,8 @@ async function run(c: Case, dt: number, slot = true) {
       busHi: Number.isFinite(busHi) ? r3(busHi) : null, busImp: r3(busImp), liftImp: r2(liftImp), boundImp, pastAt, hPast: r1(hPast), lobAt, kinds,
       // (L3's aim: the bus's travel to the impact at the gear's speed over L4's flight, as the design has atImp; the bus's own travel is atImp above)
       atImpPlan: l4 === null ? null : r1(table.flown(vt, config.splat.inhale + l4)),
-      // (at the tap's pose; and one thumb's from the pose where it latched, the bus's travel since taken off: a latched stretch the bus has closed on to
-      // under aheadMin is picked afresh, at the tap's pose)
-      want4tap: plan?.far && l4 !== null ? r1(Math.min(reachAtTap, Math.max(Math.hypot(plan.x0 - tap.x, plan.z0 - tap.z) + lobRange(plan.angle ?? 0, aglTap), table.flown(vt, config.splat.inhale + l4) + config.lob.aheadMin))) : null,
-      want4: plan?.far && l4 !== null ? r1(Math.min(one ? liftReach : reachAtTap, Math.max(Math.hypot(plan.x0 - tap.x, plan.z0 - tap.z) + lobRange(plan.angle ?? 0, one ? liftAgl : aglTap), table.flown(vt, config.splat.inhale + l4) + config.lob.aheadMin)) - (one ? (tap.x - liftX) * tap.fx + (tap.z - liftZ) * tap.fz : 0)) : null,
+      // (L3's want where its stretch was picked, and that stretch's middle then and at the tap, on the odometer: the same stretch since)
+      pick: plan?.far && pickTap ? { mid: r1(pickTap.mid), want: r1(pickTap.want), odo: r1(pickTap.odo) } : null, odoTap: r1(odoTap),
     } : {}),
   };
 }
@@ -571,7 +587,9 @@ for (const r of rows) {
   }
   if (HIGH && r.far && (r.want === 'high' || r.want === 'far')) {
     const S = config.splat;
-    ok(Math.abs(r.mid - r.want4) <= config.lob.stretch || Math.abs(r.mid - r.want4tap) <= config.lob.stretch, `${id}: its stretch nearest min(reach, max(lobRange, the bus at the impact + ${config.lob.aheadMin})) (middle ${r.mid}, want ${r.want4} latched, ${r.want4tap} at the tap)`);
+    // (nearest its want, within half a stretch, or a whole one where the reach or aheadMin moves it; on the frame it was picked, the same stretch at the tap)
+    const p = r.pick;
+    ok(!!p && Math.abs(p.mid - p.want) <= config.lob.stretch && Math.abs(r.mid + r.odoTap - (p.mid + p.odo)) <= 0.5, `${id}: its stretch nearest min(reach, max(lobRange, the bus at the impact + ${config.lob.aheadMin})) where it was picked, the same at the tap (${JSON.stringify(p)}, at the tap ${r.mid} on ${r.odoTap})`);
     ok(Math.abs(r.along - r.mid) <= S.snapReachMax + config.lob.stretch / 2, `${id}: landing on its stretch's building (${r.along} along, the middle ${r.mid})`);
     // (the bus's own travel against the plan's at the gear's speed: 3 m over it at 30 fps from 14 km)
     ok(r.mid - r.atImp >= config.lob.aheadMin - 5 && r.mid <= r.shotReach + 1, `${id}: its stretch ${config.lob.aheadMin} m past the bus at the impact, inside the reach (middle ${r.mid}, the bus at ${r.atImp}, the reach ${r.shotReach})`);
@@ -597,7 +615,11 @@ for (const r of rows) {
   // (30 and 60 fps: the same throw, within 2 m and 0.05 s)
   if (r.fps === 60 && r.kind === 'lob') {
     const s = rows.find((q) => q.key === r.key && q.fps === 30 && q.slot);
-    ok(!!s && s.kind === r.kind && Math.hypot(s.landing[0] - r.landing[0], s.landing[1] - r.landing[1], s.landing[2] - r.landing[2]) <= 2 && Math.abs((s.tImpact ?? 0) - (r.tImpact ?? 0)) <= 0.05, `${r.key}: 30 and 60 fps within 2 m and 0.05 s (${JSON.stringify([r.kind, r.landing, r.tImpact])} against ${JSON.stringify(s ? [s.kind, s.landing, s.tImpact] : null)})`);
+    // (--high: a far one whose want sat on a stretch's edge at both rates, within 1 m, may land on the stretch either side. dt-1000/cruise/b70/1t's was
+    // 1,260.0 on the odometer at both, 1260 an edge: a quantized landing has an edge somewhere, and only there do the two rates part)
+    const Ls = config.lob.stretch, edge = (q: any) => !!q?.pick && Math.abs(((q.pick.odo + q.pick.want) / Ls) - Math.round((q.pick.odo + q.pick.want) / Ls)) * Ls <= 1;
+    const tie = HIGH && r.far && s?.far && edge(r) && edge(s) && Math.abs(Math.abs(r.mid + r.odoTap - (s.mid + s.odoTap)) - Ls) <= 0.5;
+    ok(!!s && s.kind === r.kind && (tie || Math.hypot(s.landing[0] - r.landing[0], s.landing[1] - r.landing[1], s.landing[2] - r.landing[2]) <= 2) && Math.abs((s.tImpact ?? 0) - (r.tImpact ?? 0)) <= 0.05, `${r.key}: 30 and 60 fps within 2 m and 0.05 s${tie ? ', or a stretch apart on a tie' : ''} (${JSON.stringify([r.kind, r.landing, r.tImpact])} against ${JSON.stringify(s ? [s.kind, s.landing, s.tImpact] : null)})`);
   }
   // (what the aim costs a frame while it plans the Lob, in Node: the plan's 0.035-0.066 ms for its plan alone, 0.02-0.09 a row's median with the hider on a
   // loaded laptop; its slowest 2 % of frames left out)

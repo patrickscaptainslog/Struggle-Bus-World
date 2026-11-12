@@ -963,10 +963,12 @@ export const config = {
    *  the screen: the producer's call; 0.78 puts the hit at `low` from every height, `most` 0 is no dip), never more than `swing` degrees under the lift the
    *  view had at the tap, at most `most` degrees and never past `pitchMax` degrees down in all. Eased at `rate` (1/s): at config.lob.tipRate's 3 the view
    *  lagged the landing a fast gear closes on, and from 1 km at Jet to Turbo 3 the hit was 0.06-0.07 of the half height under `low` at the impact
-   *  (s_lob --high). A look takes it back. */
+   *  (s_lob --high). And its landing is taken where the lens will see it `lead` s on, the bus's travel ahead: an ease lags a target that keeps moving by
+   *  about 1/rate, and from 1 km at Turbo 2 the hit was still 0.06 under `low` at the impact. A look takes it back. */
   shotView: {
     hold: 0.6,
     rate: 5,
+    lead: 0.2,
     low: -0.2,
     busMax: 0.3,
     swing: 25,
