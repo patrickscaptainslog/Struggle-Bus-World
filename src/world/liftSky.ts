@@ -62,6 +62,12 @@ const SKY_CUT = 0.11;
 /** The cut's radius at the bus, at most (m): what 0.11 is from the chase lens at 250 m. A lens farther off cuts no wider round the bus */
 const SKY_CUT_R = 25;
 /**
+ * How far past the bus's middle, along the line from the lens, the cut reaches (m): its nose at the most, a belly or a sun it flies into
+ * crosses it there. 5.68 m at the model's scale 1, times 1.6 (BusModel), 1.55 (the hero's scale at altitude), 1.25 (Turbo's) and 1.19 (a
+ * super splat's swell) is 20.9 m; 10 m left the nose under the Sea's belly at 290 m
+ */
+const SKY_CUT_PAST = 22;
+/**
  * The height its risers' feet are picked for (m over the heart's ground): a foot's ground no higher than leaves a riser the room to rise
  * straight through the floating houses' layer under a piece this high. The pieces stood at 220 m when the feet were placed; standing higher
  * leaves them more, and the feet stay where they were.
@@ -345,8 +351,8 @@ void sbCut() {
 #ifdef SB_CUT
   vec3 b = uSkyBus.xyz - cameraPosition, q = vWorldPos - cameraPosition;
   float lb = length(b), along = dot(q, b) / max(lb, 1e-3);
-  // (and through the bus's own length past its middle: a belly or a sun it's flying into crosses it there)
-  if (along <= 0.0 || along > lb + 10.0) return;
+  // (and on past its middle to its nose at the most: a belly or a sun it's flying into crosses it there)
+  if (along <= 0.0 || along > lb + ${F(SKY_CUT_PAST)}) return;
   // (no wider than SKY_CUT_R round the bus, however far off the lens)
   float w = min(uSkyBus.w, ${F(SKY_CUT_R)} / max(lb, 1e-3));
   float a = length(q - b * (along / max(lb, 1e-3))) / along;
@@ -1231,12 +1237,12 @@ function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.S
 
 /**
  * Can the cut's cone (sbCut) reach any of the boxes (x0, y0, z0, x1, y1, z1 each): every point it cuts is within its radius at its far end
- * (10 m past the bus) of the line from the lens there, so a box that line misses, grown by that and by `slack`, has nothing in it.
+ * (SKY_CUT_PAST past the bus) of the line from the lens there, so a box that line misses, grown by that and by `slack`, has nothing in it.
  */
 function cutReaches(box: Float32Array, cx: number, cy: number, cz: number, bx: number, by: number, bz: number, w: number, slack: number): boolean {
   const lb = Math.hypot(bx - cx, by - cy, bz - cz);
   if (!(w > 0) || lb < 1e-3) return false;
-  const L = lb + 10, s = L / lb;
+  const L = lb + SKY_CUT_PAST, s = L / lb;
   const d0 = (bx - cx) * s, d1 = (by - cy) * s, d2 = (bz - cz) * s;
   const r = L * Math.min(w, SKY_CUT_R / lb) + slack;
   for (let i = 0; i < box.length; i += 6) {
