@@ -89,6 +89,8 @@ class Geo {
   readonly k: number[] = [];
   readonly e: number[] = [];
   readonly idx: number[] = [];
+  /** where it can be drawn as it moves, a box a part (x0, y0, z0, x1, y1, z1, m): what SkyPiece.bus holds the cut's cone to */
+  readonly boxes: number[] = [];
   v(x: number, y: number, z: number, nx: number, ny: number, nz: number, k: readonly number[], e: readonly number[]): number {
     this.pos.push(x, y, z);
     this.nrm.push(nx, ny, nz);
@@ -101,6 +103,16 @@ class Geo {
   }
   quad(a: number, b: number, c: number, d: number) {
     this.idx.push(a, b, c, a, c, d);
+  }
+  /** a box round the points from vertex `from` on, `pad` m more to the sides and up and `down` m more below (how far its shader moves them) */
+  box(from: number, pad: number, down = pad) {
+    const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (let i = from * 3; i < this.pos.length; i += 3)
+      for (let a = 0; a < 3; a++) {
+        b[a] = Math.min(b[a], this.pos[i + a]);
+        b[a + 3] = Math.max(b[a + 3], this.pos[i + a]);
+      }
+    this.boxes.push(b[0] - pad, b[1] - down, b[2] - pad, b[3] + pad, b[4] + pad, b[5] + pad);
   }
   /**
    * A tube or a lathe along a path: `ring(t)` gives the centre, the radius and the way along at t 0..1, `rings` x `sides`, kind k; aE is
@@ -319,14 +331,18 @@ float sbH2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 float sbLit(vec3 n) { return clamp(uLight.y + uLight.z * (0.5 + 0.5 * n.y) + uLight.x * max(dot(n, uSunDir), 0.0), 0.0, 1.0); }
 uniform vec4 uSkyBus; // the bus (x, y, z, m) and the cut's reach (w: the tangent of its half angle; 0, none)
 // the bus through the piece: what of it stands between the lens and the bus, in a cone round the line from the lens to the bus, isn't drawn
-// (whole within two thirds of its reach, a checker of game pixels out to it), so a piece over the climb's chase view never hides the bus
+// (whole within two thirds of its reach, a checker of game pixels out to it), so a piece over the climb's chase view never hides the bus.
+// Only in the piece's cut program (SB_CUT), drawn while the cone can reach it (SkyPiece.bus): a program that can discard loses the early depth
+// test on Apple's GPUs, every fragment of every layer shaded
 void sbCut() {
+#ifdef SB_CUT
   vec3 b = uSkyBus.xyz - cameraPosition, q = vWorldPos - cameraPosition;
   float lb = length(b), along = dot(q, b) / max(lb, 1e-3);
   // (and through the bus's own length past its middle: a belly or a sun it's flying into crosses it there)
   if (along <= 0.0 || along > lb + 10.0) return;
   float a = length(q - b * (along / max(lb, 1e-3))) / along;
   if (a < uSkyBus.w * 0.68 || (a < uSkyBus.w && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
+#endif
 }
 `;
 /** a hidden vertex: behind the far plane */
@@ -365,6 +381,8 @@ function* atlantisGeo(p: SkyPlace, g: Geo): Steps {
       const a = o + i * (sides + 1) + s, b = a + sides + 1;
       g.quad(a, a + 1, b + 1, b);
     }
+  // (its sway, swell and bob)
+  g.box(o, 6);
   const belly = (r: number) => Y - TB * Math.sqrt(Math.max(0, 1 - (r / Rl) ** 2));
   // the falls: the canals pour up from the streets into it, waterspouts: a skirt of foam on the street, a narrow rope of water straight up
   // through the floating houses, and over them a funnel flaring out as it bends in to meet the Sea (aK.y their seed, aK.z the foot, aK.w the top)
@@ -404,6 +422,10 @@ function* atlantisGeo(p: SkyPlace, g: Geo): Steps {
       return { c: new THREE.Vector3(0, 0, (0.5 - t) * L), r: Math.max(r, 0.6), up: new THREE.Vector3(0, 0, -1) };
     };
     const k = [2, w, Math.cos(a), Math.sin(a)];
+    // (where its shader takes it and its foam: 45 m either way along its side and 58 up or down from its rim, its body 30 m and its fins 18
+    // round that)
+    const bx = hx + Math.cos(a) * Rl * (w ? 0.62 : 0.72), bz = hz + Math.sin(a) * Rl * (w ? 0.62 : 0.72), by = Y + (w ? -21 : 9);
+    g.boxes.push(bx - 95, by - 98, bz - 95, bx + 95, by + 98, bz + 95);
     g.tube(14, 10, body, k);
     // the flukes and the pectoral fins (aE.x 1: a fin)
     const fin = (pts3: number[][]) => {
@@ -594,8 +616,9 @@ function* elderwoodGeo(p: SkyPlace, g: Geo): Steps {
   const Y = skyY(p, []);
   const all = isles(p);
   for (let i = 0; i < all.length; i++) {
-    const { x, z, y, r, depth, floor } = all[i];
+    const { x, z, y, r, depth, floor, rise } = all[i];
     const heart = i === 0;
+    const from = g.pos.length / 3;
     const k = (part: number, a = 0) => [part, i, a, liftSeed(i, 33)];
     // the turf: a domed top with a jagged rim (aE.z its distance out, 0..1)
     const sides = heart ? 22 : 14;
@@ -699,6 +722,8 @@ function* elderwoodGeo(p: SkyPlace, g: Geo): Steps {
       face([pt(1, 1, 0), pt(-1, 1, 0), pt(-1, 1, hgt), pt(1, 1, hgt)], -sa, 0, ca, 0);
       face([pt(1, -1, hgt), pt(1, 1, hgt), pt(-1, 1, hgt), pt(-1, -1, hgt)], 0, 1, 0, 0);
     }
+    // (its turn, its breath, its roots' swing and its crowns', and below it its rise into place)
+    g.box(from, 14, rise + 14);
     yield;
   }
   return { R: hoodRadius(p), Y, feet: [], cols: [] };
@@ -865,6 +890,7 @@ function* hyperglowGeo(p: SkyPlace, g: Geo): Steps {
     g.quad(ids[0], ids[3], ids[2], ids[1]);
   }
   // (no fence round the neighbourhood's edge: from a kilometre it framed the Skyway like a selection box)
+  g.box(0, 1);
   return { R: hoodRadius(p), Y, feet: [], cols: [] };
 }
 
@@ -949,6 +975,10 @@ function* infernoGeo(p: SkyPlace, g: Geo): Steps {
     const lat = Math.PI * t;
     return { c: new THREE.Vector3(hx, Y - RS * Math.cos(lat), hz), r: Math.max(0.01, RS * Math.sin(lat)), up: new THREE.Vector3(0, 1, 0) };
   }, [0]);
+  // (its throb; the corona, turned to the eye, within its half diagonal and 6 m of its middle)
+  g.box(0, RS * 0.03 + 1);
+  const hr = HALO * RS * Math.SQRT2 + 7;
+  g.boxes.push(hx - hr, Y - hr, hz - hr, hx + hr, Y + hr, hz + hr);
   // the corona: one square facing the eye, behind the sun, drawn as an eclipse's ring: a thin gold rim, tongues of flame licking off it, and
   // stepped crimson halos fading out (aE.xy across it -1..1; its half width is HALO suns' radii)
   {
@@ -1019,6 +1049,9 @@ function* infernoGeo(p: SkyPlace, g: Geo): Steps {
       // (wound to face down)
       g.quad(a, b, b + 1, a + 1);
     }
+  // (it turns round the heart within its own disc and billows 8 m. The embers have no box: a chip 2 m across over the bus is a spark, not
+  // a piece standing between it and the lens, and with them the cut would be in from the ground to 240 m over the whole neighbourhood)
+  g.box(o, 9);
   return { R: hoodRadius(p), Y, feet: pts, cols };
 }
 
@@ -1172,7 +1205,8 @@ const PIECES: Record<number, { geo: (p: SkyPlace, g: Geo) => Steps; vs: string; 
 /** Does this faction have a sky piece here (Rainbow's halo isn't built). */
 export const hasSkyPiece = (faction: number) => faction in PIECES;
 
-function material(faction: number): THREE.ShaderMaterial {
+/** The faction's two programs, on the one set of uniforms: `cut` with the cut round the bus (SB_CUT), `plain` without it. */
+function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.ShaderMaterial } {
   const P = PIECES[faction];
   const uniforms: Record<string, THREE.IUniform> = {
     ...globals,
@@ -1181,7 +1215,38 @@ function material(faction: number): THREE.ShaderMaterial {
     uSkyBus: { value: new THREE.Vector4(0, -1e6, 0, SKY_CUT) },
   };
   if (faction === FACTION_ELDERWOOD) uniforms.uIsles = { value: Array.from({ length: 7 }, () => new THREE.Vector4()) };
-  return new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, side: THREE.DoubleSide, vertexShader: P.vs, fragmentShader: P.fs });
+  const make = (defines: Record<string, string>) =>
+    new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, defines, side: THREE.DoubleSide, vertexShader: P.vs, fragmentShader: P.fs });
+  return { cut: make({ SB_CUT: '' }), plain: make({}) };
+}
+
+/**
+ * Can the cut's cone (sbCut) reach any of the boxes (x0, y0, z0, x1, y1, z1 each): every point it cuts is within its radius at its far end
+ * (10 m past the bus) of the line from the lens there, so a box that line misses, grown by that and by `slack`, has nothing in it.
+ */
+function cutReaches(box: Float32Array, cx: number, cy: number, cz: number, bx: number, by: number, bz: number, w: number, slack: number): boolean {
+  const lb = Math.hypot(bx - cx, by - cy, bz - cz);
+  if (!(w > 0) || lb < 1e-3) return false;
+  const L = lb + 10, s = L / lb;
+  const d0 = (bx - cx) * s, d1 = (by - cy) * s, d2 = (bz - cz) * s;
+  const r = L * w + slack;
+  for (let i = 0; i < box.length; i += 6) {
+    // (the line from the lens, t 0..1, clipped to the grown box axis by axis)
+    let t0 = 0, t1 = 1;
+    for (let a = 0; a < 3 && t0 <= t1; a++) {
+      const c = a === 0 ? cx : a === 1 ? cy : cz, d = a === 0 ? d0 : a === 1 ? d1 : d2;
+      const lo = box[i + a] - r, hi = box[i + a + 3] + r;
+      if (Math.abs(d) < 1e-9) {
+        if (c < lo || c > hi) t1 = -1;
+        continue;
+      }
+      const u = (lo - c) / d, v = (hi - c) / d;
+      t0 = Math.max(t0, Math.min(u, v));
+      t1 = Math.min(t1, Math.max(u, v));
+    }
+    if (t0 <= t1) return true;
+  }
+  return false;
 }
 
 /** A built set piece: its one mesh (hidden until `start`), its triangles, where it stands on the ground and its risers (Built). */
@@ -1191,8 +1256,11 @@ export interface SkyPiece {
   feet: Array<[number, number]>;
   cols: number[][];
   start(t: number): void;
-  /** where the bus is now (m): the piece isn't drawn between the lens and it (the shaders' sbCut) */
-  bus(x: number, y: number, z: number): void;
+  /**
+   * where the bus is now and the lens was last frame (m): the piece isn't drawn between the lens and it (the shaders' sbCut), and draws in its
+   * cut program only while the cut's cone can reach it
+   */
+  bus(x: number, y: number, z: number, cam: THREE.Vector3): void;
 }
 
 /**
@@ -1213,41 +1281,58 @@ export function makeSkyPiece(faction: number, place: SkyPlace): { step(): SkyPie
 }
 
 function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, cols }: Built): SkyPiece {
-  const mat = material(faction);
-  (mat.uniforms.uSkyC.value as THREE.Vector4).set(place.heart[0], Y, place.heart[1], size);
+  const { cut, plain } = materials(faction);
+  (cut.uniforms.uSkyC.value as THREE.Vector4).set(place.heart[0], Y, place.heart[1], size);
   if (faction === FACTION_ELDERWOOD) {
     // (each island's centre, its pieces moved about it, and its rise: the same isles() elderwoodGeo built them from)
-    const v = mat.uniforms.uIsles.value as THREE.Vector4[];
+    const v = cut.uniforms.uIsles.value as THREE.Vector4[];
     isles(place).forEach(({ x, y, z, rise }, i) => v[i].set(x, y, z, rise));
   }
-  const mesh = new THREE.Mesh(g.build(), mat);
+  // where it can be drawn: its parts' boxes, and each riser's between each two of its heights, grown by their reach (and 1 m: its bend between)
+  const boxes = g.boxes.slice();
+  for (const c of cols)
+    for (let k = 0; k + 7 < c.length; k += 4) {
+      const r = Math.max(c[k + 3], c[k + 7]) + 1;
+      boxes.push(Math.min(c[k], c[k + 4]) - r, Math.min(c[k + 1], c[k + 5]) - r, Math.min(c[k + 2], c[k + 6]) - r);
+      boxes.push(Math.max(c[k], c[k + 4]) + r, Math.max(c[k + 1], c[k + 5]) + r, Math.max(c[k + 2], c[k + 6]) + r);
+    }
+  const reach = new Float32Array(boxes);
+  const mesh = new THREE.Mesh(g.build(), plain);
   mesh.frustumCulled = false;
   mesh.renderOrder = 1;
+  const b = cut.uniforms.uSkyBus.value as THREE.Vector4;
+  let lx = NaN, ly = 0, lz = 0;
   return {
     mesh,
     tris: g.idx.length / 3,
     feet,
     cols,
     start: (t: number) => {
-      mat.uniforms.uSkyT0.value = t;
+      cut.uniforms.uSkyT0.value = t;
     },
-    bus: (x: number, y: number, z: number) => {
-      const b = mat.uniforms.uSkyBus.value as THREE.Vector4;
+    bus: (x: number, y: number, z: number, cam: THREE.Vector3) => {
       b.x = x;
       b.y = y;
       b.z = z;
+      // (the lens is last frame's: the cone is held to the boxes grown by twice its last move, and 4 m, for where it is when the frame is drawn)
+      const moved = Number.isNaN(lx) ? 0 : Math.hypot(cam.x - lx, cam.y - ly, cam.z - lz);
+      lx = cam.x;
+      ly = cam.y;
+      lz = cam.z;
+      mesh.material = cutReaches(reach, cam.x, cam.y, cam.z, x, y, z, b.w, 4 + 2 * moved) ? cut : plain;
     },
   };
 }
 
-/** Shader warm-up (render/warmup.ts): the faction's piece in its layout, one triangle. */
+/** Shader warm-up (render/warmup.ts): the faction's piece in its layout, one triangle, in both its programs. */
 export function registerSkyWarm(faction: number) {
   if (!PIECES[faction]) return;
   registerWarm('liftsky', () => {
     const g = new Geo();
     for (let i = 0; i < 3; i++) g.v(i, 0, 0, 0, 1, 0, [0], [0]);
     g.tri(0, 1, 2);
-    return [new THREE.Mesh(g.build(), material(faction))];
+    const geo = g.build(), { cut, plain } = materials(faction);
+    return [new THREE.Mesh(geo, cut), new THREE.Mesh(geo, plain)];
   });
 }
 
