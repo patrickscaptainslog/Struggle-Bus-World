@@ -115,6 +115,8 @@ export class Aimer {
   private cometOnly: CometPlan | null = null;
   /** the last fire() was the Comet's shotOf (unfire puts its side back) */
   private cometFired = false;
+  /** ...or the Lob's (unfire gives it back its latch) */
+  private lobFired = false;
   private readonly cometOut = {} as CometPlan;
   private readonly lobOut = {} as CometPlan;
   private readonly aimOwnPt = { x: 0, y: 0, z: 0, dist: 0, travel: 0, drop: 0, wall: false };
@@ -545,8 +547,8 @@ export class Aimer {
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
   press(): void {
     // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
-    // thumb's tap reads it live. On Curb's street, none)
-    if (this.lob && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
+    // thumb's tap reads it live. On Curb's street, none; nor with the belly not ready, whose taps ran a latch on until it was full: M90)
+    if (this.lob && this.ready && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
     if (this.mover && !this.moverLatch) {
       // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
       Object.assign(this.moverHeld, this.mover);
@@ -590,7 +592,7 @@ export class Aimer {
   fire(f: Flight, bomb = false): Shot {
     // (the tap's shot is chosen in one place, Comet.ts's chooseShot, every frame: what this frame planned and glints. A Bomb never lobs: where the Lob won,
     // its shot is the Comet's, or the aim's own under them)
-    this.cometFired = false;
+    this.cometFired = this.lobFired = false;
     if (this.comet && this.cometPlan) {
       if (!this.lobbing) {
         this.cometFired = true;
@@ -608,15 +610,18 @@ export class Aimer {
     return this.fireAim(f, bomb);
   }
 
-  /** The shot fire() gave didn't leave (Flight.tryBarf said no, or the Bomb fizzled): a Comet's next one stays on the side this one would have taken (n82). */
+  /** The shot fire() gave didn't leave (Flight.tryBarf said no, or the Bomb fizzled): a Comet's next one stays on the side this one would have taken (n82),
+   *  and a Lob's keeps its latch and its landing (n91). */
   unfire(): void {
     if (this.cometFired) this.comet?.unshot();
-    this.cometFired = false;
+    if (this.lobFired) this.lob?.unfired();
+    this.cometFired = this.lobFired = false;
   }
 
   /** The shot a Lob's plan throws: at what glints, its flight the plan's. */
   private lobShot(p: CometPlan): Shot {
     this.lob!.fired();
+    this.lobFired = true;
     this.latchRef = null;
     return { target: p.target, x: p.x, z: p.z, y: p.wall || !p.target ? p.y : undefined, exact: p.wall, drop: p.drop, travel: p.travel, comet: { ...p } };
   }

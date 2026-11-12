@@ -621,7 +621,7 @@ export class CraterPaint {
       tag: t,
       shape: (s: BlastSpec) => {
         if (t.r > 150) return false;
-        s.r = t.r * 1.2 + 26;
+        s.r = this.tapR(s.r, t);
         s.edge = 0.02;
         s.ragged = 0;
         s.rays = 0;
@@ -631,6 +631,12 @@ export class CraterPaint {
         return true;
       },
     };
+  }
+
+  /** A tap's blast's radius (m) on crater t, the one glinting by default: its own size (barf's shape), a big one's (over 150 m) and open ground's the tap's
+   *  own r. The Lob's ring shows it (main.ts), where it showed the Lob's circle, up to 170 m, over a crater taking its own. */
+  tapR(r: number, t: Target | null = this.target): number {
+    return t && t.r <= 150 ? t.r * 1.2 + 26 : r;
   }
 
   /** The blast lands: its crater and those around it go up a level. On open ground it stays as a mark on the far windows. Returns the crater it hit. */

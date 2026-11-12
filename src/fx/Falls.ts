@@ -30,10 +30,9 @@ export const fallsTune = {
   /** splashes round the foot as the pool lands, and their strength (Particles.splash): the pool coming up into view where it lands on the tap's own paint */
   footSplashes: 14,
   footSplash: 1.1,
-  /** the pool's ground begins this long before it lands (s): drawn hidden over those frames, its live slot held for its own reveal alone; and after a wide
-   *  blast still drawing, this long past the runs' reaching the street at most (s) */
+  /** the pool's ground begins this long before it lands (s): drawn hidden over those frames, its live slot held for its own reveal alone; and not before a
+   *  wide blast still drawing is due (GroundPaint.wideDue) */
   poolLead: 0.25,
-  poolWait: 1.2,
 };
 
 /** The walls' distance from (cx, cz) by angle (SHAPE_LUT steps from +x toward +z): along each ray the farthest crossing of the ground tier's rings, so the
@@ -165,8 +164,9 @@ export class Falls {
       const due = Math.min(r.drops, Math.floor((r.drops * (now - r.t0)) / span));
       for (; r.dropped < due; r.dropped++) this.drop(r, r.dropped / Math.max(1, r.drops));
       // (the pool's ground poolLead s before it lands: begun at the impact it held a live slot for seconds, and four more blasts took it, its slow reveal
-      // lost; and not while a wide blast still draws, a Bomb's that pours among them, its deadline kept, unless the runs have waited poolWait for it)
-      if (!r.pool && now >= r.down - T.poolLead && (!this.city.ground.wideBusy() || now >= r.down + T.poolWait)) {
+      // lost; and not before a wide blast still drawing is due, a Bomb's that pours among them, its deadline kept: a fixed 1.2 s past the street began it
+      // before a Bomb III from 450 m up was due, onto a roof under 100 m, and begin drew the rest of its circle whole, the Lob review's m90)
+      if (!r.pool && now >= r.down - T.poolLead && now >= this.city.ground.wideDue()) {
         r.land = Math.max(r.down, now + T.poolLead);
         r.pool = this.city.ground.begin(r.spec, r.land);
       }

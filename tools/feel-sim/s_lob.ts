@@ -12,6 +12,8 @@
 // past the tap slop (slid: it commits as a steering thumb, lifted inside quickTapMs), each a Lob at the body as the steering thumb lifted; a tower in the climb
 // (the Financial District's, toward Salesforce Tower) takes it on its face; at Cruise and Express, once the Lob shows in a pull it stays; and every building
 // whose middle is within 0.8 of its circle takes a level, up to the blast's cap.
+// After the Lob review (M90, the latch never had to end): a flick up a gear 0.5 s after the lift with the tap 1.2 s after it, and taps mashed every 0.3 s
+// after a Lob at Express until the belly is full, and three looks' landings 0.5, 1 and 1.4 s after the lift with the tap at 1.7 s: each a plain splat.
 // --street (the Lob's merge with feat/shots): only Curb's street, aimer.street set as main.ts sets it while Curb rolls, a pull and a tap there nose up at
 // Cruise and Express, one thumb and two: never a Lob, no plan in the pull, nothing planned (Curb's street front is the tap's, before the Lob's slot).
 //   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>] [--street]
@@ -23,7 +25,7 @@ import { TurboLens } from '@src/fx/Turbo';
 import { lensFov } from '@src/render/PixelPipeline';
 import { blastCap, blastRadiusFor } from '@src/game/blastLayout';
 import { Bomb } from '@src/game/Bomb';
-import { tapOpts } from '@src/game/Aim';
+import { Aimer, tapOpts } from '@src/game/Aim';
 import { lobRadius } from '@src/game/Lob';
 import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
 import * as THREE from 'three';
@@ -56,7 +58,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; gap?: number; dur?: number; pin?: boolean }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look'; gap?: number; dur?: number; pin?: boolean }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -99,6 +101,13 @@ CASES.push({ key: 'pin-floor/cruise/p0.65/1t/tower', place: 'wa', h: 'floor', ru
 CASES.push({ key: 'pin-floor/express/p0.65/2t/tower', place: 'wa', h: 'floor', rung: 'express', pull: 0.65, thumbs: 2, want: 'lob', pin: true, hold: 1.8 });
 // (from Justin Herman Plaza 50 m up, at the Embarcadero Center tower that stands highest over a 26 degree climb from there, 150-500 m out)
 CASES.push({ key: 'fidi-50/cruise/p0.35/2t', place: 'fidi', h: 50, rung: 'cruise', pull: 0.35, thumbs: 2, want: 'wall' });
+// (the Lob review's M90: the latch ends. A flick up a gear 0.5 s after the lift, its landing a press and its 0.1 s stroke a steering thumb, then the tap 1.2 s
+// after the lift; and taps mashed every 0.3 s after a Lob at Express until the belly is full again. Each a plain splat: the body is long down, and no tap
+// ran the latch on)
+CASES.push({ key: 'wa-floor/cruise/p1/1t/flick-after', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'flick' });
+CASES.push({ key: 'wa-floor/express/p0.75/1t/mash', place: 'wa', h: 'floor', rung: 'express', pull: 0.75, thumbs: 1, want: 'none', after: 'mash' });
+// (and twice the latch by itself: three looks' landings, each a press, 0.5, 1 and 1.4 s after the lift, then the tap's finger at 1.7 s. A plain splat)
+CASES.push({ key: 'wa-floor/cruise/p1/1t/look-after', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'look' });
 // (--street: Curb's street in their place)
 if (STREET)
   CASES.splice(0, CASES.length, ...(['cruise', 'express'] as const).flatMap((rung) => ([1, 2] as const).map((thumbs): Case => ({ key: `wa-floor/${rung}/p0.75/${thumbs}t/street`, place: 'wa', h: 'floor', rung, pull: 0.75, thumbs, want: 'none', mode: 'street' }))));
@@ -248,8 +257,38 @@ async function run(c: Case, dt: number, slot = true) {
   const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG;
   // ---- the tap: one thumb, the lift, a finger down 0.1 s later and up 0.08 s after; two thumbs, a finger down and up while the other pulls
   const fps = Math.round(1 / dt);
-  let ringAtPress = false;
+  let ringAtPress = false, first: string | null = null;
   const steps = (s: number) => Math.max(1, Math.round(s / dt));
+  if (c.after === 'flick') {
+    // (the flick's landing a press, as Input gives every flying thumb's)
+    for (let j = 0; j < steps(0.5); j++) await frame(idle);
+    g.press();
+    drive.rung(1, f);
+    for (let j = 0; j < steps(0.1); j++) await frame({ sx: 0, sy: 0, dragging: true });
+    for (let j = 0; j < steps(0.5); j++) await frame(idle);
+  } else if (c.after === 'look') {
+    // (looks' landings, each a press and none a tap, 0.5, 1 and 1.4 s after the lift: the tap's finger then lands at 1.7 s, past twice the latch)
+    for (const s of [0.5, 0.5, 0.4]) {
+      for (let j = 0; j < steps(s); j++) await frame(idle);
+      g.press();
+    }
+    for (let j = 0; j < steps(0.2); j++) await frame(idle);
+  } else if (c.after === 'mash') {
+    // (the Lob, then a tap every 0.3 s on the empty belly; the row's tap is the first with it full again)
+    for (let j = 0; j < steps(0.1); j++) await frame(idle);
+    g.press();
+    for (let j = 0; j < steps(1 / 15); j++) await frame(idle);
+    const r0 = g.tap();
+    first = r0.shot.comet?.kind === 'lob' ? 'lob' : r0.fired ? 'splat' : 'refused';
+    for (let n = 0; n < 40; n++) {
+      for (let j = 0; j < steps(0.3 - 1 / 15 - 0.1); j++) await frame(idle);
+      if (Aimer.loaded(f)) break;
+      g.press();
+      for (let j = 0; j < steps(1 / 15); j++) await frame(idle);
+      g.tap();
+      for (let j = 0; j < steps(0.1); j++) await frame(idle);
+    }
+  }
   if (c.thumbs === 1) {
     // (late: the finger lands 28/60 s after the lift, its tap's lift 0.53 s after it; slid: it slides past the tap slop from its second frame, a steering thumb
     // committed, and lifts as a quick tap, the stick still centred)
@@ -342,7 +381,7 @@ async function run(c: Case, dt: number, slot = true) {
     agl: r1(tap.y - city.groundAt(tap.x, tap.z)),
     impactScreen: scr,
     radius: impact && !miss ? r1(impact.r as number) : null, wantRadius: r1(lob ? lobRadius(plan) : blastRadiusFor(Math.max(0, tap.y - at.y))),
-    painted, inside, holds, struck, raisedTwo: two, ringAtPress, refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
+    painted, inside, holds, struck, raisedTwo: two, ringAtPress, ...(first ? { first } : {}), refund: r2(refund), climb: r1(climb), lobReach, pull: { lob: pullLob, of: pullN, flips: pullFlips },
     hitStops: g.events.slice(ev0).filter((e) => e.ev === 'hitstop').length,
     top: top === null ? null : r1(top), underGround: plan ? r1(underGround) : null,
     on: miss ? 'water' : res.wall ? 'wall' : res.target ? 'roof' : 'ground',
@@ -408,6 +447,8 @@ for (const r of rows) {
     ok(!r.kind.startsWith('lob'), `${id}: no Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
     if (r.key.endsWith('/street')) ok(r.pull.lob === 0 && r.lobStats?.planned === 0 && r.lobStats?.fired === 0, `${id}: on Curb's street no Lob planned, in the pull or at the tap (${r.pull.lob} of ${r.pull.of} frames, ${JSON.stringify(r.lobStats)})`);
   }
+  // (M90: after the lift's latch, a flick or a Lob and taps mashed on the empty belly: the next tap is a plain splat, the first of the mash a Lob)
+  if (r.key.endsWith('/flick-after') || r.key.endsWith('/mash') || r.key.endsWith('/look-after')) ok(r.kind === 'splat' && (r.first === undefined || r.first === 'lob'), `${id}: a plain splat, the latch long ended (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap, ${r.body.angle} thrown${r.first ? `; the first tap ${r.first}` : ''})`);
   // (the roofs stage: the ring up at the finger's landing is a Lob at its lift, and gone it's today's tap: never a ring that throws nothing)
   if (r.key.includes('/gap')) ok(r.ringAtPress === (r.want === 'lob') && (r.kind === 'lob') === r.ringAtPress, `${id}: the ring ${r.ringAtPress ? 'up' : 'gone'} at the finger, ${r.kind} thrown (${r.key.split('/').slice(-2).join(' ')})`);
   if (r.key.includes('/bomb')) {

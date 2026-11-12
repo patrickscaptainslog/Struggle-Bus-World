@@ -84,8 +84,12 @@ export function cometOn(f: Flight): boolean {
 export function chooseShot<A, T extends { x: number; z: number }>(f: Flight, aim: A, comet: T | null, lob: T | null): A | T {
   if (!lob) return comet ?? aim;
   if (!comet) return lob;
-  const far = (s: T) => Math.hypot(s.x - f.x, s.z - f.z);
-  return far(lob) > far(comet) ? lob : comet;
+  return far(f, lob) > far(f, comet) ? lob : comet;
+}
+
+/** How far a landing is from the bus over the ground (m). */
+function far(f: Flight, s: { x: number; z: number }): number {
+  return Math.hypot(s.x - f.x, s.z - f.z);
 }
 
 const STEP = 1 / 60;
