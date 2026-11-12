@@ -184,9 +184,9 @@ const PAN_X = 1;
 const PAN_Y = 0.5;
 
 /** The page change in the long dark (docs/specs/earth/EARTHFLIGHT.md, E3): s of trip into 'cruise' or 'homeCruise', where nothing but the stars, the bus and its trail is on screen, and what the next page keeps of this one's URL:
- *  the city and the hour too, so a trip from ?earth&city=london comes home to London's street (the first account's review, 2026-11-04: it came home to San Francisco's, with London as the trip's home). */
+ *  the city and the hour too, so a trip from ?earth&city=london comes home to London's street (the first account's review, 2026-11-04: it came home to San Francisco's, with London as the trip's home). And ?show, the one link, which index.html writes out again on the next page. */
 const SWAP_AFTER = 3;
-const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour', 'life'];
+const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour', 'life', 'show'];
 
 /** The trip and its view the page before saved (?resume), taken out of storage as they're read: a reload starts afresh. */
 function readSwap(): { trip: Record<string, unknown>; view: Record<string, unknown> } | null {
