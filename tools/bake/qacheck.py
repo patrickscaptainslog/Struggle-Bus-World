@@ -130,17 +130,21 @@ def limits(qa):
 def gate(qa):
     """once the gate is 'fail', a check that failed to read fails the bake, where as NOT READ it passed, so a city whose
     bridges.py throws passed all fifteen; one with nothing to read (an empty frame: no hero, no deck) doesn't, nor any in
-    report mode"""
+    report mode; and which it is doesn't hang on the words of its why: reworded, each says the same"""
     import bridges as B
     why = []
     ground = B.Ground((0.0, 0.0, 256.0, 256.0), np.full((128, 128), B.Ground.WATER, np.uint8), 2.0, np.zeros((65, 65), np.float32), 4.0)
     Q = qa.thresholds({}, log=lambda *a: None)[0]
     for fail in (None, 'segments', 'read'):
         recs, _ = qa.bridge_checks({}, Baked(), Extract(fail), ground, Q, lambda lo, la: (lo, -la), lambda x, z: (-z, x), '.', log=lambda *a: None)
-        for g, want in (('fail', 15 if fail else 0), ('report', 0)):
-            n = sum(1 for r in recs if qa.gate_fails(r, g))
-            if n != want:
-                why.append(f'{fail or "an empty frame"}, the gate {g}: {n} of {len(recs)} fail the bake, want {want}')
+        for words in ('as written', 'reworded'):
+            if words == 'reworded':  # (a failure that says it another way; nothing to read that says "failed to read")
+                for r in recs:
+                    r['why'] = 'could not be read: ' + r['why'] if fail else 'failed to read nothing: ' + r['why']
+            for g, want in (('fail', 15 if fail else 0), ('report', 0)):
+                n = sum(1 for r in recs if qa.gate_fails(r, g))
+                if n != want:
+                    why.append(f'{fail or "an empty frame"}, its why {words}, the gate {g}: {n} of {len(recs)} fail the bake, want {want}')
     return why
 
 

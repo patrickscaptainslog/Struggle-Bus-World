@@ -260,7 +260,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     def check(key, what, unit, limit, floor=1, count_unit='count', lower=False, per=None):
         # (per: a limit that is a multiple of what each thing read has, until it's read: towerOffDeck's, half its deck's width)
         rec = {'key': key, 'what': what, 'unit': unit, 'limit': limit, 'floor': floor, 'countUnit': count_unit, 'lower': lower, 'per': per,
-               'value': None, 'count': None, 'over': False, 'read': False, 'why': '', 'detail': '', 'rows': []}
+               'value': None, 'count': None, 'over': False, 'read': False, 'failed': False, 'why': '', 'detail': '', 'rows': []}
         out.append(rec)
         return rec
 
@@ -299,7 +299,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     def failed(e, what):
         for rec in out:
             if not rec['read']:
-                rec.update(why=f'failed to read: {e!r}'[:240])
+                rec.update(failed=True, why=f'failed to read: {e!r}'[:240])
         log(f'bridges: {what} failed: ' + traceback.format_exc().strip().splitlines()[-1])
 
     # ---------------------------------------------------------------- what they read
@@ -335,7 +335,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
         try:
             fn(rec)
         except Exception as e:  # noqa: BLE001 (a check that can't be read says so; it never stops the QA)
-            rec.update(read=False, value=None, why=f'failed to read: {e!r}'[:240])
+            rec.update(read=False, value=None, failed=True, why=f'failed to read: {e!r}'[:240])
             log(f'{rec["key"]}: ' + traceback.format_exc().strip().splitlines()[-1])
 
     # ---------------------------------------------------------------- the heroes, against the map
@@ -642,7 +642,7 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     except Exception as e:  # noqa: BLE001
         for r in (c_fig, c_loss):
             if not r['read']:
-                r.update(why=f'failed to read: {e!r}'[:240])
+                r.update(failed=True, why=f'failed to read: {e!r}'[:240])
         log('streets: ' + traceback.format_exc().strip().splitlines()[-1])
     for rec in c_decks:
         guarded(rec, baked_decks)
@@ -1091,8 +1091,8 @@ def limit_text(c):
 def gate_fails(c, gate):
     """a bridge check fails the bake only once the gate is 'fail': when it's over its limit, or failed to read (what it
     reads threw, as for every check when bridges.py breaks on a city's data: as a pass it would pass that city). One with
-    nothing to read yet, no hero or no bridges.bin, doesn't"""
-    return gate == 'fail' and (c['over'] or (not c['read'] and c['why'].startswith('failed to read')))
+    nothing to read yet, no hero or no bridges.bin, doesn't. The record's flag says which, never the words of its why"""
+    return gate == 'fail' and (c['over'] or c['failed'])
 
 
 def bridge_line(c, gate):
