@@ -63,5 +63,22 @@ for (const [gear, rungs] of [['Jet', 3], ['Turbo 3', 6]] as Array<[string, numbe
   }
 }
 
+// ---------------------------------------------------------------- a dive
+// (a short throw has no arc: a bus diving when it's hit goes on down as the thumb has it, as far in half a second as the same dive with no hit, within a
+// fifth; a long one's arc lifts it over the city, as the stand-in's did)
+for (const [gear, rungs] of [['Cruise', 0], ['Jet', 3]] as Array<[string, number]>) {
+  const dt = 1 / 30, sink: number[] = [];
+  for (const hit of [false, true]) {
+    const b = bus(rungs, dt), f = b.f;
+    for (let k = 0; k < 10 / dt; k++) b.frame(0, -1, true);
+    for (let k = 0; k < 1 / dt; k++) b.frame(0, 1, true);
+    const y0 = f.y;
+    if (hit) f.shove(rivalTune.soakThrow, Math.cos(f.heading), Math.sin(f.heading), rivalTune.air[0]);
+    for (let k = 0; k < 0.5 / dt; k++) b.frame(0, 1, true);
+    sink.push(y0 - f.y);
+  }
+  row(sink[1] >= sink[0] * 0.8, `a dive, ${gear}, a shell's throw`, { sankIn0p5sWithNoHit: r1(sink[0]), withTheHit: r1(sink[1]) });
+}
+
 console.log(bad ? `${bad} FAIL` : 'all pass');
 process.exit(bad ? 1 : 0);

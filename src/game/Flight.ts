@@ -431,8 +431,8 @@ export class Flight {
     // (a turbo gear's floor sits above the rooftops: the bus rides it like a higher roof; nothing, not a gear and not a tower
     // in the look-ahead, lifts it into a deck: what it can't climb under one, underDeck() steers it around)
     // (and Curb's dive held over a road takes it down to the street)
-    // (and a hit's throw rides its arc, and whatever it must clear in time on the rest of it)
-    const u = Sh.on ? Math.min(1, Sh.t / Sh.air) : 0, shoveFloor = Sh.on ? Math.max(Sh.y0 + Sh.arc * 4 * u * (1 - u), Sh.need) : -Infinity;
+    // (and a hit's throw rides its arc, a long one's, and whatever it must clear in time on the rest of it: a short one has no arc, and a dive goes on down)
+    const u = Sh.on ? Math.min(1, Sh.t / Sh.air) : 0, shoveFloor = Sh.on ? Math.max(Sh.arc > 0 ? Sh.y0 + Sh.arc * 4 * u * (1 - u) : -Infinity, Sh.need) : -Infinity;
     const floor = Math.min(Math.max(roofFloor, Tb.floor, this.hoopFloor, shoveFloor), over - DECK_GAP, Number.isNaN(this.street) ? Infinity : this.street + config.curb.dip);
     this.floorY = floor;
     // the vertical spring chases a floor whose rises are eased (a roof edge entering the look-ahead
