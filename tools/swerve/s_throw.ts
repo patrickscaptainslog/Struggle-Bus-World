@@ -5,8 +5,11 @@
 //           Financial District, Nob Hill and SoMa, four poses a gear each): on no frame is the bus's underside through a roof, a wall or a tree as drawn (the
 //           route check's measure), none is lifted more than 12 m in a frame, and every throw ends inside the map. And a head-on blows the bus back: as the
 //           throw ends the bus is behind where it was hit, by at least half the throw (the gear then pulls it on again)
-//   base    the same poses with no throw (prints only): which frames are inside a surface, and for each whether the flight's own obstacle field had it
-//   hard    the review's hard turns with a pull or a push, today's stick, 16 poses a place (prints only), read the same way
+//   base    the same poses with no throw: no frame inside a surface. It fails today, and it's the flight's own, not the harness's: 3 poses go into a tower at
+//           Nonstop in the Financial District (42 m deep at worst, then lifted 43 m in a frame by the hard floor), with the flight's obstacle field holding
+//           what's drawn there on every such frame, and the same with the map streamed every frame along the bus's way (`eager`)
+//   hard    the review's hard turns with a pull or a push, today's stick, 16 poses a place: no frame inside a surface. It fails today the same way (23 frames,
+//           16 m deep at worst, at Cruise and Express in the Financial District), the flight's own. Neither is fixed here
 // `eager`: the map streamed every frame along the way the bus is really going (the probe streamed every third frame along the heading).
 import { busClearance, ll, makeGame, manifest, newCity, pump, truth } from '../feel-sim/lib';
 import { TurboDrive } from '@src/game/Turbo';
@@ -124,7 +127,7 @@ if (what === 'throw' || what === 'base') {
         }
     }
     const o = { throws: T.runs, framesInside: T.clip, throwsWithOne: T.clipRuns, lowest: r1(T.lowest), framesTheFlightsFieldLacked: T.unseen, framesLiftedOver12m: T.lifted, mostInAFrame: r1(T.liftMost), endedOutsideTheMap: T.out, ...(tier === 3 && what === 'throw' ? { headOnBackAtLeast: `${Math.round(T.back * 100)} % of the throw` } : {}), first: T.first };
-    if (what === 'base') console.log(`base, ${tname}'s poses, no throw: ${JSON.stringify(o)}`);
+    if (what === 'base') row(T.clip === 0, `base, ${tname}'s poses`, o);
     else row(T.clip === 0 && T.lifted === 0 && T.out === 0 && (tier !== 3 || T.back >= 0.5), `throw, ${tname}`, o);
   }
 }
@@ -152,7 +155,7 @@ if (what === 'hard') {
         T.runs++;
       }
     }
-    console.log(`hard, ${tname}, today's stick: ${JSON.stringify({ poses: T.runs, framesInside: T.clip, lowest: r1(T.lowest), framesTheFlightsFieldLacked: T.unseen, first: T.first })}`);
+    row(T.clip === 0, `${tname}, today's`, { poses: T.runs, framesInside: T.clip, lowest: r1(T.lowest), framesTheFlightsFieldLacked: T.unseen, first: T.first });
   }
 }
 
