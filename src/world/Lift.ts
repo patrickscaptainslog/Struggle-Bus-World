@@ -110,7 +110,11 @@ export class Lift implements LiftHooks, FieldHouses {
   private readonly pending = new Int32Array(LIFT.cap);
   private nPending = 0;
   private nUp = 0;
-  /** &lifted: the wave's houses whose rest heights are placed already, before it (plan()): the wave lifts each at its placed height */
+  /**
+   * &lifted: the wave's houses whose rest heights are placed already, before it (plan()): the wave lifts each at its placed height. Never
+   * cleared, and plan() runs once: a Lift stages one neighbourhood once (`staged` never goes back) and a page makes one Lift. Whatever stages
+   * again clears this and planDone first, or its wave lifts the first plan's houses at their old heights
+   */
   private readonly planned = new Set<number>();
   private planDone = false;
 
