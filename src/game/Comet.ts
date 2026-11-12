@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { clamp } from './springs';
-import type { City, BuildingRef } from '../world/City';
+import { LOAD_RADIUS, type City, type BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
 import type { Shot } from './Aim';
@@ -28,8 +28,8 @@ import type { Shot } from './Aim';
 // standing into it (a hillside) is lobbed over too, and where even the highest arc doesn't clear it, it lands on the hillside.
 //
 // Its blast is a tap's (Splatter.barf: blastRadiusFor(drop), life.blast with the whole circle, one level a building), with no ribbon from the mouth
-// (the streak is the jet: src/fx/CometFx.ts) and no hit-stop that far off. This file picks the tap's shot in one place (chooseShot): the Comet's, or the
-// Lob's (src/game/Lob.ts) where that lands farther, every frame and at the tap.
+// (the streak is the jet: src/fx/CometFx.ts) and no hit-stop that far off. This file picks the tap's shot in one place (chooseShot): the Lob's
+// (src/game/Lob.ts) whenever a nose-up tap has one, else the Comet's, every frame and at the tap. And how far a far shot reaches (shotReach).
 //
 // For the second account: Recess sets `clamp` to keep a match's Comet inside its fence (told the kind: a Lob asks it too); a captain's Comet is its own Comet, `track`ed every frame and
 // `plan`ned with its own flight (lens null). HOOKS.md has both, and that a Comet takes the place of the aim's mover.
@@ -69,6 +69,8 @@ export interface CometPlan {
   /** a Lob's (Lob.plan), and the angle it leaves the mouth at (rad); a Comet's has neither */
   kind?: ShotKind;
   angle?: number;
+  /** a far shot's: from high up, where nothing in view could take it, it lands out at shotReach, no in-view rule (the view dips after it: main.ts) */
+  far?: boolean;
 }
 
 /** A Comet now: a gear drives the bus at config.comet.speed or more. */
@@ -77,14 +79,36 @@ export function cometOn(f: Flight): boolean {
 }
 
 /**
- * The tap's shot, in one place (Aimer.update every frame, so what glints is what a tap fires): the Lob's when it applies, the Comet's when it does, and when
- * both do the farther landing wins (SHOTS.md, "How they fit together"); else the aim's. The Lob weighs only the Comet: against today's shot, which from about
- * 450 m up lands farther than a Lob would, it always wins.
+ * The tap's shot, in one place (Aimer.update every frame, so what glints is what a tap fires): the Lob's whenever one is planned, in every gear, then the
+ * Comet's, else the aim's: the gesture chooses the shot (config.lob.wins, the producer's call; BUILT.md, "The Lob from any height"). From high up both land
+ * near the loaded edge, and the farther of two landings a player can't tell apart picked between them. With config.lob.wins false, when both apply the
+ * farther wins, as before (SHOTS.md, "How they fit together"). The Lob weighs only the Comet: against today's shot it always wins.
  */
 export function chooseShot<A, T extends { x: number; z: number }>(f: Flight, aim: A, comet: T | null, lob: T | null): A | T {
   if (!lob) return comet ?? aim;
-  if (!comet) return lob;
+  if (!comet || config.lob.wins) return lob;
   return far(f, lob) > far(f, comet) ? lob : comet;
+}
+
+/**
+ * How far a shot may reach along (fx, fz) from the bus (m): config.comet.reach, and up high out to where the city is loaded. City.request loads every
+ * region within LOAD_RADIUS, widening to config.city.loadRadiusHigh with the height, of a point 950 m ahead with the height (main.ts's stream centre):
+ * along the way to that circle's edge, less config.comet.loadMargin, about 1,400 m at the floor, 2,260 m at 300 m, 2,750 m from 450 m up. Then marched
+ * back a stretch (config.lob.stretch) at a time to the last loaded ground: the regions come nearest first, and the leading edge, where far shots land,
+ * last. 0: nothing loaded along the line. On the Moon (its loading isn't this circle) and for a captain's (`captain`: the city loads round the player's
+ * bus), config.comet.reach.
+ */
+export function shotReach(city: City, f: Flight, fx: number, fz: number, captain = false): number {
+  const C = config.comet;
+  if (captain || city.isMoon) return C.reach;
+  const hkS = clamp(f.lift / 450, 0, 1), hkC = clamp((f.lift - 40) / 460, 0, 1);
+  const R = LOAD_RADIUS + (config.city.loadRadiusHigh - LOAD_RADIUS) * hkC;
+  // (the circle round the stream centre, cx cz from the bus, met along the way: s^2 - 2 s (u . c) + |c|^2 - R^2 = 0)
+  const cx = f.fx * 950 * hkS, cz = f.fz * 950 * hkS, uc = fx * cx + fz * cz, q = uc * uc - (cx * cx + cz * cz - R * R);
+  const circle = q > 0 ? uc + Math.sqrt(q) - C.loadMargin : 0;
+  const Ls = config.lob.stretch;
+  for (let d = Math.max(C.reach, circle); d > 0; d -= Ls) if (city.terrainAt(f.x + fx * d, f.z + fz * d) !== null) return d;
+  return 0;
 }
 
 /** How far a landing is from the bus over the ground (m). */
@@ -179,8 +203,8 @@ export class Comet {
     return this.table[i0] + (this.table[i1] - this.table[i0]) * (i - i0) + (t > SPAN ? (t - SPAN) * v : 0);
   }
 
-  /** The time the bus takes from the tap to fly d m (s), by the same table. */
-  private timeTo(v: number, d: number): number {
+  /** The time the bus takes from the tap to fly d m (s), by the same table (the far Lob's flight is cut by it: Lob.ts). */
+  timeTo(v: number, d: number): number {
     if (Math.abs(v - this.tableV) > 0.5) this.fill(v);
     const tb = this.table, n = tb.length;
     if (d >= tb[n - 1]) return SPAN + (d - tb[n - 1]) / Math.max(1, v);

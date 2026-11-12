@@ -4,7 +4,7 @@ import { clamp } from './springs';
 import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
-import { Comet, type CometPlan } from './Comet';
+import { Comet, shotReach, type CometPlan } from './Comet';
 import { inputTune } from './Input';
 import { blastRadiusFor } from './blastLayout';
 
@@ -25,7 +25,7 @@ import { blastRadiusFor } from './blastLayout';
 // still steering, reads it live.
 //
 // In view: by the lens moved on by the bus's travel to the impact, it must land config.lob.above of the height over the bus, the Comet's rule on its own number; where it
-// doesn't it moves out along its line a stretch at a time, and past config.comet.reach the tap is today's. The landing is the middle of a stretch of its way
+// doesn't it moves out along its line a stretch at a time, and past config.lob.reach the tap is today's. The landing is the middle of a stretch of its way
 // config.lob.stretch m long, counted along the bus's travel (Comet.track's odometer), so a tap lands on the same building at 30 and 60 fps and what glints
 // steps along, never strobes.
 //
@@ -35,6 +35,14 @@ import { blastRadiusFor } from './blastLayout';
 // Its flight is a CometPlan (CometFx draws its arc true): config.lob.flight x sin θ / sin 45 s after the inhale, a parabola leaving the mouth at θ, whose
 // top over its chord is (L tan θ + drop) / 4. A wall standing into it, climbing or falling, takes it there, on its face, and the ground standing into it
 // anywhere (a hill). Water is a miss with its refund.
+//
+// From high up nothing within the reach can show over the bus, and the Lob was gone: "I want to shoot lob shots even when I'm high elevation in the sky -
+// right now it seems to remove the feature" (the producer, 2026-11-12). So where the near search finds nothing, from config.lob.highFrom (1 km) over the
+// ground under the bus, it's the far Lob: no in-view rule, it lands where a throw from that height would (lobRange), out to where the city is loaded
+// (Comet.ts's shotReach, about 2.75 km), always config.lob.aheadMin past the bus at the impact, its flight cut short to keep it so at the gear's speed.
+// Held for its stretch and latched as the near one, the near one taking over where it's found (and then no far one again in that pull). Its blast is a
+// tap's from its height (config.lob.radiusHigh), and the view dips after it (main.ts, CameraRig.ts's shotTip). At the ceiling, where the gear's limit turns
+// the nose level, the pull held counts as the nose (bodyOf). Never on the Moon, whose loading isn't the city's circle.
 //
 // Never: in School Zone's hover (its body leans 11 degrees at most, its path reads 90 on the bob), in a dive (the path under level: Belly Flop's, later),
 // under a deck or through one, and while a Bomb charges (its shot skips it, Aimer.fire). Recess's comet.clamp is told it's a Lob (HOOKS.md).
@@ -50,6 +58,19 @@ export function lobAngle(body: number): number {
 /** Its flight after the inhale at angle a (s): config.lob.flight at 45 degrees, x sin a / sin 45. */
 export function lobFlight(a: number): number {
   return (config.lob.flight * Math.sin(a)) / Math.SQRT1_2;
+}
+
+/** How far a far Lob is thrown from the mouth at angle a (m), the bus `drop` m over the ground: a thrown thing landing config.lob.highFrom under it less,
+ *  range x cos a x (sin a + sqrt(sin^2 a + 2 H / range)). At H 0 it's range x sin 2a, the near Lob's, so the two join with no step. */
+export function lobRange(a: number, drop: number): number {
+  const L = config.lob, H = Math.max(0, drop - L.highFrom), s = Math.sin(a);
+  return L.range * Math.cos(a) * (s + Math.sqrt(s * s + (2 * H) / L.range));
+}
+
+/** The body a Lob reads (rad, Lob.body and Aimer's latch): Flight.pitch, but straining at the ceiling (config.lob.ceilStrain), where the gear's limit turns
+ *  the nose level and the body follows it, the nose the pull asks for (Flight.noseWant), at most config.flight.pitchMax. */
+export function bodyOf(f: Flight): number {
+  return f.strain > config.lob.ceilStrain ? Math.max(f.pitch, Math.min(f.noseWant, config.flight.pitchMax * DEG)) : f.pitch;
 }
 
 /** Its arc's top over its chord (m) for a throw L m out leaving at angle a, landing `drop` m under the mouth: the parabola that leaves at a. */
@@ -78,6 +99,7 @@ export class Lob {
   private firedHeld = false;
   private firedUntil = -1;
   private firedParked = -1;
+  private firedFar = false;
   /** the landing held: the stretch its search began from (the throw's own), where it is, what it's on */
   private heldOk = false;
   private heldK0 = 0;
@@ -88,6 +110,21 @@ export class Lob {
   /** ...taken from the landing it hid (land: its own face in the climb still takes it) */
   private heldHid = false;
   private heldAngle = 0;
+  /** ...and it's the far one's (its landing as below) */
+  private heldFar = false;
+  /** the far Lob's landing, held for its stretch (farK) apart from the near search, which runs first each frame */
+  private farOk = false;
+  private farK = 0;
+  private farX = 0;
+  private farY = 0;
+  private farZ = 0;
+  private farT: BuildingRef | null = null;
+  private farHid = false;
+  /** this pull planned a far Lob (the far branch stays open down to config.lob.highBack), and a near one was found after it (no far one again) */
+  private farOpen = false;
+  private farBarred = false;
+  /** QA (the sims): the last far plan's stretch middle, what it aimed for, the bus's travel to its impact and the reach (m along the way), its flight (s) */
+  readonly farLast = { mid: 0, want: 0, atImp: 0, reach: 0, travel: 0 };
   /** the last plan's landing after its march (a wall's face, a hillside), for the landing held: a latch keeps it whole, so a grazed wall can't come and go */
   private lastOk = false;
   private lastX = 0;
@@ -166,7 +203,7 @@ export class Lob {
 
   /** The body a tap throws now (rad): latched, parked, or live. */
   body(f: Flight, t: number): number {
-    return t < this.latchUntil ? this.latched : this.parkedNow(t) ? this.parked : f.pitch;
+    return t < this.latchUntil ? this.latched : this.parkedNow(t) ? this.parked : bodyOf(f);
   }
 
   /** The path under level, as the body reads (a dive never lobs). */
@@ -176,8 +213,14 @@ export class Lob {
 
   /** No Lob now: nothing held. */
   private none(): null {
-    this.heldOk = this.lastOk = false;
+    this.heldOk = this.lastOk = this.farOk = this.heldFar = false;
     return null;
+  }
+
+  /** No Lob, the pull over (the body down, a dive, the hover): the far branch shuts. */
+  private ended(): null {
+    this.farOpen = this.farBarred = false;
+    return this.none();
   }
 
   private ndcY(x: number, y: number, z: number): number {
@@ -247,19 +290,20 @@ export class Lob {
    */
   plan(f: Flight, fx: number, fz: number, out: CometPlan, t: number): CometPlan | null {
     const a = lobAngle(this.body(f, t));
-    if (Number.isNaN(a) || f.turbo.hover > 0 || f.hovering || this.diving(f, t)) return this.none();
+    if (Number.isNaN(a) || f.turbo.hover > 0 || f.hovering || this.diving(f, t)) return this.ended();
     const city = this.city;
     // (under a deck: the Golden Gate's low shot, the Bay Bridge's lower deck)
     if (city.overheadAt(f.x, f.z, f.y) !== Infinity) return this.none();
-    const C = config.comet, L = config.lob, S = config.splat;
+    const L = config.lob, S = config.splat;
     this.stats.planned++;
     const latched = t < this.latchUntil;
     const v = Math.max(1, f.ground);
-    const travel = lobFlight(a), tImp = S.inhale + travel;
+    let travel = lobFlight(a), tImp = S.inhale + travel;
     // (the bus's travel to the impact at the speed it flies once the nose is down: up steep its speed over the ground is a fraction of it, 64 of Nonstop's 225
     // m/s at 73 degrees, and the lens moved on that little put a landing on the screen that came down under the bus)
     const vt = Math.max(v, f.turbo.speed > 0 ? f.turbo.speed : f.speed);
-    const atImp = this.travel.flown(vt, tImp), launch = this.travel.flown(v, S.inhale);
+    let atImp = this.travel.flown(vt, tImp);
+    const launch = this.travel.flown(v, S.inhale);
     // (the lens moved on by the bus's travel to the impact, a climb in it: the Comet's)
     this.ox = fx * atImp;
     this.oz = fz * atImp;
@@ -270,45 +314,74 @@ export class Lob {
     const odo = this.comet.odometer, Ls = L.stretch;
     const d0 = launch + L.range * Math.sin(2 * a);
     let k = Math.round((odo + d0) / Ls - 0.5);
-    const hold = this.heldOk && Math.abs(this.heldAngle - a) < 1e-6;
-    let frozen = false;
-    if (hold && latched && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
+    const hold = this.heldOk && !this.heldFar && Math.abs(this.heldAngle - a) < 1e-6;
+    let frozen = false, far = false;
+    // (the far one latched: as it was, while it's still inside the reach and aheadMin past the bus at the impact. Its own flight's numbers, below)
+    const farHeld = this.heldFar && latched && Math.abs(this.heldAngle - a) < 1e-6 ? this.farPlan(f, fx, fz, a, vt, launch, true) : null;
+    if (farHeld) {
+      far = true;
+      frozen = this.lastOk;
+      travel = farHeld.travel;
+    } else if (hold && latched && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
       // (latched: the landing as it was, while it's ahead of the bus at the impact and shows over it, its march's too)
       frozen = this.lastOk;
-    } else if (this.heldOk && this.heldK0 === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
+    } else if (this.heldOk && !this.heldFar && this.heldK0 === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
       // (the throw's own stretch the same: the same landing, nothing picked again, while it shows `above`, a pull's body changing or not. One moved out a
       // stretch or more to show is held by the stretch its search began from. Held by where it ended, and only for the same body to 1e-6, every frame of a
       // pull searched afresh against aboveNew)
       this.heldAngle = a;
     } else {
       let found = false;
-      for (let dc = (k + 0.5) * Ls - odo; dc <= C.reach; dc += Ls, k++) {
+      for (let dc = (k + 0.5) * Ls - odo; dc <= L.reach; dc += Ls, k++) {
         if (!this.land(f, fx, fz, dc)) return this.none();
         if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.aboveNew) {
           found = true;
           break;
         }
       }
-      if (!found) return this.none();
-      this.heldK0 = Math.round((odo + d0) / Ls - 0.5);
-      this.heldAngle = a;
+      if (found) {
+        // (a near one found: it takes over, and no far one again in this pull, so no ring jumping back and forth)
+        if (this.farOpen) this.farBarred = true;
+        this.heldFar = this.farOk = false;
+        this.heldK0 = Math.round((odo + d0) / Ls - 0.5);
+        this.heldAngle = a;
+      } else {
+        const fp = this.farPlan(f, fx, fz, a, vt, launch, false);
+        if (!fp) return this.none();
+        far = true;
+        travel = fp.travel;
+        this.heldAngle = a;
+      }
+    }
+    if (far) {
+      // (its own flight: the lens moved on to its impact, for the tower that hides it)
+      tImp = S.inhale + travel;
+      atImp = this.travel.flown(vt, tImp);
+      this.ox = fx * atImp;
+      this.oz = fz * atImp;
+      this.oy = Math.max(0, f.vy) * Math.min(tImp, latched ? L.climbFor : L.climbLive);
     }
     let x = this.heldX, y = this.heldY, z = this.heldZ, target = this.heldT;
     // its arc from the mouth: a wall or the ground standing into it takes it on its face, where it meets it
     const x0 = f.x + fx * launch, z0 = f.z + fz * launch, y0 = f.y + f.vy * S.inhale;
-    let Lh = 0, arc = 0, wall: BuildingRef | null = null, hill = false, ws = 0;
+    let Lh = 0, arc = 0, wall: BuildingRef | null = null, hill = false, ws = 0, wstep = 8;
     for (let pass = 0; pass < 2; pass++) {
       Lh = Math.hypot(x - x0, z - z0);
       arc = lobArc(Lh, a, y0 - y);
       wall = null;
       hill = false;
       ws = frozen ? Lh : 0;
+      wstep = 8;
       let prevY = y0;
-      for (let s = 8; !frozen && s < Lh - S.wallSkip; s += 8) {
+      for (let s = 8, ds = 8; !frozen && s < Lh - S.wallSkip; s += ds) {
         const u = s / Lh, ay = y0 + (y - y0) * u + arc * 4 * u * (1 - u), px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
+        // (a far one's next step: 8 m along the ground while it's marchFine over it, then at most 8 m of height: its plunge from high up is as steep as 12 to 1)
+        const step = ds;
+        if (far) ds = ay - city.groundAt(px, pz) > L.marchFine ? 8 : Math.max(0.5, Math.min(8, (8 * Lh) / Math.max(1e-6, Math.abs(y - y0 + arc * 4 * (1 - 2 * u)))));
         if (ay < city.groundAt(px, pz) + S.wallClear) {
           hill = true;
           ws = s;
+          wstep = step;
           break;
         }
         // (a deck it would pass through, climbing or falling: no Lob, as under one. Asked at the bus alone, a throw just short of the Golden Gate climbed
@@ -321,6 +394,7 @@ export class Lob {
         if (!ref || (ref === target && !this.heldHid) || ref.roofY - ref.baseY < S.minTargetHeight) continue;
         wall = ref;
         ws = s;
+        wstep = step;
         break;
       }
       // (clear all the way, but a tower standing in front of it on the screen takes it, on its roof at its middle, while that shows, and its arc is asked
@@ -330,12 +404,13 @@ export class Lob {
       const h = this.hider(f, x, y, z, target);
       if (!h) break;
       const l = city.landingOn(h, h.cx, h.cz, S.landInset, this.landPt, S.smallRad), hy = city.roofAtPart(h, l.x, l.z) + 0.5;
-      if (this.showsAt(l.x, hy, l.z) < L.aboveNew) break;
+      if (!far && this.showsAt(l.x, hy, l.z) < L.aboveNew) break;
       x = this.heldX = l.x;
       y = this.heldY = hy;
       z = this.heldZ = l.z;
       target = this.heldT = h;
       this.heldHid = true;
+      if (far) this.keepFar();
     }
     let lt = Lh, larc = arc;
     if (frozen && this.lastShare < 1) {
@@ -348,7 +423,7 @@ export class Lob {
       larc = lobArc(Math.hypot(x - x0, z - z0), a, y0 - y);
       wall = this.lastWall ? target : null;
     } else if (wall || hill) {
-      let lo = ws - 8, hi = ws;
+      let lo = ws - wstep, hi = ws;
       for (let i = 0; i < 6; i++) {
         const m = (lo + hi) * 0.5;
         if (this.into(m, wall, x0, y0, z0, x, y, z, Lh, arc)) hi = m;
@@ -394,7 +469,73 @@ export class Lob {
     out.above = this.showsAt(x, y, z);
     out.kind = 'lob';
     out.angle = a;
+    out.far = far;
     return out;
+  }
+
+  /**
+   * The far Lob (null: none), where the near search found nothing: the bus config.lob.highFrom over the ground under it (down to highBack once this pull
+   * has had one), off the Moon. Its flight is lobFlight's, longer from high up, at most flightHigh, and cut so its impact is aheadMin and a stretch short of
+   * the reach at the gear's speed vt (under flightMin, none); it lands on the stretch whose middle is nearest where a throw from that height would land
+   * (lobRange, from the mouth), at least aheadMin past the bus at the impact and inside the reach. Held for its stretch, or `latched` while that stretch is
+   * still inside both. Leaves the landing in held*.
+   */
+  private farPlan(f: Flight, fx: number, fz: number, a: number, vt: number, launch: number, latched: boolean): { travel: number } | null {
+    const L = config.lob, S = config.splat, city = this.city, Ls = L.stretch, odo = this.comet.odometer;
+    const H = f.y - city.groundAt(f.x, f.z);
+    if (H < L.highBack) this.farOpen = false;
+    if (city.isMoon || this.farBarred || !(H >= L.highFrom || (this.farOpen && H >= L.highBack))) return null;
+    // (cut a stretch short of the reach, so a stretch's middle is always both aheadMin past the bus at the impact and inside it)
+    const reach = shotReach(city, f, fx, fz), room = reach - L.aheadMin - Ls;
+    if (room <= 0) return null;
+    const travel = Math.min(L.flightHigh, lobFlight(a) + (L.fallPerKm * Math.max(0, H - L.highFrom)) / 1000, this.travel.timeTo(vt, room) - S.inhale);
+    if (!(travel >= L.flightMin)) return null;
+    const atImp = this.travel.flown(vt, S.inhale + travel), lo = atImp + L.aheadMin;
+    const want = Math.min(reach, Math.max(launch + lobRange(a, H), lo));
+    const mid = (j: number) => (j + 0.5) * Ls - odo;
+    const q = this.farLast;
+    q.want = want;
+    q.atImp = atImp;
+    q.reach = reach;
+    q.travel = travel;
+    if (latched) {
+      if (!this.farOk || mid(this.farK) < lo || mid(this.farK) > reach) return null;
+      q.mid = mid(this.farK);
+      this.useFar();
+      return { travel };
+    }
+    let k = Math.round((odo + want) / Ls - 0.5);
+    while (mid(k) > reach) k--;
+    while (mid(k) < lo) k++;
+    q.mid = mid(k);
+    if (this.farOk && this.farK === k) this.useFar();
+    else {
+      if (!this.land(f, fx, fz, mid(k))) return null;
+      this.farK = k;
+      this.keepFar();
+    }
+    this.farOpen = true;
+    return { travel };
+  }
+
+  /** The far landing back into held* (the near search ran over them)... */
+  private useFar(): void {
+    this.heldX = this.farX;
+    this.heldY = this.farY;
+    this.heldZ = this.farZ;
+    this.heldT = this.farT;
+    this.heldHid = this.farHid;
+    this.heldOk = this.heldFar = true;
+  }
+
+  /** ...or held* kept as the far one's. */
+  private keepFar(): void {
+    this.farX = this.heldX;
+    this.farY = this.heldY;
+    this.farZ = this.heldZ;
+    this.farT = this.heldT;
+    this.farHid = this.heldHid;
+    this.farOk = this.heldOk = this.heldFar = true;
   }
 
   /** Is the arc from (x0, y0, z0) to (x, y, z), Lh m long and `arc` over its chord, into `ref` (a wall's) or the ground s m along? */
@@ -408,6 +549,8 @@ export class Lob {
   slide(dx: number, dz: number): void {
     this.heldX -= dx;
     this.heldZ -= dz;
+    this.farX -= dx;
+    this.farZ -= dz;
     this.lastX -= dx;
     this.lastZ -= dz;
   }
@@ -415,9 +558,10 @@ export class Lob {
   /** The shot a plan throws (Aimer.fire): the next one is picked afresh, and the next tap reads the body anew. */
   fired(): void {
     this.firedHeld = this.heldOk;
+    this.firedFar = this.farOk;
     this.firedUntil = this.latchUntil;
     this.firedParked = this.parkedAt;
-    this.heldOk = false;
+    this.heldOk = this.farOk = false;
     this.latchUntil = this.ranFrom = -1;
     this.parkedAt = -1;
     this.stats.fired++;
@@ -426,6 +570,7 @@ export class Lob {
   /** The shot fired() gave didn't leave (Aimer.unfire): its landing, its latch and the count as they were. */
   unfired(): void {
     this.heldOk = this.firedHeld;
+    this.farOk = this.firedFar;
     this.latchUntil = this.firedUntil;
     this.parkedAt = this.firedParked;
     this.stats.fired--;
@@ -447,6 +592,8 @@ export function lobFall(p: CometPlan): number {
 /** Its blast's radius (m): a tap's for the fall from its top (blastRadiusFor(lobFall)), at most config.lob.radius. Sized by the bus's height over the
  *  landing (a tap's), a throw from the roofs onto a roof as high came down 85-89 m wide, where the plan has it falling hundreds of metres. */
 export function lobRadius(p: CometPlan): number {
+  // (a far one's is a tap's from its height, 255 m from about 1 km up, at most config.lob.radiusHigh: the producer's call)
+  if (p.far) return Math.min(config.lob.radiusHigh, blastRadiusFor(p.drop));
   return Math.min(config.lob.radius, blastRadiusFor(lobFall(p)));
 }
 

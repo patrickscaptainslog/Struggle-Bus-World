@@ -2,12 +2,12 @@
 // Flight, TurboDrive, TurboLens, CameraRig, Aimer, Comet, Lob and Splatter, at 1/60 and 1/30 s, the lens projecting as the page's at 393 x 852 (lensFov).
 // One thumb: the steering thumb lifts, a finger lands 0.1 s later and lifts 1/15 s after that, the tap; two thumbs: the steering thumb still pulling, a
 // second one taps (whole frames at 30 and 60 fps, so both tap at the same game time). Every row starts on paint at level 0, so a building a tap raised two shows.
-// Lobs at Cruise, Express and Nonstop (where the Comet applies too: the farther of the two) over the Western Addition from the roofs and from 300 m, and downtown and over Glen Park's hills: each a Lob, at the
+// Lobs at Cruise, Express and Nonstop (where the Comet applies too: the Lob whenever one is planned, config.lob.wins) over the Western Addition from the roofs and from 300 m, and downtown and over Glen Park's hills: each a Lob, at the
 // body as it was when the steering thumb lifted (one thumb) or at the tap (two), clamped to config.lob.most; 30 and 60 fps within 2 m and 0.05 s; at the
 // impact in frame and config.lob.above of the height over the bus; its radius lobRadius (its fall from the arc's top, at most config.lob.radius), every building it reached a level, none two; no
 // hit-stop; its arc never 2 m into the ground.
-// None: from a flick's stroke, in School Zone, out of a dive, under the Golden Gate, from 1.5 km up, at Jet. Over the bay from Fort Mason: a Lob's miss, with
-// its refund. A Bomb let go after a pull lands where it would with no Lob at all (the slot off). And the aim's cost a frame while it plans the Lob.
+// None: from a flick's stroke, in School Zone, out of a dive, under the Golden Gate, at Jet. From 1.5 km up a far Lob (the Lob from any height: no in-view
+// rule, its radius a tap's from its height, inside shotReach). Over the bay from Fort Mason: a Lob's miss, with its refund. A Bomb let go after a pull lands where it would with no Lob at all (the slot off). And the aim's cost a frame while it plans the Lob.
 // After the review (sb-checks' lob fixes): a one-thumb tap lifted 0.53 s after the steering thumb (late: the press runs the latch on) and one that slides
 // past the tap slop (slid: it commits as a steering thumb, lifted inside quickTapMs), each a Lob at the body as the steering thumb lifted; a tower in the climb
 // (the Financial District's, toward Salesforce Tower) takes it on its face; at Cruise and Express, once the Lob shows in a pull it stays; and every building
@@ -27,6 +27,7 @@ import { blastCap, blastRadiusFor } from '@src/game/blastLayout';
 import { Bomb } from '@src/game/Bomb';
 import { Aimer, tapOpts } from '@src/game/Aim';
 import { lobRadius } from '@src/game/Lob';
+import { shotReach } from '@src/game/Comet';
 import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
 import * as THREE from 'three';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -58,7 +59,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look'; gap?: number; dur?: number; pin?: boolean }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look'; gap?: number; dur?: number; pin?: boolean }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -78,8 +79,9 @@ CASES.push({ key: 'wa-floor/zone/p1/2t', place: 'wa', h: 'floor', rung: 'zone', 
 CASES.push({ key: 'wa-floor/zone/p1/1t', place: 'wa', h: 'floor', rung: 'zone', pull: 1, thumbs: 1, want: 'none' });
 CASES.push({ key: 'wa-800/cruise/dive/2t', place: 'wa', h: 800, rung: 'cruise', pull: 1, thumbs: 2, want: 'none', mode: 'dive' });
 CASES.push({ key: 'wa-800/express/dive/2t', place: 'wa', h: 800, rung: 'express', pull: 1, thumbs: 2, want: 'none', mode: 'dive' });
-CASES.push({ key: 'wa-1500/cruise/p0.6/1t', place: 'wa', h: 1500, rung: 'cruise', pull: 0.6, thumbs: 1, want: 'none' });
-CASES.push({ key: 'wa-1500/express/p0.6/2t', place: 'wa', h: 1500, rung: 'express', pull: 0.6, thumbs: 2, want: 'none' });
+// (from 1.5 km up, where nothing within the reach shows over the bus: the far Lob, "I want to shoot lob shots even when I'm high elevation in the sky")
+CASES.push({ key: 'wa-1500/cruise/p0.6/1t', place: 'wa', h: 1500, rung: 'cruise', pull: 0.6, thumbs: 1, want: 'far' });
+CASES.push({ key: 'wa-1500/express/p0.6/2t', place: 'wa', h: 1500, rung: 'express', pull: 0.6, thumbs: 2, want: 'far' });
 CASES.push({ key: 'wa-floor/jet/p0.6/1t', place: 'wa', h: 'floor', rung: 'jet', pull: 0.6, thumbs: 1, want: 'none' });
 CASES.push({ key: 'wa-300/jet/p0.6/2t', place: 'wa', h: 300, rung: 'jet', pull: 0.6, thumbs: 2, want: 'none' });
 CASES.push({ key: 'wa-floor/cruise/bomb', place: 'wa', h: 'floor', rung: 'cruise', pull: 0.75, thumbs: 1, want: 'none', mode: 'bomb' });
@@ -303,6 +305,7 @@ async function run(c: Case, dt: number, slot = true) {
   const bodyTap = f.pitch / DEG;
   // (what this frame planned, the Lob's and the Comet's: at Nonstop the farther wins)
   const lobLast = g.aimer.lobLast, lobReach = lobLast ? r1(lobLast.reach) : null;
+  const reachAtTap = shotReach(city, f, f.fx, f.fz);
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, fx: f.fx, fz: f.fz };
@@ -389,6 +392,8 @@ async function run(c: Case, dt: number, slot = true) {
     aimMs: r3(trimmedMean(aimT, 0.02)),
     aimMsAll: r3(aimT.reduce((a, b) => a + b, 0) / Math.max(1, aimT.length)),
     lobStats: g.aimer.lob ? { ...g.aimer.lob.stats } : null,
+    // (a far Lob's: its drop, and the reach at the tap: kept off the near rows, which stay byte for byte as they were)
+    ...(plan?.far ? { far: true, drop: r1(plan.drop), shotReach: r1(reachAtTap) } : {}),
   };
 }
 
@@ -421,8 +426,9 @@ for (const r of rows) {
   const id = `${r.key}@${r.fps}${r.slot ? '' : ' (no Lob)'}`;
   console.log(`${id.padEnd(34)} ${r.kind.padEnd(8)} body ${String(r.body.lift).padStart(5)}/${String(r.body.tap).padStart(5)} at ${String(r.body.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} climb ${r.climb} (plan ${r.planAbove}) in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} (${r.inside} inside) two ${r.raisedTwo} pull ${r.pull.lob}/${r.pull.of} ${r.pull.flips} top ${r.top} under ${r.underGround} on ${r.on} agl ${r.agl} aim ${r.aimMs} ms`);
   if (!r.slot) continue;
-  // (at Nonstop the Comet applies too: the farther wins, chooseShot. A Comet there must land farther than this frame's Lob would)
-  if (r.want === 'longer' && r.kind === 'comet') ok(r.lobReach === null || r.from + 1 >= r.lobReach, `${id}: the Comet, farther than the Lob (${r.from} against ${r.lobReach})`);
+  // (at Nonstop the Comet applies too: the Lob whenever one is planned (config.lob.wins, chooseShot), else the farther. A Comet there only where this
+  // frame planned no Lob)
+  if (r.want === 'longer' && r.kind === 'comet') ok(r.lobReach === null || (!config.lob.wins && r.from + 1 >= r.lobReach), `${id}: the Comet, no Lob planned${config.lob.wins ? '' : ' or the farther'} (${r.from} against ${r.lobReach})`);
   if (r.want === 'lob' || (r.want === 'longer' && r.kind !== 'comet')) {
     ok(r.kind === 'lob', `${id}: a Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
     if (r.kind !== 'lob') continue;
@@ -438,7 +444,16 @@ for (const r of rows) {
     if (r.want === 'lob' && !r.key.includes('nonstop')) ok(r.pull.flips <= 1, `${id}: in the pull, once it shows the Lob stays (${r.pull.lob} of ${r.pull.of} frames, ${r.pull.flips} flips)`);
     ok(r.hitStops === 0, `${id}: no hit-stop (${r.hitStops})`);
     ok(r.underGround <= 2, `${id}: its arc never 2 m into the ground (${r.underGround})`);
-    ok(r.from >= 600 && r.from <= config.comet.reach + 1, `${id}: lands in the distance, 600-${config.comet.reach} m (${r.from})`);
+    ok(r.from >= 600 && r.from <= config.lob.reach + 1, `${id}: lands in the distance, 600-${config.lob.reach} m (${r.from})`);
+  } else if (r.want === 'far') {
+    // (the far Lob: thrown, no in-view rule; its radius a tap's from its height; inside the reach; on its flight's time; its arc out of the ground)
+    ok(r.kind === 'lob' && r.far === true, `${id}: a far Lob (${r.kind}${r.far ? ', far' : ''}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
+    if (r.kind !== 'lob') continue;
+    ok(r.radius !== null && Math.abs(r.radius - Math.min(config.lob.radiusHigh, blastRadiusFor(r.drop ?? 0))) <= 1, `${id}: its radius a tap's from its height (${r.radius} against ${r.wantRadius}, drop ${r.drop})`);
+    ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
+    ok(r.from >= 600 && r.from <= (r.shotReach ?? 0) + config.splat.snapReachMax + 1, `${id}: lands in the distance, inside the reach and a snap (${r.from}, the reach ${r.shotReach})`);
+    ok(r.underGround <= 2 && r.hitStops === 0, `${id}: its arc never 2 m into the ground, no hit-stop (${r.underGround}, ${r.hitStops})`);
+    ok(r.pull.flips <= 1, `${id}: in the pull, once it shows the Lob stays (${r.pull.lob} of ${r.pull.of} frames, ${r.pull.flips} flips)`);
   } else if (r.want === 'wall') {
     ok(r.kind === 'lob' && r.on === 'wall' && r.from < 600 && r.underGround <= 2, `${id}: a tower in its climb takes it on its face (${r.kind} on ${r.on}, ${r.from} m out; the tower's roof ${tower} m over a 26 degree climb)`);
   } else if (r.want === 'miss') {

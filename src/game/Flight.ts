@@ -110,6 +110,8 @@ export class Flight {
   groundBroad = NaN;
   /** 0..1: the bus is straining against the soft ceiling (wheeze, sputter) */
   strain = 0;
+  /** the nose the stick asks for (rad), before the ceiling's limit turns it: read by the Lob alone (Lob.ts's bodyOf), nothing here reads it */
+  noseWant = 0;
   /** current yoke mode (0 floor, 1 hold, 2 climb, 3 dive) */
   mode: number = Yoke.Floor;
   /** belly left after this breath ends (a miss refunds part of it), else 0 */
@@ -274,6 +276,7 @@ export class Flight {
       noseWant = Math.atan2(plainRate, targetSpeed);
       targetSpeed = Math.hypot(plainRate, targetSpeed);
     }
+    this.noseWant = noseWant;
     if (Tb.speed > 0) targetSpeed = Math.max(targetSpeed, Tb.speed);
     // (a jet breathing fire barely flinches: the recoil stall is the classic bus's)
     const jet = Tb.speed > F.surgeSpeed;

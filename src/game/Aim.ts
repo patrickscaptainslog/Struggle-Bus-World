@@ -4,7 +4,7 @@ import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { BarfOpts, Splatter } from './Splat';
 import { chooseShot, type Comet, type CometPlan } from './Comet';
-import { lobRadius, type Lob } from './Lob';
+import { bodyOf, lobRadius, type Lob } from './Lob';
 import { inputTune } from './Input';
 
 // Dragon-breath aim. One source of truth: the building that glints is the
@@ -81,7 +81,7 @@ export function tapOpts(shot: Shot, busY: number): BarfOpts {
   // (a Comet: no ribbon from the mouth, its streak is the jet, and no hit-stop that far off; its tile not in yet, it's planned just before it lands)
   const c = shot.comet;
   if (c) Object.assign(o, { stream: true, hitStop: 0, comet: c, late: c.loaded ? 0 : config.comet.late });
-  // (a Lob's circle is its fall's from the arc's top, not the bus's height over where it lands)
+  // (a Lob's circle is its fall's from the arc's top, not the bus's height over where it lands; a far one's a tap's from its height: lobRadius)
   if (c?.kind === 'lob') o.radius = lobRadius(c);
   return o;
 }
@@ -363,7 +363,8 @@ export class Aimer {
     }
     if (thumb && !this.wasThumb) this.thumbAt = t;
     this.wasThumb = thumb;
-    this.bodyWas = f.pitch;
+    // (at the ceiling, straining, the pull held: Lob.ts's bodyOf)
+    this.bodyWas = bodyOf(f);
     this.noseWas = f.nose;
     // (the Comet's odometer runs every frame: its stretches are counted along the bus's travel)
     this.comet?.track(f);
@@ -392,8 +393,8 @@ export class Aimer {
     // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one. Where it applies it takes the place
     // of ?life's mover, as of the building: HOOKS.md, "The Comet")
     const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
-    // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): the farther of it and the Comet, never weighed
-    // against the aim's own (chooseShot)
+    // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): over the Comet whenever it's planned
+    // (config.lob.wins), never weighed against the aim's own (chooseShot)
     const l = this.lob && this.comet && !this.bombing && this.street === 0 ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;
     this.lobLast = l;
     const p = chooseShot(f, null, c, l);

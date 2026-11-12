@@ -397,7 +397,7 @@ function mergedBytes(msg: RegionResponse): number {
   const m = msg.merged;
   return m ? m.position.byteLength + m.normal.byteLength + m.facade.byteLength + m.meta.byteLength + m.bld.byteLength + m.bld2.byteLength + m.index.byteLength : 0;
 }
-const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded
+export const LOAD_RADIUS = 1500; // m: regions whose center is within this get loaded (Comet.ts's shotReach reads it)
 const DETAIL_RADIUS = 650; // m: regions nearer than this get full-detail meshes (bays, cornices, stoops)
 const UNLOAD_RADIUS = 2300;
 /** The loaded-tile mask over a FAR_STAND_INS tile with nothing loaded: its far boxes hide, and the far ground doesn't sink (farMaterial). */
@@ -1936,6 +1936,11 @@ export class City {
     const n = t.n;
     const a = h[iz * n + ix], b = h[iz * n + ix + 1], c = h[(iz + 1) * n + ix], d = h[(iz + 1) * n + ix + 1];
     return (a * (1 - ax) + b * ax) * (1 - az) + (c * (1 - ax) + d * ax) * az;
+  }
+
+  /** ?moon: the Moon's ground, whose loading isn't City.request's circle (no far shot there: Lob.ts, Comet.ts's shotReach). */
+  get isMoon(): boolean {
+    return this.moon !== null;
   }
 
   /** The terrain of the tile under (x, z), if it is loaded. */
