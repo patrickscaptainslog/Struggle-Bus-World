@@ -2121,7 +2121,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         // (its dots close in as it falls from its top, a countdown on the ground, to a quarter of its circle as it lands: the blast then blooms out to it. From
         // its top, lobTop's share of its flight: half way only where it lands as high as it left)
         const u = clamp((simTime - first.from) / Math.max(0.05, first.until - first.from), 0, 1), c = clamp((u - first.top) / Math.max(0.05, 1 - first.top), 0, 1);
-        Object.assign(lobRing, { x: first.x, y: first.y, z: first.z, r: first.r * (1 - config.lob.close * c * c * (3 - 2 * c)), until: first.until });
+        lobRing.x = first.x;
+        lobRing.y = first.y;
+        lobRing.z = first.z;
+        lobRing.r = first.r * (1 - config.lob.close * c * c * (3 - 2 * c));
+        lobRing.until = first.until;
       } else if (L && R.k < 0.01) {
         // (on the Moon's ground, on the crater the tap will move it onto: CraterPaint.aim's rule)
         const on = moonPaint?.onto(L.x, L.z, lobOnto);
