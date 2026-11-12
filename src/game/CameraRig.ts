@@ -107,6 +107,8 @@ export class CameraRig {
   turboFov = 0;
   turboHero = 1;
   readonly turboLead = new THREE.Vector3();
+  /** ...and the share of the follow's lag those leads cancel (0..1): in ?swerve's skid the look point is quickened only by what they leave */
+  turboLeadK = 0;
   /** ?recess's hook (src/recess/recessBoot.ts sets them each frame; 0 everywhere else): a wider lens in the match (deg) and a pull-back while a rival is near (m) */
   matchFov = 0;
   matchPull = 0;
@@ -212,10 +214,18 @@ export class CameraRig {
       this.yaw = f.heading;
       this.initialized = true;
     }
-    // yaw lags the bus heading (springy); in ?swerve's hard turn its spring stiffens with the flight's, so it keeps up (Swerve.hard)
-    const target = this.yaw + angleDelta(this.yaw, f.heading);
-    const hard = f.swerve.hard, yawHz = hard > 0 ? C.yawHz * (1 + (Math.max(1, swerveTune.hardCam) - 1) * hard) : C.yawHz;
-    [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, yawHz, C.yawDamping, dt);
+    // yaw lags the bus heading (springy); in ?swerve's hard turn its spring stiffens with the flight's, so it keeps up (Swerve.hard). In a skid the view
+    // goes with the nose, not the bus's way (Swerve.slip x noseCam: "aim with the bus"), on a spring stiffer again while it slides (Swerve.skidW x skidCam)
+    const sw = f.swerve, S = swerveTune;
+    const target = sw.slip !== 0 ? this.yaw + angleDelta(this.yaw, f.heading + sw.slip * S.noseCam) : this.yaw + angleDelta(this.yaw, f.heading);
+    const hard = sw.hard, skidW = sw.skidW;
+    const yawHz = (hard > 0 ? C.yawHz * (1 + (Math.max(1, S.hardCam) - 1) * hard) : C.yawHz) * (skidW > 0 ? 1 + (Math.max(1, S.skidCam) - 1) * skidW : 1);
+    if (yawHz === C.yawHz) [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, yawHz, C.yawDamping, dt);
+    else {
+      // (a stiff spring stepped in pieces, each under 0.4 of a radian of its own: stable at 20, 30 and 60 fps, and one piece, the same bits, where that is a frame)
+      const n = Math.max(1, Math.ceil((2 * Math.PI * yawHz * dt) / 0.4));
+      for (let i = 0; i < n; i++) [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, yawHz, C.yawDamping, dt / n);
+    }
 
     // elevation from speed: slow -> diorama, fast -> vista
     const sp = f.speed;
@@ -300,7 +310,10 @@ export class CameraRig {
     }
     const lookTarget = this.lookTarget.set(bus.x + fx * la * (1 + 2 * low), bus.y - 4 + 14 * low, bus.z + fz * la * (1 + 2 * low)).addScaledVector(this.turboLookLead, 1 - this.stiff);
     if (this.look.lengthSq() === 0) this.look.copy(lookTarget);
-    this.look.lerp(lookTarget, 1 - Math.exp(-6 * dt));
+    // (in ?swerve's skid the look point keeps up with the view as its yaw spring does, Swerve.skidW x skidCam, so where a tap goes stays in the frame; only
+    // under Jet, by what the turbo's lead is short of its own camLead there: at speed a quicker look runs ahead of a bus sliding across the view)
+    const lookW = f.swerve.skidW * (1 - clamp(this.turboLeadK / Math.max(0.01, config.turbo.camLead), 0, 1));
+    this.look.lerp(lookTarget, 1 - Math.exp(-6 * (lookW > 0 ? 1 + (Math.max(1, swerveTune.skidCam) - 1) * lookW : 1) * dt));
     cam.position.copy(this.pos);
     cam.up.set(0, 1, 0);
     if (v > 0 || dive > 0) {

@@ -109,6 +109,7 @@ export class TurboLens {
     rig.turboHero = 1;
     rig.turboLead.set(0, 0, 0);
     rig.turboLookLead.set(0, 0, 0);
+    rig.turboLeadK = 0;
   }
 
   update(dt: number, drive: TurboDrive, rig: CameraRig, f: Flight) {
@@ -136,8 +137,18 @@ export class TurboLens {
     const vx = f.fx * f.ground, vz = f.fz * f.ground;
     // (a gear's climb is fast too: the vertical lag goes with the climb rate, or the camera ends up under the bus)
     const leadV = Math.max(lead, clamp((Math.abs(f.vy) - 30) / 120, 0, 1));
-    rig.turboLead.set(vx * lead, f.vy * leadV, vz * lead).multiplyScalar(lagT);
-    rig.turboLookLead.set(vx * lead, f.vy * leadV, vz * lead).multiplyScalar(1 / 6);
+    // (?swerve's skid: the bus slides across the view the camera now aims down the nose, so the part of its way across the nose is led by all of the springs'
+    // lag, Swerve.skidW of it, or it runs out of the frame's side)
+    const skidW = f.swerve.skidW;
+    let lx = vx * lead, lz = vz * lead;
+    if (skidW > 0) {
+      const nh = f.heading + f.swerve.slip, nx = Math.sin(nh), nz = -Math.cos(nh), along = vx * nx + vz * nz;
+      lx += (vx - along * nx) * (1 - lead) * skidW;
+      lz += (vz - along * nz) * (1 - lead) * skidW;
+    }
+    rig.turboLead.set(lx, f.vy * leadV, lz).multiplyScalar(lagT);
+    rig.turboLeadK = lead;
+    rig.turboLookLead.set(lx, f.vy * leadV, lz).multiplyScalar(1 / 6);
   }
 }
 

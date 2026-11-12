@@ -45,6 +45,10 @@ export const swerveTune = {
   /** ...and the steering spring at full hard (Hz; config.flight.bungeeHz out of it), and the camera's yaw spring times this, so it keeps up (CameraRig). */
   hardHz: 5,
   hardCam: 1.8,
+  /** The camera in a skid (CameraRig): how much of the slip the view's yaw takes (0..1: 1 the view goes with the nose, "aim with the bus"; 0 stage 1's view
+   *  down the bus's way), and its yaw spring this many times stiffer again while it slides, so it keeps up with a nose swinging 120 to 180 degrees a second. */
+  noseCam: 1,
+  skidCam: 2.5,
   /** The swoop: at most this many times the turn; for a stick this far sideways (0..1), all in by swoopFull. It comes at swoopEase (1/s) and goes at swoopFall,
    *  slower: a pull, then a sweep across as the nose starts down, is one arc of the thumb, and the turn is still quick at its top. */
   swoopMax: 3,
@@ -72,8 +76,9 @@ export const swerveTune = {
   noseRate: [3.1416, 2.7925, 2.4435, 2.0944],
   slipMin: 0.5,
   /** ...over the last this many degrees before slipMax the slip's growth eases off (0: a hard stop at the cap), so the nose never drops from its swing to the
-   *  way's in one frame. */
-  slipSoft: 12,
+   *  way's in one frame and the view behind it never lurches. The square root of a smoothstep: it starts gently and still arrives (within a degree of the
+   *  cap in a held Cruise skid), where a plain smoothstep only creeps up on it. */
+  slipSoft: 25,
   /** ...the most slip (deg), the share of the speed a full slip scrubs a second, the speed it never goes under (m/s; or what it began at, if that was less), how
    *  fast the speed follows (1/s). */
   slipMax: 70,
@@ -157,6 +162,8 @@ export class Swerve {
   /** What the skid has left of the speed (0..1], 1 out of one, and the least it leaves (m/s). */
   keep = 1;
   least = 0;
+  /** 0..1: the skid's weight for the camera, eased in and out at 12/s (CameraRig's stiffer yaw spring, fx/Turbo's lead across the view). 0 out of one. */
+  skidW = 0;
   onEvent: ((ev: SwerveEvent, self: boolean) => void) | null = null;
   private phase: Phase = Phase.Grip;
   /** the thumb has been back inside since the last skid: the next may start */
@@ -240,7 +247,11 @@ export class Swerve {
 
   /** Each step, at its end. */
   post(dt: number, f: Flight): void {
-    if (this.phase === Phase.Grip && this.roll === 0 && this.rollV === 0) return;
+    if (this.skidW > 0 || this.phase !== Phase.Grip) {
+      this.skidW += ((this.phase !== Phase.Grip ? 1 : 0) - this.skidW) * (1 - Math.exp(-12 * dt));
+      if (this.phase === Phase.Grip && this.skidW < 1e-4) this.skidW = 0;
+    }
+    if (this.phase === Phase.Grip && this.roll === 0 && this.rollV === 0 && this.skidW === 0) return;
     const T = swerveTune, cap = T.slipMax * DEG;
     if (this.phase === Phase.Slide) {
       this.slideT += dt;
@@ -248,7 +259,7 @@ export class Swerve {
       // (easing off over the last slipSoft degrees to the cap: the nose comes off its swing smoothly, and the camera behind it with it)
       const w = f.yawRate * this.dir;
       let grow = Math.max(noseRateAt(f.speed) - w, T.slipMin);
-      if (T.slipSoft > 0) grow *= ss(0, T.slipSoft * DEG, cap - this.slip * this.dir);
+      if (T.slipSoft > 0) grow *= Math.sqrt(ss(0, T.slipSoft * DEG, cap - this.slip * this.dir));
       this.slip = clamp(this.slip + this.dir * grow * dt, -cap, cap);
       this.peak = Math.max(this.peak, this.slip * this.dir);
       // (a full belly's weight, or a push let go, can leave the classic flight's own speed under the least: the skid never takes it there)
@@ -276,7 +287,7 @@ export class Swerve {
   stop(): void {
     const sliding = this.phase === Phase.Slide;
     this.phase = Phase.Grip;
-    this.slip = this.roll = this.rollV = 0;
+    this.slip = this.roll = this.rollV = this.skidW = 0;
     this.keep = 1;
     this.hard = 0;
     this.gain = this.steep = 1;
