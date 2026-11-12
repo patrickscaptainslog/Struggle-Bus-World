@@ -22,7 +22,7 @@ import { SPEED_OF_SOUND } from './Turbo';
 //  - The wave. A real slide that grips with a full belly throws it off the outside as a wave ('wave': the boot paints it, and it spends the belly), when the
 //    thumb chose the grip: eased back in, or over to the other side. Let go, or held till the slide's time is up, it grips with the belly kept, and the next
 //    tap goes down the nose (`liftWave` 1: any grip throws, as stage 1). A tap in the slide is a shot down the nose instead, and then there's no belly to throw.
-// The long swipe's brake is the gears' (TurboDrive.toCruise), and its gesture the boot's (src/swerve/swerveBoot.ts).
+// The long swipe's brake is the gears' (TurboDrive.toCruise), and its gesture Input's (swipeOn, from the top of the glass: swipeTop).
 
 const DEG = Math.PI / 180;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -105,6 +105,9 @@ export const swerveTune = {
   liftWave: 0,
   /** The long swipe's brake (TurboDrive.toCruise): the speed is down to the classic flight's in about this long (s). */
   brakeFor: 0.7,
+  /** ...and where its stroke may land (Input's swipeOn): in the look zone, this share of the glass's height from its top or higher. A look that pans down
+   *  starts mostly in the middle; from the top third a stroke has 0.7 of the height to fall and needs 0.4 of it in 0.6 s, which a look rarely does. */
+  swipeTop: 0.3,
 };
 // (`inset` is the tuner's in "Swipe", where it was before the stick had it, so a value saved there still holds: src/swerve/swerveBoot.ts)
 Object.defineProperty(swerveTune, 'inset', { enumerable: false });

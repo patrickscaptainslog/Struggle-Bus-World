@@ -1,10 +1,15 @@
 // The long swipe through the REAL Input, Shifter, TurboDrive and Flight with ?swerve's boot over them (src/swerve/swerveBoot.ts), offline: synthetic touches on
 // a controlled clock, a frame every 16.7 ms, the frame's order main.ts's: node tools/controls-sim/run.mjs ../swerve/s_swipe.ts
-// The bus's lane is where main.ts puts it on a 393 x 852 screen (the bus at 196, 511), so a landing over it looks and one under it flies.
+// The bus's lane is where main.ts puts it on a 393 x 852 screen (the bus at 196, 511), so a landing over it looks and one under it flies. The stroke is read
+// by Input (swipeOn, from the top swerveTune.swipeTop of the glass), wired as main.ts wires it: the boot's own reader asleep (offLane false), Input's onSwipe
+// the boot's swipe().
 //   swipe    one stroke down of 40 % of the screen's height from off the lane, from every rung above Cruise: Cruise before it lifts, at Cruise's speed in under
 //            0.8 s, and its lift is no flick; from Cruise, from School Zone: nothing, whatever its pace (a fast one is no flick down either)
 //   still    a flick down is still one rung; a slow stroke down is still a look; a stroke down the stick is still a pull (and fast, the lone flick it was); a
 //            slanted one and one going up are what they were; with the other thumb steering it still brakes
+//   top      stage 2 (SWERVE.md section 5): from every rung above Cruise a stroke from 0.2 of the height passing 0.4 of it in 0.35 s brakes, and its look is
+//            over from then; one landing at 0.45 of the height, down 0.45 of it in 0.35 s, is a look and no gear moves; a slow one from the top is a look;
+//            the swipe's lift is no flick; and with swipeOn off, Input reads none of it
 // Prints a row each, and exits 1 if one fails.
 import { installDom, Target, clock, ptr, newId, runTimers } from '../controls-sim/fakedom';
 installDom();
@@ -13,7 +18,7 @@ const { Shifter } = await import('@src/game/Shifter');
 const { TurboDrive } = await import('@src/game/Turbo');
 const { Flight } = await import('@src/game/Flight');
 const { config } = await import('@src/config');
-const { bootSwerve } = await import('@src/swerve/swerveBoot');
+const { bootSwerve, swipeTune } = await import('@src/swerve/swerveBoot');
 
 const ROOFS = { obstacleAt: () => 20, groundAt: () => 10 };
 const NAMES = ['Cruise', 'Express', 'Nonstop', 'Jet', 'Turbo 1', 'Turbo 2', 'Turbo 3'];
@@ -23,7 +28,7 @@ const row = (ok: boolean, name: string, o: unknown) => {
   console.log(`${ok ? 'pass' : 'FAIL'}  ${name.padEnd(38)} ${JSON.stringify(o)}`);
 };
 
-function harness(rungs: number) {
+function harness(rungs: number, on = true) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
@@ -37,9 +42,16 @@ function harness(rungs: number) {
   const evs: string[] = [];
   const nothing = () => {};
   const swerve = bootSwerve({
-    el: el as unknown as HTMLElement, flight, turbo: drive, offLane: (x, y) => input.inLookZone(x, y), barf: nothing, groundAt: () => 10,
+    el: el as unknown as HTMLElement, flight, turbo: drive, offLane: () => false, barf: nothing, groundAt: () => 10,
     particles: { palette: [8, 9, 10, 11, 12, 13], puff: nothing, fling: nothing }, hue: () => 0, kick: nothing, kit: () => null,
   });
+  // (main.ts's: Input reads the stroke, with the tuner's numbers)
+  input.swipeOn = on;
+  input.swipeRule = swipeTune;
+  input.onSwipe = () => {
+    evs.push('swipe');
+    swerve.swipe();
+  };
   input.onTurbo = (d, flew) => {
     // (Controls' gate)
     if (swerve.flick(d)) return void evs.push('gated');
@@ -47,7 +59,7 @@ function harness(rungs: number) {
     shifter.flick(d, flew);
   };
   input.onTap = () => evs.push('tap');
-  let looked = false, pulled = 0;
+  let looked = false, pulled = 0, swipedAt = -1, lookAfter = false;
   const step = 16.7;
   const frame = () => {
     const dt = step / 1000;
@@ -58,7 +70,9 @@ function harness(rungs: number) {
     swerve.pre(dt, st);
     for (let i = 0; i < 2; i++) flight.step(dt / 2, { sx: st.stretch.x, sy: st.stretch.y, dragging: st.dragging, hard: st.hard, skid: st.skid }, ROOFS);
     swerve.post(dt);
-    if (st.look.on && !swerve.swiped) looked = true;
+    if (st.look.on) looked = true;
+    if (swipedAt < 0 && evs.includes('swipe')) swipedAt = clock.ms;
+    if (swipedAt >= 0 && st.look.on) lookAfter = true;
     pulled = Math.max(pulled, st.dragging ? -st.stretch.y : 0);
   };
   let next = clock.ms + step;
@@ -78,6 +92,7 @@ function harness(rungs: number) {
   const h = {
     input, drive, flight, swerve, evs, wait,
     get looked() { return looked; },
+    get lookAfter() { return lookAfter; },
     get pulled() { return pulled; },
     get rung() { return drive.below > 0 ? -drive.below : drive.gear + drive.level; },
     down(id: number, x: number, y: number, primary = true) { el.dispatch('pointerdown', ptr('pointerdown', id, x, y, primary)); },
@@ -112,7 +127,7 @@ for (let rungs = 1; rungs <= 6; rungs++) {
       if (Number.isNaN(at) && h.flight.speed <= config.flight.cruiseSpeed * 1.15) at = (k + 1) * 16.7;
     }
     // (the brake began as the stroke passed its length, a little before its lift)
-    row(s.before === 0 && h.rung === 0 && !h.evs.includes('flick-') && !h.evs.includes('flick+') && !h.evs.includes('tap') && at + (ms - s.cruiseAt) <= 800, `swipe from ${NAMES[rungs]}, ${ms} ms`, { from: Math.round(v0), cruiseBeforeLift: s.before === 0, atCruiseSpeedMs: Math.round(at + (ms - s.cruiseAt)), events: h.evs });
+    row(s.before === 0 && h.rung === 0 && h.evs.join() === 'swipe' && at + (ms - s.cruiseAt) <= 800, `swipe from ${NAMES[rungs]}, ${ms} ms`, { from: Math.round(v0), cruiseBeforeLift: s.before === 0, atCruiseSpeedMs: Math.round(at + (ms - s.cruiseAt)), events: h.evs });
     h.input.dispose();
   }
 }
@@ -189,6 +204,45 @@ for (const [name, below] of [['Cruise', 0], ['School Zone', 1]] as const) {
   h.up(a, 340, 640);
   h.wait(300);
   row(s.before === 0 && h.rung === 0 && steering && !h.evs.includes('flick-'), 'a swipe beside a steering thumb', { rung: NAMES[h.rung], steeringThrough: steering, events: h.evs });
+  h.input.dispose();
+}
+// ---- stage 2: only from the top of the glass (swerveTune.swipeTop), so a quick look down from the middle stays a look
+const H = 852;
+for (let rungs = 1; rungs <= 6; rungs++) {
+  const h = harness(rungs);
+  const s = h.stroke(70, 0.2 * H, 6, 0.45 * H, 350);
+  h.wait(600);
+  row(s.before === 0 && h.rung === 0 && h.evs.join() === 'swipe' && !h.lookAfter, `swipe from the top, ${NAMES[rungs]}`, { from: 0.2, cruiseBeforeLift: s.before === 0, lookAfterIt: h.lookAfter, events: h.evs });
+  h.input.dispose();
+}
+{
+  const h = harness(4);
+  h.stroke(70, 0.45 * H, 0, 0.45 * H, 350);
+  h.wait(600);
+  row(h.rung === 4 && h.looked && h.evs.length === 0, 'a quick look down from the middle', { rung: NAMES[h.rung], looked: h.looked, events: h.evs });
+  h.input.dispose();
+}
+{
+  const h = harness(4);
+  h.stroke(70, 0.2 * H, 0, 0.45 * H, 900);
+  h.wait(600);
+  row(h.rung === 4 && h.looked && h.evs.length === 0, 'a slow look from the top', { rung: NAMES[h.rung], looked: h.looked, events: h.evs });
+  h.input.dispose();
+}
+{
+  // (fast enough to be a flick down when it lifts: it was the swipe, and its lift is nothing)
+  const h = harness(4);
+  h.stroke(70, 0.1 * H, 0, 0.42 * H, 200);
+  h.wait(600);
+  row(h.rung === 0 && h.evs.join() === 'swipe', "the swipe's lift", { rung: NAMES[h.rung], events: h.evs });
+  h.input.dispose();
+}
+{
+  // (the handling off: Input reads no stroke for it, and the same stroke is the look it always was)
+  const h = harness(4, false);
+  h.stroke(70, 0.2 * H, 0, 0.45 * H, 350);
+  h.wait(600);
+  row(h.rung === 4 && h.looked && h.evs.length === 0, 'the swipe, swipeOn off', { rung: NAMES[h.rung], looked: h.looked, events: h.evs });
   h.input.dispose();
 }
 console.log(bad ? `${bad} FAIL` : 'all pass');

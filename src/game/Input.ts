@@ -214,6 +214,18 @@ const enum Role {
   Orphan = 3,
 }
 
+/** ?swerve's long swipe, for a stroke that may be one (swipeOn). */
+const enum Swipe {
+  /** never one */
+  No = 0,
+  /** landed in the look zone at the top of the glass: it may be */
+  Live = 1,
+  /** it was: the bus braked, and the rest of the stroke is nothing */
+  Fired = 2,
+  /** too slow, or back up the glass: a look */
+  Dead = 3,
+}
+
 /** What a touch may turn out to be on its lift. */
 const enum Flick {
   /** never a command */
@@ -239,6 +251,8 @@ interface Slot {
   /** Largest distance from the touch-down point so far (px). */
   maxDist: number;
   flick: Flick;
+  /** ?swerve's long swipe: whether this stroke may be one, was, or can't be. */
+  swipe: Swipe;
   /** This thumb has the view. */
   looking: boolean;
   /** The mouse's right button: a look from the first pixel, and nothing else. */
@@ -400,6 +414,16 @@ export class Input {
   busZone: { x: number; y: number; r: number; open: number } | null = null;
   /** The opening's low shot, while its gate is shut (main.ts, with the gears' lock): it has no look, so a landing anywhere flies, as every touch there always did. */
   lookOff = false;
+  /**
+   * ?swerve's long swipe, the producer's "a large swipe from top to bottom of screen" that "brings the bus to gear 1, just above school zone, very quickly"
+   * (main.ts sets these with the handling on; off, no stroke is ever read for it). A thumb landing in the look zone in the top swerveTune.swipeTop of the
+   * glass that goes down `share` of its height within `deg` of straight down in `ms` or less: as it passes that length the look it began ends, its lift is no
+   * flick, and onSwipe (the gears' brake to Cruise). A look that pans down starts mostly lower and slower. The rule's numbers are the tuner's "Swipe" group
+   * (main.ts hands its object over), these the same as a fallback.
+   */
+  swipeOn = false;
+  swipeRule: { share: number; ms: number; deg: number } = { share: 0.4, ms: 600, deg: 28 };
+  onSwipe: (() => void) | null = null;
 
   private readonly el: HTMLElement;
   private readonly slots: Slot[] = [];
@@ -489,7 +513,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, swipe: Swipe.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -612,7 +636,7 @@ export class Input {
     // the look starts on the clock too: a thumb can stop moving inside the delay
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
-      if (s.role === Role.Second && !s.looking) this.lookStep(s, now);
+      if (s.role === Role.Second && !s.looking && s.swipe !== Swipe.Fired) this.lookStep(s, now);
       // (armed on the first frame that sees it, started on a later one that still does, aimLagMs past the hold: a lift queued behind a slow frame or two is still a
       // tap, its own time says so)
       if (this.canAim(s, now)) {
@@ -678,6 +702,7 @@ export class Input {
     this.onAimEnd = null;
     this.onChargeEnd = null;
     this.onTurbo = null;
+    this.onSwipe = null;
   }
 
   // ---------------------------------------------------------------- the splat press (tap / hold)
@@ -790,6 +815,7 @@ export class Input {
       this.setSlot(slot, e, now, Role.Second);
       slot.inLook = inLook;
       slot.flick = this.commands(slot) ? Flick.Easy : Flick.No;
+      if (this.swipeOn && inLook && slot.y0 <= swerveTune.swipeTop * this.rectH) slot.swipe = Swipe.Live;
       if (others === 0) this.beginGesture(now);
       else if (others + 1 > this.gMax) this.gMax = others + 1;
       if (this.fly ? !this.primarySteering(now) : recent) {
@@ -838,7 +864,8 @@ export class Input {
       this.state.aim.x = x;
       this.state.aim.y = y;
     } else if (slot.role === Role.Second) {
-      this.lookStep(slot, evTime(e));
+      if (slot.swipe === Swipe.Live) this.swipeStep(slot, evTime(e));
+      if (slot.swipe !== Swipe.Fired) this.lookStep(slot, evTime(e));
     }
   }
 
@@ -950,6 +977,7 @@ export class Input {
     slot.seq = ++this.landings;
     slot.maxDist = 0;
     slot.flick = Flick.No;
+    slot.swipe = Swipe.No;
     slot.looking = false;
     slot.right = false;
     slot.ownsPress = false;
@@ -1080,7 +1108,7 @@ export class Input {
   }
 
   /** A touch landing here never flies: the look zone, or with the bus's zone on everywhere but that, and nowhere while lookOff. Only the landing counts: a look that wanders out of it is still a look.
-   *  (Public for ?swerve's long swipe, which starts off the lane: src/swerve/swerveBoot.ts, docs/specs/shots/HOOKS.md.) */
+   *  (Public: ?swerve's long swipe starts off the lane, and was the boot's before it was Input's (swipeOn): docs/specs/shots/HOOKS.md.) */
   inLookZone(x: number, y: number): boolean {
     if (this.lookOff) return false;
     const b = this.busZone;
@@ -1123,6 +1151,21 @@ export class Input {
       if (s.maxDist > inputTune.tapSlopPx) this.commitDrag();
       return;
     }
+  }
+
+  /** ?swerve's long swipe (swipeOn): fired as the stroke passes its length, so the bus answers under the thumb; too slow, or 24 px back up, a look for good. */
+  private swipeStep(s: Slot, now: number) {
+    const R = this.swipeRule, dx = s.x - s.x0, dy = s.y - s.y0;
+    if (now - s.t0 > R.ms || dy < -24) {
+      s.swipe = Swipe.Dead;
+      return;
+    }
+    if (dy < this.rectH * R.share || Math.abs(dx) > dy * Math.tan((Math.min(80, R.deg) * Math.PI) / 180)) return;
+    s.swipe = Swipe.Fired;
+    // (its lift is nothing: no flick down, and no tap)
+    s.flick = Flick.No;
+    if (s.looking) this.endLook(s);
+    this.onSwipe?.();
   }
 
   /** Should this thumb have the view? Then it does, from where it landed. Only one thumb looks at a time. */

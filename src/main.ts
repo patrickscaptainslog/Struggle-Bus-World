@@ -1551,10 +1551,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (no Comet in a match, and no Lob: `kind` isn't asked, so every kind is a tap at what glints till the bell; HOOKS.md, the review of step 3's 2)
     comet.clamp = () => !recess.playing;
   }
-  // (?swerve: the longer stick's hard turn, the swoop, the skid and its wave, the long swipe down to Cruise. Its gate takes the swipe's own lift before a match's)
+  // (?swerve: the longer stick's hard turn, the swoop, the skid and its wave, the long swipe down to Cruise. The swipe's stroke is Input's now (swipeOn: from
+  // the top of the glass, so a quick look down from the middle stays a look), so the boot's own reader never starts (offLane false: the one hook, HOOKS.md))
   const swerve = swerveMod
     ? swerveMod.bootSwerve({
-        el: canvas, flight, turbo: controls.turbo, offLane: (x, y) => input.inLookZone(x, y),
+        el: canvas, flight, turbo: controls.turbo, offLane: () => false,
         barf: (x, z, o) => void splatter.barf(x, z, o), groundAt: (x, z) => city.groundAt(x, z), particles, hue: () => splatter.hueNext,
         kick: (k) => rig.kick(k), kit: () => audio.voiceKit(),
       })
@@ -1563,6 +1564,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const gate = controls.flickGate;
     controls.flickGate = (dir) => swerve.flick(dir) || !!gate?.(dir);
     (window as unknown as { __swerve?: unknown }).__swerve = swerve;
+    input.swipeOn = true;
+    input.swipeRule = swerveMod!.swipeTune;
+    input.onSwipe = () => swerve.swipe();
   }
   // (?swerve: the rival buses, in the scene before the warm-up reads it. Their blasts are quiet, as a captain's; the view's pull is the match's hook)
   const rivals = rivalsMod && swerve
@@ -2020,8 +2024,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       rig.openingLow = lift.lowTarget(flight, realDt, rig.lowDist, Math.sin(THREE.MathUtils.degToRad(rig.lowEl)) * rig.lowDist);
     }
     // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
-    // (?swerve: a stroke that turned out to be the long swipe lets its look go; and in a skid a tap goes where the nose points)
-    rig.setLook(st.look.on && !swerve?.swiped, st.look.x, st.look.y, realDt);
+    // (?swerve: in a skid a tap goes where the nose points. A stroke that turned out to be the long swipe has let its look go: Input ended it)
+    rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
     aimer.lookYaw = rig.aimYaw + (swerve?.slip ?? 0);
     // (on the street a tap is a drive-by on the side the look is, else the kerb's)
     aimer.street = curbFlight?.state === 'on' ? curbFlight.side : 0;
