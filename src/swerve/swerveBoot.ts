@@ -210,7 +210,10 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
     pre(_dt, st) {
       if (lifted) swiped = lifted = false;
       // (a tool's thumb: its travel, with room to spare; main.ts's QA stick has the bus's steering)
-      if (boot.thumb !== null) stickParts(Math.abs(boot.thumb), Infinity, st);
+      if (boot.thumb !== null) {
+        stickParts(Math.abs(boot.thumb), Infinity, st);
+        st.side = Math.sign(boot.thumb);
+      }
     },
     post(dt) {
       // (the fan of paint off the outside of the slide, from under its tail)

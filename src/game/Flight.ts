@@ -57,9 +57,11 @@ export interface FlightInput {
   sy: number;
   dragging: boolean;
   /** ?swerve (Flight.swerve): how far into the stick's hard part the thumb is (0..1), and how far past the skid's line (px of the stick's own scale: 0 and
-   *  over is past), as Input says them (InputState.hard, .skid). hard NaN or left out: none of it this step */
+   *  over is past), as Input says them (InputState.hard, .skid), and the side the thumb is out to (.side: +1 right, -1 left; 0 or left out, sx's). hard NaN or
+   *  left out: none of it this step */
   hard?: number;
   skid?: number;
+  side?: number;
 }
 
 /** How far under a deck's underside the floor stops (m). */

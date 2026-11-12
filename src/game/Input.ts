@@ -102,9 +102,11 @@ export interface InputState {
    *  landing, at = when the charge's clock began (ms, the performance clock). Off: all as they were last. */
   bomb: { on: boolean; tier: number; t0: number; at: number };
   /** ?swerve's longer stick (stickParts): how far into the hard part the steering thumb's sideways travel is (0..1), and how far past the skid's line it is (px
-   *  of the stick's own scale: 0 and over is past, and a slide grips once it's swerveTune.skidBack under). 0 and -Infinity with nobody steering. */
+   *  of the stick's own scale: 0 and over is past, and a slide grips once it's swerveTune.skidBack under). 0 and -Infinity with nobody steering. And which side
+   *  that travel is (+1 right, -1 left, 0 none): the skid's side, whatever else turns the bus (past the map's edge main.ts homes it back). */
   hard: number;
   skid: number;
+  side: number;
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -324,7 +326,7 @@ export function stickParts(travel: number, room: number, out: { hard: number; sk
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 }, hard: 0, skid: -Infinity };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 }, hard: 0, skid: -Infinity, side: 0 };
   onTap: (() => void) | null = null;
   /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
   onAimStart: (() => void) | null = null;
@@ -607,6 +609,7 @@ export class Input {
       st.stretch.y = this.ky;
       // (keys have no travel: the stick's own out to where the hard part begins, to all of it with C, to the leash with V)
       stickParts(Math.abs(this.kx) * (this.kSkid ? inputTune.leash * config.flight.stretchPx : this.kHard ? swerveTune.hardFull + 4 : swerveTune.hardFrom), Infinity, st);
+      st.side = Math.sign(this.kx);
       return;
     }
     this.kx = this.ky = 0;
@@ -617,7 +620,9 @@ export class Input {
     if (this.pointerDragging) {
       const dx = this.fingerPt.x - this.anchorPt.x;
       stickParts(Math.abs(dx), (dx > 0 ? this.rectW - this.anchorPt.x : this.anchorPt.x) - swerveTune.inset, st);
+      st.side = Math.sign(dx);
     } else {
+      st.side = 0;
       st.hard = 0;
       st.skid = -Infinity;
     }

@@ -189,7 +189,8 @@ export class Swerve {
 
     // ---- the skid
     const past = held && (inp.skid ?? -Infinity) >= 0;
-    const side = sx < 0 ? -1 : 1;
+    // (the thumb's side, not sx's: past the map's edge main.ts adds its homing to sx, and that mustn't swing a skid the other way or grip it)
+    const side = inp.side ? (inp.side < 0 ? -1 : 1) : sx < 0 ? -1 : 1;
     if (past) this.heldFor += dt;
     else {
       this.heldFor = 0;

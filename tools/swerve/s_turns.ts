@@ -10,7 +10,8 @@
 //   skid     the slip never over its cap; grip within 0.4 s of easing off; never under 20 m/s (or what it began at); the gear never changed; with a gear in,
 //            over by itself in under 2 s, and with none held as long as the thumb is; a thumb that twitches out and back doesn't start one; a skid at Nonstop
 //            scrubs the flight's speed and never the gear's own, so the Comet stays on (the review of 018c5d8, m101); the street taking the bus mid-skid
-//            leaves nothing of it, the hard part's stiff camera included, and grips it (the review of 47d7d97)
+//            leaves nothing of it, the hard part's stiff camera included, and grips it; and a skid goes the thumb's way, whatever else turns the bus (the
+//            review of 47d7d97)
 //   swoop    up, over and down at Cruise, Express and Jet: how long the reversal takes with it and without; the turn never over three times its flat rate
 //   brake    the long swipe's brake: at Cruise's speed from every gear in under 0.8 s
 //   camera   the bus stays in the frame through a hard turn, a skid and its grip, in every gear
@@ -241,6 +242,20 @@ for (const [name, rungs] of GEARS) {
   const sliding = sw.sliding;
   f.ride(1 / 30, { x: f.x, y: 12, z: f.z, heading: f.heading, speed: 9 }, 0, flat);
   row(sliding && !sw.skidding && sw.hard === 0 && sw.gain === 1 && sw.slip === 0 && events.trim() === 'skid grip', 'skid, the street takes the bus', { slidingBefore: sliding, skidding: sw.skidding, hard: sw.hard, gain: sw.gain, events: events.trim() });
+}
+{
+  // (past the map's edge main.ts adds its homing to sx: a thumb held out right past the skid's line while that pulls sx to the left skids right, and holds)
+  const b = bus(0, true, 1 / 30), f = b.f, sw = b.sw!, parts = { hard: 0, skid: -Infinity };
+  stickParts(172, Infinity, parts);
+  const st = stickOf(172, 0), sx = st.sx - 1.2;
+  let dirs = '', slid = 0;
+  sw.onEvent = (ev) => (dirs += `${ev}${ev === 'skid' ? (sw.dir > 0 ? ' right' : ' left') : ''} `);
+  for (let k = 0; k < 30; k++) {
+    b.drive.update(1 / 30, f);
+    for (let i = 0; i < 4; i++) f.step(1 / 120, { sx, sy: 0, dragging: true, hard: parts.hard, skid: parts.skid, side: 1 }, flat);
+    if (sw.sliding) slid++;
+  }
+  row(dirs.trim() === 'skid right' && slid >= 25, "skid, homed past the map's edge", { sx: r2(sx), events: dirs.trim(), framesSliding: slid });
 }
 
 // ---------------------------------------------------------------- the swoop
