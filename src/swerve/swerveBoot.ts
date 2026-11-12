@@ -90,13 +90,16 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
   const f = d.flight, core = f.swerve, T = swerveTune, W = swipeTune;
   core.on = true;
   registerTunables('Swerve', swerveTune as unknown as Record<string, unknown>, {
-    rule: [0, 1, 1], inset: [0, 40, 1], hardFrom: [40, 170, 1], hardFull: [60, 172, 1], hardHz: [2, 9, 0.1], hardCam: [1, 3, 0.05], swoopMax: [1, 4, 0.1], swoopFrom: [0, 0.9, 0.01], swoopFull: [0.1, 1, 0.01],
+    rule: [0, 1, 1], hardFrom: [40, 170, 1], hardFull: [60, 172, 1], hardHz: [2, 9, 0.1], hardCam: [1, 3, 0.05], swoopMax: [1, 4, 0.1], swoopFrom: [0, 0.9, 0.01], swoopFull: [0.1, 1, 0.01],
     swoopEase: [1, 20, 0.5], swoopFall: [0.5, 20, 0.5], skidFrom: [90, 172, 1], skidBack: [0, 40, 1], squeezeSmooth: [20, 78, 1], squeezeHard: [4, 42, 1], squeezeSkid: [0, 40, 1], skidHold: [0, 0.4, 0.01], skidMin: [0, 60, 1], slipMin: [0, 2, 0.05],
     slipMax: [20, 89, 1], scrub: [0, 1.5, 0.01], floor: [5, 40, 1], scrubRate: [1, 12, 0.5], grip: [0.05, 1, 0.01], hold: [0.3, 5, 0.1], lean: [0, 40, 1],
     waveAfter: [0, 1, 0.01], waveSlip: [0, 70, 1], waveOut: [0, 100, 1], waveBack: [0, 60, 1], waveRadius: [15, 90, 1], brakeFor: [0.2, 2, 0.05],
   });
+  // (the stick's inset is the handling's now, and still the tuner's in "Swipe" under its key, so a value saved there holds: swerveTune keeps it out of "Swerve")
+  if (!Object.prototype.hasOwnProperty.call(swipeTune, 'inset'))
+    Object.defineProperty(swipeTune, 'inset', { get: () => T.inset, set: (v: number) => (T.inset = v), enumerable: true });
   registerTunables('Swipe', swipeTune as unknown as Record<string, unknown>, {
-    share: [0.2, 0.8, 0.01], ms: [200, 1200, 10], deg: [5, 60, 1], nose: [0, 25, 1], spray: [0, 120, 1], kick: [0, 1.5, 0.05],
+    share: [0.2, 0.8, 0.01], ms: [200, 1200, 10], deg: [5, 60, 1], nose: [0, 25, 1], inset: [0, 40, 1], spray: [0, 120, 1], kick: [0, 1.5, 0.05],
   });
   const p = new THREE.Vector3(), v = new THREE.Vector3(), to = new THREE.Vector3(), place = { x: 0, z: 0 };
   let pitch = 0, braked = 0, armLeft = 0, sprayAcc = 0, sprayN = 0;

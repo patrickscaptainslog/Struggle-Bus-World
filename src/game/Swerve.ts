@@ -85,6 +85,8 @@ export const swerveTune = {
   /** The long swipe's brake (TurboDrive.toCruise): the speed is down to the classic flight's in about this long (s). */
   brakeFor: 0.7,
 };
+// (`inset` is the tuner's in "Swipe", where it was before the stick had it, so a value saved there still holds: src/swerve/swerveBoot.ts)
+Object.defineProperty(swerveTune, 'inset', { enumerable: false });
 
 /** A table read at the speed's log, held past its ends. */
 function byLog(at: readonly number[], v: readonly number[], speed: number): number {
