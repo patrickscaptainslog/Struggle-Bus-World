@@ -1358,7 +1358,8 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
   const apart = holes ? new THREE.Mesh(g.split(geo, holes), plain) : null;
   if (apart) {
     apart.frustumCulled = false;
-    apart.renderOrder = 1;
+    // (after the rest whatever their programs, as they were in one draw: where a lane's side meets its lane, the side)
+    apart.renderOrder = 2;
     mesh.add(apart);
   }
   const b = cut.uniforms.uSkyBus.value as THREE.Vector4;
