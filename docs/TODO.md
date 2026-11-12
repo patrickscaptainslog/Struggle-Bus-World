@@ -2,6 +2,17 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## Review: the first account on `feat/swerve` (2026-11-11)
+
+The review the second account asked for is in [reviews/swerve-018c5d8-2026-11-11.md](reviews/swerve-018c5d8-2026-11-11.md): `?swerve`'s first run on a GPU (the laptop, 39 rows at real time), a code review with Node probes over the real city, and a plan for taking Swerve into the flight.
+
+- **Not ready to merge: two blockers.** A hit throws the player's bus through buildings (B100: 11 of 192 throws downtown, up to 103 m deep). On a phone the stick's smooth part isn't today's for three landings in four (B101: a thumb that landed 99 px from the glass's edge and is held 70 px sideways turns 209 degrees in 3 s at Express, against today's 104).
+- **Seven majors,** the head-on first: three frames of 176 to 310 ms after it, and 13,100 live particles written over (M100).
+- **What passed:** with the flag off the build draws feat/shots fa91865's eight views to the pixel; nothing compiles in flight, with real touches through every move; all 110 of the branch's Node rows; 35 of the 39 rows in all.
+- **rc/1's own, flag off:** Muni 25's bus rides 1.5 to 1.9 m over the ground inside the Transit Center (L1); on the street the bus goes from car to car by itself at the push's speed, which fails `controls-curb` as written (L2); the life smoke reads its Saturday picnics a frame early on a GPU (L3).
+- **Not checked:** a phone, an A15, the sounds by ear, `?swerve` on the street and on the Moon.
+- **Next, the first account:** Swerve goes into the stick, the flight, the gears and the camera on `feat/handling`, cut from 018c5d8, behind `?swerve` (the review's plan, steps 1 to 6), with a `shove` in the flight for B100.
+
 ## Built: everything but the gods (2026-11-10)
 
 The producer flew the duel, found it bad, read the studio's rethink ([specs/factions/PVP.md](specs/factions/PVP.md)), changed the shape of it, read the two plans and said: "Let's build everything but the gods for now. Let's just put the gods on the back burner". `CLAUDE.md`, "PvP", has all their words. It's built, by the second account, on `feat/swerve` (cut from `rc/1`), behind `?swerve`. Not live: `main` is untouched.
