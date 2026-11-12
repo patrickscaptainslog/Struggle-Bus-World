@@ -195,7 +195,8 @@ export class Swerve {
       this.heldFor = 0;
       this.armed = true;
     }
-    if (this.phase !== Phase.Slide && past && this.armed && this.heldFor >= T.skidHold && f.speed >= T.skidMin) {
+    // (the step that reaches the hold is held through: the slide begins with it, as the stand-in's began with the frame that reached it, at 30 fps and 60)
+    if (this.phase !== Phase.Slide && past && this.armed && this.heldFor + dt >= T.skidHold && f.speed >= T.skidMin) {
       this.phase = Phase.Slide;
       this.dir = side;
       this.slideT = 0;
