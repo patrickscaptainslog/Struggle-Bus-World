@@ -3,6 +3,7 @@ import { config } from '../config';
 import { viewPitch } from './Ascent';
 import { angleDelta, clamp, settle, spring } from './springs';
 import type { Flight } from './Flight';
+import { swerveTune } from './Swerve';
 
 // Telephoto chase camera: behind and above, lagging so turns sweep. It tilts
 // toward a diorama view when the bus slows to aim and levels toward the
@@ -211,9 +212,10 @@ export class CameraRig {
       this.yaw = f.heading;
       this.initialized = true;
     }
-    // yaw lags the bus heading (springy)
+    // yaw lags the bus heading (springy); in ?swerve's hard turn its spring stiffens with the flight's, so it keeps up (Swerve.hard)
     const target = this.yaw + angleDelta(this.yaw, f.heading);
-    [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, C.yawHz, C.yawDamping, dt);
+    const hard = f.swerve.hard, yawHz = hard > 0 ? C.yawHz * (1 + (Math.max(1, swerveTune.hardCam) - 1) * hard) : C.yawHz;
+    [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, yawHz, C.yawDamping, dt);
 
     // elevation from speed: slow -> diorama, fast -> vista
     const sp = f.speed;

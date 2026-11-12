@@ -55,8 +55,8 @@ function harness(rungs: number) {
     shifter.tick();
     drive.update(dt, flight);
     const st = input.state;
-    swerve.pre(dt, st, false);
-    for (let i = 0; i < 2; i++) flight.step(dt / 2, { sx: st.stretch.x, sy: st.stretch.y, dragging: st.dragging }, ROOFS);
+    swerve.pre(dt, st);
+    for (let i = 0; i < 2; i++) flight.step(dt / 2, { sx: st.stretch.x, sy: st.stretch.y, dragging: st.dragging, hard: st.hard, skid: st.skid }, ROOFS);
     swerve.post(dt);
     if (st.look.on && !swerve.swiped) looked = true;
     pulled = Math.max(pulled, st.dragging ? -st.stretch.y : 0);

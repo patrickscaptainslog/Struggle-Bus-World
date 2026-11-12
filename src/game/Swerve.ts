@@ -1,24 +1,26 @@
 import { config } from '../config';
-import type { Flight } from '../game/Flight';
+import type { Flight, FlightInput } from './Flight';
 
-// ?swerve: the handling the producer asked for (docs/specs/flight/SWERVE.md), as a stand-in laid over the flight from outside. The flight, the stick and the
-// camera are the first account's, and what's here is theirs to take into them properly: until then nothing in src/game/Flight.ts changes, and this reaches the
-// flight through what it already offers (Flight.turbo's yaw, speed and rate, speedScale, heading) and two of config's springs. No DOM and no three.js: the
+// ?swerve: the handling the producer asked for (docs/specs/flight/SWERVE.md), the flight's own. Flight.step runs it inside each of its steps: pre() before the
+// speed and the steering, post() at the end. Behind `on`, which only ?swerve sets: off, nothing here touches the flight, not a bit of it. What the stick asks
+// comes in on FlightInput (Input's `hard` and `skid`: src/game/Input.ts, stickParts); what it does goes out as the step's own numbers (the turn's gain, the
+// spring's stiffening, the speed a skid keeps), never by writing what the gears wrote (Flight.turbo) or config's springs. No DOM and no three.js: the
 // harness flies it in Node (tools/swerve).
 //
 //  - The longer stick. The stick's own curve is linear to about 61 px and eased out by 105 (Input's knee): past that, out to its leash at 172 px, nothing more
-//    happened. Sideways travel past `hardFrom` now turns the bus harder, up to `hardGain` times today's most by `hardFull`, on a stiffer spring so it bites.
-//    Inside `hardFrom` nothing changes: smooth is today's.
+//    happened. Sideways travel into the hard part (Input says how far) now turns the bus harder, up to `hardGain` times today's most, on a stiffer spring so
+//    it bites. Short of it nothing changes: smooth is today's.
 //  - The swoop. A bus pointed steeply up or down by the stick comes round faster: its turn over the cosine of its nose's angle, at most `swoopMax` times. Only
 //    for a stick held well sideways (`swoopFrom`), so a climb with a wandering thumb still climbs straight.
-//  - The skid. The thumb past `skidFrom` for `skidHold`: the nose swings toward the turn at `noseRate`, faster than the bus's way can come round, and the angle
-//    between them is the slip (`slip`: main.ts turns the model and the aim by it; Flight.heading stays the way the bus is going, so everything the flight does
-//    for a bus going somewhere, its floor ahead, its push round a tower, the camera behind it, is still true). A slip scrubs speed (`scrub`), never under `floor`,
-//    and never the gear. Eased back inside, let go, or `hold` s in with a gear driving, it grips: over `grip` s the bus's way comes round to its nose, and the
-//    gear pulls the speed back. With no gear in it can be held: a doughnut.
+//  - The skid. The thumb past the skid's line (Input's) for `skidHold`: the nose swings toward the turn at `noseRate`, faster than the bus's way can come
+//    round, and the angle between them is the slip (`slip`: main.ts turns the model and the aim by it; Flight.heading stays the way the bus is going, so
+//    everything the flight does for a bus going somewhere, its floor ahead, its push round a tower, the camera behind it, is still true). A slip scrubs the
+//    speed the flight chases (`keep`), never under `floor`, and never the gear's own (Flight.turbo.speed stays the gear's: the Comet reads it). Eased back
+//    `skidBack` inside, let go, or `hold` s in with a gear driving, it grips: over `grip` s the bus's way comes round to its nose, and the gear pulls the
+//    speed back. With no gear in it can be held: a doughnut.
 //  - The wave. A real slide that grips with a full belly throws it off the outside as a wave ('wave': the boot paints it, and it spends the belly). A tap in
 //    the slide is a shot down the nose instead, and then there's no belly to throw.
-//  - The long swipe's brake is the gears' now (TurboDrive.toCruise, brakeFor here), and the gesture the boot's.
+// The long swipe's brake is the gears' (TurboDrive.toCruise), and its gesture the boot's (src/swerve/swerveBoot.ts).
 
 const DEG = Math.PI / 180;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -27,15 +29,17 @@ const ss = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** Live-tunable (tuner group "Swerve", registered by the boot). First numbers: tools/swerve prints what they fly like, and the phone beats that. */
+/** Live-tunable (tuner group "Swerve", registered by src/swerve/swerveBoot.ts). First numbers: tools/swerve prints what they fly like, and the phone beats that. */
 export const swerveTune = {
+  /** The stick's rule for a thumb short of room to a side (Input's stickParts): 0 ours, the smooth part kept whole wherever it fits; 1 the stand-in's squeeze. */
+  rule: 0,
   /** The hard turn: the thumb's sideways travel from its landing (CSS px) where today's stick ends and it begins, and where it is all in. */
   hardFrom: 78,
   hardFull: 120,
   /** ...how many times today's most it is, by the speed (m/s): Cruise, Express, Nonstop, Jet, Turbo 3. In between by the speed's log. */
   hardAt: [30, 112, 225, 450, 900],
   hardGain: [1.5, 2.15, 2.35, 2.45, 2.55],
-  /** ...and the steering spring at full hard (Hz; config.flight.bungeeHz inside hardFrom), and the camera's yaw spring times this, so it keeps up. */
+  /** ...and the steering spring at full hard (Hz; config.flight.bungeeHz out of it), and the camera's yaw spring times this, so it keeps up (CameraRig). */
   hardHz: 5,
   hardCam: 1.8,
   /** The swoop: at most this many times the turn; for a stick this far sideways (0..1), all in by swoopFull. It comes at swoopEase (1/s) and goes at swoopFall,
@@ -48,10 +52,12 @@ export const swerveTune = {
   /** The skid: the thumb's sideways travel (px) past which, held skidHold s, it starts; back inside by skidBack (px) it grips. Not under skidMin m/s. */
   skidFrom: 138,
   skidBack: 12,
-  /** A thumb short of room to a side (`squeeze`): the smooth part is kept down to this (px), the hard part gets at least this, the skid is this short of the edge. */
+  /** A thumb short of room to a side: the smooth part is kept down to this (px), the hard part gets at least this, the skid is this short of the edge. */
   squeezeSmooth: 52,
   squeezeHard: 16,
   squeezeSkid: 10,
+  /** A thumb can be read to within this of the glass's sides (px): the room it has (Input). */
+  inset: 14,
   skidHold: 0.08,
   skidMin: 10,
   /** ...the nose's swing (rad/s) by the speed (m/s), and what the slip grows by at the least (rad/s: the nose always leads). */
@@ -76,7 +82,7 @@ export const swerveTune = {
   waveOut: 44,
   waveBack: 12,
   waveRadius: 64,
-  /** The long swipe's brake: the speed is down to the classic flight's in about this long (s). */
+  /** The long swipe's brake (TurboDrive.toCruise): the speed is down to the classic flight's in about this long (s). */
   brakeFor: 0.7,
 };
 
@@ -91,39 +97,13 @@ function byLog(at: readonly number[], v: readonly number[], speed: number): numb
   return v[i - 1] + (v[i] - v[i - 1]) * u;
 }
 
-/**
- * A thumb that lands near a side of the glass has less room that way than the stick's parts need: `room` px from its landing to where a thumb can still be
- * read. The hard part and the skid squeeze into what there is, and this is the travel on the stick's own scale: the smooth part kept down to `squeezeSmooth`
- * px, then the hard part in at least `squeezeHard` px, and the skid `squeezeSkid` px short of the edge. With room to spare (skidFrom and a little over) it is
- * the travel itself. So a thumb pushed against the edge of the glass is always asking for all there is.
- */
-export function squeeze(travel: number, room: number): number {
-  const T = swerveTune, need = T.skidFrom + T.squeezeSkid;
-  if (room >= need || travel <= 0) return travel;
-  const skid = Math.max(T.squeezeSmooth + T.squeezeHard + 4, room - T.squeezeSkid), full = Math.min(T.hardFull, Math.max(T.squeezeSmooth + T.squeezeHard, skid - 14));
-  const from = Math.min(T.hardFrom, Math.max(T.squeezeSmooth, full - (T.hardFull - T.hardFrom)));
-  if (travel <= from) return (travel * T.hardFrom) / from;
-  if (travel <= full) return T.hardFrom + ((travel - from) / (full - from)) * (T.hardFull - T.hardFrom);
-  if (travel <= skid) return T.hardFull + ((travel - full) / (skid - full)) * (T.skidFrom - T.hardFull);
-  return T.skidFrom + (travel - skid);
-}
-
 /** How many times today's most the hard turn is at this speed. */
 export const hardGainAt = (speed: number) => byLog(swerveTune.hardAt, swerveTune.hardGain, speed);
 /** The nose's swing in a skid at this speed (rad/s). */
 export const noseRateAt = (speed: number) => byLog(swerveTune.noseAt, swerveTune.noseRate, speed);
 
-export interface SwerveStick {
-  /** a thumb (or a key) is steering */
-  dragging: boolean;
-  /** the thumb's sideways travel from where it landed (CSS px, + right): Input's finger less its anchor */
-  dx: number;
-  /** the stick's own sideways, as the flight gets it (-1..1) */
-  sx: number;
-}
-
 export type SwerveEvent =
-  /** a skid began (dir: +1 right, -1 left) */
+  /** a skid began (Swerve.dir: +1 right, -1 left) */
   | 'skid'
   /** it gripped (`self`: by itself, its time up) */
   | 'grip'
@@ -145,17 +125,24 @@ export function wavePlace(f: Flight, dir: number, out: { x: number; z: number })
 }
 
 export class Swerve {
+  /** ?swerve: the handling is on (main.ts). Off, nothing of it, and a skid under way grips. */
+  on = false;
   /** The nose off the bus's way (rad, + right): the model and the aim turn by it. 0 out of a skid. */
   slip = 0;
   /** The roll a skid leans the bus by, out of its turn (rad, + right, added to Flight.bank). */
   roll = 0;
-  /** 0..1: how far into the hard part the stick is. */
+  /** 0..1: how far into the hard part the stick is, eased (the steering spring and the camera's stiffen by it). */
   hard = 0;
+  /** This step's turn over today's: the hard part, and the swoop over it. */
+  gain = 1;
+  /** The swoop's share, eased: 1 flat, up to swoopMax steep. */
+  steep = 1;
   /** The skid's side (+1 right, -1 left), and how long this one has slid (s). */
   dir = 1;
   slideT = 0;
-  /** What the skid has left of the speed (0..1], 1 out of one. */
+  /** What the skid has left of the speed (0..1], 1 out of one, and the least it leaves (m/s). */
   keep = 1;
+  least = 0;
   onEvent: ((ev: SwerveEvent, self: boolean) => void) | null = null;
   private phase: Phase = Phase.Grip;
   /** the thumb has been back inside since the last skid: the next may start */
@@ -164,17 +151,7 @@ export class Swerve {
   private catchT = 0;
   private slip0 = 0;
   private peak = 0;
-  private steep = 1;
-  private h0 = 0;
-  /** the least speed this skid leaves (m/s), and that it has Flight.speedScale (no gear in) */
-  private least = 0;
-  private scaled = false;
   private rollV = 0;
-  /** the springs as config has them, and what was last written over them: a tuner moving one is taken as the new base */
-  private baseHz = NaN;
-  private wroteHz = NaN;
-  private baseCam = NaN;
-  private wroteCam = NaN;
 
   /** A skid is on: sliding, or gripping. */
   get skidding(): boolean {
@@ -184,40 +161,35 @@ export class Swerve {
   get sliding(): boolean {
     return this.phase === Phase.Slide;
   }
-  /** The springs go back to config's own (the harness, between a flight with it and one without). */
-  release(): void {
-    if (!Number.isNaN(this.baseHz)) config.flight.bungeeHz = this.baseHz;
-    if (!Number.isNaN(this.baseCam)) config.camera.yawHz = this.baseCam;
-    this.wroteHz = this.wroteCam = NaN;
-  }
 
   /**
-   * Once a frame, after the gears have written Flight.turbo and before the flight steps. `off`: nothing of it this frame (the street, the opening's gate, a
-   * flight that isn't the stick's): a skid under way grips.
+   * Each step, before the flight's speed and steering. `yoked`: the stick has the nose up or down (the flight's climb or dive). The stick's `hard` NaN or left out:
+   * nothing of it this step (the opening's gate, the Moon's way in and out), and a skid under way grips.
    */
-  pre(dt: number, stick: SwerveStick, f: Flight, off = false): void {
-    const T = swerveTune, F = config.flight, C = config.camera, Tb = f.turbo;
-    const on = !off && Tb.hover === 0;
-    const X = on && stick.dragging ? Math.abs(stick.dx) : 0;
-    const side = stick.dx < 0 ? -1 : 1;
+  pre(dt: number, inp: FlightInput, f: Flight, yoked: boolean): void {
+    // (off, and nothing left over from when it was on: the flight is exactly as without it)
+    if (!this.on && this.phase === Phase.Grip && this.hard === 0 && this.steep === 1 && this.gain === 1) return;
+    const T = swerveTune, Tb = f.turbo;
+    const hard = inp.hard ?? NaN;
+    const on = this.on && !Number.isNaN(hard) && Tb.hover === 0;
+    const held = on && inp.dragging;
+    const sx = inp.dragging ? inp.sx : 0;
 
     // ---- the hard turn, and the swoop over it
-    const u = ss(T.hardFrom, T.hardFull, X);
+    const u = held ? ss(0, 1, hard) : 0;
     this.hard = u;
     let gain = 1 + (hardGainAt(f.speed) - 1) * u;
     // (only a nose the stick has put there: skimming the roofs the bus rises and sinks by itself, and its turn mustn't breathe with them)
-    const steep = on && (f.mode === 2 || f.mode === 3) ? 1 / Math.max(Math.cos(f.nose), 1 / Math.max(1, T.swoopMax)) : 1;
+    const steep = on && yoked ? 1 / Math.max(Math.cos(f.nose), 1 / Math.max(1, T.swoopMax)) : 1;
     this.steep += (steep - this.steep) * (1 - Math.exp(-(steep > this.steep ? T.swoopEase : T.swoopFall) * dt));
-    gain *= 1 + (this.steep - 1) * ss(T.swoopFrom, T.swoopFull, Math.abs(stick.sx));
-    Tb.yaw *= gain;
-    // (the springs: a value that isn't what was last written here is somebody's new base, the tuner's)
-    if (F.bungeeHz !== this.wroteHz) this.baseHz = F.bungeeHz;
-    this.wroteHz = F.bungeeHz = this.baseHz + (Math.max(this.baseHz, T.hardHz) - this.baseHz) * u;
-    if (C.yawHz !== this.wroteCam) this.baseCam = C.yawHz;
-    this.wroteCam = C.yawHz = this.baseCam * (1 + (Math.max(1, T.hardCam) - 1) * u);
+    // (back to flat for good once it's within a hair: off, the step is exactly the flight's own again)
+    if (!on && Math.abs(this.steep - 1) < 1e-6) this.steep = 1;
+    gain *= 1 + (this.steep - 1) * ss(T.swoopFrom, T.swoopFull, Math.abs(sx));
+    this.gain = gain;
 
     // ---- the skid
-    const past = X >= T.skidFrom;
+    const past = held && (inp.skid ?? -Infinity) >= 0;
+    const side = sx < 0 ? -1 : 1;
     if (past) this.heldFor += dt;
     else {
       this.heldFor = 0;
@@ -234,30 +206,28 @@ export class Swerve {
     } else if (this.phase === Phase.Slide) {
       // (eased back inside, the other way, let go, off; or its time up with a gear driving: with none it can be held, a doughnut)
       const timeUp = this.slideT >= T.hold && Tb.speed > 0;
-      if (X < T.skidFrom - T.skidBack || side !== this.dir || timeUp) this.grip(f, timeUp);
+      if (!held || (inp.skid ?? -Infinity) < -T.skidBack || side !== this.dir || timeUp) this.grip(f, timeUp);
     }
     if (this.phase === Phase.Slide) {
-      // (the speed it keeps: the gear's own, or the classic flight's, scaled; the flight chases it as it chases any speed)
-      const base = Tb.speed > 0 ? Tb.speed : F.cruiseSpeed;
+      // (the share of the speed it keeps, of the gear's own or the classic flight's: the flight chases that, as it chases any speed)
+      const base = Tb.speed > 0 ? Tb.speed : config.flight.cruiseSpeed;
       this.keep = Math.max(Math.min(1, this.least / base), this.keep * Math.exp(((-T.scrub * Math.abs(this.slip)) / (T.slipMax * DEG)) * dt));
-      if (Tb.speed > 0) {
-        Tb.speed = Math.max(this.least, Tb.speed * this.keep);
-        Tb.rate = Math.max(Tb.rate, T.scrubRate);
-      } else if (!(Tb.rate > 0)) {
-        f.speedScale = Math.min(f.speedScale, this.keep);
-        this.scaled = true;
-      }
     }
-    this.h0 = f.heading;
   }
 
-  /** Once a frame, after the flight has stepped (or the street has rolled it). */
+  /** The steering spring this step (Hz): config's, stiffened in the hard part. */
+  springHz(hz: number): number {
+    return this.hard > 0 ? hz + (Math.max(hz, swerveTune.hardHz) - hz) * this.hard : hz;
+  }
+
+  /** Each step, at its end. */
   post(dt: number, f: Flight): void {
+    if (this.phase === Phase.Grip && this.roll === 0 && this.rollV === 0) return;
     const T = swerveTune, cap = T.slipMax * DEG;
     if (this.phase === Phase.Slide) {
       this.slideT += dt;
       // (the nose swings at its own rate, the bus's way at the flight's: the slip is what the nose has over it, and it always has some)
-      const w = dt > 0 ? ((f.heading - this.h0) * this.dir) / dt : 0;
+      const w = f.yawRate * this.dir;
       this.slip = clamp(this.slip + this.dir * Math.max(noseRateAt(f.speed) - w, T.slipMin) * dt, -cap, cap);
       this.peak = Math.max(this.peak, this.slip * this.dir);
       // (a full belly's weight, or a push let go, can leave the classic flight's own speed under the least: the skid never takes it there)
@@ -273,11 +243,19 @@ export class Swerve {
         this.slip = 0;
       }
     }
-    // (leaning out of the turn while it slides, on a spring so the grip rocks it back)
+    // (leaning out of the turn while it slides, on a spring so the grip rocks it back; settled, it's 0 again)
     const want = this.phase === Phase.Grip ? 0 : -Math.sign(this.slip) * T.lean * DEG * Math.min(1, Math.abs(this.slip) / cap);
     const k = 2 * Math.PI * 3;
     this.rollV += (k * k * (want - this.roll) - 2 * 0.6 * k * this.rollV) * dt;
     this.roll += this.rollV * dt;
+    if (this.phase === Phase.Grip && Math.abs(this.roll) < 1e-5 && Math.abs(this.rollV) < 1e-4) this.roll = this.rollV = 0;
+  }
+
+  /** On the street (Flight.ride) there's no skid: whatever was left of one is over. */
+  stop(): void {
+    this.phase = Phase.Grip;
+    this.slip = this.roll = this.rollV = 0;
+    this.keep = 1;
   }
 
   /** The slide grips: the catch begins, the speed is the gear's again, and a full belly goes off the outside. */
@@ -287,8 +265,6 @@ export class Swerve {
     this.catchT = 0;
     this.slip0 = this.slip;
     this.keep = 1;
-    if (this.scaled) f.speedScale = 1;
-    this.scaled = false;
     this.onEvent?.('grip', self);
     if (this.slideT >= T.waveAfter && this.peak >= T.waveSlip * DEG && f.fullness >= 0.999 && f.barfT < 0) this.onEvent?.('wave', self);
   }

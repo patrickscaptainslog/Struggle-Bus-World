@@ -17,7 +17,7 @@ const { Particles } = await import('@src/fx/Particles');
 const { config } = await import('@src/config');
 const { Rivals, rivalTune: T, RState, Act } = await import('@src/rivals/rivals');
 const { shellAt, shellBack } = await import('@src/rivals/shell');
-const { Swerve } = await import('@src/swerve/swerve');
+const { stickParts } = await import('@src/game/Input');
 
 const FLAT = { obstacleAt: () => 20, groundAt: () => 10 };
 const DEG = Math.PI / 180;
@@ -42,7 +42,9 @@ function harness(rungs: number, dt: number) {
   Object.assign(flight, { y: 26.5, glideSpeed: 0 });
   const drive = new TurboDrive([-1e9, -1e9, 1e9, 1e9]);
   drive.edgeless = true;
-  const sw = new Swerve();
+  // (?swerve's handling is the flight's own, and the stick's parts go into its steps)
+  const sw = flight.swerve, parts = { hard: 0, skid: -Infinity };
+  sw.on = true;
   const camera = new THREE.PerspectiveCamera(60, 393 / 852, 1, 20000);
   const city = { surfaceAt: () => 10, groundAt: () => 10, buildingAt: () => null, roofAt: () => null } as never;
   const audio = { hosePour() {}, hoseLevel() {}, hoseStop() {}, denied() {}, superHoseHit() {}, homingWhistle() {}, homingHit() {}, homingMiss() {} } as never;
@@ -56,10 +58,9 @@ function harness(rungs: number, dt: number) {
   const frame = () => {
     const sx = thumb === null ? 0 : stickOf(thumb);
     drive.update(dt, flight);
-    sw.pre(dt, { dragging: thumb !== null, dx: thumb ?? 0, sx }, flight);
+    stickParts(Math.abs(thumb ?? 0), Infinity, parts);
     const n = Math.max(1, Math.ceil(dt * 120));
-    for (let i = 0; i < n; i++) flight.step(dt / n, { sx, sy: 0, dragging: thumb !== null }, FLAT);
-    sw.post(dt, flight);
+    for (let i = 0; i < n; i++) flight.step(dt / n, { sx, sy: 0, dragging: thumb !== null, hard: parts.hard, skid: parts.skid }, FLAT);
     camera.position.set(flight.x, flight.y + 60, flight.z + 150);
     camera.updateMatrixWorld();
     R.step(dt, { x: flight.x, y: flight.y, z: flight.z, heading: flight.heading, nose: flight.heading + sw.slip, speed: flight.ground, faction: 1, out: false }, FLAT);
@@ -81,7 +82,7 @@ function harness(rungs: number, dt: number) {
     T.speeds[0] = v;
     return r;
   };
-  return { flight, holds, R, sw, frame, put, setThumb: (v: number | null) => (thumb = v), get t() { return t; }, done: () => { sw.release(); input.dispose(); T.count = count; T.speeds[0] = cruise; } };
+  return { flight, holds, R, sw, frame, put, setThumb: (v: number | null) => (thumb = v), get t() { return t; }, done: () => { input.dispose(); T.count = count; T.speeds[0] = cruise; } };
 }
 
 // ---------------------------------------------------------------- the player's shell

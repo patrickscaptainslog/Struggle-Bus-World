@@ -1929,11 +1929,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     curbStick.sx = sx;
     curbStick.sy = sy;
     curbStick.dragging = dragging || leaving || sx !== st.stretch.x;
-    // (?swerve: over what the gears wrote and before the steps; not on the street, under the opening's gate or on the Moon's way in and out)
-    swerve?.pre(dt, st, !!curbFlight?.rolling || gateShut || leaving || !!land?.arriving);
+    // (?swerve: the stick's hard part and skid go into the flight's steps, but under the opening's gate and on the Moon's way in and out (the street rolls
+    // the bus instead); the stand-in's boot puts a tool's thumb into them first)
+    swerve?.pre(dt, st);
     rivals?.pre();
+    const hard = gateShut || leaving || !!land?.arriving ? NaN : st.hard;
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
-    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
+    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x, hard, skid: st.skid }, city);
     swerve?.post(dt);
     curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);

@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { angleDelta, clamp, spring } from './springs';
+import { Swerve, swerveTune } from './Swerve';
 
 const ss = (a: number, b: number, x: number) => {
   const t = clamp((x - a) / (b - a), 0, 1);
@@ -32,6 +33,9 @@ const ss = (a: number, b: number, x: number) => {
 // Curb (src/game/CurbFlight.ts, ?life): on the street ride() has the bus instead of step(), where life's lane puts it,
 // and leaves everything as if it skimmed there, so step() takes it back with nothing jumping.
 //
+// ?swerve (src/game/Swerve.ts, docs/specs/flight/SWERVE.md): the longer stick's hard turn, the swoop and the skid, inside
+// each step behind `swerve.on`. A skid's slip is the nose off `heading`, which stays the way the bus is going.
+//
 // heading: compass radians (0 = north = -Z, +pi/2 = east = +X).
 
 export interface WorldQuery {
@@ -50,6 +54,10 @@ export interface FlightInput {
   sx: number;
   sy: number;
   dragging: boolean;
+  /** ?swerve (Flight.swerve): how far into the stick's hard part the thumb is (0..1), and how far past the skid's line (px of the stick's own scale: 0 and
+   *  over is past), as Input says them (InputState.hard, .skid). hard NaN or left out: none of it this step */
+  hard?: number;
+  skid?: number;
 }
 
 /** How far under a deck's underside the floor stops (m). */
@@ -163,6 +171,8 @@ export class Flight {
   /** &boom's hoop standing over a tower in its way (src/game/Boom.ts): the floor it lifts the bus to as it closes on it (m ASL), as a turbo gear's floor
    *  does. -Infinity: none */
   hoopFloor = -Infinity;
+  /** ?swerve's handling (src/game/Swerve.ts): `swerve.on` off unless the page has ?swerve; its slip, lean and hard are read by the bus's pose and the camera */
+  readonly swerve = new Swerve();
 
   get fx() {
     return Math.sin(this.heading);
@@ -235,6 +245,9 @@ export class Flight {
     const F = config.flight;
     const S = config.splat;
     this.t += dt;
+    // (?swerve: the hard turn, the swoop and the skid, from what the stick asks, before anything reads them)
+    const sw = this.swerve;
+    sw.pre(dt, inp, this, this.mode === Yoke.Climb || this.mode === Yoke.Dive);
 
     // ---- belly + barf rhythm
     this.breathClock(dt);
@@ -274,13 +287,18 @@ export class Flight {
       noseWant = Math.atan2(plainRate, targetSpeed);
       targetSpeed = Math.hypot(plainRate, targetSpeed);
     }
-    if (Tb.speed > 0) targetSpeed = Math.max(targetSpeed, Tb.speed);
+    // (?swerve: a skid scrubs the speed the flight chases, a share of the gear's or of the classic flight's, and never the gear's own)
+    const scrub = sw.sliding;
+    const drive = scrub && Tb.speed > 0 ? Math.max(sw.least, Tb.speed * sw.keep) : Tb.speed;
+    const driveRate = scrub && Tb.speed > 0 ? Math.max(Tb.rate, swerveTune.scrubRate) : Tb.rate;
+    const speedScale = scrub && !(Tb.speed > 0) && !(Tb.rate > 0) ? Math.min(this.speedScale, sw.keep) : this.speedScale;
+    if (drive > 0) targetSpeed = Math.max(targetSpeed, drive);
     // (a jet breathing fire barely flinches: the recoil stall is the classic bus's)
-    const jet = Tb.speed > F.surgeSpeed;
+    const jet = drive > F.surgeSpeed;
     if (this.barfing) targetSpeed *= jet ? 0.85 : S.stallSpeed;
     // (the super splat's weight, recoil and limp are the classic bus's too: a gear drives through all three)
-    const scaled = !this.driven && this.speedScale < 0.98;
-    if (!this.driven) targetSpeed *= this.speedScale;
+    const scaled = !this.driven && speedScale < 0.98;
+    if (!this.driven) targetSpeed *= speedScale;
     // (letting go arcs the bus level with its speed kept: the classic chase takes it from there)
     if (this.onPath && pull === 0 && push === 0 && !this.driven && !this.barfing && !scaled) targetSpeed = Math.max(targetSpeed, this.speed);
     const Z = config.zone;
@@ -305,7 +323,7 @@ export class Flight {
         }
       }
     }
-    const sk = hover ? 3 / Math.max(0.1, Z.settle) : (this.barfing && !jet) || scaled ? 6 : Tb.rate > 0 ? Tb.rate : F.speedHz * 2.2;
+    const sk = hover ? 3 / Math.max(0.1, Z.settle) : (this.barfing && !jet) || scaled ? 6 : driveRate > 0 ? driveRate : F.speedHz * 2.2;
     this.speed += (targetSpeed - this.speed) * (1 - Math.exp(-sk * dt));
 
     // ---- steering on a springy bungee
@@ -313,7 +331,8 @@ export class Flight {
     const vScale = clamp(Math.sqrt(F.cruiseSpeed / Math.max(this.barfing ? this.preBarfSpeed : this.speed, 4)), 0.55, 1.35);
     // (the hover turns on the spot: a full turn in config.zone.turn; a gear's authority and the breath's plant hold there too)
     let yawTarget = hover ? (sx * 2 * Math.PI) / Math.max(0.5, Z.turn) : sx * F.maxYawRate * vScale;
-    yawTarget *= Tb.yaw;
+    // (?swerve: the hard part of the stick and the swoop over it turn harder than the gear's authority alone)
+    yawTarget *= Tb.yaw * sw.gain;
     if (this.barfing) {
       // the dragon plants itself to breathe: half the carve until the impact, then it eases back
       const u = clamp((this.barfT - S.impactDelay) / Math.max(0.01, S.breathSteerEase), 0, 1);
@@ -321,7 +340,8 @@ export class Flight {
     }
     // soft push away from towers taller than we're willing to climb (not in the hover: it stops at them, wallAhead)
     if (!hover) yawTarget += this.avoid(world);
-    [this.yawRate, this.yawAcc] = spring(this.yawRate, this.yawAcc, yawTarget, F.bungeeHz, F.bungeeDamping, dt);
+    // (and the bungee stiffens in the hard part, so it bites at once)
+    [this.yawRate, this.yawAcc] = spring(this.yawRate, this.yawAcc, yawTarget, sw.springHz(F.bungeeHz), F.bungeeDamping, dt);
     this.heading += this.yawRate * dt;
 
     // ---- move
@@ -554,6 +574,9 @@ export class Flight {
     const lean = hover ? (Z.leanUp * pull - Z.leanDown * push + Z.swayPitch * Math.sin(this.t * Math.PI * 2 * Z.bobHz + 1.2)) * DEG : 0;
     const pitchTarget = Math.min((hover ? lean : climb) + rear, pitchMax);
     this.pitch += (pitchTarget - this.pitch) * (1 - Math.exp(-(this.barfing ? 10 : 5) * dt));
+
+    // (?swerve: a skid's slip grows, or its grip brings the way round to the nose)
+    sw.post(dt, this);
   }
 
   /** The belly's clock: a breath runs out (its recoil up, the relief), and an empty belly fills (in rechargeSeconds after the Hose, never while it pours). */
@@ -614,6 +637,7 @@ export class Flight {
     this.groundUnder = world.groundAt(this.x, this.z);
     this.obstacleUnder = world.obstacleAt(this.x, this.z, this.y);
     this.street = NaN;
+    this.swerve.stop();
     const belly = F.lightLift * (1 - this.belly) - F.fullSag * this.belly;
     this.floorY = this.obstacleUnder + F.clearance + belly;
     this.floorSmooth = this.floorY;

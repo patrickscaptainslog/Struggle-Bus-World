@@ -1,15 +1,16 @@
 // The skid over the real city (docs/specs/flight/SWERVE.md, "Solid before it's flown"): the real City, Flight, TurboDrive, Aimer and Splatter with ?swerve's
-// stand-in over them, no browser: node tools/feel-sim/run.mjs ../swerve/s_city.ts [skids=1000]
+// handling on (Flight.swerve), no browser: node tools/feel-sim/run.mjs ../swerve/s_city.ts [skids=1000]
 //   skids    from `skids` poses over eight neighbourhoods (the towers of the Financial District and Nob Hill among them), in Cruise, Express, Nonstop and Jet:
 //            1.5 s straight, a skid to a side for up to 2 s, let go at a moment of its own, 1.5 s on. On no frame is the bus's underside through a roof, a wall
 //            or a tree as they're drawn (the route check's own measure, tools/feel-sim/s_route.ts), and it is thrown up by the floor no more often than the same
-//            thumb throws it today, the stand-in off
+//            thumb throws it today, the handling off
 //   wave     a skid at Cruise with a full belly, eased off: the wave lands beside the bus's way, off the outside of the slide, paints what stands there as a
 //            tap does, and the belly is spent; one with the belly empty throws none
 // Prints a row each, and exits 1 if one fails.
 import { busClearance, config, ll, makeGame, newCity, pump } from '../feel-sim/lib';
 import { TurboDrive } from '@src/game/Turbo';
-import { Swerve, swerveTune, wavePlace } from '@src/swerve/swerve';
+import { stickParts } from '@src/game/Input';
+import { swerveTune, wavePlace } from '@src/game/Swerve';
 
 const N = +(process.argv[2] ?? 1000);
 const PLACES: Array<[string, number, number]> = [
@@ -32,25 +33,19 @@ const row = (ok: boolean, name: string, o: unknown) => {
   console.log(`${ok ? 'pass' : 'FAIL'}  ${name.padEnd(26)} ${JSON.stringify(o)}`);
 };
 
-/** A game with the gears and, `on`, the stand-in between them and the flight's steps, as main.ts has them. */
+/** A game with the gears and, `on`, the flight's handling, as main.ts has them: the stick's parts go into the flight's steps. */
 function game(on: boolean) {
   const drive = new TurboDrive(manifestBounds);
   drive.edgeless = true;
-  const sw = on ? new Swerve() : null;
-  const stick = { dragging: false, dx: 0, sx: 0 };
-  // (makeGame calls drive.update before the flight's steps: the stand-in's pre goes right behind it)
-  const hooked = Object.create(drive) as TurboDrive;
-  hooked.update = (dt, f) => {
-    drive.update(dt, f);
-    sw?.pre(dt, stick, f);
-  };
-  const g = makeGame(city, hooked);
+  const g = makeGame(city, drive);
+  g.flight.swerve.on = on;
+  const sw = on ? g.flight.swerve : null;
+  const inp = { sx: 0, sy: 0, dragging: false, hard: 0, skid: -Infinity };
   const frame = (dt: number, dx: number | null) => {
-    stick.dragging = dx !== null;
-    stick.dx = dx ?? 0;
-    stick.sx = dx === null ? 0 : Math.sign(dx) * 0.997;
-    g.frame(dt, { sx: stick.sx, sy: 0, dragging: stick.dragging });
-    sw?.post(dt, g.flight);
+    inp.dragging = dx !== null;
+    inp.sx = dx === null ? 0 : Math.sign(dx) * 0.997;
+    stickParts(Math.abs(dx ?? 0), Infinity, inp);
+    g.frame(dt, inp);
   };
   return { g, drive, sw, frame };
 }
@@ -94,7 +89,6 @@ function game(on: boolean) {
           y = f.y;
           if (G.sw?.sliding) T.skids++;
         }
-        G.sw?.release();
       }
     }
     const a = tally.on, b = tally.off;
@@ -134,7 +128,6 @@ for (const full of [true, false]) {
   }
   const hits = G.g.events.slice(n0).filter((e) => e.ev === 'impact') as Array<{ pos: number[]; count: number; r: number }>;
   const hit = hits[0];
-  G.sw!.release();
   // (the slide turned right, so its outside is the bus's left: the blast's middle is on that side of its way)
   const offSide = hit ? (hit.pos[0] - bus.x) * bus.rx + (hit.pos[2] - bus.z) * bus.rz : NaN;
   if (full) row(waves === 1 && !!hit && hit.count > 0 && bellyAt === 0 && offSide < 0, 'wave, a full belly', { waves, buildingsPainted: hit?.count ?? 0, radius: hit?.r, offTheOutsideM: +(-offSide).toFixed(1), bellyAtTheWave: bellyAt });

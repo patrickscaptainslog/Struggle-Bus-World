@@ -1,13 +1,15 @@
 // The handling's numbers and its rules (docs/specs/flight/SWERVE.md, "Solid before it's flown"): the real Flight, TurboDrive and CameraRig with ?swerve's
-// stand-in over them (src/swerve/swerve.ts), on a flat world, no browser: node tools/feel-sim/run.mjs ../swerve/s_turns.ts
+// handling on (Flight.swerve, src/game/Swerve.ts), on a flat world, no browser: node tools/feel-sim/run.mjs ../swerve/s_turns.ts
 // The thumb is a place on the glass (px from where it landed), put through the stick's own curve (Input.applyStretch's, copied below: its dead zone, its knee, its
-// leash), and each frame goes as main.ts's does: the gears, the stand-in's pre, the flight's steps at 120 Hz, the stand-in's post.
+// leash) and the stick's own parts (Input's stickParts, with room to spare), and each frame goes as main.ts's does: the gears, the flight's steps at 120 Hz.
 //   table    half a turn in every gear: today's (the stand-in off, the thumb at the leash), hard (120 px), and the skid (the leash, held till the nose is round,
 //            then let go); its time and its width, at 30 and at 60 frames a second, the two within 3 % of each other
-//   squeeze  a thumb that lands near a side of the glass: the hard part and the skid squeeze into the room it has, in order, the skid within reach of the edge
+//   squeeze  a thumb that lands near a side of the glass, by the stand-in's rule (swerveTune.rule 1; tools/swerve/s_stick.ts holds ours): the hard part and
+//            the skid squeeze into the room it has, in order, the skid within reach of the edge
 //   smooth   the same thumb inside 78 px, level, flies the same line with it on as with it off, in every gear, to the last bit
 //   skid     the slip never over its cap; grip within 0.4 s of easing off; never under 20 m/s (or what it began at); the gear never changed; with a gear in,
-//            over by itself in under 2 s, and with none held as long as the thumb is; a thumb that twitches out and back doesn't start one
+//            over by itself in under 2 s, and with none held as long as the thumb is; a thumb that twitches out and back doesn't start one; a skid at Nonstop
+//            scrubs the flight's speed and never the gear's own, so the Comet stays on (the review of 018c5d8, m101)
 //   swoop    up, over and down at Cruise, Express and Jet: how long the reversal takes with it and without; the turn never over three times its flat rate
 //   brake    the long swipe's brake: at Cruise's speed from every gear in under 0.8 s
 //   camera   the bus stays in the frame through a hard turn, a skid and its grip, in every gear
@@ -15,7 +17,9 @@
 import { config, makeCam } from '../feel-sim/lib';
 import { Flight } from '@src/game/Flight';
 import { TurboDrive } from '@src/game/Turbo';
-import { Swerve, squeeze, swerveTune as T } from '@src/swerve/swerve';
+import { cometOn } from '@src/game/Comet';
+import { stickParts, stickScale } from '@src/game/Input';
+import { swerveTune as T, type Swerve } from '@src/game/Swerve';
 
 const flat = { obstacleAt: () => 20, groundAt: () => 10 };
 const DEG = Math.PI / 180;
@@ -46,23 +50,24 @@ interface Bus {
   /** One frame with the thumb at (dx, dy) px from its landing; null: lifted. */
   frame(dt: number, thumb: [number, number] | null): void;
 }
-/** A bus in a gear, settled at its speed and height, the stand-in on or off. */
+/** A bus in a gear, settled at its speed and height, the handling on or off. */
 function bus(rungs: number, on: boolean, dt: number): Bus {
   const f = new Flight();
   f.y = 26.5;
   f.glideSpeed = 0;
+  f.swerve.on = on;
   const drive = new TurboDrive([-1e9, -1e9, 1e9, 1e9]);
   drive.edgeless = true;
-  const sw = on ? new Swerve() : null;
+  const sw = on ? f.swerve : null;
+  const parts = { hard: 0, skid: -Infinity };
   const b: Bus = {
     f, drive, sw, t: 0,
     frame(h, thumb) {
       const st = thumb ? stickOf(thumb[0], thumb[1]) : { sx: 0, sy: 0 };
       drive.update(h, f);
-      sw?.pre(h, { dragging: !!thumb, dx: thumb ? thumb[0] : 0, sx: st.sx }, f);
+      if (thumb) stickParts(Math.abs(thumb[0]), Infinity, parts);
       const n = Math.max(1, Math.ceil(h / (1 / 120)));
-      for (let i = 0; i < n; i++) f.step(h / n, { sx: st.sx, sy: st.sy, dragging: !!thumb }, flat);
-      sw?.post(h, f);
+      for (let i = 0; i < n; i++) f.step(h / n, { sx: st.sx, sy: st.sy, dragging: !!thumb, hard: thumb ? parts.hard : 0, skid: thumb ? parts.skid : -Infinity }, flat);
       b.t += h;
     },
   };
@@ -100,7 +105,6 @@ function halfTurn(rungs: number, kind: 'today' | 'hard' | 'skid', dt: number) {
     if (b.drive.gear + b.drive.level !== gear) sameGear = false;
     if (f.heading - h0 >= Math.PI - (kind === 'skid' ? 2 * DEG : 0) && !(b.sw?.skidding ?? false)) break;
   }
-  b.sw?.release();
   return { t: b.t, wide, speed: v0, least, noseAt, slip: slip / DEG, sameGear };
 }
 console.log('half a turn at the thumb\'s limit, by gear: seconds, and metres wide');
@@ -122,9 +126,12 @@ for (const [name, rungs] of GEARS) {
 // ---------------------------------------------------------------- a thumb short of room
 {
   // (by the room from the landing to the side: where the hard part begins, where it is all in, and where the skid's line is, in px of real travel; with room to
-  // spare they are the stick's own, and short of it they squeeze in, in that order, the skid always within reach of the edge)
+  // spare they are the stick's own, and short of it they squeeze in, in that order, the skid always within reach of the edge; the stand-in's rule)
   const out: string[] = [];
   let ok = true;
+  const rule = T.rule;
+  T.rule = 1;
+  const squeeze = stickScale;
   for (const room of [200, 148, 130, 110, 95, 80, 70]) {
     const at = (want: number) => {
       let x = 0;
@@ -138,6 +145,7 @@ for (const [name, rungs] of GEARS) {
     if (!good) ok = false;
     out.push(`${room} px of room: hard from ${Math.round(from)}, all in at ${Math.round(full)}, the skid at ${Math.round(skid)}${good ? '' : ' (!)'}`);
   }
+  T.rule = rule;
   row(ok, 'a thumb near a side', out);
 }
 
@@ -153,7 +161,6 @@ for (const [name, rungs] of GEARS) {
       b.frame(1 / 60, thumbAt(b.t));
       worst = Math.max(worst, Math.abs(a.f.x - b.f.x), Math.abs(a.f.z - b.f.z), Math.abs(a.f.y - b.f.y), Math.abs(a.f.heading - b.f.heading), Math.abs(a.f.speed - b.f.speed), Math.abs(a.f.bank - b.f.bank));
     }
-    b.sw!.release();
     row(worst === 0, `smooth, ${name}`, { apartAtMost: worst });
   }
 }
@@ -194,7 +201,6 @@ for (const [name, rungs] of GEARS) {
       b.frame(dt, null);
       watch();
     }
-    sw.release();
     const floor = Math.min(T.floor, v0);
     const ok = slip <= cap + 1e-9 && least >= floor - 1e-6 && sameGear && began <= 0.2 && (rungs === 0 ? heldToEnd && gripped <= 0.4 : ended - began < 2 && !heldToEnd) && !Number.isNaN(back);
     row(ok, `skid, ${name}, ${Math.round(1 / dt)} fps`, { began: r2(began), slidFor: rungs === 0 ? 'held' : r2(ended - began), slipAtMostDeg: r1(slip / DEG), slowest: `${r1(least)} of ${r1(v0)} m/s`, gripAfterEasing: rungs === 0 ? r2(gripped) : 'by itself', speedBackAfterGrip: r2(back), events: events.trim() });
@@ -209,8 +215,20 @@ for (const [name, rungs] of GEARS) {
     b.frame(1 / 60, [60, 0]);
     any ||= sw.skidding;
   }
-  sw.release();
   row(!any, 'skid, a twitch', { started: any, heldFor: r2(4 / 60), needs: T.skidHold });
+}
+{
+  // (a skid held at Nonstop, its whole slide: the flight's speed falls, the gear's own (Flight.turbo.speed) stays what the gear drives, and the Comet with it)
+  const b = bus(2, true, 1 / 30), f = b.f, sw = b.sw!, gearSpeed = f.turbo.speed;
+  let slid = 0, slowest = f.speed, gearMoved = 0, cometOff = 0;
+  for (let k = 0; k < 60; k++) {
+    b.frame(1 / 30, [172, 0]);
+    if (sw.sliding) slid++;
+    slowest = Math.min(slowest, f.speed);
+    gearMoved = Math.max(gearMoved, Math.abs(f.turbo.speed - gearSpeed));
+    if (!cometOn(f)) cometOff++;
+  }
+  row(slid > 20 && slowest < gearSpeed * 0.9 && gearMoved === 0 && cometOff === 0, 'skid, Nonstop: the gear kept', { framesSliding: slid, slowest: r1(slowest), gear: gearSpeed, gearMovedBy: gearMoved, framesCometOff: cometOff });
 }
 
 // ---------------------------------------------------------------- the swoop
@@ -232,7 +250,6 @@ for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
       void flatRate;
     }
     out[on ? 'with' : 'today'] = `round at ${r2(round)} s, ${Math.round(top)} m up, done at ${r2(b.t)} s`;
-    b.sw?.release();
   }
   // (the turn against its flat rate: the same stick level and at the steepest nose, the stand-in on)
   for (const steep of [false, true]) {
@@ -243,7 +260,6 @@ for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
       b.frame(1 / 60, steep ? [124, 118] : [124, 0]);
       w = Math.max(w, Math.abs(f.yawRate) / Math.max(1e-6, Math.abs(f.turbo.yaw)));
     }
-    b.sw!.release();
     if (steep) worstGain = w / (out.flat as number);
     else out.flat = w;
   }
@@ -261,7 +277,6 @@ for (const [name, rungs] of GEARS.slice(1)) {
     b.frame(1 / 60, null);
     if (Number.isNaN(at) && f.speed <= config.flight.cruiseSpeed * 1.15) at = b.t;
   }
-  b.sw!.release();
   row(at <= 0.8 && b.drive.gear === 0 && b.drive.below === 0, `brake, from ${name}`, { from: Math.round(v0), atCruiseIn: r2(at), speedAfter3s: r1(f.speed), heightKept: r1(f.y - y0) });
 }
 
@@ -285,7 +300,6 @@ for (const [name, rungs] of GEARS) {
       low = Math.min(low, p.y);
       high = Math.max(high, p.y);
     }
-    b.sw?.release();
     if (kind !== 'today' && (off > 0.42 || low < 0.05 || high > 0.95)) ok = false;
     out[kind] = `${r2(off)} of the width off the middle, ${r2(low)}-${r2(high)} down the frame`;
   }

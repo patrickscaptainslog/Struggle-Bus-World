@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { registerTunables } from '../ui/tunables';
+import { swerveTune } from './Swerve';
 
 // Two thumbs, each with its own job (docs/specs/flight/THUMBS.md). One rule decides,
 // on the landing alone: the look zone, which is everywhere but the bus's lane (busZone,
@@ -100,6 +101,10 @@ export interface InputState {
   /** The Bomb: `on` while a still hold on the bus charges one (from the charge's start until its end); tier 1 charging, 2 Bomb II, 3 Bomb III (as shown); t0 = its
    *  landing, at = when the charge's clock began (ms, the performance clock). Off: all as they were last. */
   bomb: { on: boolean; tier: number; t0: number; at: number };
+  /** ?swerve's longer stick (stickParts): how far into the hard part the steering thumb's sideways travel is (0..1), and how far past the skid's line it is (px
+   *  of the stick's own scale: 0 and over is past, and a slide grips once it's swerveTune.skidBack under). 0 and -Infinity with nobody steering. */
+  hard: number;
+  skid: number;
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -273,8 +278,53 @@ export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs:
   return dy < 0 ? 1 : -1;
 }
 
+/**
+ * ?swerve's longer stick (docs/specs/flight/SWERVE.md, section 2): where a thumb `travel` px sideways from the stick's middle is on the stick's own scale (px),
+ * with `room` px from that middle to where the glass can still read a thumb on that side. With room to spare (skidFrom + squeezeSkid, 148 px, or more) it is
+ * the travel itself: smooth to 78, hard from there to 120, the skid at 138. Short of room the hard part and the skid move in, by swerveTune.rule:
+ *  - 0, ours: the skid is squeezeSkid short of the edge, and the hard part is what's left between 78 px and it, at least squeezeHard wide; the smooth part stays
+ *    today's, whole, while that fits (108 px of room). Only under that does it give way, never under squeezeSmooth, and under the room all three need at their
+ *    least (82 px) the three shrink together, so the hard turn and the skid are in reach from any landing.
+ *  - 1, the stand-in's squeeze (feat/swerve 018c5d8): the smooth part goes first, down to squeezeSmooth, so the hard part and the skid fit.
+ * Either way a thumb pushed against the edge of the glass is asking for all there is.
+ */
+export function stickScale(travel: number, room: number): number {
+  const T = swerveTune;
+  if (room >= T.skidFrom + T.squeezeSkid || travel <= 0) return travel;
+  // (in px of real travel: where the hard part begins, where it is all in, and the skid's line; at least 4 px between the last two, as the stand-in had)
+  let from: number, full: number;
+  const least = T.squeezeSmooth + T.squeezeHard + 4;
+  let skid: number;
+  if (T.rule === 1) {
+    skid = Math.max(least, room - T.squeezeSkid);
+    full = Math.min(T.hardFull, Math.max(T.squeezeSmooth + T.squeezeHard, skid - 14));
+    from = Math.min(T.hardFrom, Math.max(T.squeezeSmooth, full - (T.hardFull - T.hardFrom)));
+  } else {
+    skid = Math.max(4, room - T.squeezeSkid);
+    if (skid < least) {
+      const k = skid / least;
+      from = T.squeezeSmooth * k;
+      full = (T.squeezeSmooth + T.squeezeHard) * k;
+    } else {
+      from = Math.min(T.hardFrom, skid - 4 - T.squeezeHard);
+      full = Math.min(T.hardFull, Math.max(from + T.squeezeHard, skid - 14));
+    }
+  }
+  if (travel <= from) return (travel * T.hardFrom) / from;
+  if (travel <= full) return T.hardFrom + ((travel - from) / (full - from)) * (T.hardFull - T.hardFrom);
+  if (travel <= skid) return T.hardFull + ((travel - full) / (skid - full)) * (T.skidFrom - T.hardFull);
+  return T.skidFrom + (travel - skid);
+}
+
+/** stickScale's travel as the flight takes it (InputState.hard and .skid, into `out`): how far into the hard part (0..1), and how far past the skid's line (px). */
+export function stickParts(travel: number, room: number, out: { hard: number; skid: number }): void {
+  const T = swerveTune, x = stickScale(travel, room);
+  out.hard = Math.min(1, Math.max(0, (x - T.hardFrom) / Math.max(1e-6, T.hardFull - T.hardFrom)));
+  out.skid = x - T.skidFrom;
+}
+
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 } };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 }, hard: 0, skid: -Infinity };
   onTap: (() => void) | null = null;
   /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
   onAimStart: (() => void) | null = null;
@@ -372,6 +422,9 @@ export class Input {
 
   // keyboard
   private kL = false;
+  /** ?swerve's dev keys: C held is the stick's hard part, V its skid (a key has no travel) */
+  private kHard = false;
+  private kSkid = false;
   private kR = false;
   private kU = false;
   private kD = false;
@@ -552,12 +605,22 @@ export class Input {
       st.dragging = true;
       st.stretch.x = this.kx;
       st.stretch.y = this.ky;
+      // (keys have no travel: the stick's own out to where the hard part begins, to all of it with C, to the leash with V)
+      stickParts(Math.abs(this.kx) * (this.kSkid ? inputTune.leash * config.flight.stretchPx : this.kHard ? swerveTune.hardFull + 4 : swerveTune.hardFrom), Infinity, st);
       return;
     }
     this.kx = this.ky = 0;
     st.stretch.x = this.b.x;
     st.stretch.y = this.b.y;
     st.dragging = this.pointerDragging;
+    // (?swerve's longer stick: the thumb's sideways travel from the stick's middle, and the room the glass has that way from there)
+    if (this.pointerDragging) {
+      const dx = this.fingerPt.x - this.anchorPt.x;
+      stickParts(Math.abs(dx), (dx > 0 ? this.rectW - this.anchorPt.x : this.anchorPt.x) - swerveTune.inset, st);
+    } else {
+      st.hard = 0;
+      st.skid = -Infinity;
+    }
   }
 
   dispose(): void {
@@ -1242,6 +1305,12 @@ export class Input {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || t.isContentEditable) return;
       if (t.closest?.('[data-sb-ui]')) return;
     }
+    // (?swerve's dev keys, stand-ins for the thumb's travel: nothing else hears them)
+    if (e.code === 'KeyC' || e.code === 'KeyV') {
+      if (e.code === 'KeyC') this.kHard = down;
+      else this.kSkid = down;
+      return;
+    }
     let used = true;
     switch (e.code) {
       case 'ArrowLeft':
@@ -1300,7 +1369,7 @@ export class Input {
     this.fly = null;
     this.gMulti = false;
     this.gPendingTap = false;
-    this.kL = this.kR = this.kU = this.kD = false;
+    this.kL = this.kR = this.kU = this.kD = this.kHard = this.kSkid = false;
     this.kx = this.ky = 0;
     this.endSteering();
   }
