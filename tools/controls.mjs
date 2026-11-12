@@ -1547,7 +1547,15 @@ if (modes.has('curb')) {
     if (i === 5) await page.screenshot({ path: `${out}/curb-3-roll.png` });
   }
   R.painted = await page.evaluate(() => window.__curb.painted.slice());
-  // the push on, a held right thumb up
+  // the push on, a held right thumb up. Asked once the bus is back at the road's pace: life's Parade takes each car painted beside the bus into the line and
+  // the bus goes for the next one ahead by itself at that car's speed and 8 m/s more (src/life/Curb.ts), which is the push's own top speed, so a push asked
+  // mid-chase adds nothing to read. Waits up to 60 s of the game's clock for the bus at the lane's pace or under it, no car ahead to go for and none beside
+  const PACED = '(() => { const c = g.life.curb, i = Math.max(0, Math.min(c.i, c.n - 2)); return g.curb.state === "on" && !c.next && !c.beside && g.flight.speed <= Math.max(6.5, c.pts[i * 4 + 3] * 1.07); })()';
+  if (!(await until(page, PACED, 0))) {
+    R.pushWaited = { from: R.roll.at(-1).speed, paced: !!(await until(page, PACED, 60)) };
+    R.beforePush = await st();
+    R.pushWaited.at = R.beforePush.speed;
+  }
   await H.down(2, 300, 640);
   for (let i = 1; i <= 6; i++) { await H.move(2, 300, 640 - i * 22); await runFor(page, 0.05); }
   await runFor(page, 4);
@@ -1610,7 +1618,7 @@ if (modes.has('curb')) {
   ok(R.roll.at(-1).dabs > R.on.dabs + 20, `the lane paints itself: ${R.on.dabs} to ${R.roll.at(-1).dabs} dabs`);
   ok(R.on.cam < 40 && R.cruise.cam > 100, `the lens down at the kerb: ${R.cruise.cam} to ${R.on.cam} m, ${R.on.hfov} degrees`);
   ok(R.onStreet.callsMax <= 200 && R.onStreet.trisMax <= 1.5e6, `the budget on the street: ${R.onStreet.callsMin}-${R.onStreet.callsMax} draws, ${(R.onStreet.trisMax / 1e6).toFixed(2)} M triangles at most`);
-  ok(R.push.state === 'on' && R.push.speed > R.roll.at(-1).speed, `the push rolls on: ${R.roll.at(-1).speed} to ${R.push.speed} m/s`);
+  ok(R.push.state === 'on' && R.push.speed > (R.beforePush ?? R.roll.at(-1)).speed, `the push rolls on: ${(R.beforePush ?? R.roll.at(-1)).speed} to ${R.push.speed} m/s`);
   ok(R.look.turns > R.push.turns && R.look.side === -1, `a look held left: the indicator, the drive-by's side left (${R.look.turns} turns, side ${R.look.side})`);
   ok(!!R.driveBy.shot?.target, `a tap's drive-by took a front: ${JSON.stringify(R.driveBy.shot?.target ?? null)}, the car beside ${R.look.beside ?? 'none'} (${R.driveBy.hitsTaken} hits on movers)`);
   ok(R.flickUp.below === 1 && R.flickUp.left === 'flick' && R.flickUpAfter.speed < 1, `a real flick up gets off to School Zone: ${R.flickUp.left}, ${R.flickUpAfter.speed} m/s`);
