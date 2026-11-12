@@ -1029,6 +1029,28 @@ Two of the producer's approved picks are one number each, and the probe had a qu
 
 *Not checked:* the picks on the phone; the climb-first hint and the chirp on a page or the phone; the Comet at 3 % on the page's lens, but by the gates' `warm-comet` and `meet`; anything on an A15.
 
+## The Lob review, and what it came to
+
+The second account's review of `fd6d413..fa91865` (`docs/reviews/shots-lob-2026-11-09.md`, on `feat/earth`): one major, five minors, three nits. Each was opened at its line before anything was changed, and every one held; m90 only at 30 fps in our run. The fixes are `c34034d` to `d210658`, `tsc` exit 0 at each.
+
+| | Finding | Holds? | What was done |
+|---|---|---|---|
+| M90 | The Lob's latch never has to end: taps on an empty belly ran it on, a press with no latch latched the body 0.23 s after a throw, and a flick's stroke gave it back with a new 0.8 s | Yes: `s_lob`'s two new rows on `fa91865`'s src, "LOB FAILED 4 of 7". Taps mashed every 0.3 s after a Lob at Express threw a second at 42.3 degrees, the body at -0.9; a flick up a gear 0.5 s after the lift, then a tap 1.2 s after it, a Lob at 70, the body at 3.7 | `c34034d`: a press runs the latch on to twice `config.lob.latch` (1.6 s) past when its body was latched at most, and only with the belly ready (`Aimer.press`); a quick stroke gives back the latch it parked with the end it had; `fired()` drops a parked latch too. Both rows a plain splat; `s_lob` 134 rows, all 1225 checks, its 130 old rows as `fa91865`'s |
+| m90 | M71's fix lets go too soon for a Bomb from high up | At 30 fps: a Bomb III from 600 m (434 m) onto a tower 48 m up left 45,863 of its texels for the pool's `begin` to draw in one frame. At 60 fps the queue had drawn it all before the pool began. No frame was timed | `2ada8c0`: the pool's ground waits for the wide ground's own due (`GroundPaint.wideDue`, where `wideBusy` was; `fallsTune.poolWait` is gone). `s_falls`' new last row, at 30 fps: nothing left, the pool 2.5 s after the landing where it was 2.1 |
+| m91 | The view's tip stays at its highest on pages without the live sky | Yes, from the code | `9ff102b`: without the live sky the tip's target is this frame's alone. Not seen in a browser |
+| m92 | The Lob's hint is a fourth one-time hint | Yes | Nothing changed: the producer's call, below |
+| m93 | HOOKS.md leaves out `Hold.late`, how long a latched Lob outlives the clamp, and a Lob nearer than 1.03 km or past 1.6 | Yes; the clamp from the code (it's asked only in `Lob.land`, when a landing is picked afresh) | `d210658` |
+| m94 | Two things made every frame: the ring's `Object.assign`, `chooseShot`'s closure | Yes | `297fa5c`: the five fields set, a plain function |
+| n90 | `lobRingK` unused; `config.lob`'s comment and this file's first Lob section stale | Yes | `2bfc1dc`: `lobRingK` gone, the comment says the Lob's own `above`, and the first section notes the roofs stage's 0.8 s, `lobRadius` and dip |
+| n91 | `Lob.fired()` has no undo | Yes | `71830cc`: `Lob.unfired`, which `Aimer.unfire` calls for a Lob as it puts the Comet's side back. A Node check of the latch's clock passes; no sim throws a Lob that doesn't leave |
+| n92 | On the Moon the ring is the Lob's circle, up to 170 m, where a crater takes its own size | Yes, from the code | `bd7561c`: `CraterPaint.tapR`, the radius a tap's blast takes on the crater glinting (barf's shape asks it too), for the ring planned and thrown. Not seen on the Moon |
+
+**The producer's call: the Lob's hint (m92).** SHOTS.md approves three one-time hints, each in its moment: the first boat, before the first Bomb, the first low pass over a road. The Lob has a fourth, TAP TO LOB IT / INTO THE RING, once, the first time its ring shows after three taps (`TAUGHT.lob`; a Lob thrown first teaches it, and it's never shown again). This file listed it as built, not as a call, so the approval of the picks didn't cover it. Our pick: keep it. Nothing on the screen invites a Lob: the nose pulled past 25 degrees, then a tap after the lift, and the ring alone doesn't say "tap now". It shows only when the ring is already up, once. To undo it: take `TAUGHT.lob`'s toast out of `Coach.ts` and `Controls.ts`; the ring and its pillar stay.
+
+**What the rows say now.** `s_lob` (`lob`) has four more rows and 12 more checks, 1225; `s_falls` (`s-falls`) one more check, 202, its last line new. No other output of the Node rows run here moved: `s_lob --street`, `s_hold` plain, `--review` and `--late`, `s_curb`, `s_shots` plain (still "FAILED 4 of 363", as at `fa91865`), `--bomb` and `--lob`, `s_aim`, `s_alt`, `s_bomb`, `s_boom`, lob-check's three and hooks-doc are `fa91865`'s by the three-way's rule and masks (a preview with those rows run on `d210658`: "105 of 105 outputs pass").
+
+**Not checked**: no browser row (the GPU rows' full run comes after); a real thumb's flick or late tap against the new latch (Input's events, not the sim's); the tip without the live sky and the ring on a crater, on the page; a frame's cost of the pool's wait on a phone; an A15 or the producer's phone.
+
 ## The gardens' budget (feat/gardens)
 
 The shots paint more and faster, so the rooftop gardens have a triangle budget first. Before it, 1,146 level-3 roofs in a Recess match drew 4.04 M triangles of gardens alone.
