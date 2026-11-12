@@ -1,0 +1,538 @@
+<title>Shotcall</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column, with a wide stage for the replay and the charts. Court-line hairlines
+   give the structure; colour is kept for the data (blue one camera, orange two). */
+:root {
+  --plane: #f6f5f1; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --hair: rgba(11, 11, 11, .12);
+  --one: #2a78d6; --two: #eb6834; --three: #1baf7a; --ball: #d9722b; --good: #0a8a0a; --bad: #d03b3b;
+  --heat0: #fcfcfb; --heat1: #52514e;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --plane: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --hair: rgba(255, 255, 255, .12);
+    --one: #3987e5; --two: #d95926; --three: #199e70; --ball: #d9722b; --good: #0ca30c; --bad: #e66767;
+    --heat0: #1a1a19; --heat1: #c3c2b7; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --plane: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --hair: rgba(255, 255, 255, .12);
+  --one: #3987e5; --two: #d95926; --three: #199e70; --ball: #d9722b; --good: #0ca30c; --bad: #e66767;
+  --heat0: #1a1a19; --heat1: #c3c2b7; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--plane); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 36px 72px;
+}
+.wrap { max-width: 1040px; margin-inline: auto; display: flex; flex-direction: column; gap: 64px; }
+section, header { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.prose { max-width: 66ch; display: flex; flex-direction: column; gap: 14px; }
+p, h1, h2, h3, ol, ul, figure { margin: 0; }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(44px, 8.5vw, 88px); line-height: .94; letter-spacing: -.005em; text-transform: uppercase; text-wrap: balance; max-width: 13ch; }
+h2 { font-family: var(--display); font-weight: 600; font-size: clamp(28px, 4.2vw, 38px); line-height: 1.05; text-transform: uppercase; text-wrap: balance; }
+h3 { font-size: 15px; font-weight: 600; line-height: 1.3; }
+.eyebrow, .cap, .tick, .mono { font-family: var(--mono); }
+.eyebrow { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: clamp(18px, 2.2vw, 21px); line-height: 1.45; color: var(--ink2); max-width: 60ch; }
+.cap { font-size: 12px; line-height: 1.5; color: var(--muted); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--one); outline-offset: 2px; }
+
+/* the stage */
+.stage { background: var(--surface); border: 1px solid var(--hair); border-radius: 6px; padding: 18px; gap: 16px; }
+.stage-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.chips, .ctl { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip, .btn { border: 1px solid var(--axis); background: none; border-radius: 4px; padding: 5px 11px; font-size: 14px; font-weight: 500; cursor: pointer; }
+.chip[aria-selected="true"], .btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn[aria-pressed="true"] { border-color: var(--ink); }
+.stage-grid { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); gap: 24px; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+#side { width: 100%; height: auto; display: block; }
+#scrub { width: 100%; accent-color: var(--ink); margin: 0; }
+.clock { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 13px; color: var(--ink2); }
+.result { font-weight: 500; display: inline-flex; gap: 6px; align-items: center; }
+.result svg { width: 14px; height: 14px; }
+.result.good { color: var(--good); } .result.bad { color: var(--bad); }
+.film { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.frame { opacity: .28; }
+.frame .pic { position: relative; }
+.frame.seen { opacity: 1; }
+.frame.now img { outline: 2px solid var(--ink); outline-offset: 0; }
+.frame img { width: 100%; display: block; aspect-ratio: 1; image-rendering: pixelated; border-radius: 2px; }
+.frame i { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; pointer-events: none;
+  background: linear-gradient(#fff, #fff) 50% 0 / 1px 100% no-repeat, linear-gradient(#fff, #fff) 0 50% / 100% 1px no-repeat; }
+.frame span { display: block; font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: center; padding-top: 2px; white-space: nowrap; }
+.target { position: relative; aspect-ratio: 5 / 4; width: 100%; border: 1px solid var(--hair); border-radius: 3px; overflow: hidden; }
+.target canvas, .target svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.target-ax { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.reads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.read { display: flex; flex-direction: column; gap: 0; border-top: 3px solid var(--one); padding-top: 6px; }
+.read.two { border-top-color: var(--two); }
+.read .nm { font-size: 13px; color: var(--ink2); }
+.read .pc { font-family: var(--display); font-weight: 600; font-size: 46px; line-height: 1; }
+.read .st { font-family: var(--mono); font-size: 10.5px; color: var(--muted); min-height: 2.6em; line-height: 1.3; }
+#pchart { width: 100%; height: auto; display: block; }
+
+/* svg marks */
+.grid { stroke: var(--grid); stroke-width: 1; } .axisln { stroke: var(--axis); stroke-width: 1; }
+.tick { fill: var(--muted); font-size: 11px; } .tick.ink { fill: var(--ink2); }
+.end { text-anchor: end; } .mid { text-anchor: middle; } .hang { dominant-baseline: hanging; }
+#side line, #side polyline, #side circle { vector-effect: non-scaling-stroke; }
+.floor { stroke: var(--axis); stroke-width: 1.5; } .body { stroke: var(--muted); stroke-width: 4; stroke-linecap: round; } .head { fill: var(--muted); }
+.rim { stroke: var(--ball); stroke-width: 3; stroke-linecap: round; } .net { stroke: var(--axis); stroke-width: 1; }
+.trail { stroke: var(--ink2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ball { fill: var(--ball); stroke: var(--surface); stroke-width: 2; }
+.iv { stroke-width: 4; stroke-linecap: round; } .one { stroke: var(--one); } .two { stroke: var(--two); }
+.ln { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; fill: none; }
+.band { stroke: none; opacity: .12; } .band.one, .dot.one, .key.one { fill: var(--one); } .band.two, .dot.two, .key.two { fill: var(--two); }
+.prior { stroke: var(--muted); } .dot.prior { fill: var(--muted); } .gru { stroke: var(--three); } .dot.gru { fill: var(--three); }
+.dot { stroke: var(--surface); stroke-width: 2; }
+.cursor { stroke: var(--ink); stroke-width: 1; }
+.rimc { fill: none; stroke: var(--ball); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.ell { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.truth { fill: var(--ink); stroke: var(--surface); stroke-width: 2; vector-effect: non-scaling-stroke; }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--axis); }
+.tile { padding: 16px 20px 4px 0; display: flex; flex-direction: column; gap: 2px; }
+.tile + .tile { border-left: 1px solid var(--grid); padding-left: 20px; }
+.tile .lb { font-size: 14px; color: var(--ink2); min-height: 2.6em; }
+.tile .vl { font-family: var(--display); font-weight: 700; font-size: clamp(48px, 7vw, 72px); line-height: 1; }
+.tile .sb { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* charts */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--ink2); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { width: 18px; height: 0; border-top: 2px solid var(--muted); display: inline-block; }
+.legend i.one { border-color: var(--one); } .legend i.two { border-color: var(--two); } .legend i.gru { border-color: var(--three); }
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 28px; }
+.chart { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.tip { position: absolute; top: 28px; pointer-events: none; background: var(--surface); border: 1px solid var(--hair); border-radius: 4px; padding: 6px 9px;
+  font-size: 12.5px; line-height: 1.5; white-space: nowrap; box-shadow: 0 2px 10px rgba(0, 0, 0, .08); z-index: 2; }
+.tip b { font-family: var(--mono); font-weight: 500; } .tip div { display: flex; align-items: center; gap: 6px; }
+.tip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); } .tip i.one { background: var(--one); } .tip i.two { background: var(--two); } .tip i.gru { background: var(--three); }
+details { font-size: 14px; } summary { cursor: pointer; color: var(--ink2); width: fit-content; }
+.scroll { overflow-x: auto; margin-top: 10px; }
+table { border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 5px 12px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th { font-weight: 600; color: var(--ink2); } th:first-child, td:first-child { text-align: left; padding-left: 0; }
+td.wrapc { white-space: normal; min-width: 14ch; }
+
+/* steps, timeline, list */
+.steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; counter-reset: s; border-top: 1px solid var(--axis); }
+.steps li { counter-increment: s; padding: 14px 16px 0 0; font-size: 15px; line-height: 1.45; color: var(--ink2); display: flex; flex-direction: column; gap: 6px; }
+.steps li + li { border-left: 1px solid var(--grid); padding-left: 16px; }
+.steps li::before { content: counter(s); font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; color: var(--ink); }
+.steps b { color: var(--ink); font-weight: 600; }
+.lanes { display: flex; flex-direction: column; gap: 10px; }
+.lane { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 4px 16px; align-items: center; font-size: 14.5px; }
+.lane .nm { display: flex; justify-content: space-between; gap: 12px; }
+.lane .nm b { font-family: var(--mono); font-weight: 400; font-size: 12.5px; color: var(--ink2); white-space: nowrap; }
+.lane .track { position: relative; height: 16px; border-left: 1px solid var(--axis); }
+.lane .bar { position: absolute; top: 3px; height: 10px; border-radius: 0 4px 4px 0; background: var(--muted); min-width: 3px; }
+.lane .bar.me { background: var(--one); } .lane .bar.float { border-radius: 4px; }
+.facts { padding-left: 1.1em; display: flex; flex-direction: column; gap: 8px; max-width: 66ch; }
+footer { font-family: var(--mono); font-size: 12px; color: var(--muted); border-top: 1px solid var(--axis); padding-top: 16px; line-height: 1.6; }
+
+@media (max-width: 860px) {
+  .stage-grid { grid-template-columns: minmax(0, 1fr); }
+  .charts { grid-template-columns: minmax(0, 1fr); }
+  .steps { grid-template-columns: minmax(0, 1fr); }
+  .steps li + li { border-left: 0; padding-left: 0; border-top: 1px solid var(--grid); }
+  .steps li { padding-bottom: 14px; }
+  .tiles { grid-template-columns: minmax(0, 1fr); }
+  .tile + .tile { border-left: 0; padding-left: 0; border-top: 1px solid var(--grid); }
+  .tile .lb { min-height: 0; }
+  .lane { grid-template-columns: minmax(0, 1fr); }
+  .film { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #side .tick { font-size: 24px; }
+  .chart .tick { font-size: 14px; }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">A simulation study &middot; <span id="m-n"></span> test shots &middot; 60 frames a second</p>
+    <h1>How early can a camera call a three?</h1>
+    <p class="lede">Once the ball leaves the hand, physics has already decided where it lands. What is left is a measuring problem: how many frames does a camera need before it knows what the rim will do? This page builds the whole chain in simulation, from pixels to a probability, and times it.</p>
+  </header>
+
+  <section class="stage" aria-label="Replay of one shot">
+    <div class="stage-head">
+      <div class="chips" id="chips" role="tablist" aria-label="Choose a shot"></div>
+      <div class="ctl">
+        <button class="btn primary" id="play" type="button">Play</button>
+        <button class="btn" id="speed" type="button" aria-pressed="true">Slow motion</button>
+      </div>
+    </div>
+    <div class="stage-grid">
+      <div class="col">
+        <svg id="side" viewBox="0 0 720 372" role="img" aria-label="The shot from the side"></svg>
+        <input id="scrub" type="range" min="0" max="1400" step="1" value="0" aria-label="Time since the release">
+        <div class="clock"><span id="clock"></span><span id="outcome"></span></div>
+        <div class="film" id="film"></div>
+        <p class="cap">What the ball detector is given: 64-pixel crops from the main camera. The white cross is where it put the ball's centre. The bars above the rim show where each model thinks the ball will come down, short to long.</p>
+      </div>
+      <div class="col">
+        <div class="target"><canvas id="heat" width="51" height="41"></canvas><svg id="target" viewBox="-50 -40 100 80" role="img" aria-label="The rim from above"></svg></div>
+        <div class="target-ax"><span>&larr; short</span><span>the rim from above</span><span>long &rarr;</span></div>
+        <div class="reads">
+          <div class="read"><span class="nm">One camera says</span><span class="pc" id="p-one"></span><span class="st" id="s-one"></span></div>
+          <div class="read two"><span class="nm">Two cameras say</span><span class="pc" id="p-two"></span><span class="st" id="s-two"></span></div>
+        </div>
+        <svg id="pchart" viewBox="0 0 320 130" role="img" aria-label="Chance of a make over the flight"></svg>
+        <p class="cap">Ovals: where each model thinks the ball will cross the rim's plane (95 %). Shading: the darker the spot, the more often a ball arriving there goes in. Dot at the end: where it went.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The short version</h2>
+    <div class="tiles">
+      <div class="tile"><span class="lb">Misses the main camera has already called, <span id="t1-at"></span> after the release</span><span class="vl" id="t1"></span><span class="sb" id="t1s"></span></div>
+      <div class="tile"><span class="lb">Makes it can confirm before the ball reaches the rim</span><span class="vl" id="t2"></span><span class="sb" id="t2s"></span></div>
+      <div class="tile"><span class="lb">Head start on the ball, when it does make a call</span><span class="vl" id="t3"></span><span class="sb" id="t3s"></span></div>
+    </div>
+    <div class="prose">
+      <p>A miss can be called early and a make cannot. From one camera, a shot that is clearly short or long gives itself away within a few tenths of a second, and when the model calls a miss it is right <span id="t-right"></span> of the time. A shot that looks good keeps one secret until the end: whether it is drifting left or right, toward or away from the lens. A second camera at an angle sees that too.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>How fast the picture sharpens</h2>
+    <div class="prose">
+      <p>A call counts here when the model is at least <span id="sure"></span> sure. The upper charts show what share of all misses and all makes have been called by each moment. The lower ones score the probabilities themselves on every shot, called or not.</p>
+    </div>
+    <div class="legend"><span><i class="one"></i>One camera (main broadcast angle)</span><span><i class="two"></i>Two cameras (adds a corner angle)</span><span><i></i>Before the release: shooter and spot only</span></div>
+    <div class="charts">
+      <figure class="chart" id="c-miss"></figure>
+      <figure class="chart" id="c-make"></figure>
+      <figure class="chart" id="c-auc"></figure>
+      <figure class="chart" id="c-brier"></figure>
+    </div>
+    <details><summary>Show the numbers</summary><div class="scroll"><table id="tbl"></table></div></details>
+  </section>
+
+  <section>
+    <h2>Why the make is the hard call</h2>
+    <div class="prose">
+      <p>A camera measures two of the ball's three directions well. The third, toward and away from the lens, has to come from weak hints: how big the ball looks and how its arc bends. From the main broadcast camera a shot from the top of the arc flies across the picture, so short or long shows early while left or right hides in depth. From the corners it is the other way round.</p>
+      <p>A miss needs only one thing to be wrong. A make needs everything to be right, including the part the camera sees worst. The table shows how well one camera separates makes from misses by where the shot was taken, on the same 0.5 to 1 scale as above.</p>
+    </div>
+    <div class="scroll"><table id="zones"></table></div>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li><b>Find the ball</b><span>A small convolutional network reads each crop and returns the ball's centre to a fraction of a pixel, its size, its own error bars, and whether a hand still has it. Typical error on the filmed shots: <span id="h-px"></span> of a pixel.</span></li>
+      <li><b>Spot the release</b><span>A change-point test on two clues, the hand and whether the ball is still gaining speed, picks the frame the ball left the fingers. On average it knows <span id="h-lag"></span> after it happened.</span></li>
+      <li><b>Fit the flight</b><span>Gravity, drag and spin lift are known, so nine numbers pin down a shot. A Bayesian fit finds them from the frames so far, with priors on where shooters stand and aim, and says how unsure it is.</span></li>
+      <li><b>Ask the rim</b><span>A network trained on <span id="h-rim"></span> simulated arrivals knows what rim, glass and backspin do to a ball coming in a given way. The fit's uncertainty goes through it to give a probability.</span></li>
+      <li><b>Check the confidence</b><span>With one camera the fit grows too sure of itself late in the flight. The last step widens its uncertainty by a factor learned from the outcomes of shots held out for that.</span></li>
+    </ol>
+  </section>
+
+  <section id="sec-base" hidden>
+    <h2>Why not just train a network on it?</h2>
+    <div class="prose">
+      <p>A fair question, so it was tried. A recurrent network was given what the main camera measures, already turned into angles with the camera's calibration, told the exact frame of the release, and trained on <span id="b-n"></span> shots to say make or miss at every frame. Then it and the physics fit called the same <span id="b-t"></span> new shots, filmed by an ideal detector so that neither was helped or hurt by pictures.</p>
+      <p>It gets most of the way and then stalls. For the first few frames the two are level. From there the fit pulls ahead, because the last stretch is decided by centimetres at the rim, and those come from equations the fit does not have to learn. More data and a bigger network would narrow the gap. The fit also moves to a new camera position with nothing but that camera's calibration, where a network would need labelled shots filmed from there.</p>
+    </div>
+    <div class="legend"><span><i class="one"></i>Physics fit, one camera</span><span><i class="gru"></i>Recurrent network on the same camera</span><span><i></i>Before the release</span></div>
+    <div class="charts"><figure class="chart" id="c-base"></figure><figure class="chart" id="c-base2"></figure></div>
+  </section>
+
+  <section>
+    <h2>Could you bet on it?</h2>
+    <div class="prose">
+      <p>No. At best the model is about a second ahead of the ball. A TV picture reaches a viewer several seconds late and a stream later still, sportsbooks hold in-play bets for a few seconds before taking them, and their own courtside data arrives faster than any broadcast. Whoever could act on a call this early is already sitting on the fast feed.</p>
+    </div>
+    <div class="lanes" id="lanes"></div>
+    <p class="cap">Seconds, to scale. The first two rows are measured in this study. The rest are typical ranges for broadcasts and betting sites, not measurements made here.</p>
+  </section>
+
+  <section>
+    <h2>What is real here and what is not</h2>
+    <ul class="facts">
+      <li>Everything is simulated: the shots, the cameras and the pictures. No game footage was used, and none of these numbers has been checked against a real broadcast.</li>
+      <li>The physics is standard: gravity, air drag, lift from backspin, and bounces with friction off rim and glass. Shooter error is tuned so that <span id="f-rate"></span> of threes go in. Real rims, nets and shooters are messier.</li>
+      <li>The detector learned from drawn basketballs. On real frames, compression, hands, bodies and camera cuts would cost it accuracy.</li>
+      <li>The cameras are assumed calibrated to about a pixel. In a real broadcast that is a hard problem of its own.</li>
+      <li>So trust the shape of the result more than its decimals: misses can be called early, makes cannot, and a second angle changes that.</li>
+    </ul>
+  </section>
+
+  <footer>Scored on <span id="f-n"></span> shots that none of the models were fitted on. Code and method: labs/shotcall in the repository.</footer>
+</div>
+
+<script type="application/json" id="data">/*DATA*/</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById('data').textContent), R = D.results, EX = D.examples;
+  const $ = s => document.querySelector(s), NS = 'http://www.w3.org/2000/svg';
+  const el = (t, a, p) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (p) p.appendChild(e); return e; };
+  const txt = (p, x, y, s, cls) => { const e = el('text', { x, y, class: cls }, p); e.textContent = s; return e; };
+  const set = (e, a) => { for (const k in a) e.setAttribute(k, a[k]); };
+  const tok = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const pct = v => Math.round(100 * v) + ' %';
+  const CFG = ['one', 'two'], NAME = { one: 'One camera', two: 'Two cameras' };
+  const T = R.t_ms, K = T.length;
+  const near = ms => T.reduce((b, v, i) => Math.abs(v - ms) < Math.abs(T[b] - ms) ? i : b, 0);
+
+  /* ---------- replay ---------- */
+  const side = $('#side'), target = $('#target'), heat = $('#heat'), pch = $('#pchart');
+  const SW = 720, DMAX = 0.95;
+  let DMIN = -10.3, PX = 63, FLOOR = 350;
+  const SX = d => (d - DMIN) * PX, SY = h => FLOOR - h * PX;
+  let ex, tau = 0, playing = false, slow = true, last = 0, dyn = {};
+
+  function modelAt(c, t) { let m = null; for (const s of ex.steps) if (s.t_ms <= t && s[c]) m = s[c]; return m; }
+
+  function build() {
+    const c = Math.cos(ex.psi), s = Math.sin(ex.psi);
+    ex._d = ex.path.map(p => p[0] * c + p[1] * s);
+    const feet = ex.feet[0] * c + ex.feet[1] * s;
+    DMIN = feet - 0.9; PX = SW / (DMAX - DMIN); FLOOR = 5.55 * PX;
+    side.setAttribute('viewBox', '0 0 ' + SW + ' ' + Math.round(FLOOR + 34));
+    side.textContent = '';
+    el('line', { x1: 0, x2: SW, y1: FLOOR, y2: FLOOR, class: 'floor' }, side);
+    el('line', { x1: SX(feet), x2: SX(feet), y1: FLOOR - 3, y2: SY(1.72), class: 'body' }, side);
+    el('circle', { cx: SX(feet), cy: SY(1.9), r: 6.5, class: 'head' }, side);
+    txt(side, SX(feet), FLOOR + 7, Math.round(Math.hypot(ex.feet[0], ex.feet[1]) * 3.281) + ' ft out', 'tick mid hang');
+    [[-0.2286, -0.13], [0.2286, 0.13], [-0.08, -0.05], [0.08, 0.05]].forEach(q => el('line', { x1: SX(q[0]), x2: SX(q[1]), y1: SY(3.048), y2: SY(2.65), class: 'net' }, side));
+    el('line', { x1: SX(-0.2286), x2: SX(0.2286), y1: SY(3.048), y2: SY(3.048), class: 'rim' }, side);
+    txt(side, SX(0), SY(2.65) + 6, '10 ft', 'tick mid hang');
+    dyn.trail = el('polyline', { class: 'trail', fill: 'none' }, side);
+    dyn.iv = { one: el('line', { class: 'iv one' }, side), two: el('line', { class: 'iv two' }, side) };
+    dyn.ball = el('circle', { r: 0.14 * PX, class: 'ball' }, side);
+
+    target.textContent = '';
+    el('circle', { cx: 0, cy: 0, r: 22.86, class: 'rimc' }, target);
+    dyn.el = { one: el('ellipse', { class: 'ell one' }, target), two: el('ellipse', { class: 'ell two' }, target) };
+    dyn.truth = el('circle', { cx: 100 * ex.truth[0], cy: -100 * ex.truth[1], r: 2, class: 'truth' }, target);
+
+    pch.textContent = '';
+    const W = 320, H = 130, l = 38, r = 8, t = 8, b = 20, X = v => l + Math.max(0, v) / ex.tc_ms * (W - l - r), Y = v => H - b - v * (H - t - b);
+    [0, .5, 1].forEach(v => { el('line', { x1: l, x2: W - r, y1: Y(v), y2: Y(v), class: 'grid' }, pch); txt(pch, l - 6, Y(v) + 4, pct(v), 'tick end'); });
+    [0, 400, 800, 1200].filter(v => v < ex.tc_ms).forEach(v => txt(pch, X(v), H - 5, v ? v : '0 ms', 'tick mid'));
+    CFG.forEach(c => {
+      let d = 'M' + X(0) + ',' + Y(ex.prior);
+      ex.steps.forEach(st => { if (st[c]) d += 'H' + X(st.t_ms).toFixed(1) + 'V' + Y(st[c].p).toFixed(1); });
+      el('path', { d: d + 'H' + X(ex.tc_ms), class: 'ln ' + c }, pch);
+    });
+    dyn.cur = el('line', { y1: t, y2: H - b, class: 'cursor' }, pch);
+    dyn.X = X;
+
+    const film = $('#film');
+    film.textContent = '';
+    dyn.frames = ex.film.map(f => {
+      const d = document.createElement('div');
+      d.className = 'frame';
+      d.innerHTML = '<div class="pic"><img alt="" src="data:image/jpeg;base64,' + f.img + '"><i style="left:' + (f.x / 64 * 100) + '%;top:' + (f.y / 64 * 100) + '%"></i></div><span>' + (f.t_ms >= 0 ? '+' : '&minus;') + Math.abs(Math.round(f.t_ms)) + ' ms</span>';
+      film.appendChild(d);
+      return d;
+    });
+    const sc = $('#scrub');
+    sc.min = Math.floor(ex.t_ms[0]); sc.max = Math.ceil(ex.tc_ms);
+  }
+
+  function paintHeat() {
+    const g = R.rim_map, ctx = heat.getContext('2d'), im = ctx.createImageData(51, 41);
+    const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), c0 = hex(tok('--heat0')), c1 = hex(tok('--heat1'));
+    for (let ia = 0; ia < 51; ia++) for (let ib = 0; ib < 41; ib++) {
+      const p = Math.pow(g.p[ia][ib], 0.8) * 0.85, o = 4 * ((40 - ib) * 51 + ia);
+      for (let k = 0; k < 3; k++) im.data[o + k] = c0[k] + p * (c1[k] - c0[k]);
+      im.data[o + 3] = 255;
+    }
+    ctx.putImageData(im, 0, 0);
+  }
+
+  function render() {
+    const Tm = ex.t_ms, n = Tm.length;
+    let i = 1;
+    while (i < n - 1 && Tm[i] < tau) i++;
+    const f = Math.max(0, Math.min(1, (tau - Tm[i - 1]) / (Tm[i] - Tm[i - 1])));
+    const d = ex._d[i - 1] + f * (ex._d[i] - ex._d[i - 1]), h = ex.path[i - 1][2] + f * (ex.path[i][2] - ex.path[i - 1][2]);
+    set(dyn.ball, { cx: SX(d).toFixed(1), cy: SY(h).toFixed(1) });
+    let pts = '';
+    for (let j = 0; j < i; j++) if (Tm[j] <= tau) pts += SX(ex._d[j]).toFixed(1) + ',' + SY(ex.path[j][2]).toFixed(1) + ' ';
+    dyn.trail.setAttribute('points', pts + SX(d).toFixed(1) + ',' + SY(h).toFixed(1));
+    const over = tau >= ex.tc_ms - 1;
+    CFG.forEach((c, ci) => {
+      const m = modelAt(c, tau);
+      $('#p-' + c).textContent = pct(m ? m.p : ex.prior);
+      $('#s-' + c).textContent = m ? '' : (tau < 0 ? 'still in the hand: going on the shooter alone' : 'release not seen yet: going on the shooter alone');
+      if (!m) { dyn.iv[c].setAttribute('visibility', 'hidden'); dyn.el[c].setAttribute('visibility', 'hidden'); return; }
+      const sa = Math.sqrt(m.cov[0][0]), y = SY(3.048) - 14 - 9 * ci;
+      set(dyn.iv[c], { x1: SX(m.mu[0] - 1.96 * sa).toFixed(1), x2: SX(m.mu[0] + 1.96 * sa).toFixed(1), y1: y, y2: y, visibility: 'visible' });
+      const a = m.cov[0][0], b = m.cov[0][1], e = m.cov[1][1], tr = (a + e) / 2, dt = Math.sqrt(Math.max(0, (a - e) * (a - e) / 4 + b * b));
+      const l1 = tr + dt, l2 = Math.max(tr - dt, 1e-9), ang = Math.abs(b) < 1e-12 ? (a >= e ? 0 : Math.PI / 2) : Math.atan2(l1 - a, b);
+      set(dyn.el[c], { cx: 100 * m.mu[0], cy: -100 * m.mu[1], rx: 244.8 * Math.sqrt(l1), ry: 244.8 * Math.sqrt(l2),
+        transform: 'rotate(' + (-ang * 180 / Math.PI) + ' ' + (100 * m.mu[0]) + ' ' + (-100 * m.mu[1]) + ')', visibility: 'visible' });
+    });
+    dyn.truth.setAttribute('visibility', over ? 'visible' : 'hidden');
+    set(dyn.cur, { x1: dyn.X(Math.min(tau, ex.tc_ms)), x2: dyn.X(Math.min(tau, ex.tc_ms)) });
+    let now = -1;
+    ex.film.forEach((fr, j) => { const seen = fr.t_ms <= tau; dyn.frames[j].classList.toggle('seen', seen); dyn.frames[j].classList.remove('now'); if (seen) now = j; });
+    if (now >= 0) dyn.frames[now].classList.add('now');
+    $('#clock').textContent = tau < 0 ? Math.round(-tau) + ' ms before the release' : Math.round(tau) + ' ms after the release';
+    const out = $('#outcome');
+    out.className = over ? 'result ' + (ex.made ? 'good' : 'bad') : '';
+    out.innerHTML = over ? (ex.made ? '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7.5l3.2 3.2L12 3.6" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>Made: ' : '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>Missed: ') + ex.label.toLowerCase()
+      : 'reaches the rim at ' + Math.round(ex.tc_ms) + ' ms';
+    $('#scrub').value = tau;
+  }
+
+  function tickLoop(now) {
+    if (!playing) return;
+    tau += (now - last) * (slow ? 0.3 : 1);
+    last = now;
+    if (tau >= ex.tc_ms) { tau = ex.tc_ms; stop(); }
+    render();
+    if (playing) requestAnimationFrame(tickLoop);
+  }
+  function stop() { playing = false; $('#play').textContent = tau >= ex.tc_ms ? 'Replay' : 'Play'; }
+  function play() {
+    if (tau >= ex.tc_ms - 1) tau = ex.t_ms[0];
+    playing = true; $('#play').textContent = 'Pause'; last = performance.now(); requestAnimationFrame(tickLoop);
+  }
+  function choose(i) {
+    playing = false;
+    ex = EX[i];
+    document.querySelectorAll('.chip').forEach((c, j) => c.setAttribute('aria-selected', j === i));
+    build();
+    tau = Math.min(520, 0.4 * ex.tc_ms);
+    $('#play').textContent = 'Play';
+    render();
+  }
+  EX.forEach((e, i) => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button'; b.setAttribute('role', 'tab'); b.textContent = 'Shot ' + (i + 1);
+    b.addEventListener('click', () => choose(i));
+    $('#chips').appendChild(b);
+  });
+  $('#play').addEventListener('click', () => playing ? stop() : play());
+  $('#speed').addEventListener('click', e => { slow = !slow; e.currentTarget.setAttribute('aria-pressed', slow); e.currentTarget.textContent = slow ? 'Slow motion' : 'Real time'; });
+  $('#scrub').addEventListener('input', e => { stop(); tau = +e.target.value; $('#play').textContent = 'Play'; render(); });
+  paintHeat();
+  choose(0);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintHeat);
+  new MutationObserver(paintHeat).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  /* ---------- charts ---------- */
+  function chart(id, o) {
+    const host = document.getElementById(id), W = 500, H = 288, m = { l: 56, r: 52, t: 18, b: 36 }, vf = o.vf || o.fmt;
+    const h3 = document.createElement('h3'); h3.textContent = o.title; host.appendChild(h3);
+    const s = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': o.title, tabindex: 0 });
+    host.appendChild(s);
+    const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; host.appendChild(tip);
+    const xmax = 1250, X = v => m.l + v / xmax * (W - m.l - m.r), Y = v => H - m.b - (v - o.y0) / (o.y1 - o.y0) * (H - m.t - m.b);
+    o.ticks.forEach(v => { el('line', { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: 'grid' }, s); txt(s, m.l - 8, Y(v) + 4, o.fmt(v), 'tick end'); });
+    el('line', { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: 'axisln' }, s);
+    [0, 300, 600, 900, 1200].forEach(v => txt(s, X(v), H - m.b + 16, v, 'tick mid'));
+    txt(s, W - m.r, H - 3, 'milliseconds after the release', 'tick end');
+    (o.refs || []).forEach(r => { el('line', { x1: m.l, x2: W - m.r, y1: Y(r.y), y2: Y(r.y), class: 'axisln' }, s); txt(s, m.l + 4, Y(r.y) + (r.below ? 13 : -5), r.label, 'tick'); });
+    const ends = [];
+    el('rect', { x: m.l, y: m.t - 3, width: W - m.l - m.r + 6, height: H - m.t - m.b + 3 }, el('clipPath', { id: 'clip-' + id }, s));
+    const plot = el('g', { 'clip-path': 'url(#clip-' + id + ')' }, s);
+    o.series.forEach(sr => {
+      if (sr.band) el('path', { d: 'M' + T.map((t, i) => X(t).toFixed(1) + ',' + Y(sr.band[0][i]).toFixed(1)).join('L') + 'L' + T.map((t, i) => X(t).toFixed(1) + ',' + Y(sr.band[1][i]).toFixed(1)).reverse().join('L') + 'Z', class: 'band ' + sr.cls }, plot);
+      el('path', { d: 'M' + T.map((t, i) => X(t).toFixed(1) + ',' + Y(sr.v[i]).toFixed(1)).join('L'), class: 'ln ' + sr.cls }, plot);
+      if (sr.cls !== 'prior') { el('circle', { cx: X(T[K - 1]), cy: Y(sr.v[K - 1]), r: 4.5, class: 'dot ' + sr.cls }, s); ends.push({ y: Y(sr.v[K - 1]) + 4, s: vf(sr.v[K - 1]) }); }
+    });
+    if (ends.length === 2 && Math.abs(ends[0].y - ends[1].y) < 13) { const up = ends[0].y < ends[1].y ? 0 : 1; ends[up].y -= 7; ends[1 - up].y += 7; }
+    ends.forEach(e => txt(s, X(T[K - 1]) + 9, e.y, e.s, 'tick ink'));
+    const cross = el('line', { y1: m.t, y2: H - m.b, class: 'cursor', visibility: 'hidden' }, s);
+    const dots = o.series.map(sr => el('circle', { r: 4.5, class: 'dot ' + sr.cls, visibility: 'hidden' }, s));
+    let idx = -1;
+    function show(i) {
+      idx = i;
+      if (i < 0) { cross.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.hidden = true; return; }
+      set(cross, { x1: X(T[i]), x2: X(T[i]), visibility: 'visible' });
+      o.series.forEach((sr, j) => set(dots[j], { cx: X(T[i]), cy: Y(sr.v[i]), visibility: 'visible' }));
+      tip.innerHTML = '<div><b>' + Math.round(T[i]) + ' ms</b></div>' + o.series.map(sr => '<div><i class="' + sr.cls + '"></i>' + sr.name + ' <b>' + vf(sr.v[i]) + '</b></div>').join('');
+      tip.hidden = false;
+      const fx = X(T[i]) / W;
+      tip.style.left = fx < 0.55 ? 'calc(' + (fx * 100) + '% + 12px)' : ''; tip.style.right = fx < 0.55 ? '' : 'calc(' + ((1 - fx) * 100) + '% + 12px)';
+    }
+    s.addEventListener('pointermove', ev => { const b = s.getBoundingClientRect(); const ms = ((ev.clientX - b.left) / b.width * W - m.l) / (W - m.l - m.r) * xmax; show(near(ms)); });
+    s.addEventListener('pointerleave', () => show(-1));
+    s.addEventListener('focus', () => show(idx < 0 ? K - 1 : idx));
+    s.addEventListener('blur', () => show(-1));
+    s.addEventListener('keydown', ev => { if (ev.key === 'ArrowLeft') show(Math.max(0, idx - 1)); else if (ev.key === 'ArrowRight') show(Math.min(K - 1, idx + 1)); });
+  }
+  const ser = (key, f, band) => CFG.map(c => ({ name: NAME[c], cls: c, v: f(c), band: band ? band(c) : null }));
+  const p100 = v => Math.round(v) + ' %', d2 = v => v.toFixed(2), d3 = v => v.toFixed(3);
+  const sureTxt = Math.round(100 * R.meta.sure) + ' %';
+  chart('c-miss', { title: 'Share of all misses already called', y0: 0, y1: 100, ticks: [0, 25, 50, 75, 100], fmt: p100, series: ser('m', c => R.calls[c].misses_caught.map(v => 100 * v)) });
+  chart('c-make', { title: 'Share of all makes already called', y0: 0, y1: 100, ticks: [0, 25, 50, 75, 100], fmt: p100, series: ser('k', c => R.calls[c].makes_caught.map(v => 100 * v)) });
+  chart('c-auc', { title: 'Telling makes from misses (AUC: 0.5 is a coin, 1 is perfect)', y0: 0.5, y1: 1, ticks: [0.5, 0.6, 0.7, 0.8, 0.9, 1], fmt: d2, vf: d3,
+    refs: [{ y: R.oracle.auc, label: 'arrival at the rim known exactly' }],
+    series: [{ name: 'Before the release', cls: 'prior', v: R.curves.prior.auc }].concat(ser('a', c => R.curves[c].auc, c => R.curves[c].auc_ci)) });
+  const bmax = Math.ceil(Math.max.apply(null, R.curves.prior.brier.concat(R.curves.one.brier, R.curves.two.brier)) * 20) / 20;
+  chart('c-brier', { title: 'Error of the probability (Brier score, lower is better)', y0: 0, y1: bmax, ticks: [0, 0.05, 0.1, 0.15, 0.2, 0.25].filter(v => v <= bmax + 1e-9), fmt: d3,
+    refs: [{ y: R.oracle.brier, label: 'arrival at the rim known exactly' }],
+    series: [{ name: 'Before the release', cls: 'prior', v: R.curves.prior.brier }].concat(ser('b', c => R.curves[c].brier, c => R.curves[c].brier_ci)) });
+
+  if (D.baseline) {
+    const B = D.baseline, flat = v => T.map(() => v);
+    $('#sec-base').hidden = false;
+    $('#b-n').textContent = B.n_train.toLocaleString('en-US'); $('#b-t').textContent = B.n_test.toLocaleString('en-US');
+    const bs = key => [{ name: 'Before the release', cls: 'prior', v: flat(B.prior[key]) }, { name: 'Physics fit', cls: 'one', v: B.physics[key] }, { name: 'Recurrent network', cls: 'gru', v: B.gru[key] }];
+    chart('c-base', { title: 'Telling makes from misses (AUC)', y0: 0.5, y1: 1, ticks: [0.5, 0.6, 0.7, 0.8, 0.9, 1], fmt: d2, vf: d3, series: bs('auc') });
+    const m2 = Math.ceil(Math.max.apply(null, B.gru.brier.concat(B.physics.brier, [B.prior.brier])) * 20) / 20;
+    chart('c-base2', { title: 'Error of the probability (Brier score)', y0: 0, y1: m2, ticks: [0, 0.05, 0.1, 0.15, 0.2, 0.25].filter(v => v <= m2 + 1e-9), fmt: d3, series: bs('brier') });
+  }
+
+  /* ---------- tables ---------- */
+  const row = (cells, tag) => '<tr>' + cells.map((c, i) => '<' + (tag || 'td') + '>' + c + '</' + (tag || 'td') + '>').join('') + '</tr>';
+  $('#tbl').innerHTML = row(['After release', 'Misses called, one', 'two', 'Makes called, one', 'two', 'Calls right, one', 'two', 'AUC, one', 'two', 'Brier, one', 'two'], 'th') +
+    T.map((t, i) => row([Math.round(t) + ' ms', pct(R.calls.one.misses_caught[i]), pct(R.calls.two.misses_caught[i]), pct(R.calls.one.makes_caught[i]), pct(R.calls.two.makes_caught[i]),
+      rightShare('one', i), rightShare('two', i), d3(R.curves.one.auc[i]), d3(R.curves.two.auc[i]), d3(R.curves.one.brier[i]), d3(R.curves.two.brier[i])])).join('');
+  function rightShare(c, i) {
+    const k = R.calls[c], y = R.meta.make_rate_test;
+    const mk = k.makes_caught[i] * y, ms = k.misses_caught[i] * (1 - y);
+    const nmk = k.make_right[i] > 0 ? mk / k.make_right[i] : 0, nms = k.miss_right[i] > 0 ? ms / k.miss_right[i] : 0;
+    return nmk + nms > 0 ? pct((mk + ms) / (nmk + nms)) : 'none yet';
+  }
+  const iA = near(500), iB = near(1050);
+  $('#zones').innerHTML = row(['Where the shot is from', 'Test shots', 'One camera at ' + Math.round(T[iA]) + ' ms', 'at ' + Math.round(T[iB]) + ' ms', 'Two cameras at ' + Math.round(T[iA]) + ' ms', 'at ' + Math.round(T[iB]) + ' ms'], 'th') +
+    R.zones.rows.map((z, j) => '<tr><td class="wrapc">' + R.zones.names[j] + '</td><td>' + z.n + '</td><td>' + d3(z.one.auc[iA]) + '</td><td>' + d3(z.one.auc[iB]) + '</td><td>' + d3(z.two.auc[iA]) + '</td><td>' + d3(z.two.auc[iB]) + '</td></tr>').join('');
+
+  /* ---------- tiles and facts ---------- */
+  const i3 = near(300), L = R.lead, sec = ms => { const s = (ms / 1000).toFixed(ms < 995 ? 2 : 1); return (ms < 995 && s.endsWith('0') ? s.slice(0, -1) : s) + ' s'; };
+  $('#m-n').textContent = R.meta.n_test.toLocaleString('en-US'); $('#f-n').textContent = R.meta.n_test.toLocaleString('en-US');
+  $('#sure').textContent = sureTxt;
+  $('#t1-at').textContent = sec(T[i3]);
+  $('#t1').textContent = pct(R.calls.one.misses_caught[i3]); $('#t1s').textContent = 'two cameras: ' + pct(R.calls.two.misses_caught[i3]);
+  $('#t2').textContent = pct(R.calls.one.makes_caught[K - 1]); $('#t2s').textContent = 'two cameras: ' + pct(R.calls.two.makes_caught[K - 1]);
+  $('#t3').textContent = sec(L.one.any.lead_ms[1]); $('#t3s').textContent = 'median, on the ' + pct(L.one.any.share) + ' of shots it calls; two cameras: ' + sec(L.two.any.lead_ms[1]) + ' on ' + pct(L.two.any.share);
+  $('#t-right').textContent = pct(R.calls.one.miss_right[i3]);
+  $('#h-px').textContent = R.detector.filmed.A.median_px.toFixed(2);
+  $('#h-lag').textContent = Math.round(R.release.mean_lag_ms) + ' ms';
+  $('#h-rim').textContent = '300,000';
+  $('#f-rate').textContent = pct(R.world.make_rate);
+
+  /* ---------- timeline ---------- */
+  const flight = R.world.flight_s, lead = L.one.any.lead_ms[1] / 1000, MAX = 45;
+  [['Flight of a three, release to rim', 0, flight, sec(1000 * flight), ''], ['The model’s head start (median)', 0, lead, sec(1000 * lead), 'me'],
+   ['Sportsbook holds an in-play bet', 3, 8, '3 to 8 s', 'float'], ['Cable or satellite TV behind live', 5, 10, '5 to 10 s', 'float'], ['Streaming behind live', 20, 45, '20 to 45 s', 'float']]
+    .forEach(q => {
+      const d = document.createElement('div');
+      d.className = 'lane';
+      d.innerHTML = '<span class="nm">' + q[0] + '<b>' + q[3] + '</b></span><span class="track"><span class="bar ' + q[4] + '" style="left:' + (q[1] / MAX * 100) + '%;width:' + ((q[2] - q[1]) / MAX * 100) + '%"></span></span>';
+      $('#lanes').appendChild(d);
+    });
+})();
+</script>

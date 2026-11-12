@@ -1,0 +1,6 @@
+# CPU is enough. For a CPU-only torch: pip install torch --index-url https://download.pytorch.org/whl/cpu
+numpy>=2.0
+pandas>=2.0
+pillow>=10
+matplotlib>=3.8
+torch>=2.4
