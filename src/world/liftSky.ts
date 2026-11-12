@@ -54,6 +54,8 @@ const SKY_CLEAR = 12;
  * where 0.11 is about 25 m, the bus's own length three times over, so the bus and a little of what's round it show through.
  */
 const SKY_CUT = 0.11;
+/** The cut's radius at the bus, at most (m): what 0.11 is from the chase lens at 250 m. A lens farther off cuts no wider round the bus */
+const SKY_CUT_R = 25;
 /**
  * The height its risers' feet are picked for (m over the heart's ground): a foot's ground no higher than leaves a riser the room to rise
  * straight through the floating houses' layer under a piece this high. The pieces stood at 220 m when the feet were placed; standing higher
@@ -340,8 +342,10 @@ void sbCut() {
   float lb = length(b), along = dot(q, b) / max(lb, 1e-3);
   // (and through the bus's own length past its middle: a belly or a sun it's flying into crosses it there)
   if (along <= 0.0 || along > lb + 10.0) return;
+  // (no wider than SKY_CUT_R round the bus, however far off the lens)
+  float w = min(uSkyBus.w, ${F(SKY_CUT_R)} / max(lb, 1e-3));
   float a = length(q - b * (along / max(lb, 1e-3))) / along;
-  if (a < uSkyBus.w * 0.68 || (a < uSkyBus.w && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
+  if (a < w * 0.68 || (a < w && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
 #endif
 }
 `;
@@ -1229,7 +1233,7 @@ function cutReaches(box: Float32Array, cx: number, cy: number, cz: number, bx: n
   if (!(w > 0) || lb < 1e-3) return false;
   const L = lb + 10, s = L / lb;
   const d0 = (bx - cx) * s, d1 = (by - cy) * s, d2 = (bz - cz) * s;
-  const r = L * w + slack;
+  const r = L * Math.min(w, SKY_CUT_R / lb) + slack;
   for (let i = 0; i < box.length; i += 6) {
     // (the line from the lens, t 0..1, clipped to the grown box axis by axis)
     let t0 = 0, t1 = 1;
