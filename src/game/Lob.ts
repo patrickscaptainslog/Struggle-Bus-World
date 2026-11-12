@@ -71,6 +71,10 @@ export class Lob {
   private parkedFrom = -1;
   private parkedUntil = -1;
   private parkedAt = -1;
+  /** as fired() found them, for unfired() */
+  private firedHeld = false;
+  private firedUntil = -1;
+  private firedParked = -1;
   /** the landing held: the stretch its search began from (the throw's own), where it is, what it's on */
   private heldOk = false;
   private heldK0 = 0;
@@ -403,10 +407,21 @@ export class Lob {
 
   /** The shot a plan throws (Aimer.fire): the next one is picked afresh, and the next tap reads the body anew. */
   fired(): void {
+    this.firedHeld = this.heldOk;
+    this.firedUntil = this.latchUntil;
+    this.firedParked = this.parkedAt;
     this.heldOk = false;
     this.latchUntil = -1;
     this.parkedAt = -1;
     this.stats.fired++;
+  }
+
+  /** The shot fired() gave didn't leave (Aimer.unfire): its landing, its latch and the count as they were. */
+  unfired(): void {
+    this.heldOk = this.firedHeld;
+    this.latchUntil = this.firedUntil;
+    this.parkedAt = this.firedParked;
+    this.stats.fired--;
   }
 }
 
