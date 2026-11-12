@@ -1,10 +1,11 @@
 // A hit's throw over the real city (B100 and m102 of the review of 018c5d8): the real City, Flight and TurboDrive with ?swerve's handling on, the player's bus
 // thrown by Flight.shove as src/rivals/rivalsBoot.ts's hurtMe throws it (and its short throw's hop, hitFx's), no browser:
 //   node tools/feel-sim/run.mjs ../swerve/s_throw.ts [throw|base|hard] [per=4] [eager] [fps=30]
-//   throw   the acceptance: 48 throws of each kind (a shell's 70 m, a smash's 170, a wreck's 675, a head-on's 1,350; Cruise to Jet; from roof height over the
-//           Financial District, Nob Hill and SoMa, four poses a gear each): on no frame is the bus's underside through a roof, a wall or a tree as drawn (the
-//           route check's measure), none is lifted more than 12 m in a frame, and every throw ends inside the map. And a head-on blows the bus back: as the
-//           throw ends the bus is behind where it was hit, by at least half the throw (the gear then pulls it on again)
+//   throw   the acceptance: 48 throws of each kind (a shell's 70 m at the tallest thing in its reach, a smash's 170, a wreck's 675, a head-on's 1,350, any way
+//           but the head-on's; Cruise to Jet; from roof height over the Financial District, Nob Hill and SoMa, four poses a gear each): on no frame is the
+//           bus's underside through a roof, a wall or a tree as drawn (the route check's measure), none is lifted more than 12 m in a frame, and every
+//           throw ends inside the map. And a head-on blows the bus back: as the throw ends the bus is behind where it was hit, by at least half the throw
+//           (the gear then pulls it on again)
 //   base    the same poses with no throw: no frame inside a surface. It fails today, and it's the flight's own, not the harness's: 3 poses go into a tower at
 //           Nonstop in the Financial District (42 m deep at worst, then lifted 43 m in a frame by the hard floor), with the flight's obstacle field holding
 //           what's drawn there on every such frame, and the same with the map streamed every frame along the bus's way (`eager`)
@@ -68,6 +69,18 @@ function inside(f: { x: number; y: number; z: number; heading: number }, c: numb
     }
   return { c, seen };
 }
+/** The way (compass rad) from the bus, of 32 round it, with the tallest thing on it within `far` m as the flight knows it; `ang` if none stands over the bus. */
+function aimAt(f: { x: number; y: number; z: number }, far: number, ang: number): number {
+  let best = ang, top = f.y - 20;
+  for (let i = 0; i < 32; i++) {
+    const a = (i / 32) * Math.PI * 2, sx = Math.sin(a), sz = -Math.cos(a);
+    for (let d = 6; d <= far; d += 3) {
+      const h = city.obstacleAt(f.x + sx * d, f.z + sz * d, f.y);
+      if (h > top) [top, best] = [h, a];
+    }
+  }
+  return best;
+}
 const tally = () => ({ runs: 0, frames: 0, clip: 0, clipRuns: 0, lowest: Infinity, lifted: 0, liftMost: 0, out: 0, back: Infinity, unseen: 0, first: '' });
 type Tally = ReturnType<typeof tally>;
 function note(T: Tally, where: string, f: { x: number; y: number; z: number; heading: number }, c: number) {
@@ -101,7 +114,9 @@ if (what === 'throw' || what === 'base') {
           await settle(G, px, pz, heading, rungs, dt);
           // (rivalsBoot.hurtMe: thrown along the hit's line; a head-on's line is back the way the bus was going)
           const far = what === 'base' ? 0 : far0, air = R.air[Math.max(0, tier)];
-          const ux = tier === 3 ? -f.fx : Math.sin(ang), uz = tier === 3 ? -f.fz : -Math.cos(ang), hx = f.x, hz = f.z;
+          // (a shell's 70 m, thrown any way from roof height, hardly ever meets anything: it's thrown at the tallest thing in its reach, so the row holds one)
+          const at = tier === -1 && far > 0 ? aimAt(f, far, ang) : ang;
+          const ux = tier === 3 ? -f.fx : Math.sin(at), uz = tier === 3 ? -f.fz : -Math.cos(at), hx = f.x, hz = f.z;
           if (far > 0) f.shove(far, ux, uz, air, B);
           let y = f.y, t = 0, clip = false, e0 = 0, back = NaN;
           for (let k = 0; k < (air + 2) / dt; k++, t += dt) {
