@@ -870,7 +870,8 @@ export const config = {
 
   /** The Lob (src/game/Lob.ts, docs/specs/shots/SHOTS.md "The modes"): a tap with the bus's body (Flight.pitch) more than `from` degrees up throws the breath
    *  off the nose at the body's angle θ, at most `most` (past it, a Lob at it), into the distance: `range` x sin 2θ m along the aim's flat way, on the middle of
-   *  a stretch of its way `stretch` m long, in view as the Comet must be (config.comet.above, reach and outStep). */
+   *  a stretch of its way `stretch` m long, in view by its own `above` below (the Comet's rule on its own number), moved out a stretch at a time to
+   *  config.comet.reach. */
   lob: {
     from: 25,
     most: 70,

@@ -448,8 +448,3 @@ export function relob(p: CometPlan): void {
   if (p.kind !== 'lob' || p.angle === undefined) return;
   p.arc = lobArc(Math.hypot(p.x - p.x0, p.z - p.z0), p.angle, p.y0 - p.y);
 }
-
-/** clamp a body for its ring's look: 0 at config.lob.from, 1 well past it */
-export function lobRingK(body: number): number {
-  return clamp((body / DEG - config.lob.from) / 4, 0, 1);
-}
