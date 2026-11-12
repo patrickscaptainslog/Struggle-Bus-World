@@ -85,7 +85,7 @@ QA_DEFAULTS = {
     'heroOffDataMax': 15.0,       # m: a hero row's typed point from the centre of the OSM row it names (or the id is gone)
     'towerOffDeckMax': 1.0,       # x half the drawn deck's width: a drawn tower's centre from the deck's centre line
     'deckNoCollisionMax': 0.02,   # share of a drawn deck's area no collision post covers
-    'deckFreeEndMax': 3.0,        # m: a drawn deck's end over the ground, a kept way within 12 m or not (no deck or building within 12 m)
+    'deckFreeEndMax': 3.0,        # m: a drawn deck's end from the ground, either way with a kept way within 12 m, over without (no deck or building within 12 m)
     'waterRoadNoDeckMax': 0.05,   # share of the real bridge road and rail over water with no deck or ground bridge...
     'waterRoadNoDeckMinM': 50.0,  # ...and at least this many m of it
     'bridgeNoDeckMax': 0.05,      # share of all the real bridge road and rail with no deck or ground bridge...
@@ -274,7 +274,8 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
     c_hero = check('heroOffData', "a hero row's typed point from the OSM row it names", 'm', lim('heroOffDataMax'))
     c_tower = check('towerOffDeck', "a drawn tower's centre from its drawn deck's centre line", 'm', lim('towerOffDeckMax'), per="half its deck's width")
     c_posts = check('deckNoCollision', "a drawn deck's area under no collision post", 'share', lim('deckNoCollisionMax'))
-    c_end = check('deckFreeEnd', "a drawn deck's end over the ground, a kept way there or not (no other deck or building by it)", 'm', lim('deckFreeEndMax'))
+    c_end = check('deckFreeEnd', "a drawn deck's end from the ground, over or under where a kept way meets it, over where none does (no other deck or building by it)",
+                  'm', lim('deckFreeEndMax'))
     c_water = check('waterRoadNoDeck', 'real bridge road and rail over water with no deck or ground bridge', 'share', lim('waterRoadNoDeckMax'),
                     lim('waterRoadNoDeckMinM'), 'm')
     c_bridge = check('bridgeNoDeck', 'real bridge road and rail with no deck or ground bridge', 'share', lim('bridgeNoDeckMax'), lim('bridgeNoDeckMinM'), 'm')
@@ -403,15 +404,19 @@ def bridge_checks(cfg, city, osm, ground, Q, ll2xz, lonlat, city_dir, log=_log):
                 deck = any(o['line'].distance(p) <= 12.0 for o in drawn if o is not h)
                 bld = bool(ground.in_building([e[:2]], reach=12.0)[0])
                 gy = float(ground.at([e[:2]])[0][0])
-                # (a kept way within 12 m is why an end should land, not a pass: its top is measured over the ground as an
-                # open end's is. Only an end another deck or a building takes over isn't, nor one off the frame, its ground unknown)
-                res.append((None if deck or bld or not math.isfinite(gy) else e[2] - gy, h['kind'], e, gy, way, deck, bld))
+                # (a kept way within 12 m is why an end should land, not a pass, and landing is both ways: its top is measured
+                # from the ground over or under, as one sunk under its road at grade breaks the road as one over it does. An
+                # open end only over: under the ground, the ground covers it, and how much of a deck runs buried is
+                # deckBuried's, from step 5. Only an end another deck or a building takes over isn't, nor one off the frame,
+                # its ground unknown)
+                d = None if deck or bld or not math.isfinite(gy) else e[2] - gy
+                res.append((None if d is None else abs(d) if way else d, d, h['kind'], e, gy, way, deck, bld))
         free = [r for r in res if r[0] is not None]
         done(rec, max([r[0] for r in free], default=0.0), sum(1 for r in free if r[0] > rec['limit']),
-             f'{len(free)} of {len(res)} drawn deck ends measured, {sum(1 for r in free if r[4])} of them where a kept way meets them and they should land',
-             [f'{kd} end at {where(*e[:2])}: top {e[2]:.1f} m, ground {gy:.1f} m' + (f', {abs(v):.1f} m {"over" if v >= 0 else "under"} it, ' + ('a kept way within 12 m: it should land' if w else 'free')
-              if v is not None else ': ' + (', '.join(n for n, b in (('a deck', dk), ('a building', b_)) if b) + ' within 12 m' if dk or b_ else 'off the frame'))
-              for v, kd, e, gy, w, dk, b_ in res])
+             f'{len(free)} of {len(res)} drawn deck ends measured, {sum(1 for r in free if r[5])} of them where a kept way meets them and they should land, over or under',
+             [f'{kd} end at {where(*e[:2])}: top {e[2]:.1f} m, ground {gy:.1f} m' + (f', {abs(d):.1f} m {"over" if d >= 0 else "under"} it, ' + ('a kept way within 12 m: it should land' if w else 'free')
+              if d is not None else ': ' + (', '.join(n for n, b in (('a deck', dk), ('a building', b_)) if b) + ' within 12 m' if dk or b_ else 'off the frame'))
+              for _, d, kd, e, gy, w, dk, b_ in res])
 
     # ---------------------------------------------------------------- the map's bridges, against what's drawn
     def samples():

@@ -146,10 +146,11 @@ def gate(qa):
 
 # ---------------------------------------------------------------- deckFreeEnd: a drawn deck's end over the ground
 def deck_ends(qa):
-    """a kept way within 12 m is why a drawn deck's end should land, never a pass: a hero's deck from (20, 128) to
-    (236, 128) on flat ground at 0, a path at grade 8 m from each end (or none), its ends 30 m or 0.8 m up; and one whose
-    ends are off the frame, where the ground isn't known, measures neither (no NaN). The deck's other checks read what
-    they read (no towers, no plan): only deckFreeEnd's value is looked at"""
+    """a kept way within 12 m is why a drawn deck's end should land, never a pass, and landing is both ways: a hero's
+    deck from (20, 128) to (236, 128) on flat ground at 0, a path at grade 8 m from each end (or none), its ends 30 m or
+    0.8 m up, or 30 m or 2.5 m under, where an open end is under, not over; and one whose ends are off the frame, where
+    the ground isn't known, measures neither (no NaN). The deck's other checks read what they read (no towers, no plan):
+    only deckFreeEnd's value is looked at"""
     import bridges as B
     from shapely.geometry import LineString
     why = []
@@ -157,12 +158,13 @@ def deck_ends(qa):
     Q = qa.thresholds({}, log=lambda *a: None)[0]
     paths = [(LineString([(12.0, 128.0), (12.0, 250.0)]), 5, 2.8, '', 'footway'), (LineString([(244.0, 128.0), (244.0, 250.0)]), 5, 2.8, '', 'footway')]
     for top, kept, x0, want, over in ((30.0, paths, 20.0, 30.0, True), (0.8, paths, 20.0, 0.8, False), (30.0, [], 20.0, 30.0, True),
-                                      (0.8, [], 20.0, 0.8, False), (30.0, [], -20.0, 0.0, False)):
+                                      (0.8, [], 20.0, 0.8, False), (30.0, [], -20.0, 0.0, False),
+                                      (-30.0, paths, 20.0, 30.0, True), (-2.5, paths, 20.0, 2.5, False), (-30.0, [], 20.0, -30.0, False)):
         row = {'kind': 'ggb', 'deck': [[x0, 128.0, top], [128.0, 128.0, 40.0], [256.0 - x0, 128.0, top]]}
         recs, _ = qa.bridge_checks({}, Baked([row]), Extract(None, kept), ground, Q, lambda lo, la: (lo, -la), lambda x, z: (-z, x), '.',
                                    log=lambda *a: None)
         c = next(r for r in recs if r['key'] == 'deckFreeEnd')
-        what = f'ends {top:g} m up' + (' off the frame' if x0 < 0 else '') + ', ' + ('a kept path at each' if kept else 'nothing by them')
+        what = (f'ends {top:g} m up' if top >= 0 else f'ends {-top:g} m under') + (' off the frame' if x0 < 0 else '') + ', ' + ('a kept path at each' if kept else 'nothing by them')
         if not (c['read'] and c['value'] is not None and abs(c['value'] - want) <= 1e-3 and c['over'] == over):  # (a NaN is never within)
             why.append(f'{what}: ' + (f'{c["value"]:.2f} m, ' + ('over' if c['over'] else 'not over') if c['read'] else f'NOT READ ({c["why"]})')
                        + f', want {want:g} m, ' + ('over' if over else 'not over'))
@@ -224,7 +226,7 @@ CHECKS = [
     ('the bridge checks never stop the QA: what they all read failing makes the fifteen NOT READ', unread),
     ('a fail gate fails a check that failed to read, never one with nothing to read', gate),
     ('a check NOT READ shows its limit as it measures it (towerOffDeck: a multiple of half its deck\'s width)', limits),
-    ("deckFreeEnd measures a drawn deck's end over the ground, a kept way by it or not", deck_ends),
+    ("deckFreeEnd measures a drawn deck's end over the ground, a kept way by it or not, and under it where a kept way meets it", deck_ends),
     ("a tower stands over its deck by its top over the sea, not over its own ground (bridges.py's XL)", tower_over),
     ("two decks joined end to end cover the ground each covered, either one run backwards (bridges.py's join)", joined_edges),
 ]
