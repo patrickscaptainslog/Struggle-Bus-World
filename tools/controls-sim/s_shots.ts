@@ -27,8 +27,8 @@
 // Where the tap is the classic shot (Turbo 3 from 300 m) so is the Bomb, on the tap's landing, with its hit-stop.
 // --lob flies the Lob's rows instead (src/game/Lob.ts), into shots-lob.json, and gates only them: the nose 30 and 75 degrees up from 300 m and 40 from the
 // roofs, the stick held through the tap (a second thumb's tap, the body read live) and let go 0.3 s after it, at every rung from Cruise to Turbo 3. At Cruise and Express each is a
-// Lob, at Jet and faster never; a Lob lands in frame config.lob.above or more over the bus at the impact, on its flight's time, within 2 m and 0.05 s at 30
-// and 60 fps, a level each and lobRadius (its fall from the arc's top, at most config.lob.radius), with no hit-stop. Where a Comet applies too, the farther wins (chooseShot). Without --lob a row the Lob
+// Lob, at Nonstop and faster a Lob wherever one is planned; a Lob lands in frame config.lob.above or more over the bus at the impact, on its flight's time, within 2 m and 0.05 s at 30
+// and 60 fps, a level each and lobRadius (its fall from the arc's top, at most config.lob.radius), with no hit-stop. Where a Comet applies too, the Lob wins whenever it's planned (config.lob.wins, chooseShot). Without --lob a row the Lob
 // throws (kind 'lob') is the Lob's, not the baseline's.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
 import { config } from '@src/config';
@@ -216,6 +216,8 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz, body: f.pitch / DEG };
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
+  // (--lob: whether this frame planned a Lob, which wins over the Comet whenever it's planned: config.lob.wins)
+  const lobPlanned = !!g.aimer.lobLast;
   const res = tier ? bombTap(g, tier) : g.tap();
   const comet = (res.shot as any).comet ?? null;
   const at = new THREE.Vector3(res.landing.x, res.landing.y, res.landing.z);
@@ -304,7 +306,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     glintsPerS: turn ? r2(glints / TURN_S) : null,
     aimMs: r3(aimMs / Math.max(1, aimN)),
     ...(tier ? { bomb: tier, rose: rose.slice(1), wrong, past3, hitStops } : {}),
-    ...(LOB ? { body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null } : {}),
+    ...(LOB ? { lobPlanned, body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null } : {}),
   };
 }
 
@@ -365,7 +367,9 @@ if (LOB) {
     const id = `${r.key}@${r.fps}`;
     console.log(`${id.padEnd(30)} ${r.kind.padEnd(6)} body ${String(r.body).padStart(5)} at ${String(r.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} two ${r.raisedTwo} on ${r.on} agl ${r.tap.agl}`);
     if (r.rung === 'cruise' || r.rung === 'express') ok(r.body < config.lob.from || r.kind === 'lob', `${id}: the body ${r.body} up at Cruise and Express, a Lob (${r.kind})`);
-    if (r.rung === 'jet' || r.rung === 't3') ok(r.kind !== 'lob', `${id}: at Jet and faster no Lob (${r.kind})`);
+    // (Nonstop and faster: the Lob wherever one is planned, else the Comet's or the tap's: config.lob.wins, chooseShot. From these poses, under 1 km, the
+    // near Lob alone)
+    if (r.rung !== 'cruise' && r.rung !== 'express') ok(config.lob.wins ? r.kind === 'lob' || !r.lobPlanned : r.rung === 'nonstop' || r.kind !== 'lob', `${id}: at Nonstop and faster a Lob where one is planned (${r.kind}, planned ${r.lobPlanned})`);
     if (r.kind !== 'lob') continue;
     ok(Math.abs(r.angle - Math.min(config.lob.most, r.body)) <= 0.15, `${id}: thrown at the body, at most ${config.lob.most} (${r.angle} for ${r.body})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);

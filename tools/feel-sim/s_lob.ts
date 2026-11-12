@@ -16,8 +16,16 @@
 // after a Lob at Express until the belly is full, and three looks' landings 0.5, 1 and 1.4 s after the lift with the tap at 1.7 s: each a plain splat.
 // --street (the Lob's merge with feat/shots): only Curb's street, aimer.street set as main.ts sets it while Curb rolls, a pull and a tap there nose up at
 // Cruise and Express, one thumb and two: never a Lob, no plan in the pull, nothing planned (Curb's street front is the tap's, before the Lob's slot).
-//   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>] [--street]
-// Results in SB_OUT (shots/feel/sim)/lob.json, a table on stdout; exit 1 when a check fails.
+// --high (the Lob from any height, DESIGN's lob-high): over the Western Addition heading east and downtown, placed 1, 1.5, 2, 5, 10 and 14 km over the
+// ground, then a 1.5 s real pull, at Cruise, Express, Nonstop, Jet, Turbo 2 and 3, bodies 30, 45 and 70 (the stick for that path; the body it gives is
+// what's thrown), one thumb and two; at the ceiling straining (Cruise, Jet, Turbo 3: the pull held counts, bodyOf); over the bay from Fort Mason at 5 km;
+// off the map's edge at 5 km (the classic tap); a 45 degree dive at 5 km (none); a slow climb from 600 to 2,500 m at Nonstop and Turbo 3, the tap at the
+// top. Each a Lob, far where the near search found nothing: landing on the stretch nearest min(reach, max(lobRange, the bus at the impact + 300)), the
+// stretch's middle 300 m past the bus at the impact, on loaded ground, on L4's flight, its radius a tap's from its height; after the tap the view dips as
+// main.ts dips it (shotTip, the rig's skyDipMost): the hit at -0.25 or higher from 5 km and under, the bus at +0.3 or lower every frame to 0.6 s after
+// the hit; in the pull planned from the first frame past 25 degrees, never lost; the slow climb's kind changing at most once.
+//   node tools/feel-sim/run.mjs s_lob.ts [--only=<substring>] [--street] [--high]
+// Results in SB_OUT (shots/feel/sim)/lob.json (--high: lob-high.json), a table on stdout; exit 1 when a check fails.
 import { newCity, pump, ll, makeGame, config, manifest, type Game } from './lib';
 import { CameraRig } from '@src/game/CameraRig';
 import { EXPRESS, JET, NONSTOP, SCHOOL_ZONE, TurboDrive, driveSpeed } from '@src/game/Turbo';
@@ -26,8 +34,9 @@ import { lensFov } from '@src/render/PixelPipeline';
 import { blastCap, blastRadiusFor } from '@src/game/blastLayout';
 import { Bomb } from '@src/game/Bomb';
 import { Aimer, tapOpts } from '@src/game/Aim';
-import { lobRadius } from '@src/game/Lob';
-import { shotReach } from '@src/game/Comet';
+import { bodyOf, lobFlight, lobRange, lobRadius } from '@src/game/Lob';
+import { Comet, shotReach } from '@src/game/Comet';
+import { shotTip } from '@src/game/CameraRig';
 import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
 import * as THREE from 'three';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -35,6 +44,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const ONLY = args.find((a) => a.startsWith('--only='))?.slice(7) ?? '';
 const STREET = args.includes('--street');
+const HIGH = args.includes('--high');
 const city = await newCity();
 const DEG = Math.PI / 180;
 const r1 = (x: number) => Math.round(x * 10) / 10;
@@ -54,12 +64,14 @@ const PLACES = {
   glen: { lat: 37.733, lon: -122.44, hdg: 300 },
   fidi: { lat: 37.795, lon: -122.395, hdg: 225 },
   gg: { lat: 0, lon: 0, hdg: 0 },
+  // (--high: Ocean Beach heading out to sea, off the map's edge)
+  edge: { lat: 37.7597, lon: -122.5104, hdg: 270 },
 } as const;
 type Place = keyof typeof PLACES;
-const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0] };
+const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0], t2: [JET, 2], t3: [JET, 3] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far'; mode?: 'flick' | 'dive' | 'bomb' | 'street'; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look'; gap?: number; dur?: number; pin?: boolean }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far' | 'high'; mode?: 'flick' | 'dive' | 'bomb' | 'street' | 'ceil' | 'climb'; body?: number; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look'; gap?: number; dur?: number; pin?: boolean }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -110,11 +122,29 @@ CASES.push({ key: 'wa-floor/cruise/p1/1t/flick-after', place: 'wa', h: 'floor', 
 CASES.push({ key: 'wa-floor/express/p0.75/1t/mash', place: 'wa', h: 'floor', rung: 'express', pull: 0.75, thumbs: 1, want: 'none', after: 'mash' });
 // (and twice the latch by itself: three looks' landings, each a press, 0.5, 1 and 1.4 s after the lift, then the tap's finger at 1.7 s. A plain splat)
 CASES.push({ key: 'wa-floor/cruise/p1/1t/look-after', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'look' });
+// (--high: the Lob from any height in their place)
+if (HIGH) {
+  CASES.length = 0;
+  for (const place of ['wa', 'dt'] as const)
+    for (const h of [1000, 1500, 2000, 5000, 10000, 14000])
+      for (const rung of ['cruise', 'express', 'nonstop', 'jet', 't2', 't3'])
+        for (const body of [30, 45, 70])
+          for (const thumbs of [1, 2] as const) CASES.push({ key: `high/${place}-${h}/${rung}/b${body}/${thumbs}t`, place, h, rung, pull: 0, body, thumbs, want: 'high', hold: 1.5 });
+  for (const rung of ['cruise', 'jet', 't3']) CASES.push({ key: `high/ceil/${rung}/b70/1t`, place: 'wa', h: 0, rung, pull: 0, body: 70, thumbs: 1, want: 'far', mode: 'ceil', hold: 1.5 });
+  // (over the bay from Fort Mason: the tiles end at the shore, so shotReach's march back to loaded ground finds none along the line, and it's the map's
+  // edge, the classic tap (Comet.ts's shotReach). DESIGN.md's row wanted a miss with its refund: its own C4 rule makes it none)
+  CASES.push({ key: 'high/water-5000/cruise/b45/1t', place: 'water', h: 5000, rung: 'cruise', pull: 0, body: 45, thumbs: 1, want: 'none', hold: 1.5 });
+  CASES.push({ key: 'high/edge-5000/cruise/b45/1t', place: 'edge', h: 5000, rung: 'cruise', pull: 0, body: 45, thumbs: 1, want: 'none', hold: 1.5 });
+  CASES.push({ key: 'high/wa-5000/cruise/dive/2t', place: 'wa', h: 5000, rung: 'cruise', pull: 1, thumbs: 2, want: 'none', mode: 'dive' });
+  for (const rung of ['nonstop', 't3']) CASES.push({ key: `high/climb/${rung}/b35/1t`, place: 'wa', h: 600, rung, pull: 0, body: 35, thumbs: 1, want: 'far', mode: 'climb' });
+}
 // (--street: Curb's street in their place)
 if (STREET)
   CASES.splice(0, CASES.length, ...(['cruise', 'express'] as const).flatMap((rung) => ([1, 2] as const).map((thumbs): Case => ({ key: `wa-floor/${rung}/p0.75/${thumbs}t/street`, place: 'wa', h: 'floor', rung, pull: 0.75, thumbs, want: 'none', mode: 'street' }))));
 
 const stick = (pull: number) => -(config.flight.yokeDead + pull * (1 - config.flight.yokeDead));
+/** the stick for a path `deg` up with a gear in (diveStick's, pulled) */
+const upStick = (deg: number) => -diveStick(deg);
 /** the stick for a path `deg` down with a gear in (s_shots' stickFor) */
 const diveStick = (deg: number) => {
   const F = config.flight, k = Math.pow(Math.abs(deg) / F.noseUp, 1 / F.noseCurve);
@@ -190,6 +220,7 @@ async function run(c: Case, dt: number, slot = true) {
   const v0 = gear > 0 && gear !== EXPRESS ? driveSpeed(gear, level, true) : gear === EXPRESS ? config.flight.surgeSpeed : config.flight.cruiseSpeed;
   const hold = c.hold ?? 2;
   const lead = c.pin ? 1.5 : c.place === 'gg' ? 0.6 : 3;
+  const sy = c.body !== undefined ? upStick(c.body) : stick(c.pull);
   const back = c.pin ? 0 : gear < 0 ? 20 : c.place === 'gg' ? 30 : v0 * (lead + hold);
   f.x = px - fx * back;
   f.z = pz - fz * back;
@@ -202,6 +233,10 @@ async function run(c: Case, dt: number, slot = true) {
   const alt = gear === NONSTOP ? config.turbo.nonstopAlt : gear >= JET ? config.turbo.jetAlt : 0;
   if (c.place === 'gg') {
     f.y = c.h as number;
+    f.holdY = f.y;
+  } else if (c.mode === 'ceil') {
+    // (straining at the ceiling: a tenth of its soft band under it, where the gear's limit has turned the nose level)
+    f.y = config.flight.ceiling - 0.1 * Math.max(config.flight.ceilingSoft, v0 * config.flight.ceilingSoftT);
     f.holdY = f.y;
   } else if (c.h === 'floor') f.y = alt > 0 ? g0 + alt : city.obstacleAt(f.x, f.z) + 9;
   else {
@@ -222,11 +257,18 @@ async function run(c: Case, dt: number, slot = true) {
   const upd = g.aimer.update.bind(g.aimer);
   g.aimer.update = (fl, t, dr, th) => { const t0 = performance.now(); const r = upd(fl, t, dr, th); aimT.push(performance.now() - t0); return r; };
   let k = 0;
+  // (--high: the view after a far shot, as main.ts sets it before rig.update, and the bus on the lens after: its highest, and the landing's at the impact)
+  let pre: (() => void) | null = null, busHi = -Infinity, tipBound = false;
+  const ndcOf = (x: number, y: number, z: number) => {
+    const v = new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+    return v.z >= 0 ? -Infinity : v.applyMatrix4(cam.projectionMatrix).y;
+  };
   const frame = async (inp: { sx: number; sy: number; dragging: boolean }) => {
     if (k++ % 10 === 0) await pump(city, f.x, f.z, f.lift, f.fx, f.fz);
     g.frame(dt, inp);
     lens.update(dt, drive, rig, f);
     rig.zone = drive.below === SCHOOL_ZONE ? 1 : 0;
+    pre?.();
     rig.update(cam, focus, f, dt);
     const lf = lensFov(SW, SH, rig.hfov);
     cam.fov = lf.fov;
@@ -235,9 +277,10 @@ async function run(c: Case, dt: number, slot = true) {
     inner.x = SW / (SW + (SH / lf.inner - SH));
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld(true);
+    if (pre) busHi = Math.max(busHi, ndcOf(f.x, f.y, f.z));
   };
   const idle = { sx: 0, sy: 0, dragging: false };
-  let pullLob = 0, pullFlips = 0, pullN = 0, pullWas = false;
+  let pullLob = 0, pullFlips = 0, pullN = 0, pullWas = false, pastAt = -1, hPast = 0, liftX = 0, liftZ = 0, liftAgl = 0, liftReach = 0, lobAt = -1, kinds = 0, kindWas = '';
   // ---- level in, then the pull (a dive first, from 800 m: 45 degrees down for 2 s, then the whole pull for 0.3 s)
   for (let j = 0; j < Math.round(lead / dt); j++) await frame(idle);
   if (c.mode === 'dive') {
@@ -245,8 +288,19 @@ async function run(c: Case, dt: number, slot = true) {
     for (let j = 0; j < Math.round(0.3 / dt); j++) await frame({ sx: 0, sy: stick(1), dragging: true });
   } else {
     const held = c.mode === 'flick' ? 0.15 : hold;
-    for (let j = 0; j < Math.round(held / dt); j++) {
-      await frame({ sx: 0, sy: stick(c.pull), dragging: true });
+    // (the slow climb: the pull held until 2,500 m over the ground, at most 40 s)
+    const n = c.mode === 'climb' ? Math.round(40 / dt) : Math.round(held / dt);
+    for (let j = 0; j < n; j++) {
+      if (c.mode === 'climb' && f.y - city.groundAt(f.x, f.z) >= 2500) break;
+      await frame({ sx: 0, sy: sy, dragging: true });
+      // (planned from the first frame past config.lob.from; and the plan's kind, near or far, as it changes)
+      if (pastAt < 0 && bodyOf(f) >= config.lob.from * DEG) [pastAt, hPast] = [j, f.y - city.groundAt(f.x, f.z)];
+      // (where the bus was the last frame the thumb was down: one thumb's Lob is latched there, its stretch held where it was)
+      [liftX, liftZ, liftAgl, liftReach] = [f.x, f.z, f.y - city.groundAt(f.x, f.z), shotReach(city, f, f.fx, f.fz)];
+      if (lobAt < 0 && g.aimer.lobPlan) lobAt = j;
+      const kind = g.aimer.lobPlan ? (g.aimer.lobPlan.far ? 'far' : 'near') : 'none';
+      if (kindWas && kind !== kindWas) kinds++;
+      kindWas = kind;
       // (the Lob's frames in the pull, and how often it came and went)
       const lp = g.aimer.lobPlan !== null;
       if (lp) pullLob++;
@@ -255,7 +309,7 @@ async function run(c: Case, dt: number, slot = true) {
       pullN++;
     }
   }
-  const pulled = { sx: 0, sy: c.mode === 'dive' ? stick(1) : stick(c.pull), dragging: true };
+  const pulled = { sx: 0, sy: c.mode === 'dive' ? stick(1) : sy, dragging: true };
   const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG;
   // ---- the tap: one thumb, the lift, a finger down 0.1 s later and up 0.08 s after; two thumbs, a finger down and up while the other pulls
   const fps = Math.round(1 / dt);
@@ -306,6 +360,9 @@ async function run(c: Case, dt: number, slot = true) {
   // (what this frame planned, the Lob's and the Comet's: at Nonstop the farther wins)
   const lobLast = g.aimer.lobLast, lobReach = lobLast ? r1(lobLast.reach) : null;
   const reachAtTap = shotReach(city, f, f.fx, f.fz);
+  // (L4's flight, from the gear's speed and the reach at the tap, by a table of its own)
+  const vt = Math.max(Math.max(1, f.ground), f.turbo.speed > 0 ? f.turbo.speed : f.speed), aglTap = f.y - city.groundAt(f.x, f.z);
+  const farMid = g.aimer.lob?.farLast.mid ?? 0;
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, fx: f.fx, fz: f.fz };
@@ -316,9 +373,33 @@ async function run(c: Case, dt: number, slot = true) {
   } else res = g.tap();
   const plan = res.shot.comet ?? null;
   const lob = plan?.kind === 'lob';
+  const table = new Comet(city, g.splatter), one = c.thumbs === 1 && c.mode !== 'dive';
+  const l4 = plan?.far ? Math.min(config.lob.flightHigh, lobFlight(plan.angle ?? 0) + (config.lob.fallPerKm * Math.max(0, aglTap - config.lob.highFrom)) / 1000, table.timeTo(vt, reachAtTap - config.lob.aheadMin - config.lob.stretch) - config.splat.inhale) : null;
+  // (after a far one the view dips as main.ts dips it: toward the landing until config.shotView.hold after the impact, then back)
+  const upDeg = (x: number, y: number, z: number) => {
+    const v = new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+    return (Math.atan2(v.y, -v.z) * 180) / Math.PI + rig.skyLift;
+  };
+  const liftAtTap = rig.skyLift, until = plan?.far ? g.t + config.splat.inhale + plan.travel + config.shotView.hold : -1;
+  if (HIGH && plan?.far)
+    pre = () => {
+      if (g.t < until) {
+        const half = cam.fov / 2, landUp = upDeg(plan.x, plan.y, plan.z);
+        rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap);
+        // (the hit's own want: where shotTip's target is over it, the bus's limit or the swing binds)
+        tipBound = rig.skyLiftTarget > landUp - (Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG) + 0.5;
+        rig.skyLiftRate = config.shotView.rate;
+        rig.skyDipMost = config.shotView.most;
+      } else if (rig.skyDipMost > 0) {
+        if (rig.skyLift >= -0.02) rig.skyDipMost = 0;
+        rig.skyLiftTarget = 0;
+        rig.skyLiftRate = config.shotView.rate;
+      }
+    };
+  let landNdc: number | null = null;
   // ---- to the impact (the steering thumb up), then 0.3 s on
   const at = new THREE.Vector3(res.landing.x, res.landing.y, res.landing.z), busV = new THREE.Vector3();
-  let impact: any = null, scr: any = null, miss = false, refund = -1, climb = 0;
+  let impact: any = null, scr: any = null, miss = false, refund = -1, climb = 0, atImpAlong = 0, busImp = 0, liftImp = 0, boundImp = false;
   const toScreen = (p: THREE.Vector3, b: THREE.Vector3) => {
     const vis = (q: THREE.Vector3) => {
       const v = q.clone().applyMatrix4(cam.matrixWorldInverse);
@@ -340,9 +421,14 @@ async function run(c: Case, dt: number, slot = true) {
       at.set(p[0], p[1], p[2]);
       scr = toScreen(at, busV.set(f.x, f.y, f.z));
       climb = f.y - tap.y;
+      landNdc = ndcOf(at.x, at.y, at.z);
+      atImpAlong = (f.x - tap.x) * tap.fx + (f.z - tap.z) * tap.fz;
+      busImp = ndcOf(f.x, f.y, f.z);
+      boundImp = tipBound;
+      liftImp = rig.skyLift;
     }
     // (the belly 0.3 s after the impact: a miss's refund is in it, which a Lob's late plan gives after its breath has ended)
-    if (impact && g.t - (impact.t as number) > 0.3) {
+    if (impact && g.t - (impact.t as number) > (HIGH ? config.shotView.hold : 0.3)) {
       refund = f.fullness;
       break;
     }
@@ -394,6 +480,18 @@ async function run(c: Case, dt: number, slot = true) {
     lobStats: g.aimer.lob ? { ...g.aimer.lob.stats } : null,
     // (a far Lob's: its drop, and the reach at the tap: kept off the near rows, which stay byte for byte as they were)
     ...(plan?.far ? { far: true, drop: r1(plan.drop), shotReach: r1(reachAtTap) } : {}),
+    // (--high's own: L4's flight, the planned stretch's middle and the bus at the impact along the way, the view's numbers, the pull's)
+    ...(HIGH ? {
+      l4: l4 === null ? null : r3(config.splat.inhale + l4), mid: plan?.far ? r1(farMid) : null, atImp: impact ? r1(atImpAlong) : null,
+      along: r1((at.x - tap.x) * tap.fx + (at.z - tap.z) * tap.fz), loaded: plan ? !!plan.loaded : null, landNdc: landNdc === null ? null : r3(landNdc),
+      busHi: Number.isFinite(busHi) ? r3(busHi) : null, busImp: r3(busImp), liftImp: r2(liftImp), boundImp, pastAt, hPast: r1(hPast), lobAt, kinds,
+      // (L3's aim: the bus's travel to the impact at the gear's speed over L4's flight, as the design has atImp; the bus's own travel is atImp above)
+      atImpPlan: l4 === null ? null : r1(table.flown(vt, config.splat.inhale + l4)),
+      // (at the tap's pose; and one thumb's from the pose where it latched, the bus's travel since taken off: a latched stretch the bus has closed on to
+      // under aheadMin is picked afresh, at the tap's pose)
+      want4tap: plan?.far && l4 !== null ? r1(Math.min(reachAtTap, Math.max(Math.hypot(plan.x0 - tap.x, plan.z0 - tap.z) + lobRange(plan.angle ?? 0, aglTap), table.flown(vt, config.splat.inhale + l4) + config.lob.aheadMin))) : null,
+      want4: plan?.far && l4 !== null ? r1(Math.min(one ? liftReach : reachAtTap, Math.max(Math.hypot(plan.x0 - tap.x, plan.z0 - tap.z) + lobRange(plan.angle ?? 0, one ? liftAgl : aglTap), table.flown(vt, config.splat.inhale + l4) + config.lob.aheadMin)) - (one ? (tap.x - liftX) * tap.fx + (tap.z - liftZ) * tap.fz : 0)) : null,
+    } : {}),
   };
 }
 
@@ -417,7 +515,7 @@ for (const c of CASES) {
 }
 const OUT = process.env.SB_OUT ?? 'shots/feel/sim';
 mkdirSync(OUT, { recursive: true });
-writeFileSync(`${OUT}/lob.json`, JSON.stringify({ rows }, null, 1));
+writeFileSync(`${OUT}/${HIGH ? 'lob-high' : 'lob'}.json`, JSON.stringify({ rows }, null, 1));
 const fails: string[] = [];
 let checks = 0;
 const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
@@ -454,6 +552,15 @@ for (const r of rows) {
     ok(r.from >= 600 && r.from <= (r.shotReach ?? 0) + config.splat.snapReachMax + 1, `${id}: lands in the distance, inside the reach and a snap (${r.from}, the reach ${r.shotReach})`);
     ok(r.underGround <= 2 && r.hitStops === 0, `${id}: its arc never 2 m into the ground, no hit-stop (${r.underGround}, ${r.hitStops})`);
     ok(r.pull.flips <= 1, `${id}: in the pull, once it shows the Lob stays (${r.pull.lob} of ${r.pull.of} frames, ${r.pull.flips} flips)`);
+  } else if (r.want === 'high') {
+    // (--high: a Lob from every height and gear, far where the near search found nothing)
+    ok(r.kind === 'lob', `${id}: a Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
+    if (r.kind !== 'lob') continue;
+    ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
+    ok(r.underGround <= 2 && r.hitStops === 0, `${id}: its arc never 2 m into the ground, no hit-stop (${r.underGround}, ${r.hitStops})`);
+    // (from the first frame past config.lob.from where the bus is highFrom over the ground under it then: placed at 1 km, rising ground ahead put it under)
+    ok(r.pull.flips <= 1 && r.lobAt >= 0 && (r.hPast < config.lob.highFrom || r.lobAt - r.pastAt <= 1), `${id}: planned from the first frame past ${config.lob.from} degrees and never lost (past at ${r.pastAt}, ${r.hPast} m up then, planned at ${r.lobAt}, ${r.pull.flips} flips)`);
+    if (!r.far) ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1 && r.agl < config.lob.highFrom + 400, `${id}: a near one, low enough, its radius lobRadius (${r.radius} against ${r.wantRadius}, ${r.agl} m up)`);
   } else if (r.want === 'wall') {
     ok(r.kind === 'lob' && r.on === 'wall' && r.from < 600 && r.underGround <= 2, `${id}: a tower in its climb takes it on its face (${r.kind} on ${r.on}, ${r.from} m out; the tower's roof ${tower} m over a 26 degree climb)`);
   } else if (r.want === 'miss') {
@@ -462,6 +569,22 @@ for (const r of rows) {
     ok(!r.kind.startsWith('lob'), `${id}: no Lob (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap)`);
     if (r.key.endsWith('/street')) ok(r.pull.lob === 0 && r.lobStats?.planned === 0 && r.lobStats?.fired === 0, `${id}: on Curb's street no Lob planned, in the pull or at the tap (${r.pull.lob} of ${r.pull.of} frames, ${JSON.stringify(r.lobStats)})`);
   }
+  if (HIGH && r.far && (r.want === 'high' || r.want === 'far')) {
+    const S = config.splat;
+    ok(Math.abs(r.mid - r.want4) <= config.lob.stretch || Math.abs(r.mid - r.want4tap) <= config.lob.stretch, `${id}: its stretch nearest min(reach, max(lobRange, the bus at the impact + ${config.lob.aheadMin})) (middle ${r.mid}, want ${r.want4} latched, ${r.want4tap} at the tap)`);
+    ok(Math.abs(r.along - r.mid) <= S.snapReachMax + config.lob.stretch / 2, `${id}: landing on its stretch's building (${r.along} along, the middle ${r.mid})`);
+    // (the bus's own travel against the plan's at the gear's speed: 3 m over it at 30 fps from 14 km)
+    ok(r.mid - r.atImp >= config.lob.aheadMin - 5 && r.mid <= r.shotReach + 1, `${id}: its stretch ${config.lob.aheadMin} m past the bus at the impact, inside the reach (middle ${r.mid}, the bus at ${r.atImp}, the reach ${r.shotReach})`);
+    ok(r.loaded === true && r.on !== 'water', `${id}: on loaded ground (${r.loaded}, on ${r.on})`);
+    ok(r.l4 !== null && Math.abs(r.tImpact - r.l4) <= 0.05, `${id}: the tap to the hit by L4 (${r.tImpact} against ${r.l4})`);
+    ok(r.radius !== null && Math.abs(r.radius - Math.min(config.lob.radiusHigh, blastRadiusFor(r.drop))) <= 1, `${id}: its radius a tap's from its height (${r.radius}, drop ${r.drop})`);
+    ok(r.busHi !== null && r.busHi <= config.shotView.busMax + 0.005, `${id}: the bus at +${config.shotView.busMax} or lower every frame to ${config.shotView.hold} s after the hit (${r.busHi})`);
+    // (where the bus's limit allows it: the bus not at busMax at the impact, and the dip not at its swing or its most. Fast and low, the bus has flown to
+    // within 300-400 m of the landing by its impact, which shows under it)
+    const bound = r.boundImp || r.busImp >= config.shotView.busMax - 0.02 || r.liftImp <= -(Math.min(config.shotView.swing, config.shotView.most) - 0.5);
+    if (r.agl <= 5000) ok(r.landNdc !== null && (r.landNdc >= -0.25 || bound), `${id}: the hit at -0.25 or higher at the impact where the bus allows it (${r.landNdc}, the bus ${r.busImp}, the lift ${r.liftImp}, ${r.agl} m up)`);
+  }
+  if (r.key.includes('/climb/')) ok(r.kinds <= 1 && r.far === true, `${id}: the slow climb's kind changes at most once, and the tap at the top a far Lob (${r.kinds} changes, ${r.kind}${r.far ? ', far' : ''})`);
   // (M90: after the lift's latch, a flick or a Lob and taps mashed on the empty belly: the next tap is a plain splat, the first of the mash a Lob)
   if (r.key.endsWith('/flick-after') || r.key.endsWith('/mash') || r.key.endsWith('/look-after')) ok(r.kind === 'splat' && (r.first === undefined || r.first === 'lob'), `${id}: a plain splat, the latch long ended (${r.kind}, the body ${r.body.lift} at the lift, ${r.body.tap} at the tap, ${r.body.angle} thrown${r.first ? `; the first tap ${r.first}` : ''})`);
   // (the roofs stage: the ring up at the finger's landing is a Lob at its lift, and gone it's today's tap: never a ring that throws nothing)

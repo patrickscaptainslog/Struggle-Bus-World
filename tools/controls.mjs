@@ -1212,7 +1212,8 @@ if (modes.has('lob')) {
       const row = { key, body: +pull.body.toFixed(1), planned: pull.plan, ringK: +pull.ring.k.toFixed(2), ...b, angle: b.angle === null ? null : +b.angle.toFixed(1), reach: b.reach === null ? null : Math.round(b.reach) };
       R.rows.push(row);
       console.log('lob:', JSON.stringify(row));
-      if (rung === 'nonstop') ok(row.kind === 'lob' || row.kind === 'comet', `${key}: a Lob, or the Comet where it lands farther (${row.kind}, ${row.reach} m)`);
+      // (at Nonstop the Lob whenever one is planned, config.lob.wins: a Comet only where the pull planned none, its body latched as the thumb lifted)
+      if (rung === 'nonstop') ok(row.kind === 'lob' || (row.kind === 'comet' && pull.plan?.kind !== 'lob'), `${key}: a Lob, or the Comet where none was planned (${row.kind}, ${row.reach} m, planned ${pull.plan?.kind ?? null})`);
       else ok(row.kind === 'lob' && row.lobs === 1, `${key}: a Lob (${row.kind}, ${row.lobs} thrown, the body ${row.body} at the lift)`);
       if (row.kind === 'lob') {
         // (at Nonstop, pulling, the Comet's landing can be the farther, or the Lob's not yet over the bus while it climbs: its ring may come only as the thumb lifts)
