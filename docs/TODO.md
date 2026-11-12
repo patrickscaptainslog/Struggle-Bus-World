@@ -2,6 +2,17 @@
 
 Tick what you finish, in the commit that finishes it. Add to it when the producer asks for something. Written 2026-11-02.
 
+## The core, before anything expands (2026-11-12, the first account)
+
+The producer asked on 2026-11-12: "Before we expand, let's really try and perfect the fundamental gameplay mechanics. Are we missing anything? Is this a fun game that has the chance to be a success?"
+
+- **The studio's answer** is [specs/core/CORE.md](specs/core/CORE.md): four designers' critiques (feel, goals, a first-time player, a publisher), every claim checked against the code. It is a proposal. Nothing in it is ruled until the producer says so, and its section 8 has seven calls, each with the studio's pick.
+- **What it found.** The live game (`main` at 058217c, unchanged since 2026-11-05, MEGA still on) shows no goal, score, percent, map, unlock, share or rival. `PaintState.paintedCount` is kept and read nowhere. Nothing on any branch gives the open world a goal or a count: the squares' and the neighbourhoods' rules run only inside Recess. No first-time player has been watched, and nothing has run on an A15.
+- **What it proposes**, in stages that each end on the producer's phone. 1: a core release (main plus the default shots, MEGA off, a loading page, a return visit that starts over your own paint). 2: the goal (each neighbourhood's share by its squares, shown at moments on the street sign, a finale, a beacon to the next grey neighbourhood, a safe save). 3: playing well pays (feedback that grows with fresh paint, Streak, the Comet's reach with height, hints at the moment they apply). About 14 to 22 agent-days (ESTIMATE), with five strangers watched after stage 1 and five more after stage 3. Then the saved Lift square by square, then the rival buses over the saved city.
+- **What waits,** on the first account's reading of the producer's words: wild places and their downloads (below), the surround, more of the Moon, other cities. The new handling (`feat/handling`) and the shots' review fixes carry on.
+- **For the second account:** nothing to do yet. Stage 2 would read the squares and the areas in `src/factions` from the open world. Once the producer has answered call 1, the ask goes here with the exact calls it needs.
+- **Not checked:** whether any of it is fun (nobody ran the game for this), every agent-day figure, how long a neighbourhood takes (3 to 5 minutes is an estimate), and Safari's storage limits on today's iPhones.
+
 ## Plans: wild land, and the Bay Area's surround (2026-11-12, the first account)
 
 Two plans, both the first account's. Nothing in them is built and nothing was downloaded.
