@@ -182,6 +182,19 @@ class Geo {
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
     return g;
   }
+  /** The triangles of these kinds (aK.x) on a geometry of their own, on `geo`'s attributes; `geo` keeps the rest. */
+  split(geo: THREE.BufferGeometry, kinds: readonly number[]): THREE.BufferGeometry {
+    const rest: number[] = [], own: number[] = [];
+    for (let i = 0; i < this.idx.length; i += 3) (kinds.includes(this.k[this.idx[i] * 4]) ? own : rest).push(this.idx[i], this.idx[i + 1], this.idx[i + 2]);
+    const big = this.pos.length / 3 > 65535;
+    const index = (a: number[]) => (big ? new THREE.Uint32BufferAttribute(a, 1) : new THREE.Uint16BufferAttribute(a, 1));
+    geo.setIndex(index(rest));
+    const h = new THREE.BufferGeometry();
+    for (const n of ['position', 'normal', 'aK', 'aE']) h.setAttribute(n, geo.getAttribute(n));
+    h.setIndex(index(own));
+    h.boundingSphere = geo.boundingSphere;
+    return h;
+  }
 }
 
 // ---------------------------------------------------------------- the place
@@ -359,6 +372,13 @@ void sbCut() {
   if (a < w * 0.68 || (a < w && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
 #endif
 }
+// a piece's own discards (a ring, a dither, a corona's flames, the smoke's edge): HOLE, left out of the solid program (SB_SOLID) its other
+// parts draw in out of the cut (PIECES' holes), so those keep the early depth test too
+#ifdef SB_SOLID
+#define HOLE
+#else
+#define HOLE discard
+#endif
 `;
 /** a hidden vertex: behind the far plane */
 const HIDE = 'gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return;';
@@ -954,7 +974,7 @@ void main() {
   } else if (kind < 1.5) {
     // a junction: a ring of light, beating
     float r = length(vE.xy);
-    if (r > 1.0 || r < 0.62) discard;
+    if (r > 1.0 || r < 0.62) HOLE;
     ramp = ${R(Ramp.MAGENTA)};
     light = 0.8 + 0.12 * step(0.5, fract(uTime / ${F(HYPER_BEAT)} * 0.5));
     glow = 0.7;
@@ -964,7 +984,7 @@ void main() {
     ramp = ${R(Ramp.MAGENTA)};
     light = 0.86 - 0.36 * v;
     glow = 0.6 - 0.3 * v;
-    if (v > 0.55 && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5) discard;
+    if (v > 0.55 && mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) > 0.5) HOLE;
     if (pulseB) { ramp = ${R(Ramp.CHROME)}; light = 0.95; glow = 0.85; }
     n = normalize(vN);
   }
@@ -1146,7 +1166,7 @@ void main() {
     float a = atan(vE.y, vE.x);
     float lick = 0.5 + 0.5 * sin(a * 9.0 + 2.0 * sin(a * 4.0 - uTime * 1.3) + uTime * 2.1) * sin(a * 5.0 - uTime * 1.7 + 1.3);
     float tip = 1.05 + 0.32 * lick * (0.85 + 0.15 * beat);
-    if (r < 0.98) discard;
+    if (r < 0.98) HOLE;
     float dith = mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0);
     if (r < 1.05) { ramp = ${R(Ramp.YELLOW)}; light = 0.96; glow = 0.9; }
     else if (r < tip) {
@@ -1156,7 +1176,7 @@ void main() {
       glow = 0.8 - 0.35 * u;
     } else {
       float ring = floor((r - 1.05) / 0.14);
-      if (ring > 4.0 || (ring > 2.0 && dith > 0.5) || (ring > 3.0 && mod(floor(gl_FragCoord.x * 0.5) + floor(gl_FragCoord.y), 2.0) > 0.5)) discard;
+      if (ring > 4.0 || (ring > 2.0 && dith > 0.5) || (ring > 3.0 && mod(floor(gl_FragCoord.x * 0.5) + floor(gl_FragCoord.y), 2.0) > 0.5)) HOLE;
       ramp = ${R(Ramp.CRIMSON)};
       light = 0.66 - 0.1 * ring + 0.08 * beat;
       glow = 0.42 - 0.08 * ring;
@@ -1177,9 +1197,9 @@ void main() {
     glow = 0.7;
   } else {
     // the smoke: from under it only; black-violet, lit red from the fire under it, more toward its middle; its edge breaks up into the sky
-    if (!gl_FrontFacing) discard;
+    if (!gl_FrontFacing) HOLE;
     float t = vE.x;
-    if (sbH2(floor(vWorldPos.xz / 6.0)) < smoothstep(0.72, 1.0, t)) discard;
+    if (sbH2(floor(vWorldPos.xz / 6.0)) < smoothstep(0.72, 1.0, t)) HOLE;
     vec2 q = vWorldPos.xz * 0.012;
     float bil = sin(q.x * 1.3 + sin(q.y * 1.7 + uTime * 0.05) * 1.6) + sin(q.y * 1.1 + sin(q.x * 0.9 - uTime * 0.04) * 1.4);
     ramp = ${R(Ramp.OBSIDIAN)};
@@ -1210,18 +1230,24 @@ interface Built {
   cols: number[][];
 }
 
-const PIECES: Record<number, { geo: (p: SkyPlace, g: Geo) => Steps; vs: string; fs: string }> = {
+/** Each faction's piece: its build, its shaders, and the kinds of its parts that HOLE (drawn apart, the rest in the solid program) */
+const PIECES: Record<number, { geo: (p: SkyPlace, g: Geo) => Steps; vs: string; fs: string; holes?: readonly number[] }> = {
   [FACTION_ATLANTIS]: { geo: atlantisGeo, vs: ATLANTIS_VS, fs: ATLANTIS_FS },
   [FACTION_ELDERWOOD]: { geo: elderwoodGeo, vs: ELDERWOOD_VS, fs: ELDERWOOD_FS },
-  [FACTION_HYPERGLOW]: { geo: hyperglowGeo, vs: HYPERGLOW_VS, fs: HYPERGLOW_FS },
-  [FACTION_INFERNO]: { geo: infernoGeo, vs: INFERNO_VS, fs: INFERNO_FS },
+  // (the junctions' rings and the lanes' sides)
+  [FACTION_HYPERGLOW]: { geo: hyperglowGeo, vs: HYPERGLOW_VS, fs: HYPERGLOW_FS, holes: [1, 3] },
+  // (the corona and the smoke)
+  [FACTION_INFERNO]: { geo: infernoGeo, vs: INFERNO_VS, fs: INFERNO_FS, holes: [1, 4] },
 };
 
 /** Does this faction have a sky piece here (Rainbow's halo isn't built). */
 export const hasSkyPiece = (faction: number) => faction in PIECES;
 
-/** The faction's two programs, on the one set of uniforms: `cut` with the cut round the bus (SB_CUT), `plain` without it. */
-function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.ShaderMaterial } {
+/**
+ * The faction's programs, on the one set of uniforms: `cut` with the cut round the bus (SB_CUT), `plain` without it, and `solid` without its
+ * own HOLEs either, for the parts that have none (the plain one where the piece has no holes)
+ */
+function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.ShaderMaterial; solid: THREE.ShaderMaterial } {
   const P = PIECES[faction];
   const uniforms: Record<string, THREE.IUniform> = {
     ...globals,
@@ -1232,7 +1258,8 @@ function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.S
   if (faction === FACTION_ELDERWOOD) uniforms.uIsles = { value: Array.from({ length: 7 }, () => new THREE.Vector4()) };
   const make = (defines: Record<string, string>) =>
     new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, defines, side: THREE.DoubleSide, vertexShader: P.vs, fragmentShader: P.fs });
-  return { cut: make({ SB_CUT: '' }), plain: make({}) };
+  const plain = make({});
+  return { cut: make({ SB_CUT: '' }), plain, solid: P.holes ? make({ SB_SOLID: '' }) : plain };
 }
 
 /**
@@ -1264,7 +1291,10 @@ function cutReaches(box: Float32Array, cx: number, cy: number, cz: number, bx: n
   return false;
 }
 
-/** A built set piece: its one mesh (hidden until `start`), its triangles, where it stands on the ground and its risers (Built). */
+/**
+ * A built set piece: its mesh (hidden until `start`; the parts that HOLE in a mesh of their own in it), its triangles, where it stands on the
+ * ground and its risers (Built).
+ */
 export interface SkyPiece {
   mesh: THREE.Mesh;
   tris: number;
@@ -1296,7 +1326,7 @@ export function makeSkyPiece(faction: number, place: SkyPlace): { step(): SkyPie
 }
 
 function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, cols }: Built): SkyPiece {
-  const { cut, plain } = materials(faction);
+  const { cut, plain, solid } = materials(faction);
   (cut.uniforms.uSkyC.value as THREE.Vector4).set(place.heart[0], Y, place.heart[1], size);
   if (faction === FACTION_ELDERWOOD) {
     // (each island's centre, its pieces moved about it, and its rise: the same isles() elderwoodGeo built them from)
@@ -1312,9 +1342,17 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
       boxes.push(Math.max(c[k], c[k + 4]) + r, Math.max(c[k + 1], c[k + 5]) + r, Math.max(c[k + 2], c[k + 6]) + r);
     }
   const reach = new Float32Array(boxes);
-  const mesh = new THREE.Mesh(g.build(), plain);
+  const geo = g.build(), holes = PIECES[faction].holes;
+  const mesh = new THREE.Mesh(geo, solid);
   mesh.frustumCulled = false;
   mesh.renderOrder = 1;
+  // (the parts that HOLE: one more draw, so the rest draw in the solid program out of the cut)
+  const apart = holes ? new THREE.Mesh(g.split(geo, holes), plain) : null;
+  if (apart) {
+    apart.frustumCulled = false;
+    apart.renderOrder = 1;
+    mesh.add(apart);
+  }
   const b = cut.uniforms.uSkyBus.value as THREE.Vector4;
   return {
     mesh,
@@ -1329,20 +1367,22 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
       b.y = y;
       b.z = z;
       // (the lens as the frame is drawn, Lift.lens: 4 m of slack for the pipeline's snapped copy of it, a pixel off)
-      mesh.material = cutReaches(reach, cam.x, cam.y, cam.z, x, y, z, b.w, 4) ? cut : plain;
+      const cuts = cutReaches(reach, cam.x, cam.y, cam.z, x, y, z, b.w, 4);
+      mesh.material = cuts ? cut : solid;
+      if (apart) apart.material = cuts ? cut : plain;
     },
   };
 }
 
-/** Shader warm-up (render/warmup.ts): the faction's piece in its layout, one triangle, in both its programs. */
+/** Shader warm-up (render/warmup.ts): the faction's piece in its layout, one triangle, in each of its programs. */
 export function registerSkyWarm(faction: number) {
   if (!PIECES[faction]) return;
   registerWarm('liftsky', () => {
     const g = new Geo();
     for (let i = 0; i < 3; i++) g.v(i, 0, 0, 0, 1, 0, [0], [0]);
     g.tri(0, 1, 2);
-    const geo = g.build(), { cut, plain } = materials(faction);
-    return [new THREE.Mesh(geo, cut), new THREE.Mesh(geo, plain)];
+    const geo = g.build(), { cut, plain, solid } = materials(faction);
+    return [cut, plain, solid].filter((m, i, all) => all.indexOf(m) === i).map((m) => new THREE.Mesh(geo, m));
   });
 }
 
