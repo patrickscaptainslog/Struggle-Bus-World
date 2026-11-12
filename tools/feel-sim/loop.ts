@@ -61,7 +61,9 @@ export function makeGame(city: City, drive: TurboDrive | null = null): Game {
       g.t += dt;
       drive?.update(dt, flight);
       const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
-      for (let i = 0; i < steps; i++) flight.step(dt / steps, inp, city);
+      // (each step knows its frame, as main.ts's do: a hit's throw is held to so much lift a frame)
+      const si = { ...inp, frame: dt };
+      for (let i = 0; i < steps; i++) flight.step(dt / steps, si, city);
       for (let i = 0; i < steps; i++) { const h = dt / steps; const bt = flight.barfT - (steps - 1 - i) * h; const sqTarget = flight.barfing && bt >= 0 ? (bt < config.splat.inhale + 0.03 ? 0.78 : 1.06) : 1; squashV += ((sqTarget - g.squash) * 260 - squashV * 16) * h; g.squash += squashV * h; }
       g.bellyUi = flight.barfT >= 0 ? flight.belly : flight.fullness;
       aimer.update(flight, g.t, inp.dragging);

@@ -1,6 +1,6 @@
 // A hit's throw over the real city (B100 and m102 of the review of 018c5d8): the real City, Flight and TurboDrive with ?swerve's handling on, the player's bus
 // thrown by Flight.shove as src/rivals/rivalsBoot.ts's hurtMe throws it (and its short throw's hop, hitFx's), no browser:
-//   node tools/feel-sim/run.mjs ../swerve/s_throw.ts [throw|base|hard] [per=4] [eager]
+//   node tools/feel-sim/run.mjs ../swerve/s_throw.ts [throw|base|hard] [per=4] [eager] [fps=30]
 //   throw   the acceptance: 48 throws of each kind (a shell's 70 m, a smash's 170, a wreck's 675, a head-on's 1,350; Cruise to Jet; from roof height over the
 //           Financial District, Nob Hill and SoMa, four poses a gear each): on no frame is the bus's underside through a roof, a wall or a tree as drawn (the
 //           route check's measure), none is lifted more than 12 m in a frame, and every throw ends inside the map. And a head-on blows the bus back: as the
@@ -10,12 +10,14 @@
 //           what's drawn there on every such frame, and the same with the map streamed every frame along the bus's way (`eager`)
 //   hard    the review's hard turns with a pull or a push, today's stick, 16 poses a place: no frame inside a surface. It fails today the same way (23 frames,
 //           16 m deep at worst, at Cruise and Express in the Financial District), the flight's own. Neither is fixed here
-// `eager`: the map streamed every frame along the way the bus is really going (the probe streamed every third frame along the heading).
+// `eager`: the map streamed every frame along the way the bus is really going (the probe streamed every third frame along the heading). `fps=20`: the throws
+// at main.ts's slowest frame (its dt is never over 0.05 s), where a frame's 12 m is the most a throw may climb in it.
 import { busClearance, ll, makeGame, manifest, newCity, pump, truth } from '../feel-sim/lib';
 import { TurboDrive } from '@src/game/Turbo';
 import { rivalTune } from '@src/rivals/rivals';
 
 const what = process.argv[2] ?? 'throw', PER = +(process.argv[3] ?? 4), EAGER = process.argv.includes('eager');
+const FPS = +(process.argv.find((a) => a.startsWith('fps='))?.slice(4) ?? 30);
 const r1 = (v: number) => +v.toFixed(1);
 let seed = 23;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -86,7 +88,7 @@ const row = (ok: boolean, name: string, o: unknown) => {
 };
 
 if (what === 'throw' || what === 'base') {
-  const R = rivalTune, dt = 1 / 30;
+  const R = rivalTune, dt = 1 / FPS;
   const TIERS: Array<[string, number, number]> = [['shell', -1, R.soakThrow], ['smash', 1, 170], ['wreck', 2, 675], ['head-on', 3, 1350]];
   for (const [tname, tier, far0] of TIERS) {
     const T = tally();
@@ -128,7 +130,7 @@ if (what === 'throw' || what === 'base') {
     }
     const o = { throws: T.runs, framesInside: T.clip, throwsWithOne: T.clipRuns, lowest: r1(T.lowest), framesTheFlightsFieldLacked: T.unseen, framesLiftedOver12m: T.lifted, mostInAFrame: r1(T.liftMost), endedOutsideTheMap: T.out, ...(tier === 3 && what === 'throw' ? { headOnBackAtLeast: `${Math.round(T.back * 100)} % of the throw` } : {}), first: T.first };
     if (what === 'base') row(T.clip === 0, `base, ${tname}'s poses`, o);
-    else row(T.clip === 0 && T.lifted === 0 && T.out === 0 && (tier !== 3 || T.back >= 0.5), `throw, ${tname}`, o);
+    else row(T.clip === 0 && T.lifted === 0 && T.out === 0 && (tier !== 3 || T.back >= 0.5), `throw, ${tname}${FPS === 30 ? '' : `, ${FPS} fps`}`, o);
   }
 }
 

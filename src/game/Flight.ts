@@ -62,13 +62,17 @@ export interface FlightInput {
   hard?: number;
   skid?: number;
   side?: number;
+  /** the whole frame's time (s) this step is a share of (main.ts's dt): a throw's climb in a frame is held to SHOVE_FRAME by it. Left out: no frame's limit */
+  frame?: number;
 }
 
 /** How far under a deck's underside the floor stops (m). */
 const DECK_GAP = 8;
 const DEG = Math.PI / 180;
-/** A throw (shove) climbs at most this fast (m/s) over what's in its way: 12 m in a frame at main.ts's slowest, 20 a second. */
+/** A throw (shove) climbs at most this fast (m/s) over what's in its way, on top of the vertical spring's own rise. */
 const SHOVE_CLIMB = 240;
+/** ...and lifts the bus at most this far in a frame (m), the spring's rise counted in it: under the 12 m a frame may lift it, at main.ts's slowest frame too. */
+const SHOVE_FRAME = 11.5;
 /** Under this the path counts as level (rad): nothing asking for it any more, it hands back to the classic branches here. */
 const NOSE_LEVEL = 2 * DEG;
 
@@ -190,8 +194,8 @@ export class Flight {
 
   /**
    * A hit throws the bus `far` m along (ux, uz), a unit vector over the ground, in `air` s, eased in and out (src/rivals: a shell's, a ram's, a head-on's).
-   * It's flown through the flight's own floors: each step looks along what's left of the throw from where the bus is, and climbs in time, at most SHOVE_CLIMB;
-   * where it can't climb in time the throw waits for it. So it never puts the bus in a roof, a wall or a tree, nor lifts it more than 12 m in a frame. One
+   * It's flown through the flight's own floors: each step looks along what's left of the throw from where the bus is, and climbs in time, at most SHOVE_CLIMB and
+   * SHOVE_FRAME a frame (FlightInput.frame); where it can't climb in time the throw waits for it. So it never puts the bus in a roof, a wall or a tree, nor lifts it more than 12 m in a frame. One
    * over 90 m arcs over the city as it goes, as the stand-in's did (12 % of its length, at most 260 m). While it lasts the gear's drive is held as far as the
    * throw goes against the bus's way, so a head-on really blows the bus back, and then the gear pulls the speed back; one from behind or across leaves the gear
    * driving. `bounds` [minX, minZ, maxX, maxZ]: it ends inside them.
@@ -400,7 +404,10 @@ export class Flight {
     this.z += this.fz * ground * dt;
     // (a hit's throw on top, as far along it as the bus clears in time)
     const Sh = this.sh;
-    if (Sh.on) this.shoveStep(dt, world);
+    // (the most a throw may lift the bus this step: its share of the frame's SHOVE_FRAME, and the rate that comes to, at most SHOVE_CLIMB)
+    const shoveMost = Sh.on && inp.frame && inp.frame > 0 ? (SHOVE_FRAME * dt) / Math.max(dt, inp.frame) : Infinity;
+    const shoveClimb = Math.min(SHOVE_CLIMB, shoveMost / Math.max(1e-6, dt));
+    if (Sh.on) this.shoveStep(dt, world, shoveClimb);
 
     // ---- altitude: look ahead along the path, rise early, hang after crests
     // (`speed`, not `ground`: a swoop turns all of it forward, and the floor must already know what lies out there)
@@ -584,6 +591,7 @@ export class Flight {
       this.vyYoke = this.vy;
     }
     this.strain += (strain - this.strain) * (1 - Math.exp(-3 * dt));
+    const yWas = this.y;
     this.y += this.vy * dt;
     // (the underside stops a bus rising fast as it flies in under a deck; only the ground can carry it up there)
     if (this.y > over - 1) {
@@ -594,9 +602,10 @@ export class Flight {
       this.y = hardFloor;
       if (this.vy < 0) this.vy = 0;
     }
-    // (a throw climbs over what it must clear, in time and no faster than SHOVE_CLIMB; under a deck the deck wins)
+    // (a throw climbs over what it must clear, in time: SHOVE_CLIMB over the spring's rise, but no more than its share of SHOVE_FRAME with that rise counted in
+    // it, so at 20 frames a second it's never 12 m in a frame; under a deck the deck wins)
     if (Sh.on && this.y < Sh.need) {
-      this.y = Math.min(Sh.need, this.y + SHOVE_CLIMB * dt, over - 1);
+      this.y = Math.min(Sh.need, Math.max(this.y, Math.min(this.y + SHOVE_CLIMB * dt, yWas + shoveMost)), over - 1);
       if (this.vy < 0) this.vy = 0;
     }
     // height above the (smoothed) floor, for the vista camera: rooftop noise mustn't breathe the lens
@@ -645,14 +654,14 @@ export class Flight {
   }
 
   /** One step of a hit's throw: as far along it as the bus clears by the step's end, and the height it must be at to clear the rest of it in time. */
-  private shoveStep(dt: number, world: WorldQuery) {
+  private shoveStep(dt: number, world: WorldQuery, climb: number) {
     const S = this.sh, F = config.flight;
     S.t += dt;
     const k = Math.min(1, S.t / S.air);
     // (where the eased throw would have it by now; one held up goes on at the throw's quickest once its time is up)
     let adv = S.far * k * k * (3 - 2 * k) - S.done;
     if (S.t > S.air) adv = Math.max(adv, Math.min(S.far - S.done, ((1.5 * S.far) / S.air) * dt));
-    const can = this.y + SHOVE_CLIMB * dt;
+    const can = this.y + climb * dt;
     let go = 0;
     for (let s = Math.min(3, adv); adv > 0; s = Math.min(s + 3, adv)) {
       if (this.footTop(world, this.x + S.ux * s, this.z + S.uz * s) + F.clearance > can) break;
@@ -666,7 +675,7 @@ export class Flight {
     const v = Math.max(20, S.t < S.air ? (6 * S.far * k * (1 - k)) / S.air : (1.5 * S.far) / S.air);
     const reach = Math.min(S.far - S.done, v * 0.5 + 40);
     let need = this.footTop(world, this.x, this.z) + F.clearance;
-    for (let s = 6; s <= reach; s += 6) need = Math.max(need, this.footTop(world, this.x + S.ux * s, this.z + S.uz * s) + F.clearance - (SHOVE_CLIMB * s) / v);
+    for (let s = 6; s <= reach; s += 6) need = Math.max(need, this.footTop(world, this.x + S.ux * s, this.z + S.uz * s) + F.clearance - (climb * s) / v);
     S.need = need;
   }
 
