@@ -2,6 +2,9 @@
 //   crew       the real crew (src/game/crew.ts) on a fake localStorage, a fresh one a page: ?crew=show turns the button on for that page and saves nothing, a
 //              faction picked there included; the plain page after it has no button; ?crew still turns it on for good, and ?crew=off still forgets it
 //   swap       the Moon's page change (src/sky/moonrun.ts's SWAP_KEEP, read from its text) keeps exactly what it kept, and `show`
+//   link       index.html's ?show lines, run as they are on a fake location: the long set added once, a flag given beside it wins, the query's own text kept
+//              byte for byte (t's colons, a bare fps), the hash kept, a page without `show` never written; ES5 only; and over the Moon's page change and back
+//              the link comes out whole again
 // Prints a row each, and exits 1 if one fails.
 import { readFileSync } from 'node:fs';
 import { Crew } from '@src/game/crew';
@@ -68,6 +71,57 @@ const page = (q: string) => new Crew().init(new URLSearchParams(q));
   // (and the line that builds the next page's query from it, as it was)
   const line = "const keep = SWAP_KEEP.filter((k) => params.has(k)).map((k) => (params.get(k) ? `&${k}=${encodeURIComponent(params.get(k)!)}` : `&${k}`));";
   row(ok && text.includes(line), 'show, SWAP_KEEP', { keep, theKeepLine: text.includes(line) });
+}
+
+// ---------------------------------------------------------------- the link written out (index.html's boot script, its ?show lines run as they are)
+{
+  const html = readFileSync(`${ROOT}index.html`, 'utf8').split('\r').join('');
+  const m = /\n( *)if \(new URLSearchParams\(location\.search\)\.has\('show'\)\) \{\n[\s\S]*?\n\1\}\n/.exec(html);
+  const code = m ? m[0] : '';
+  /** The address after the lines run on this one (its query and hash), and how many times they wrote it. */
+  const run = (search: string, hash = '') => {
+    let addr = `/${search}${hash}`, writes = 0;
+    const location = { pathname: '/', search, hash };
+    const history = {
+      state: null,
+      replaceState: (_s: unknown, _t: string, url: string) => {
+        writes++;
+        addr = url;
+      },
+    };
+    new Function('location', 'history', code)(location, history);
+    return { addr, writes };
+  };
+  const LONG = '&swerve&crew=show&life&bomb&boom&falls&lift&lifted=inferno&earth';
+  const cases: Array<[string, string, string, number]> = [
+    // (the link, its hash, the address after, writes)
+    ['?show', '', `/?show${LONG}`, 1],
+    ['?show&lifted=atlantis', '', '/?show&lifted=atlantis&swerve&crew=show&life&bomb&boom&falls&lift&earth', 1],
+    ['?show&norivals', '', `/?show&norivals${LONG}`, 1],
+    ['?show&t=2026-11-25T04:00:00Z&fps', '', `/?show&t=2026-11-25T04:00:00Z&fps${LONG}`, 1],
+    ['?show&crew', '', '/?show&crew&swerve&life&bomb&boom&falls&lift&lifted=inferno&earth', 1],
+    ['?moonland&show', '#x', `/?moonland&show${LONG}#x`, 1],
+    [`?show${LONG}`, '', `/?show${LONG}`, 0],
+    ['', '', '/', 0],
+    ['?swerve', '', '/?swerve', 0],
+    ['?showing', '', '/?showing', 0],
+  ];
+  const out: Record<string, unknown> = {};
+  let ok = code.length > 0;
+  for (const [q, h, want, w] of cases) {
+    const r = run(q, h);
+    if (r.addr !== want || r.writes !== w) ok = false;
+    out[q || '/'] = r.writes ? r.addr : 'as it was';
+  }
+  // (ES5 only: the boot script isn't compiled, and Safari 15 parses it as it is)
+  const es5 = !/=>|\blet\b|\bconst\b|`|\?\?|\?\./.test(code);
+  row(ok && es5, 'show, the link', { found: code.length > 0, es5, ...out });
+  // (and the page change to the Moon and back: what it keeps of the written-out link is ?show, and that is written out again)
+  const keep = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour', 'life', 'show'];
+  const params = new URLSearchParams(`?show${LONG}&fps`);
+  const kept = keep.filter((k) => params.has(k)).map((k) => (params.get(k) ? `&${k}=${encodeURIComponent(params.get(k)!)}` : `&${k}`));
+  const next = run(`?moonland&resume${kept.join('')}`);
+  row(next.addr === `/?moonland&resume&fps&life&show&swerve&crew=show&bomb&boom&falls&lift&lifted=inferno&earth`, 'show, over the Moon and back', { kept: kept.join(''), next: next.addr });
 }
 
 console.log(bad ? `${bad} FAIL` : 'all pass');

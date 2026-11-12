@@ -33,6 +33,16 @@
       // anything under public/city that follows a deploy, a re-bake or a relandmark.py run: on the old value that phone never sees it.
       (function () {
         try {
+          // ?show: one link with everything, the producer's "Def show the floating houses. Show the rival buses. Show the moon." (SWERVE.md, "The one link"),
+          // written out into the address once, here, before anything reads it: the handling and the rival buses, the crews' button for this page only, life, the Bomb, the boom, the falls,
+          // Inferno's floating houses, the Earth flight to the Moon. A flag given beside it wins (?show&lifted=atlantis, ?show&crew, ?show&norivals), and the
+          // query's own text is kept as it is (t's colons, a bare fps). The Moon's page change keeps `show` (moonrun.ts's SWAP_KEEP), and this writes it out again.
+          if (new URLSearchParams(location.search).has('show')) {
+            var sq = new URLSearchParams(location.search), add = '';
+            var all = ['swerve', 'crew=show', 'life', 'bomb', 'boom', 'falls', 'lift', 'lifted=inferno', 'earth'];
+            for (var i = 0; i < all.length; i++) if (!sq.has(all[i].split('=')[0])) add += '&' + all[i];
+            if (add) history.replaceState(history.state, '', location.pathname + location.search + add + location.hash);
+          }
           var v = (window.__sbDataV = 'osm9');
           // (?moon is black from the first paint, Safari's bars with it: no fog-grey before a black sky)
           // (?moonland: black too, and nothing to wait for: the flight is up first)
