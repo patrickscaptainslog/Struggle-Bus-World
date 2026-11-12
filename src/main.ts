@@ -10,7 +10,7 @@ import { paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
-import { CameraRig } from './game/CameraRig';
+import { CameraRig, shotTip } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
@@ -48,7 +48,7 @@ import { Bomb } from './game/Bomb';
 import { Boom, boomOn, boomTune } from './game/Boom';
 import { Falls } from './fx/Falls';
 import { SuperFx } from './fx/SuperFx';
-import { CometFx } from './fx/CometFx';
+import { CometFx, beaconHeight } from './fx/CometFx';
 import { Comet } from './game/Comet';
 import { Lob, lobRadius, lobTop } from './game/Lob';
 import { SuperMeter } from './ui/SuperMeter';
@@ -1078,6 +1078,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const aimer = new Aimer(city, splatter);
   // the Comet (src/game/Comet.ts): with a gear at speed a tap flies ahead and lands in view of the lens the player sees (the camera as last drawn)
   const comet = new Comet(city, splatter);
+  // (the plans read the lens without a far shot's dip: a second tap during one is planned against the view the player will have once it's back. While the
+  // rig's lift is 0 or more, the camera itself, as before)
+  const planLens = new THREE.PerspectiveCamera();
   comet.lens = camera;
   aimer.comet = comet;
   // the Lob (src/game/Lob.ts): a tap with the bus's body nose up throws it into the distance, in view of the same lens, on the Comet's odometer
@@ -1208,8 +1211,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (shot.comet?.kind === 'lob') {
       controls.lobbed();
       // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
-      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, top: 0.5, hue: 0 }) - 1] : lobsUp[0]);
-      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: moonPaint ? moonPaint.tapR(lobRadius(shot.comet)) : lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, top: lobTop(shot.comet), hue });
+      const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, top: 0.5, hue: 0, far: false }) - 1] : lobsUp[0]);
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: moonPaint ? moonPaint.tapR(lobRadius(shot.comet)) : lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, top: lobTop(shot.comet), hue, far: !!shot.comet.far });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -1365,13 +1368,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   };
   bombLook(splatter.faction);
   /** the Lob's ring where it will land, eased in and out (main.ts's frame), and the landings of those thrown, each until it lands */
-  const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1 };
-  const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; top: number; hue: number }> = [];
+  const lobRing = { x: 0, y: 0, z: 0, r: 1, k: 0, until: -1, far: false };
+  const lobsUp: Array<{ x: number; y: number; z: number; r: number; from: number; until: number; top: number; hue: number; far: boolean }> = [];
   const lobOnto = { x: 0, y: 0, z: 0 };
   /** when the last Lob left the mouth (game s): the bus's dip under its throw */
   let lobDipAt = -1e9;
   /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
-  const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3();
+  const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3(), shotSeen = new THREE.Vector3();
+  /** the far shot the view dips after (CometFx.shotFrame's count), the lift the view had at its tap, and the far shot a look took the view back from */
+  let farWas = 0, farLift = 0, farLooked = 0;
   /** how far over the lens's middle a point shows (degrees, the sky lift's own taken off: where it would be with the view untipped); p is moved into the lens's space */
   const lobUpDeg = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), (Math.atan2(p.y, -p.z) * 180) / Math.PI + rig.skyLift);
 
@@ -1897,15 +1902,41 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // config.lob.tipTop under the frame's top, but never so far the bus sinks lower than tipBus of the half height under the middle; down again as it falls
     // onto its ring. From the roofs the star left the frame by 0.3 of its flight, its top 13-25 degrees over the frame, and nothing showed for 1.4 s)
     rig.skyLiftRate = 0;
-    if (cometFx.lobFrame(simTime, lobSeen)) {
-      const L = config.lob, half = camera.fov / 2;
+    // (a far shot up, a far Lob's or a far Comet's: the view dips toward its landing from the tap, the bus held in the screen's top 35 %, and back
+    // config.shotView.hold after the hit: from high up nothing it lands on is in the frame. It wins over a near Lob's tip up. A look takes it back, and
+    // only a new far shot dips it again)
+    const farN = cometFx.shotFrame(simTime, shotSeen);
+    if (farN !== farWas) {
+      if (farN) farLift = rig.skyLift;
+      farWas = farN;
+    }
+    if (farN && st.look.on) farLooked = farN;
+    if (farN && farN !== farLooked) {
+      rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift);
+      rig.skyLiftRate = config.lob.tipRate;
+      rig.skyDipMost = config.shotView.most;
+    } else if (cometFx.lobFrame(simTime, lobSeen)) {
       const star = lobUpDeg(lobSeen), busUp = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
-      const want = Math.min(star - half + L.tipTop, busUp + half * L.tipBus);
       // (the live sky's lift is set afresh each frame above; without it the target is this frame's alone, or it held the star's highest until the hit)
-      rig.skyLiftTarget = Math.max(live ? rig.skyLiftTarget : 0, cometFx.lobClimbing(simTime) ? L.tip : 0, want);
-      rig.skyLiftRate = L.tipRate;
+      rig.skyLiftTarget = shotTip(star, busUp, camera.fov / 2, cometFx.lobClimbing(simTime), false, 0, live ? rig.skyLiftTarget : 0);
+      rig.skyLiftRate = config.lob.tipRate;
     } else if (!live) rig.skyLiftTarget = 0;
+    // (out of a dip it eases back, the dip let go only once the lift is back within 0.02 of 0, so it never snaps)
+    if (rig.skyDipMost > 0 && !(farN && farN !== farLooked)) {
+      if (rig.skyLift >= -0.02) rig.skyDipMost = 0;
+      else {
+        rig.skyLiftTarget = Math.max(0, rig.skyLiftTarget);
+        rig.skyLiftRate = config.lob.tipRate;
+      }
+    }
     rig.update(camera, focus, flight, dt);
+    // (the plans' lens: the dip turned back)
+    if (rig.skyLift < 0) {
+      planLens.copy(camera);
+      planLens.rotateX(THREE.MathUtils.degToRad(-rig.skyLift));
+      planLens.updateMatrixWorld(true);
+      comet.lens = lob.lens = planLens;
+    } else comet.lens = lob.lens = camera;
     superSplat.camera(camera, focus, dt);
     rig.applyKick(camera, realDt);
     if (fromSky) {
@@ -2134,10 +2165,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         lobRing.y = on ? on.y + 0.5 : L.y;
         lobRing.z = on ? on.z : L.z;
         lobRing.r = on ? moonPaint!.tapR(lobRadius(L)) : lobRadius(L);
+        lobRing.far = !!L.far;
+      }
+      // (never under config.lob.ringPx game px in radius on the screen: from high up a 255 m ring is a few pixels. Near the roofs it's 26-30, and this never
+      // binds there)
+      if (lobRing.k > 0) {
+        const dist = Math.max(1, Math.hypot(lobRing.x - camera.position.x, lobRing.y - camera.position.y, lobRing.z - camera.position.z));
+        lobRing.r = Math.max(lobRing.r, (config.lob.ringPx * dist) / (camera.projectionMatrix.elements[5] * 0.5 * 852));
       }
       // (and a dim pillar of its paint stands on the landing while its ring shows: from the roofs the ring is a thin arc on the skyline, the pillar what reads)
       const marked = lobRing.k > 0.3 && R.k < 0.01 && (first !== null || L !== null);
-      cometFx.beacon(marked, lobRing.x, lobRing.y, lobRing.z, splatter.faction, first ? first.hue : splatter.hueNext, simTime);
+      // (a far one's as tall as shows its top at -0.2 by the view without its dip, at most config.lob.beaconMost: the producer's call)
+      const beaconH = marked && (first ? first.far : lobRing.far) ? beaconHeight(lob.lens ?? camera, lobRing.x, lobRing.y, lobRing.z) : config.lob.beacon;
+      cometFx.beacon(marked, lobRing.x, lobRing.y, lobRing.z, splatter.faction, first ? first.hue : splatter.hueNext, simTime, beaconH);
       if (R.k > 0.01 || lobRing.k <= 0) pipeline.setBombRing(R.x, R.z, R.r, R.k, R.pulse);
       else pipeline.setBombRing(lobRing.x, lobRing.z, lobRing.r, lobRing.k, 0, true, lobRing.y);
     }

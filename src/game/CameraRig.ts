@@ -51,6 +51,24 @@ const lookCurve = () => {
   return curve;
 };
 
+/**
+ * Where the view's lift goes while a shot is up (deg, the rig's skyLiftTarget; main.ts, and the sims as main.ts does): starUp and busUp are how far over the
+ * view's axis, the lift turned back, its star (a far shot's: its landing) and the bus show (main.ts's lobUpDeg), half the vertical half field.
+ * A near Lob (far false): the view tips up at least config.lob.tip while it climbs (`climbing`) and as far as keeps the star config.lob.tipTop under the
+ * frame's top, but the bus never lower than config.lob.tipBus of the half height under the middle, and never under `base` (the live sky's lift).
+ * A far shot: it dips so its landing shows no lower than config.shotView.low of the half height, the bus no higher than busMax over the middle (the bus
+ * wins), and never more than `swing` under the lift the view had at the tap (liftAtTap): at the ceiling with the sky's lift on it comes down to about level,
+ * not 60 degrees. Negative is a dip (CameraRig.skyDipMost lets it).
+ */
+export function shotTip(starUp: number, busUp: number, half: number, climbing: boolean, far: boolean, liftAtTap = 0, base = 0): number {
+  if (!far) {
+    const L = config.lob;
+    return Math.max(base, climbing ? L.tip : 0, Math.min(starUp - half + L.tipTop, busUp + half * L.tipBus));
+  }
+  const V = config.shotView, t = Math.tan(THREE.MathUtils.degToRad(half)), deg = THREE.MathUtils.radToDeg;
+  return Math.max(busUp - deg(Math.atan(V.busMax * t)), Math.min(0, starUp - deg(Math.atan(V.low * t))), liftAtTap - V.swing);
+}
+
 /** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
 export function lookDeg(px: number): number {
   const { a, b } = lookCurve();
@@ -134,6 +152,9 @@ export class CameraRig {
   skyLift = 0;
   /** ...eased at this rate (1/s), config.sky.liftRate when 0 (a Lob's tip follows its star faster: main.ts) */
   skyLiftRate = 0;
+  /** A far shot up (main.ts, shotTip): the lift may go this far under 0 (deg), a dip, never past config.shotView.pitchMax down in all; 0, no dip */
+  skyDipMost = 0;
+  private readonly dipDir = new THREE.Vector3();
   /** the look (setLook): how far a thumb has the view off the rig (rad, x = +right, y = +up; exactly 0 once home) */
   private readonly lookYaw = { x: 0, v: 0 };
   private readonly lookPitch = { x: 0, v: 0 };
@@ -321,8 +342,14 @@ export class CameraRig {
     } else cam.lookAt(this.look);
     // (it moves briefly, then holds still and exactly: a rotation can't be snapped, so the frame swims only while it moves; never so far that the bus leaves the frame)
     const lift = Math.min(this.skyLiftTarget, cam.fov / 2 - 6);
-    const dl2 = Math.max(0, lift) - this.skyLift;
-    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(0, lift) : this.skyLift + dl2 * (1 - Math.exp(-(this.skyLiftRate || config.sky.liftRate) * dt));
+    // (a far shot's dip: down to skyDipMost, the view's pitch and the dip together never past config.shotView.pitchMax, where main.ts's flat forward flips)
+    let least = 0;
+    if (this.skyDipMost > 0) {
+      const down = -THREE.MathUtils.radToDeg(Math.asin(clamp(cam.getWorldDirection(this.dipDir).y, -1, 1)));
+      least = -Math.min(this.skyDipMost, Math.max(0, config.shotView.pitchMax - down));
+    }
+    const dl2 = Math.max(least, lift) - this.skyLift;
+    this.skyLift = Math.abs(dl2) < 0.02 ? Math.max(least, lift) : this.skyLift + dl2 * (1 - Math.exp(-(this.skyLiftRate || config.sky.liftRate) * dt));
     if (this.skyLift !== 0) cam.rotateX(THREE.MathUtils.degToRad(this.skyLift));
     // Curb: the chase comes down to the kerb, a dolly with no cut, on the rig's own yaw so a turn still sweeps; out again, a crane up to the chase
     const dc = this.curb - this.curbIn;

@@ -307,13 +307,37 @@ interface Live {
   faction: number;
   hue: number;
   full: boolean;
-  /** a Lob's (CometPlan.kind) */
+  /** a Lob's (CometPlan.kind), and a far shot's (CometPlan.far: the view dips after it, shotFrame; no tip up) */
   lob: boolean;
+  far: boolean;
   /** its plan (the blast's, a miss's and a late plan's say which Comet they are); when it took the full show, and the full show's time before it */
   plan: CometPlan | null;
   fullAt: number;
   prevFull: number;
 }
+
+/**
+ * How tall a far Lob's beacon stands (m) for its top to show at -0.2 of the half height by `lens` (main.ts: the view without its dip), at least
+ * config.lob.beacon and at most config.lob.beaconMost: capped at 2 km its top shows from up to about 5 km. A column tall enough to show from 15 km is
+ * about 12 km tall: the producer's call, with a still (BUILT.md, "The Lob from any height").
+ */
+export function beaconHeight(lens: THREE.Camera, x: number, y: number, z: number): number {
+  const L = config.lob, v = beaconV;
+  const ndc = (h: number) => {
+    v.set(x, y + h, z).applyMatrix4(lens.matrixWorldInverse);
+    return v.z >= -1 ? -Infinity : v.applyMatrix4(lens.projectionMatrix).y;
+  };
+  if (ndc(L.beacon) >= -0.2) return L.beacon;
+  if (ndc(L.beaconMost) < -0.2) return L.beaconMost;
+  let lo = L.beacon, hi = L.beaconMost;
+  for (let i = 0; i < 12; i++) {
+    const m = (lo + hi) * 0.5;
+    if (ndc(m) >= -0.2) hi = m;
+    else lo = m;
+  }
+  return hi;
+}
+const beaconV = new THREE.Vector3();
 
 export class CometFx {
   readonly pillars = pillarMesh();
@@ -333,7 +357,9 @@ export class CometFx {
   private readonly base = Array.from({ length: MAX_PILLARS }, () => ({ x: 0, y: 0, z: 0, t: -1e9, h: 0, life: 0, full: false, dropped: false, faction: 0, hue: 0 }));
   private nextPillar = 0;
   /** a Lob's beacon on its landing while its ring shows (beacon): where, since when (it rises once, and stays where it steps along), whose */
-  private readonly mark = { on: false, x: 0, y: 0, z: 0, t: -1e9, faction: 0, hue: 0 };
+  private readonly mark = { on: false, x: 0, y: 0, z: 0, t: -1e9, faction: 0, hue: 0, h: config.lob.beacon };
+  /** the newest far shot thrown: where it lands, until when the view keeps it (its impact and config.shotView.hold after), and a count of them */
+  private readonly farShot = { x: 0, y: 0, z: 0, until: -1e9, n: 0 };
   private nextDrop = 0;
   private lastFull = -1e9;
   private booms: Array<{ at: number; k: number; soft: boolean; lob: boolean }> = [];
@@ -354,7 +380,7 @@ export class CometFx {
     this.dA = this.drops.geometry.getAttribute('dA') as THREE.InstancedBufferAttribute;
     this.dB = this.drops.geometry.getAttribute('dB') as THREE.InstancedBufferAttribute;
     for (let i = 0; i < MAX_COMETS; i++)
-      this.live.push({ on: false, t0: 0, t1: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), arc: 0, launched: false, u: 0, faction: 0, hue: 0, full: false, lob: false, plan: null, fullAt: -1, prevFull: -1e9 });
+      this.live.push({ on: false, t0: 0, t1: 0, from: new THREE.Vector3(), to: new THREE.Vector3(), arc: 0, launched: false, u: 0, faction: 0, hue: 0, full: false, lob: false, far: false, plan: null, fullAt: -1, prevFull: -1e9 });
   }
 
   /** The Comet in flight on this plan, or null. */
@@ -365,7 +391,7 @@ export class CometFx {
 
   /** A Lob in the air still climbing, on the frame's clock (the view tips up while it does: main.ts). */
   lobClimbing(now: number): boolean {
-    for (const c of this.live) if (c.on && c.lob && now < c.t0 + 0.45 * (c.t1 - c.t0)) return true;
+    for (const c of this.live) if (c.on && c.lob && !c.far && now < c.t0 + 0.45 * (c.t1 - c.t0)) return true;
     return false;
   }
 
@@ -373,7 +399,7 @@ export class CometFx {
    *  falling, and from 0.85 of its flight where it lands (the hit is what comes next). False: none up. */
   lobFrame(now: number, out: THREE.Vector3): boolean {
     let first: Live | null = null;
-    for (const c of this.live) if (c.on && c.lob && now < c.t1 && (!first || c.t1 < first.t1)) first = c;
+    for (const c of this.live) if (c.on && c.lob && !c.far && now < c.t1 && (!first || c.t1 < first.t1)) first = c;
     if (!first) return false;
     const c = first, u = Math.max(0, (now - c.t0) / (c.t1 - c.t0)), rise = c.to.y - c.from.y;
     const top = c.arc > 0 ? Math.min(1, Math.max(0, 0.5 + rise / (8 * c.arc))) : 0;
@@ -381,12 +407,22 @@ export class CometFx {
     return true;
   }
 
-  /** A Lob's landing marked while its ring shows (main.ts): a dim, steady pillar of its paint, config.lob.beacon m, an instance of the pillars' own (their
-   *  program and draw, warmed at boot). */
-  beacon(on: boolean, x: number, y: number, z: number, faction: number, hue: number, now: number): void {
+  /** A far shot in flight, or its impact config.shotView.hold s ago: its landing written to out, what the view dips toward from the tap, so the star
+   *  falls into a frame that already holds the hit (main.ts, CameraRig.ts's shotTip). 0: none; else which far shot it is (a new one, a new count). */
+  shotFrame(now: number, out: THREE.Vector3): number {
+    const F = this.farShot;
+    if (now >= F.until) return 0;
+    out.set(F.x, F.y, F.z);
+    return F.n;
+  }
+
+  /** A Lob's landing marked while its ring shows (main.ts): a dim, steady pillar of its paint, config.lob.beacon m (a far one's `h`: beaconHeight), an
+   *  instance of the pillars' own (their program and draw, warmed at boot). */
+  beacon(on: boolean, x: number, y: number, z: number, faction: number, hue: number, now: number, h: number = config.lob.beacon): void {
     const M = this.mark;
     if (on && !M.on) M.t = now;
     M.on = on;
+    M.h = h;
     M.x = x;
     M.y = y;
     M.z = z;
@@ -416,6 +452,15 @@ export class CometFx {
     l.plan = p;
     l.prevFull = this.lastFull;
     l.lob = p.kind === 'lob';
+    l.far = !!p.far;
+    if (l.far) {
+      const F = this.farShot;
+      F.x = p.x;
+      F.y = p.y;
+      F.z = p.z;
+      F.until = l.t1 + config.shotView.hold;
+      F.n++;
+    }
     l.full = full || l.lob || this.show(now);
     if (l.lob) this.stats.lobs++;
     if (l.full) {
@@ -575,7 +620,7 @@ export class CometFx {
       this.pillars.setMatrixAt(k, this.m);
       // (element by element, as above: no array made a frame while the ring shows)
       A[k * 4] = M.t;
-      A[k * 4 + 1] = config.lob.beacon;
+      A[k * 4 + 1] = M.h;
       A[k * 4 + 2] = C.pillarRadius * 0.6;
       A[k * 4 + 3] = 1e6;
       B[k * 4] = M.faction;
