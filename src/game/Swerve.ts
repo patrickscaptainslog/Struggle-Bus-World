@@ -19,8 +19,9 @@ import { SPEED_OF_SOUND } from './Turbo';
 //    speed the flight chases (`keep`), never under `floor`, and never the gear's own (Flight.turbo.speed stays the gear's: the Comet reads it). Eased back
 //    `skidBack` inside, let go, or `hold` s in with a gear driving, it grips: over `grip` s the bus's way comes round to its nose, and the gear pulls the
 //    speed back. With no gear in it can be held: a doughnut.
-//  - The wave. A real slide that grips with a full belly throws it off the outside as a wave ('wave': the boot paints it, and it spends the belly). A tap in
-//    the slide is a shot down the nose instead, and then there's no belly to throw.
+//  - The wave. A real slide that grips with a full belly throws it off the outside as a wave ('wave': the boot paints it, and it spends the belly), when the
+//    thumb chose the grip: eased back in, or over to the other side. Let go, or held till the slide's time is up, it grips with the belly kept, and the next
+//    tap goes down the nose (`liftWave` 1: any grip throws, as stage 1). A tap in the slide is a shot down the nose instead, and then there's no belly to throw.
 // The long swipe's brake is the gears' (TurboDrive.toCruise), and its gesture the boot's (src/swerve/swerveBoot.ts).
 
 const DEG = Math.PI / 180;
@@ -99,6 +100,9 @@ export const swerveTune = {
   waveOut: 44,
   waveBack: 12,
   waveRadius: 64,
+  /** ...and whether a grip the thumb didn't choose throws it too (0..1, on from 0.5): 0, only easing back in or going over to the other side throws it, and
+   *  a lift or the slide's own time keeps the belly for the next tap down the nose, one thumb's skid then shot; 1, any grip throws, as stage 1. */
+  liftWave: 0,
   /** The long swipe's brake (TurboDrive.toCruise): the speed is down to the classic flight's in about this long (s). */
   brakeFor: 0.7,
 };
@@ -231,7 +235,8 @@ export class Swerve {
     } else if (this.phase === Phase.Slide) {
       // (eased back inside, the other way, let go, off; or its time up with a gear driving: with none it can be held, a doughnut)
       const timeUp = this.slideT >= T.hold && Tb.speed > 0;
-      if (!held || (inp.skid ?? -Infinity) < -T.skidBack || side !== this.dir || timeUp) this.grip(f, timeUp);
+      // (let go, or its time up, is quiet: the belly stays for the tap down the nose)
+      if (!held || (inp.skid ?? -Infinity) < -T.skidBack || side !== this.dir || timeUp) this.grip(f, timeUp, !held || timeUp);
     }
     if (this.phase === Phase.Slide) {
       // (the share of the speed it keeps, of the gear's own or the classic flight's: the flight chases that, as it chases any speed)
@@ -295,14 +300,14 @@ export class Swerve {
     if (sliding) this.onEvent?.('grip', false);
   }
 
-  /** The slide grips: the catch begins, the speed is the gear's again, and a full belly goes off the outside. */
-  private grip(f: Flight, self: boolean): void {
+  /** The slide grips: the catch begins, the speed is the gear's again, and a full belly goes off the outside, but for a `quiet` grip (let go, its time up). */
+  private grip(f: Flight, self: boolean, quiet: boolean): void {
     const T = swerveTune;
     this.phase = Phase.Catch;
     this.catchT = 0;
     this.slip0 = this.slip;
     this.keep = 1;
     this.onEvent?.('grip', self);
-    if (this.slideT >= T.waveAfter && this.peak >= T.waveSlip * DEG && f.fullness >= 0.999 && f.barfT < 0) this.onEvent?.('wave', self);
+    if (this.slideT >= T.waveAfter && this.peak >= T.waveSlip * DEG && f.fullness >= 0.999 && f.barfT < 0 && (!quiet || T.liftWave >= 0.5)) this.onEvent?.('wave', self);
   }
 }

@@ -251,6 +251,73 @@ function quickTurn(rungs: number, kind: 'hard' | 'skid', ang: number, dt: number
   row(ok, 'skid, the gear pulls back', out);
 }
 
+// ---------------------------------------------------------------- one thumb out of a skid (stage 2: SWERVE.md section 4)
+/** A skid to the right with a full belly, the thumb at the leash until `until` says, then `end`: 'lift' (let go), 'ease' (back to 110 px, three frames, then
+ *  let go) or 'hold' (held on, the slide's own time ends it). The events, the belly just after the grip, and a tap's aim a frame after it against the nose
+ *  the bus is drawn with then (deg): main.ts aims along the bus's way turned by the view's look and the slip (Aim.point, lookYaw), and draws the nose at the
+ *  way plus the slip, so through the catch the tap goes where the nose points. How far the nose turns on through the catch is printed (the bus's own turn
+ *  dying away), not marked. */
+function oneThumb(rungs: number, end: 'lift' | 'ease' | 'hold', until: (b: Bus) => boolean, dt = 1 / 60) {
+  const b = bus(rungs, true, dt), f = b.f, sw = b.sw!;
+  f.fullness = 1;
+  let events = '', noseAtGrip = NaN, belly = NaN, aimOff = NaN, drift = 0, ended = false, k = 0;
+  sw.onEvent = (ev, self) => {
+    events += `${ev}${self ? '*' : ''} `;
+    // (the boot spends the belly on a wave: so does this)
+    if (ev === 'wave') f.fullness = 0;
+  };
+  while (b.t < 8) {
+    if (!ended && sw.sliding && until(b)) ended = true;
+    let thumb: [number, number] | null = [172, 0];
+    if (ended && end !== 'hold') thumb = end === 'ease' && k++ < 3 ? [110, 0] : null;
+    if (end === 'hold' && !Number.isNaN(noseAtGrip)) thumb = null;
+    const was = sw.sliding;
+    b.frame(dt, thumb);
+    const nose = f.heading + sw.slip;
+    if (was && !sw.sliding) {
+      noseAtGrip = nose;
+      belly = f.fullness;
+    } else if (!Number.isNaN(noseAtGrip)) {
+      if (Number.isNaN(aimOff)) {
+        // (Aim.point: the bus's way, f.fx and f.fz, turned by lookYaw, here the slip alone, no look)
+        const c = Math.cos(sw.slip), s = Math.sin(sw.slip), ax = f.fx * c - f.fz * s, az = f.fz * c + f.fx * s;
+        aimOff = Math.abs(wrap(Math.atan2(ax, -az) - nose));
+      }
+      if (sw.skidding) drift = Math.max(drift, Math.abs(wrap(nose - noseAtGrip)));
+    }
+    if (!Number.isNaN(noseAtGrip) && !sw.skidding) break;
+  }
+  return { events: events.trim(), belly: r2(belly), tapOffTheNoseDeg: r2(aimOff / DEG), noseTurnsOnDeg: r1(drift / DEG), gripped: !Number.isNaN(noseAtGrip) };
+}
+{
+  // (Cruise: a skid of 0.6 s then let go. The hiss, no wave, the belly kept, and a tap a frame later down the nose)
+  const a = oneThumb(0, 'lift', (b) => b.t >= 0.6);
+  row(a.gripped && a.events === 'skid grip' && a.belly === 1 && a.tapOffTheNoseDeg <= 2, 'one thumb, let go', a);
+  // (the same, eased back to 110 px first: the thumb chose the grip, and the belly goes off the outside)
+  const e = oneThumb(0, 'ease', (b) => b.t >= 0.6);
+  row(e.gripped && e.events === 'skid grip wave' && e.belly <= 0.05, 'one thumb, eased back', e);
+  // (Express, held past the slide's 1.5 s: it grips by itself and keeps the belly; with liftWave 1, stage 1's, it throws it)
+  const h = oneThumb(1, 'hold', () => false);
+  const lw = T.liftWave;
+  T.liftWave = 1;
+  const h1 = oneThumb(1, 'hold', () => false);
+  T.liftWave = lw;
+  row(h.gripped && h.events === 'skid grip*' && h.belly === 1 && h1.events === 'skid grip* wave*' && h1.belly <= 0.05, 'one thumb, time up', { liftWave0: h, liftWave1: h1 });
+  // (Jet and Turbo 3: held till the nose is round, then lifted, or the slide's time first; the belly kept, a tap down the nose)
+  const out: Record<string, unknown> = {};
+  let ok = true;
+  for (const [name, rungs] of [GEARS[3], GEARS[6]]) {
+    let h0 = NaN;
+    const r = oneThumb(rungs, 'lift', (b) => {
+      if (Number.isNaN(h0)) h0 = b.f.heading;
+      return b.f.heading + b.sw!.slip - h0 >= Math.PI;
+    });
+    if (!(r.gripped && /^skid grip\*?$/.test(r.events) && r.belly === 1 && r.tapOffTheNoseDeg <= 2)) ok = false;
+    out[name] = r;
+  }
+  row(ok, 'one thumb, turbo half turn', out);
+}
+
 // ---------------------------------------------------------------- a thumb short of room
 {
   // (by the room from the landing to the side: where the hard part begins, where it is all in, and where the skid's line is, in px of real travel; with room to

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ?swerve stands up in a browser and does what its Node rows say, a frame at a time at 1x: node tools/swerve/smoke.mjs [out=shots/tmp/swerve]
 // A served build (BASE, default http://localhost:4179/). One page over the Mission at a fixed step: the hard turn bites (the thumb at 124 px turns the bus
-// faster than the stick alone at its limit), a skid starts, slips and sprays, its grip throws the wave and spends the belly, the long swipe takes Jet to Cruise,
+// faster than the stick alone at its limit), a skid starts, slips and sprays, eased back in it grips and throws the wave and spends the belly, the long swipe takes Jet to Cruise,
 // a page without ?swerve has none of it, and nothing compiled on the way (the programs' count). Frames land in `out`. Prints a row each, exits 1 on a failure.
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
@@ -84,10 +84,11 @@ try {
   const skid = await P.read();
   await P.page.screenshot({ path: `${OUT}/skid.png` });
   row(skid.swerve.sliding && skid.swerve.slip > 0.4 && skid.swerve.roll < -0.02 && skid.full > 0.99, 'the skid', { sliding: skid.swerve.sliding, slipDeg: +((skid.swerve.slip * 180) / Math.PI).toFixed(1), rollDeg: +((skid.swerve.roll * 180) / Math.PI).toFixed(1), speed: +skid.speed.toFixed(1) });
-  // ---- its grip, and the wave
-  await P.stick(0, null);
+  // ---- its grip, and the wave: eased back in, the thumb's own grip (a lift, or the slide's time up, keeps the belly for the next tap: SWERVE.md section 4)
+  await P.stick(1, 110);
   await P.frames(3);
   const grip = await P.read();
+  await P.stick(0, null);
   await P.frames(12);
   await P.page.screenshot({ path: `${OUT}/wave.png` });
   await P.frames(20);
