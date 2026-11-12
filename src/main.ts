@@ -1901,7 +1901,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const L = config.lob, half = camera.fov / 2;
       const star = lobUpDeg(lobSeen), busUp = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
       const want = Math.min(star - half + L.tipTop, busUp + half * L.tipBus);
-      rig.skyLiftTarget = Math.max(rig.skyLiftTarget, cometFx.lobClimbing(simTime) ? L.tip : 0, want);
+      // (the live sky's lift is set afresh each frame above; without it the target is this frame's alone, or it held the star's highest until the hit)
+      rig.skyLiftTarget = Math.max(live ? rig.skyLiftTarget : 0, cometFx.lobClimbing(simTime) ? L.tip : 0, want);
       rig.skyLiftRate = L.tipRate;
     } else if (!live) rig.skyLiftTarget = 0;
     rig.update(camera, focus, flight, dt);
