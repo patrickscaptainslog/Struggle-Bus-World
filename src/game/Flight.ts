@@ -178,8 +178,8 @@ export class Flight {
   /** ?swerve's handling (src/game/Swerve.ts): `swerve.on` off unless the page has ?swerve; its slip, lean and hard are read by the bus's pose and the camera */
   readonly swerve = new Swerve();
   /** A hit's throw (shove()): its clock and time (s), how far (m) along (ux, uz) and how far it has gone, where it began, its arc's height (m), and the height
-   *  the bus must be at this step to clear what's ahead on the rest of it in time (m ASL; -Infinity: no throw) */
-  private readonly sh = { on: false, t: 0, air: 1, far: 0, ux: 0, uz: 0, done: 0, y0: 0, arc: 0, need: -Infinity };
+   *  the bus must be at this step to clear what's ahead on the rest of it in time (m ASL; -Infinity: no throw), and how much of the gear's drive it holds (0..1) */
+  private readonly sh = { on: false, t: 0, air: 1, far: 0, ux: 0, uz: 0, done: 0, y0: 0, arc: 0, need: -Infinity, hold: 0 };
 
   /** A hit is throwing the bus (shove()). */
   get shoving(): boolean {
@@ -190,8 +190,9 @@ export class Flight {
    * A hit throws the bus `far` m along (ux, uz), a unit vector over the ground, in `air` s, eased in and out (src/rivals: a shell's, a ram's, a head-on's).
    * It's flown through the flight's own floors: each step looks along what's left of the throw from where the bus is, and climbs in time, at most SHOVE_CLIMB;
    * where it can't climb in time the throw waits for it. So it never puts the bus in a roof, a wall or a tree, nor lifts it more than 12 m in a frame. One
-   * over 90 m arcs over the city as it goes, as the stand-in's did (12 % of its length, at most 260 m). While it lasts the gear's drive is held, so a head-on
-   * really blows the bus back, and then the gear pulls the speed back. `bounds` [minX, minZ, maxX, maxZ]: it ends inside them.
+   * over 90 m arcs over the city as it goes, as the stand-in's did (12 % of its length, at most 260 m). While it lasts the gear's drive is held as far as the
+   * throw goes against the bus's way, so a head-on really blows the bus back, and then the gear pulls the speed back; one from behind or across leaves the gear
+   * driving. `bounds` [minX, minZ, maxX, maxZ]: it ends inside them.
    */
   shove(far: number, ux: number, uz: number, air: number, bounds?: readonly number[]) {
     const S = this.sh;
@@ -215,6 +216,7 @@ export class Flight {
     S.y0 = this.y;
     S.arc = reach > 90 ? Math.min(260, reach * 0.12) : 0;
     S.need = -Infinity;
+    S.hold = clamp(-(ux * this.fx + uz * this.fz), 0, 1);
   }
 
   get fx() {
@@ -331,10 +333,12 @@ export class Flight {
       targetSpeed = Math.hypot(plainRate, targetSpeed);
     }
     // (?swerve: a skid scrubs the speed the flight chases, a share of the gear's or of the classic flight's, and never the gear's own)
-    // (and a hit's throw holds the gear's drive while it lasts: shove())
-    const scrub = sw.sliding, held = this.sh.on;
-    const drive = held ? 0 : scrub && Tb.speed > 0 ? Math.max(sw.least, Tb.speed * sw.keep) : Tb.speed;
-    const driveRate = held ? 0 : scrub && Tb.speed > 0 ? Math.max(Tb.rate, swerveTune.scrubRate) : Tb.rate;
+    // (and a hit's throw holds the gear's drive while it lasts, as far as it goes against the bus's way: shove())
+    const scrub = sw.sliding, kept = this.sh.on ? 1 - this.sh.hold : 1;
+    const drive = (scrub && Tb.speed > 0 ? Math.max(sw.least, Tb.speed * sw.keep) : Tb.speed) * kept;
+    const gearRate = scrub && Tb.speed > 0 ? Math.max(Tb.rate, swerveTune.scrubRate) : Tb.rate;
+    // (all held, the speed follows at the classic flight's own rate; part held, at what lies between)
+    const driveRate = kept === 1 ? gearRate : kept === 0 || !(gearRate > 0) ? 0 : F.speedHz * 2.2 + (gearRate - F.speedHz * 2.2) * kept;
     const speedScale = scrub && !(Tb.speed > 0) && !(Tb.rate > 0) ? Math.min(this.speedScale, sw.keep) : this.speedScale;
     if (drive > 0) targetSpeed = Math.max(targetSpeed, drive);
     // (a jet breathing fire barely flinches: the recoil stall is the classic bus's)
