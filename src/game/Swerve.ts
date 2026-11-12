@@ -1,5 +1,6 @@
 import { config } from '../config';
 import type { Flight, FlightInput } from './Flight';
+import { SPEED_OF_SOUND } from './Turbo';
 
 // ?swerve: the handling the producer asked for (docs/specs/flight/SWERVE.md), the flight's own. Flight.step runs it inside each of its steps: pre() before the
 // speed and the steering, post() at the end. Behind `on`, which only ?swerve sets: off, nothing here touches the flight, not a bit of it. What the stick asks
@@ -36,9 +37,11 @@ export const swerveTune = {
   /** The hard turn: the thumb's sideways travel from its landing (CSS px) where today's stick ends and it begins, and where it is all in. */
   hardFrom: 78,
   hardFull: 120,
-  /** ...how many times today's most it is, by the speed (m/s): Cruise, Express, Nonstop, Jet, Turbo 3. In between by the speed's log. */
-  hardAt: [30, 112, 225, 450, 900],
-  hardGain: [1.5, 2.15, 2.35, 2.45, 2.55],
+  /** ...how many times today's most it is, by the speed (m/s): Cruise, Express, Nonstop, Jet, Turbo 1, 2 and 3. In between by the speed's log. One law the
+   *  whole ladder up, "turn more aggressively in all gears": all in, half a turn takes 1.5 s x (speed / 26.4)^0.2, 15 % longer each time the speed doubles,
+   *  where today's stick takes 2.2 times longer (the "really long turns" in turbo). Solved gear by gear on the real flight (tools/swerve/s_turns.ts holds it). */
+  hardAt: [30, 112, 225, 450, 585, 720, 900],
+  hardGain: [1.5, 2.15, 2.75, 3.51, 3.83, 4.12, 4.45],
   /** ...and the steering spring at full hard (Hz; config.flight.bungeeHz out of it), and the camera's yaw spring times this, so it keeps up (CameraRig). */
   hardHz: 5,
   hardCam: 1.8,
@@ -56,20 +59,29 @@ export const swerveTune = {
   squeezeSmooth: 52,
   squeezeHard: 16,
   squeezeSkid: 10,
+  /** ...and how much the hard turn shrinks with the hard part squeezed (0..1): 1, no px of thumb turns more than a px of the whole stick does; 0, the
+   *  squeezed hard part still gives the whole gain, steeper (stage 1). */
+  squeezeCap: 1,
   /** A thumb can be read to within this of the glass's sides (px): the room it has (Input). */
   inset: 14,
   skidHold: 0.08,
   skidMin: 10,
-  /** ...the nose's swing (rad/s) by the speed (m/s), and what the slip grows by at the least (rad/s: the nose always leads). */
+  /** ...the nose's swing (rad/s) by the speed (m/s): 180 degrees a second to Express, 160 at Nonstop, 140 at Jet, 120 at Turbo 3, so the skid is the quick
+   *  turn in every gear ("when I'm in turbo mode I want a way to quickly turn"); and what the slip grows by at the least (rad/s: the nose always leads). */
   noseAt: [112, 225, 450, 900],
-  noseRate: [3.14, 2.18, 1.57, 1.05],
+  noseRate: [3.1416, 2.7925, 2.4435, 2.0944],
   slipMin: 0.5,
+  /** ...over the last this many degrees before slipMax the slip's growth eases off (0: a hard stop at the cap), so the nose never drops from its swing to the
+   *  way's in one frame. */
+  slipSoft: 12,
   /** ...the most slip (deg), the share of the speed a full slip scrubs a second, the speed it never goes under (m/s; or what it began at, if that was less), how
    *  fast the speed follows (1/s). */
   slipMax: 70,
   scrub: 0.4,
   floor: 20,
   scrubRate: 6,
+  /** ...and a bus over the speed of sound never goes under this share of it (0..1): the gears re-arm the boom under 0.92 of it, and the boom is theirs. */
+  machKeep: 0.95,
   /** ...how long the grip takes (s), and how long a slide lasts with a gear driving (s). */
   grip: 0.3,
   hold: 1.5,
@@ -180,7 +192,8 @@ export class Swerve {
     // ---- the hard turn, and the swoop over it
     const u = held ? ss(0, 1, hard) : 0;
     this.hard = u;
-    let gain = 1 + (hardGainAt(f.speed) - 1) * u;
+    // (a hard part squeezed near the glass's side gives its share of the gain, Input's hardTop: never steeper per px than the whole stick)
+    let gain = 1 + (hardGainAt(f.speed) - 1) * u * (inp.hardTop ?? 1);
     // (only a nose the stick has put there: skimming the roofs the bus rises and sinks by itself, and its turn mustn't breathe with them)
     const steep = on && yoked ? 1 / Math.max(Math.cos(f.nose), 1 / Math.max(1, T.swoopMax)) : 1;
     this.steep += (steep - this.steep) * (1 - Math.exp(-(steep > this.steep ? T.swoopEase : T.swoopFall) * dt));
@@ -204,7 +217,8 @@ export class Swerve {
       this.dir = side;
       this.slideT = 0;
       this.peak = Math.abs(this.slip);
-      this.least = Math.min(T.floor, f.speed);
+      // (and a bus over the speed of sound stays over the gears' boom line: a skid never takes it back through, and booms it again on the way up)
+      this.least = Math.max(Math.min(T.floor, f.speed), f.speed > SPEED_OF_SOUND ? clamp(T.machKeep, 0, 1) * SPEED_OF_SOUND : 0);
       this.armed = false;
       this.onEvent?.('skid', false);
     } else if (this.phase === Phase.Slide) {
@@ -231,8 +245,11 @@ export class Swerve {
     if (this.phase === Phase.Slide) {
       this.slideT += dt;
       // (the nose swings at its own rate, the bus's way at the flight's: the slip is what the nose has over it, and it always has some)
+      // (easing off over the last slipSoft degrees to the cap: the nose comes off its swing smoothly, and the camera behind it with it)
       const w = f.yawRate * this.dir;
-      this.slip = clamp(this.slip + this.dir * Math.max(noseRateAt(f.speed) - w, T.slipMin) * dt, -cap, cap);
+      let grow = Math.max(noseRateAt(f.speed) - w, T.slipMin);
+      if (T.slipSoft > 0) grow *= ss(0, T.slipSoft * DEG, cap - this.slip * this.dir);
+      this.slip = clamp(this.slip + this.dir * grow * dt, -cap, cap);
       this.peak = Math.max(this.peak, this.slip * this.dir);
       // (a full belly's weight, or a push let go, can leave the classic flight's own speed under the least: the skid never takes it there)
       if (f.speed < this.least) f.speed = this.least;

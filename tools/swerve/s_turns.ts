@@ -12,7 +12,12 @@
 //            scrubs the flight's speed and never the gear's own, so the Comet stays on (the review of 018c5d8, m101); the street taking the bus mid-skid
 //            leaves nothing of it, the hard part's stiff camera included, and grips it; and a skid goes the thumb's way, whatever else turns the bus (the
 //            review of 47d7d97)
-//   swoop    up, over and down at Cruise, Express and Jet: how long the reversal takes with it and without; the turn never over three times its flat rate
+//   quick    stage 2's quick turn: a quarter and a half turn, hard and in a skid, in every gear at 30 and 60 fps: from Jet up the skid's quarter turn in
+//            1.15 s, its half in 2 s (Turbo 3's under 1 km wide), the hard half turn on one law (1.5 s x (v / 26.4)^0.2, within 5 %), Cruise and Express
+//            within 0.05 s of stage 1's; the slip's soft end (no lurch in the nose's rate); over the speed of sound a skid stays over 0.95 of it (no second
+//            boom); after the grip the gear has 95 % of its speed back within 1.2 s
+//   swoop    up, over and down at Cruise, Express, Jet, Turbo 1 and Turbo 3: how long the reversal takes with it and without; the turn never over three times
+//            its flat rate; in Turbo 1 and 3 round in 3.3 s
 //   brake    the long swipe's brake: at Cruise's speed from every gear in under 0.8 s
 //   camera   the bus stays in the frame through a hard turn, a skid and its grip, in every gear
 // Prints each, and exits 1 if a row fails.
@@ -123,6 +128,127 @@ for (const [name, rungs] of GEARS) {
     out[kind] = `${r2(a.t)} s, ${a.wide < 100 ? r1(a.wide) : Math.round(a.wide)} m` + (kind === 'skid' ? ` (nose round at ${r2(a.noseAt)} s, slowest ${Math.round(a.least)} of ${Math.round(a.speed)} m/s)` : '') + ` [30 fps: ${r2(c.t)} s, ${c.wide < 100 ? r1(c.wide) : Math.round(c.wide)} m]`;
   }
   row(ok, name, out);
+}
+
+// ---------------------------------------------------------------- the quick turn (stage 2: SWERVE.md section 2, "The quick turn in turbo")
+/** A turn of `ang` to the right: hard (124 px), or the skid (the leash till the nose is round, then let go); done when the bus's way is round and the skid
+ *  over. Its time, how wide it went, the slowest speed, and how long after it the speed was 95 % of what it began at. */
+function quickTurn(rungs: number, kind: 'hard' | 'skid', ang: number, dt: number) {
+  const b = bus(rungs, true, dt), f = b.f, sw = b.sw!, h0 = f.heading, x0 = f.x, z0 = f.z, v0 = f.speed, rx = Math.cos(h0), rz = Math.sin(h0);
+  const px = kind === 'hard' ? 124 : 172, gear = b.drive.gear + b.drive.level;
+  let wide = 0, least = v0, letGo = false, done = NaN, back = NaN, booms = 0, skidAt = NaN, gripAt = NaN, sameGear = true;
+  b.drive.onEvent = (ev) => {
+    if (ev === 'boom' && !Number.isNaN(skidAt)) booms++;
+  };
+  sw.onEvent = (ev) => {
+    if (ev === 'skid') skidAt = b.t;
+    if (ev === 'grip') gripAt = b.t;
+  };
+  while (b.t < 30) {
+    if (kind === 'skid' && !letGo && f.heading + sw.slip - h0 >= ang) letGo = true;
+    b.frame(dt, !Number.isNaN(done) || letGo ? null : [px, 0]);
+    wide = Math.max(wide, (f.x - x0) * rx + (f.z - z0) * rz);
+    least = Math.min(least, f.speed);
+    if (b.drive.gear + b.drive.level !== gear) sameGear = false;
+    if (Number.isNaN(done) && f.heading - h0 >= ang - (kind === 'skid' ? 2 * DEG : 0) && !sw.skidding) done = b.t;
+    if (!Number.isNaN(done) && Number.isNaN(back) && f.speed >= 0.95 * v0) back = b.t;
+    if (!Number.isNaN(done) && (!Number.isNaN(back) || b.t > done + 8)) break;
+  }
+  return { t: done, wide, v0, least, sameGear, booms, back: back - done, gripAt };
+}
+{
+  // (stage 1's, 302e6de, for Cruise and Express, where the quick turn changes only by the slip's soft end: hard 90 and 180, skid 90 and 180, seconds)
+  const STAGE1: Record<string, number[]> = { Cruise: [0.78, 1.5, 0.85, 1.35], Express: [1.03, 2.02, 0.87, 1.57] };
+  const law = (v: number) => 1.5 * Math.pow(v / 26.4, 0.2);
+  const hard180: number[] = [];
+  for (const [name, rungs] of GEARS) {
+    const out: Record<string, string> = {};
+    let ok = true;
+    const at60: number[] = [];
+    for (const kind of ['hard', 'skid'] as const)
+      for (const ang of [Math.PI / 2, Math.PI]) {
+        const a = quickTurn(rungs, kind, ang, 1 / 60), c = quickTurn(rungs, kind, ang, 1 / 30);
+        at60.push(a.t);
+        if (!(Math.abs(a.t - c.t) / a.t <= 0.03 || Math.abs(a.t - c.t) <= 1 / 30 + 1e-9)) ok = false;
+        if (!a.sameGear || !c.sameGear || Number.isNaN(a.t)) ok = false;
+        const deg = ang > 2 ? 180 : 90;
+        let mark = '';
+        if (kind === 'hard' && deg === 180) {
+          hard180.push(a.t);
+          const lw = law(a.v0);
+          if (Math.abs(a.t / lw - 1) > 0.05) ok = false;
+          mark = ` (the law ${r2(lw)} s)`;
+        }
+        if (rungs >= 3 && kind === 'skid') {
+          if (deg === 90 && a.t > 1.15) ok = false;
+          if (deg === 180 && a.t > 2.0) ok = false;
+          if (deg === 180 && rungs === 6 && a.wide > 1000) ok = false;
+        }
+        out[`${kind} ${deg}`] = `${r2(a.t)} s, ${a.wide < 100 ? r1(a.wide) : Math.round(a.wide)} m wide, slowest ${Math.round(a.least)} of ${Math.round(a.v0)} m/s${mark} [30 fps: ${r2(c.t)} s]`;
+      }
+    const s1 = STAGE1[name];
+    if (s1) {
+      for (let i = 0; i < 4; i++) if (Math.abs(at60[i] - s1[i]) > 0.05) ok = false;
+      out['stage 1'] = s1.join(', ');
+    }
+    row(ok, `quick, ${name}`, out);
+  }
+  // (the hard half turn along the ladder: each gear's a little longer than the one below, never much: at most 20 % longer for each doubling of the speed
+  // between them (the law's is 15 %; today's stick takes 2.2 times longer). Cruise to Express is more than two doublings, so it's taken per doubling)
+  let rising = true;
+  const v = GEARS.map(([, rungs]) => bus(rungs, true, 1 / 60).f.speed);
+  const perDoubling = hard180.slice(1).map((t, i) => Math.pow(t / hard180[i], 1 / Math.log2(v[i + 1] / v[i])));
+  for (let i = 1; i < hard180.length; i++) if (!(hard180[i] > hard180[i - 1] && perDoubling[i - 1] <= 1.2)) rising = false;
+  row(rising, 'quick, one law', { hard180: hard180.map(r2), longerPerDoubling: perDoubling.map(r2) });
+}
+{
+  // (the slip eases into its cap: through a held skid at Cruise and at Turbo 3, after its first 0.1 s (the snap of the nose is the skid's own start), no
+  // frame's change of the nose's rate over 0.15 rad/s at 60 fps, its grip included; and at Cruise, with no gear to end it, the slip comes within 1 deg of
+  // its cap)
+  const out: Record<string, unknown> = {};
+  let ok = true;
+  for (const [name, rungs] of [GEARS[0], GEARS[6]]) {
+    const b = bus(rungs, true, 1 / 60), f = b.f, sw = b.sw!;
+    let last = f.heading + sw.slip, lastRate = NaN, worst = 0, slideT = 0, slipEnd = 0, gripped = false;
+    for (let k = 0; k < (rungs === 0 ? 2.5 : 2.2) * 60; k++) {
+      b.frame(1 / 60, [172, 0]);
+      const nose = f.heading + sw.slip, rate = (nose - last) * 60;
+      last = nose;
+      if (sw.sliding) slideT += 1 / 60;
+      const inIt = sw.skidding && slideT > 0.1 && !gripped;
+      if (inIt && !Number.isNaN(lastRate)) worst = Math.max(worst, Math.abs(rate - lastRate));
+      if (sw.skidding && !sw.sliding) gripped = true;
+      lastRate = inIt ? rate : NaN;
+      if (sw.sliding) slipEnd = Math.abs(sw.slip);
+    }
+    if (worst > 0.15) ok = false;
+    if (rungs === 0 && Math.abs(slipEnd / DEG - T.slipMax) > 1) ok = false;
+    out[name] = { noseRateStepAtMost: r2(worst), slipAtTheEndDeg: r1(slipEnd / DEG) };
+  }
+  row(ok, 'skid, the soft cap', out);
+}
+{
+  // (a skid's half turn over the speed of sound never takes the bus back under 0.95 of it: no second boom on the way back up, and the gear is the gear)
+  const out: Record<string, unknown> = {};
+  let ok = true;
+  for (const [name, rungs] of [GEARS[3], GEARS[4]]) {
+    const a = quickTurn(rungs, 'skid', Math.PI, 1 / 60);
+    if (a.least < 0.95 * 343 - 1e-6 || a.booms > 0 || !a.sameGear) ok = false;
+    out[name] = { slowest: r1(a.least), of: Math.round(a.v0), boomsAfterTheSkid: a.booms };
+  }
+  row(ok, 'skid, the speed of sound', out);
+}
+{
+  // (and after the grip the gear pulls the speed back as it does today: 95 % of it within 1.2 s of the turn's end, the grip's catch over, Nonstop to
+  // Turbo 3; the grip itself began T.grip before that)
+  const out: Record<string, number> = {};
+  let ok = true;
+  for (const [name, rungs] of GEARS.slice(2)) {
+    const a = quickTurn(rungs, 'skid', Math.PI, 1 / 60);
+    if (!(a.back <= 1.2)) ok = false;
+    out[name] = r2(a.back);
+  }
+  row(ok, 'skid, the gear pulls back', out);
 }
 
 // ---------------------------------------------------------------- a thumb short of room
@@ -259,9 +385,9 @@ for (const [name, rungs] of GEARS) {
 }
 
 // ---------------------------------------------------------------- the swoop
-for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
+for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3], GEARS[4], GEARS[6]]) {
   const out: Record<string, unknown> = {};
-  let worstGain = 0;
+  let worstGain = 0, roundWith = NaN;
   for (const on of [false, true]) {
     // (one arc: straight down for `up` s, then down and across until the bus has come round, then pushed till it's level)
     const b = bus(rungs, on, 1 / 60), f = b.f, h0 = f.heading, y0 = f.y;
@@ -277,6 +403,7 @@ for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
       void flatRate;
     }
     out[on ? 'with' : 'today'] = `round at ${r2(round)} s, ${Math.round(top)} m up, done at ${r2(b.t)} s`;
+    if (on) roundWith = round;
   }
   // (the turn against its flat rate: the same stick level and at the steepest nose, the stand-in on)
   for (const steep of [false, true]) {
@@ -291,7 +418,8 @@ for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
     else out.flat = w;
   }
   delete out.flat;
-  row(worstGain <= T.swoopMax * 1.6, `swoop, ${name}`, out);
+  // (in Turbo 1 to 3, on the quick turn's hard part: nearly a 180 in about 3 s, "swerve up, then dive down, and then essentially almost do a 180")
+  row(worstGain <= T.swoopMax * 1.6 && (rungs < 4 || roundWith <= 3.3), `swoop, ${name}`, out);
 }
 
 // ---------------------------------------------------------------- the long swipe's brake

@@ -1936,7 +1936,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     rivals?.pre();
     const hard = gateShut || leaving || !!land?.arriving ? NaN : st.hard;
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
-    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x, hard, skid: st.skid, side: st.side, frame: dt }, city);
+    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x, hard, skid: st.skid, side: st.side, hardTop: st.hardTop, frame: dt }, city);
     swerve?.post(dt);
     curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);

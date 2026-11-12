@@ -58,10 +58,12 @@ export interface FlightInput {
   dragging: boolean;
   /** ?swerve (Flight.swerve): how far into the stick's hard part the thumb is (0..1), and how far past the skid's line (px of the stick's own scale: 0 and
    *  over is past), as Input says them (InputState.hard, .skid), and the side the thumb is out to (.side: +1 right, -1 left; 0 or left out, sx's). hard NaN or
-   *  left out: none of it this step */
+   *  left out: none of it this step. hardTop: the share of the hard turn's gain the thumb's hard part gives (InputState.hardTop: under 1 squeezed by the
+   *  glass's side; left out, 1) */
   hard?: number;
   skid?: number;
   side?: number;
+  hardTop?: number;
   /** the whole frame's time (s) this step is a share of (main.ts's dt): a throw's climb in a frame is held to SHOVE_FRAME by it. Left out: no frame's limit */
   frame?: number;
 }

@@ -103,10 +103,12 @@ export interface InputState {
   bomb: { on: boolean; tier: number; t0: number; at: number };
   /** ?swerve's longer stick (stickParts): how far into the hard part the steering thumb's sideways travel is (0..1), and how far past the skid's line it is (px
    *  of the stick's own scale: 0 and over is past, and a slide grips once it's swerveTune.skidBack under). 0 and -Infinity with nobody steering. And which side
-   *  that travel is (+1 right, -1 left, 0 none): the skid's side, whatever else turns the bus (past the map's edge main.ts homes it back). */
+   *  that travel is (+1 right, -1 left, 0 none): the skid's side, whatever else turns the bus (past the map's edge main.ts homes it back). hardTop: the share of
+   *  the hard turn's gain the hard part gives, under 1 where the glass's side squeezes it (stickParts), so no px of thumb turns more than the whole stick's. */
   hard: number;
   skid: number;
   side: number;
+  hardTop: number;
 }
 
 /** Live-tunable gesture numbers (tuner group "Input"). */
@@ -293,7 +295,18 @@ export function readFlick(dx: number, dy: number, ms: number, px: number, maxMs:
 export function stickScale(travel: number, room: number): number {
   const T = swerveTune;
   if (room >= T.skidFrom + T.squeezeSkid || travel <= 0) return travel;
-  // (in px of real travel: where the hard part begins, where it is all in, and the skid's line; at least 4 px between the last two, as the stand-in had)
+  const { from, full, skid } = squeezed(room);
+  if (travel <= from) return (travel * T.hardFrom) / from;
+  if (travel <= full) return T.hardFrom + ((travel - from) / (full - from)) * (T.hardFull - T.hardFrom);
+  if (travel <= skid) return T.hardFull + ((travel - full) / (skid - full)) * (T.skidFrom - T.hardFull);
+  return T.skidFrom + (travel - skid);
+}
+
+const bends = { from: 0, full: 0, skid: 0 };
+/** stickScale's bends with `room` short of the whole stick (in px of real travel): where the hard part begins, where it is all in, and the skid's line. */
+function squeezed(room: number): { from: number; full: number; skid: number } {
+  const T = swerveTune;
+  // (at least 4 px between the last two, as the stand-in had)
   let from: number, full: number;
   const least = T.squeezeSmooth + T.squeezeHard + 4;
   let skid: number;
@@ -312,21 +325,32 @@ export function stickScale(travel: number, room: number): number {
       full = Math.min(T.hardFull, Math.max(from + T.squeezeHard, skid - 14));
     }
   }
-  if (travel <= from) return (travel * T.hardFrom) / from;
-  if (travel <= full) return T.hardFrom + ((travel - from) / (full - from)) * (T.hardFull - T.hardFrom);
-  if (travel <= skid) return T.hardFull + ((travel - full) / (skid - full)) * (T.skidFrom - T.hardFull);
-  return T.skidFrom + (travel - skid);
+  bends.from = from;
+  bends.full = full;
+  bends.skid = skid;
+  return bends;
 }
 
-/** stickScale's travel as the flight takes it (InputState.hard and .skid, into `out`): how far into the hard part (0..1), and how far past the skid's line (px). */
-export function stickParts(travel: number, room: number, out: { hard: number; skid: number }): void {
+/**
+ * stickScale's travel as the flight takes it (InputState.hard and .skid, into `out`): how far into the hard part (0..1), and how far past the skid's line (px).
+ * And `hardTop`, if `out` has it: the squeezed hard part's width over the whole one's (1 with room to spare), so near the glass's side the hard turn grows
+ * no steeper per px of thumb than the whole stick's (swerveTune.squeezeCap 1; 0, the whole gain however narrow, as stage 1 had it).
+ */
+export function stickParts(travel: number, room: number, out: { hard: number; skid: number; hardTop?: number }): void {
   const T = swerveTune, x = stickScale(travel, room);
   out.hard = Math.min(1, Math.max(0, (x - T.hardFrom) / Math.max(1e-6, T.hardFull - T.hardFrom)));
   out.skid = x - T.skidFrom;
+  if (out.hardTop === undefined) return;
+  let top = 1;
+  if (room < T.skidFrom + T.squeezeSkid) {
+    const b = squeezed(room);
+    top = Math.min(1, (b.full - b.from) / Math.max(1e-6, T.hardFull - T.hardFrom));
+  }
+  out.hardTop = 1 - Math.min(1, Math.max(0, T.squeezeCap)) * (1 - top);
 }
 
 export class Input {
-  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 }, hard: 0, skid: -Infinity, side: 0 };
+  readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 }, hard: 0, skid: -Infinity, side: 0, hardTop: 1 };
   onTap: (() => void) | null = null;
   /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
   onAimStart: (() => void) | null = null;
@@ -625,6 +649,7 @@ export class Input {
       st.side = 0;
       st.hard = 0;
       st.skid = -Infinity;
+      st.hardTop = 1;
     }
   }
 

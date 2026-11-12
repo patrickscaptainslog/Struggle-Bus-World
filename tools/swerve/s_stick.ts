@@ -6,6 +6,8 @@
 //   reach     ours: from every one of those landings, both sides, the hard turn all in and the skid are in reach (the travel each needs fits the room)
 //   squeeze   the stand-in's (rule 1), printed as the review's probe printed it (sb-checks' p_flat.log, parts A and B): where the parts are at ten landings,
 //             and the 70 px thumb's turn with room to spare and with 99 px of room. Its part A is held to the stand-in's own numbers
+//   squeeze, Turbo 3  ours, stage 2: the real Swerve.pre's gain a px of thumb at 100 and 60 px of room no more than the whole stick's (Input's hardTop),
+//             hardTop 1 with 148 px of room or more, and with swerveTune.squeezeCap 0 stage 1's steeper squeeze
 // Prints each, and exits 1 if a row fails.
 import { config } from '../feel-sim/lib';
 import { Flight } from '@src/game/Flight';
@@ -153,6 +155,47 @@ T.rule = 1;
   }
 }
 T.rule = rule;
+
+// ---------------------------------------------------------------- ours: the hard part squeezed is never steeper (stage 2, SWERVE.md section 3)
+{
+  // (the real Swerve.pre at Turbo 3 hands back the step's gain for each px of travel short of the skid's line, by Input's stickParts with the room it has;
+  // the most it grows over a px, against the whole stick's with room to spare. squeezeCap 0 gives stage 1's: the whole gain in the squeezed part)
+  const f = new Flight();
+  f.swerve.on = true;
+  f.speed = 899.5;
+  const gainAt = (travel: number, room: number) => {
+    const p = { hard: 0, skid: -Infinity, hardTop: 1 };
+    stickParts(travel, room, p);
+    f.swerve.pre(1 / 120, { sx: stickOf(travel), sy: 0, dragging: true, hard: p.hard, skid: Math.min(p.skid, -1), side: 1, hardTop: p.hardTop }, f, false);
+    return { gain: f.swerve.gain, top: p.hardTop, past: p.skid >= 0 };
+  };
+  const steepest = (room: number) => {
+    let most = 0, top = 1;
+    for (let x = 0.05; x <= Math.min(room, 400); x += 0.05) {
+      const a = gainAt(x - 0.05, room), b = gainAt(x, room);
+      if (b.past) break;
+      most = Math.max(most, b.gain - a.gain);
+      top = b.top;
+    }
+    return { perPx: most / 0.05, top };
+  };
+  const cap = T.squeezeCap;
+  const whole = steepest(Infinity), out: Record<string, unknown> = { wholeStick: `${+whole.perPx.toFixed(4)} a px` };
+  let ok = whole.top === 1;
+  for (const room of [100, 60]) {
+    const s = steepest(room);
+    if (s.perPx > whole.perPx * (1 + 1e-6)) ok = false;
+    out[`room ${room}`] = `${+s.perPx.toFixed(4)} a px, top ${+s.top.toFixed(3)}`;
+  }
+  for (const room of [148, 200]) if (steepest(room).top !== 1) ok = false;
+  T.squeezeCap = 0;
+  const s1 = steepest(100);
+  T.squeezeCap = cap;
+  // (stage 1's squeeze at 100 px of room: the whole 3.45 over 16 px, about 42/16 times the whole stick's per px)
+  if (!(s1.top === 1 && s1.perPx > whole.perPx * 2)) ok = false;
+  out['squeezeCap 0, room 100'] = `${+s1.perPx.toFixed(4)} a px, top ${s1.top}`;
+  row(ok, 'squeeze, Turbo 3', out);
+}
 
 console.log(bad ? `${bad} FAIL` : 'all pass');
 process.exit(bad ? 1 : 0);
