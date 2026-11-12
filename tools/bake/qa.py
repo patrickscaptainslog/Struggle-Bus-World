@@ -189,9 +189,13 @@ def thresholds(over, log=_log):
                 looser = v not in GATE or GATE.index(v) < GATE.index(Q[k])
             else:
                 # (a finite real number only: json.load reads NaN, and every comparison with it is false, so it never read
-                # as looser and no check could be over again; Infinity is no limit either, and true is an int to Python)
-                looser = (not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v)
-                          or (v - Q[k]) * TIGHTER[k] < 0)
+                # as looser and no check could be over again; Infinity is no limit either, and true is an int to Python. An
+                # int too large for a float, which json.load reads too, raises in isfinite: refused with them)
+                try:
+                    finite = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                except OverflowError:
+                    finite = False
+                looser = not finite or (v - Q[k]) * TIGHTER[k] < 0
             if looser:
                 refused.append((k, v, Q[k]))
                 log(f'the config\'s "qa" can tighten a limit, never loosen one: {k} {v!r} ignored, {Q[k]!r} stands')

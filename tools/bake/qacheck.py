@@ -38,9 +38,10 @@ OVERRIDES = [
     ('cell', 4096.0, False), ('cell', 32.0, False), ('wcRes', 40.0, False), ('wcRes', 1.0, False),
     ('worst', 100, True), ('crops', 2, True), ('cropMax', 1200.0, True),
     # (a finite real number only, as json.load reads a config's NaN, Infinity and true: every comparison with NaN is false,
-    # so taken, no check could be over again)
+    # so taken, no check could be over again; and an int too large for a float, refused and listed, not raised)
     ('unsupportedMax', float('nan'), False), ('streetFigureMin', float('nan'), False), ('standInsMax', float('nan'), False),
     ('deckFreeEndMax', float('-inf'), False), ('streetFigureMin', float('inf'), False), ('minFlagged', True, False),
+    ('deckFreeEndMax', -10 ** 400, False), ('streetFigureMin', 10 ** 400, False),
 ]
 
 
