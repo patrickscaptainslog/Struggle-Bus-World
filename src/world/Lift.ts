@@ -166,6 +166,8 @@ export class Lift implements LiftHooks, FieldHouses {
   private sky: SkyPiece | null = null;
   /** the sky piece being built, a part a frame (frame()), from the frame after staging's last */
   private skyBuild: ReturnType<typeof makeSkyPiece> = null;
+  /** the bus as frame() had it, for lens() (the caller's own object) */
+  private busAt: { x: number; y: number; z: number } | null = null;
 
   constructor(private readonly g: LiftGame) {
     const { city, hoods, hood } = g;
@@ -763,6 +765,14 @@ export class Lift implements LiftHooks, FieldHouses {
   private stageN = 0;
 
   /**
+   * Once a frame, after the camera and before the frame is drawn: the sky piece's cut round the bus from where the lens is now (frame() has
+   * last frame's: a punch or a look behind can move it further in a frame than the cut's slack)
+   */
+  lens(cam: THREE.Vector3) {
+    if (this.busAt) this.sky?.bus(this.busAt.x, this.busAt.y, this.busAt.z, cam);
+  }
+
+  /**
    * Once a frame, after the flight. `now` the game clock, dt its step, realDt the wall clock's; the bus and the camera, the opening's fog (0..1
    * gone). Schedules &lifted's wave, holds a house that would jump into the bus or the camera, takes houses up, uploads what changed.
    */
@@ -775,8 +785,9 @@ export class Lift implements LiftHooks, FieldHouses {
       this.skyStep();
       busy = true;
     }
-    // (after skyStep: a piece finished this frame, after the wave began, is drawn this frame, round the bus already)
-    this.sky?.bus(bus.x, bus.y, bus.z, cam);
+    // (the bus for the sky piece's cut, handed over in lens() once the lens is where the frame is drawn from: after skyStep, so a piece
+    // finished this frame, after the wave began, is drawn this frame round the bus already)
+    this.busAt = bus;
     if (!busy && liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
       this.waveAt = now + 0.6;
       // (placed low ones first, out from the heart, then the rest: waveOrder, plan(). The crouches go by distance whatever the order)

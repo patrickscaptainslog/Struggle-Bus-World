@@ -1272,8 +1272,8 @@ export interface SkyPiece {
   cols: number[][];
   start(t: number): void;
   /**
-   * where the bus is now and the lens was last frame (m): the piece isn't drawn between the lens and it (the shaders' sbCut), and draws in its
-   * cut program only while the cut's cone can reach it
+   * where the bus and the lens are as the frame is drawn (m): the piece isn't drawn between the lens and it (the shaders' sbCut), and draws in
+   * its cut program only while the cut's cone can reach it
    */
   bus(x: number, y: number, z: number, cam: THREE.Vector3): void;
 }
@@ -1316,7 +1316,6 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
   mesh.frustumCulled = false;
   mesh.renderOrder = 1;
   const b = cut.uniforms.uSkyBus.value as THREE.Vector4;
-  let lx = NaN, ly = 0, lz = 0;
   return {
     mesh,
     tris: g.idx.length / 3,
@@ -1329,12 +1328,8 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
       b.x = x;
       b.y = y;
       b.z = z;
-      // (the lens is last frame's: the cone is held to the boxes grown by twice its last move, and 4 m, for where it is when the frame is drawn)
-      const moved = Number.isNaN(lx) ? 0 : Math.hypot(cam.x - lx, cam.y - ly, cam.z - lz);
-      lx = cam.x;
-      ly = cam.y;
-      lz = cam.z;
-      mesh.material = cutReaches(reach, cam.x, cam.y, cam.z, x, y, z, b.w, 4 + 2 * moved) ? cut : plain;
+      // (the lens as the frame is drawn, Lift.lens: 4 m of slack for the pipeline's snapped copy of it, a pixel off)
+      mesh.material = cutReaches(reach, cam.x, cam.y, cam.z, x, y, z, b.w, 4) ? cut : plain;
     },
   };
 }

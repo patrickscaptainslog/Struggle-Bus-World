@@ -1750,6 +1750,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         input.busZone = busLane;
       }
     }
+    // (?lift: the sky piece's cut round the bus from the lens as it is now)
+    lift?.lens(camera.position);
     pipeline.render(scene);
     framesDrawn++;
     // (a tap in the grey has skipped it already)
