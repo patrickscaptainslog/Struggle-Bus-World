@@ -20,8 +20,9 @@ import { blastRadiusFor } from './blastLayout';
 // keeps its body and runs it on config.lob.latch from there, as the Comet's latch is renewed at the press, but never past twice config.lob.latch from when
 // the body was latched, and only with the belly ready (Aimer.press): taps mashed on an empty belly ran it on until it was full, and threw a Lob 2.7 s after
 // the last, the bus level (the Lob review's M90). A finger that slides past the tap slop commits as a steering thumb, but lifted within
-// inputTune.quickTapMs it's still a tap: for that long the latch it found stays the body a tap throws, with the end it had (a flick, a stroke as short,
-// gave it a new 0.8 s each time). A second thumb's tap, the first still steering, reads it live.
+// inputTune.quickTapMs it's still a tap: for that long the latch it found stays the body a tap throws, with the end it had before its own finger's landing
+// ran it on (a flick, a stroke as short, gave it a new 0.8 s each time, its landing a press: the review of these fixes). A second thumb's tap, the first
+// still steering, reads it live.
 //
 // In view: by the lens moved on by the bus's travel to the impact, it must land config.lob.above of the height over the bus, the Comet's rule on its own number; where it
 // doesn't it moves out along its line a stretch at a time, and past config.comet.reach the tap is today's. The landing is the middle of a stretch of its way
@@ -64,6 +65,8 @@ export class Lob {
   private latchedDive = false;
   private latchedAt = -1;
   private latchUntil = -1;
+  /** the latch's end before the last press ran it on (-1: it didn't), the end a stroke that press became parks */
+  private ranFrom = -1;
   /** a latch a steering stroke found (game s it began, -1 none), with when it was latched and its end: while the stroke may still be a quick tap, it's
    *  the body a tap throws */
   private parked = 0;
@@ -123,6 +126,7 @@ export class Lob {
   latch(body: number, nose: number, t: number, until: number, keep = false, quick = false): void {
     const parked = quick && this.parkedAt >= 0;
     this.parkedAt = -1;
+    this.ranFrom = -1;
     if (parked) {
       this.latched = this.parked;
       this.latchedDive = this.parkedDive;
@@ -131,7 +135,8 @@ export class Lob {
       return;
     }
     if (keep && t < this.latchUntil) {
-      this.latchUntil = Math.min(Math.max(this.latchUntil, until), this.latchedAt + 2 * config.lob.latch);
+      this.ranFrom = this.latchUntil;
+      this.latchUntil =Math.min(Math.max(this.latchUntil, until), this.latchedAt + 2 * config.lob.latch);
       return;
     }
     this.latched = body;
@@ -140,16 +145,18 @@ export class Lob {
     this.latchUntil = until;
   }
 
-  /** Steering again: the latch lets go, and a tap reads the body live, but for a stroke's first inputTune.quickTapMs (a slid tap: parked). */
+  /** Steering again: the latch lets go, and a tap reads the body live, but for a stroke's first inputTune.quickTapMs (a slid tap: parked, ending where it
+   *  did before the stroke's own landing ran it on). */
   unlatch(t: number): void {
-    if (t < this.latchUntil) {
+    const until = this.ranFrom >= 0 ? this.ranFrom : this.latchUntil;
+    if (t < until) {
       this.parked = this.latched;
       this.parkedDive = this.latchedDive;
       this.parkedFrom = this.latchedAt;
-      this.parkedUntil = this.latchUntil;
+      this.parkedUntil = until;
       this.parkedAt = t;
     }
-    this.latchUntil = -1;
+    this.latchUntil = this.ranFrom = -1;
   }
 
   /** A latch parked by a stroke that may still be a quick tap. */
@@ -411,7 +418,7 @@ export class Lob {
     this.firedUntil = this.latchUntil;
     this.firedParked = this.parkedAt;
     this.heldOk = false;
-    this.latchUntil = -1;
+    this.latchUntil = this.ranFrom = -1;
     this.parkedAt = -1;
     this.stats.fired++;
   }

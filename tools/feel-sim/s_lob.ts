@@ -101,8 +101,9 @@ CASES.push({ key: 'pin-floor/cruise/p0.65/1t/tower', place: 'wa', h: 'floor', ru
 CASES.push({ key: 'pin-floor/express/p0.65/2t/tower', place: 'wa', h: 'floor', rung: 'express', pull: 0.65, thumbs: 2, want: 'lob', pin: true, hold: 1.8 });
 // (from Justin Herman Plaza 50 m up, at the Embarcadero Center tower that stands highest over a 26 degree climb from there, 150-500 m out)
 CASES.push({ key: 'fidi-50/cruise/p0.35/2t', place: 'fidi', h: 50, rung: 'cruise', pull: 0.35, thumbs: 2, want: 'wall' });
-// (the Lob review's M90: the latch ends. A flick up a gear 0.5 s after the lift, its 0.1 s stroke a steering thumb, then the tap 1.2 s after the lift; and taps
-// mashed every 0.3 s after a Lob at Express until the belly is full again. Each a plain splat: the body is long down, and no tap ran the latch on)
+// (the Lob review's M90: the latch ends. A flick up a gear 0.5 s after the lift, its landing a press and its 0.1 s stroke a steering thumb, then the tap 1.2 s
+// after the lift; and taps mashed every 0.3 s after a Lob at Express until the belly is full again. Each a plain splat: the body is long down, and no tap
+// ran the latch on)
 CASES.push({ key: 'wa-floor/cruise/p1/1t/flick-after', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'flick' });
 CASES.push({ key: 'wa-floor/express/p0.75/1t/mash', place: 'wa', h: 'floor', rung: 'express', pull: 0.75, thumbs: 1, want: 'none', after: 'mash' });
 // (--street: Curb's street in their place)
@@ -257,7 +258,9 @@ async function run(c: Case, dt: number, slot = true) {
   let ringAtPress = false, first: string | null = null;
   const steps = (s: number) => Math.max(1, Math.round(s / dt));
   if (c.after === 'flick') {
+    // (the flick's landing a press, as Input gives every flying thumb's)
     for (let j = 0; j < steps(0.5); j++) await frame(idle);
+    g.press();
     drive.rung(1, f);
     for (let j = 0; j < steps(0.1); j++) await frame({ sx: 0, sy: 0, dragging: true });
     for (let j = 0; j < steps(0.5); j++) await frame(idle);
