@@ -9,7 +9,8 @@
 //   smooth   the same thumb inside 78 px, level, flies the same line with it on as with it off, in every gear, to the last bit
 //   skid     the slip never over its cap; grip within 0.4 s of easing off; never under 20 m/s (or what it began at); the gear never changed; with a gear in,
 //            over by itself in under 2 s, and with none held as long as the thumb is; a thumb that twitches out and back doesn't start one; a skid at Nonstop
-//            scrubs the flight's speed and never the gear's own, so the Comet stays on (the review of 018c5d8, m101)
+//            scrubs the flight's speed and never the gear's own, so the Comet stays on (the review of 018c5d8, m101); the street taking the bus mid-skid
+//            leaves nothing of it, the hard part's stiff camera included, and grips it (the review of 47d7d97)
 //   swoop    up, over and down at Cruise, Express and Jet: how long the reversal takes with it and without; the turn never over three times its flat rate
 //   brake    the long swipe's brake: at Cruise's speed from every gear in under 0.8 s
 //   camera   the bus stays in the frame through a hard turn, a skid and its grip, in every gear
@@ -229,6 +230,17 @@ for (const [name, rungs] of GEARS) {
     if (!cometOn(f)) cometOff++;
   }
   row(slid > 20 && slowest < gearSpeed * 0.9 && gearMoved === 0 && cometOff === 0, 'skid, Nonstop: the gear kept', { framesSliding: slid, slowest: r1(slowest), gear: gearSpeed, gearMovedBy: gearMoved, framesCometOff: cometOff });
+}
+{
+  // (a hard turn into a skid, and the street takes the bus mid-slide (Flight.ride, Curb): none of it is left, the camera's spring is today's, and the slide
+  // gripped, so its squeal stops (the boot stops it on 'grip'), with no wave)
+  const b = bus(0, true, 1 / 30), f = b.f, sw = b.sw!;
+  let events = '';
+  sw.onEvent = (ev) => (events += `${ev} `);
+  for (let k = 0; k < 15; k++) b.frame(1 / 30, [172, 0]);
+  const sliding = sw.sliding;
+  f.ride(1 / 30, { x: f.x, y: 12, z: f.z, heading: f.heading, speed: 9 }, 0, flat);
+  row(sliding && !sw.skidding && sw.hard === 0 && sw.gain === 1 && sw.slip === 0 && events.trim() === 'skid grip', 'skid, the street takes the bus', { slidingBefore: sliding, skidding: sw.skidding, hard: sw.hard, gain: sw.gain, events: events.trim() });
 }
 
 // ---------------------------------------------------------------- the swoop

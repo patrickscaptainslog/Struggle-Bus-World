@@ -252,11 +252,16 @@ export class Swerve {
     if (this.phase === Phase.Grip && Math.abs(this.roll) < 1e-5 && Math.abs(this.rollV) < 1e-4) this.roll = this.rollV = 0;
   }
 
-  /** On the street (Flight.ride) there's no skid: whatever was left of one is over. */
+  /** On the street (Flight.ride) there's no skid and no hard turn: whatever was left of them is over, and a slide grips (no wave), so its squeal stops. */
   stop(): void {
+    const sliding = this.phase === Phase.Slide;
     this.phase = Phase.Grip;
     this.slip = this.roll = this.rollV = 0;
     this.keep = 1;
+    this.hard = 0;
+    this.gain = this.steep = 1;
+    this.heldFor = 0;
+    if (sliding) this.onEvent?.('grip', false);
   }
 
   /** The slide grips: the catch begins, the speed is the gear's again, and a full belly goes off the outside. */
