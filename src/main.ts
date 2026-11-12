@@ -1209,7 +1209,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       controls.lobbed();
       // (each one thrown keeps its landing until it lands, the first up first: a second thrown before the first came down took the ring off it)
       const up = lobsUp.find((u) => u.until <= simTime) ?? (lobsUp.length < 4 ? lobsUp[lobsUp.push({ x: 0, y: 0, z: 0, r: 1, from: 0, until: -1, top: 0.5, hue: 0 }) - 1] : lobsUp[0]);
-      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, top: lobTop(shot.comet), hue });
+      Object.assign(up, { x: shot.comet.x, y: shot.comet.y, z: shot.comet.z, r: moonPaint ? moonPaint.tapR(lobRadius(shot.comet)) : lobRadius(shot.comet), from: simTime + config.splat.inhale, until: simTime + config.splat.inhale + shot.travel, top: lobTop(shot.comet), hue });
     }
     if (splatter.lastMiss) (lastShot as { miss?: boolean }).miss = true;
     return landsAt;
@@ -2133,7 +2133,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         lobRing.x = on ? on.x : L.x;
         lobRing.y = on ? on.y + 0.5 : L.y;
         lobRing.z = on ? on.z : L.z;
-        lobRing.r = lobRadius(L);
+        lobRing.r = on ? moonPaint!.tapR(lobRadius(L)) : lobRadius(L);
       }
       // (and a dim pillar of its paint stands on the landing while its ring shows: from the roofs the ring is a thin arc on the skyline, the pillar what reads)
       const marked = lobRing.k > 0.3 && R.k < 0.01 && (first !== null || L !== null);
