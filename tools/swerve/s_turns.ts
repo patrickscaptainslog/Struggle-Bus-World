@@ -254,9 +254,8 @@ for (const [name, rungs] of [GEARS[0], GEARS[1], GEARS[3]]) {
 // ---------------------------------------------------------------- the long swipe's brake
 for (const [name, rungs] of GEARS.slice(1)) {
   const b = bus(rungs, true, 1 / 60), f = b.f, v0 = f.speed, y0 = f.y;
-  // (the rungs go first, as the boot drops them, then the brake)
-  while (b.drive.rung(-1, f)) if (b.drive.gear === 0 && b.drive.level === 0) break;
-  b.sw!.brake(f);
+  // (every rung at once, with the gears' brake for it, as the boot's swipe asks)
+  b.drive.toCruise(f, T.brakeFor);
   let at = NaN;
   for (let k = 0; k < 3 * 60; k++) {
     b.frame(1 / 60, null);

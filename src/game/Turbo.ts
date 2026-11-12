@@ -87,7 +87,9 @@ export type TurboEvent =
   | 'curb'
   | 'uncurb'
   /** passed Mach 1 */
-  | 'boom';
+  | 'boom'
+  /** every rung above Cruise dropped at once (toCruise: ?swerve's long swipe) */
+  | 'cruise';
 
 export function gearSpeed(g: number): number {
   const T = config.turbo;
@@ -144,6 +146,9 @@ export class TurboDrive {
   private rateKind = 0;
   private machArmed = true;
   private t = 0;
+  /** toCruise's brake: its rate (1/s) and what's left of it (s) */
+  private swipeRate = 0;
+  private swipeLeft = 0;
 
   /** bounds: the city map [minX, minZ, maxX, maxZ] (m) */
   constructor(private readonly bounds: readonly number[]) {}
@@ -284,23 +289,49 @@ export class TurboDrive {
       if (!Number.isFinite(this.gearFloor)) this.gearFloor = f.y; // the floor rises from where the bus is
     } else {
       if (this.gear <= 0) return false;
-      // (out of Express nothing is held or braked: the surge let go, and a bus skimming the rooftops goes on skimming them)
-      if (this.lifts) {
-        this.braking = true;
-        // hold the altitude it had: the yoke dives back down (a gear's floor dropping away would just sink it); but a gear
-        // still lifting never bit: it's taken back, and with the hold untouched the bus settles to where it was, by its own sink
-        if (this.engaged) f.holdY = f.y;
-      }
-      this.gear--;
-      if (this.lifts) this.gearFloor = Math.min(this.gearFloor, f.y);
-      else this.gearFloor = -Infinity;
-      // (a gear the bus isn't up to yet goes on lifting, and says so when it gets there)
-      this.engaged = this.gear > 0 && (!this.lifts || f.y >= this.want(f) - AT_HEIGHT);
+      this.gearDown(f);
     }
     this.shiftedAt = this.t;
     this.lastDir = dir;
     this.onEvent?.(dir > 0 ? 'up' : 'down', this.gear);
     return true;
+  }
+
+  /**
+   * ?swerve's long swipe: straight to Cruise, every rung above it at once (turbo's levels, then the gears, each as a flick down leaves it), with one event and a
+   * brake of its own that has the speed down to the classic flight's in about `brakeFor` s, where a gear's own brake takes config.turbo.brake a rung. False
+   * from Cruise and under it: School Zone and Curb are a flick each.
+   */
+  toCruise(f: Flight, brakeFor: number): boolean {
+    if (this.below > 0 || (this.gear === 0 && this.level === 0)) return false;
+    this.level = 0;
+    while (this.gear > 0) this.gearDown(f);
+    this.shiftedAt = this.t;
+    this.lastDir = -1;
+    // (the flight chases its own speed, about nine tenths of Cruise's with a belly in it: this rate has it within an eighth of that in brakeFor)
+    const c = config.flight.cruiseSpeed * 0.9;
+    if (f.speed > c * 1.25) {
+      this.swipeRate = Math.log((f.speed - c) / (0.125 * c)) / Math.max(0.1, brakeFor);
+      this.swipeLeft = brakeFor * 2;
+    }
+    this.onEvent?.('cruise', 0);
+    return true;
+  }
+
+  /** One gear down, with no event: shift(-1)'s, and toCruise's a gear at a time. */
+  private gearDown(f: Flight): void {
+    // (out of Express nothing is held or braked: the surge let go, and a bus skimming the rooftops goes on skimming them)
+    if (this.lifts) {
+      this.braking = true;
+      // hold the altitude it had: the yoke dives back down (a gear's floor dropping away would just sink it); but a gear
+      // still lifting never bit: it's taken back, and with the hold untouched the bus settles to where it was, by its own sink
+      if (this.engaged) f.holdY = f.y;
+    }
+    this.gear--;
+    if (this.lifts) this.gearFloor = Math.min(this.gearFloor, f.y);
+    else this.gearFloor = -Infinity;
+    // (a gear the bus isn't up to yet goes on lifting, and says so when it gets there)
+    this.engaged = this.gear > 0 && (!this.lifts || f.y >= this.want(f) - AT_HEIGHT);
   }
 
   /** Once per frame before the flight steps. */
@@ -362,6 +393,12 @@ export class TurboDrive {
     const ease = clamp(this.rateT / Math.max(0.01, T.rateEase), 0, 1);
     // (while it eases in, the classic rate's share fades out: the hand-over is continuous both ways)
     Tb.rate = kind === 0 ? 0 : rate * (0.15 + 0.85 * ease * ease * (3 - 2 * ease));
+    // (toCruise's brake, faster than a gear's own: over once the speed is down, a gear is asked for again, or the bus hovers)
+    if (this.swipeLeft > 0) {
+      this.swipeLeft -= dt;
+      if (Tb.speed > 0 || this.below > 0 || f.speed <= F.cruiseSpeed * 1.02) this.swipeLeft = 0;
+      else Tb.rate = Math.max(Tb.rate, this.swipeRate);
+    }
 
     // steering authority falls with speed
     const sp = Math.max(1, f.speed);

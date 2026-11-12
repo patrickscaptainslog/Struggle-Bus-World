@@ -19,7 +19,7 @@ import { airHiss, brakeClunk, skidSqueal } from './swerveSfx';
 //    is the long swipe. (Dev keys: the phone has none.)
 //  - The long swipe, the producer's: "a large swipe from top to bottom of screen" that "brings the bus to gear 1, just above school zone, very quickly". One
 //    stroke down of `share` of the screen's height, landed off the bus's lane (in the lane a stroke down is the stick's pull), nearly straight, in `ms` or
-//    less: every rung above Cruise goes at once and the speed with it (Swerve.brake). It is judged as the stroke passes its length, not at its lift, so the bus
+//    less: every rung above Cruise goes at once and the speed with it (TurboDrive.toCruise). It is judged as the stroke passes its length, not at its lift, so the bus
 //    answers under the thumb; the lift is then nothing (`flick`: Controls' gate takes the flick it would have been) and the look it began is let go (`swiped`).
 //    From Cruise and under it does nothing: School Zone and Curb are still a flick each.
 //  - The looks: a fan of the crew's paint off the outside of a slide, the wave when it grips with a full belly (Splatter.barf, as a tap paints), the bus's lean,
@@ -112,11 +112,8 @@ export function bootSwerve(d: SwerveDeps): SwerveBoot {
   /** the element's width (CSS px), read at each landing: the thumb's room to a side */
   let elW = d.el.getBoundingClientRect().width;
   const swipe = () => {
-    const t = d.turbo;
-    // (from Cruise and under it's nothing: School Zone and Curb are a flick each)
-    if (t.below > 0 || (t.gear === 0 && t.level === 0)) return;
-    for (let n = 0; n < 12 && (t.gear > 0 || t.level > 0); n++) t.rung(-1, f);
-    core.brake(f);
+    // (every rung above Cruise at once, and the gears' brake for it; from Cruise and under it's nothing: School Zone and Curb are a flick each)
+    if (!d.turbo.toCruise(f, T.brakeFor)) return;
     braked = 0.9;
     d.kick(W.kick * 1.6);
     const kit = d.kit();

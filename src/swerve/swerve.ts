@@ -18,8 +18,7 @@ import type { Flight } from '../game/Flight';
 //    gear pulls the speed back. With no gear in it can be held: a doughnut.
 //  - The wave. A real slide that grips with a full belly throws it off the outside as a wave ('wave': the boot paints it, and it spends the belly). A tap in
 //    the slide is a shot down the nose instead, and then there's no belly to throw.
-//  - The long swipe's brake (`brake`): the speed comes down to the classic flight's in `brakeFor`, where a gear's own brake takes 3 s a rung. The gesture and
-//    the rungs are the boot's.
+//  - The long swipe's brake is the gears' now (TurboDrive.toCruise, brakeFor here), and the gesture the boot's.
 
 const DEG = Math.PI / 180;
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -176,9 +175,6 @@ export class Swerve {
   private wroteHz = NaN;
   private baseCam = NaN;
   private wroteCam = NaN;
-  /** the long swipe's brake: its rate (1/s) and what's left of it (s) */
-  private brakeRate = 0;
-  private brakeLeft = 0;
 
   /** A skid is on: sliding, or gripping. */
   get skidding(): boolean {
@@ -188,20 +184,6 @@ export class Swerve {
   get sliding(): boolean {
     return this.phase === Phase.Slide;
   }
-  /** The long swipe's brake is on. */
-  get braking(): boolean {
-    return this.brakeLeft > 0;
-  }
-
-  /** The long swipe: brake to the classic flight's speed in about swerveTune.brakeFor, from the speed it has (the rungs are the caller's to drop first). */
-  brake(f: Flight): void {
-    // (the flight chases its own speed, about nine tenths of Cruise's with a belly in it: this rate has it within an eighth of that in brakeFor)
-    const c = config.flight.cruiseSpeed * 0.9;
-    if (f.speed <= c * 1.25) return;
-    this.brakeRate = Math.log((f.speed - c) / (0.125 * c)) / Math.max(0.1, swerveTune.brakeFor);
-    this.brakeLeft = swerveTune.brakeFor * 2;
-  }
-
   /** The springs go back to config's own (the harness, between a flight with it and one without). */
   release(): void {
     if (!Number.isNaN(this.baseHz)) config.flight.bungeeHz = this.baseHz;
@@ -265,14 +247,6 @@ export class Swerve {
         f.speedScale = Math.min(f.speedScale, this.keep);
         this.scaled = true;
       }
-    }
-
-    // ---- the long swipe's brake: the gears are out already, and the speed comes down faster than their own brake
-    if (this.brakeLeft > 0) {
-      this.brakeLeft -= dt;
-      // (over once it's down, or a gear is asked for again)
-      if (!on || Tb.speed > 0 || f.speed <= F.cruiseSpeed * 1.02) this.brakeLeft = 0;
-      else Tb.rate = Math.max(Tb.rate, this.brakeRate);
     }
     this.h0 = f.heading;
   }

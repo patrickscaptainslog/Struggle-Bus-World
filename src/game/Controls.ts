@@ -445,6 +445,7 @@ export class Controls {
 
   private onTurbo(ev: TurboEvent, gear: number) {
     const d = this.d;
+    // ('cruise', ?swerve's long swipe, every rung at once: the fx's gear-down look once; its own sound is the swipe's stand-in's for now, src/swerve)
     this.fx.event(ev, d.bus.root, d.flight, d.rig, this.onFlash);
     if (ev === 'flick' || ev === 'back' || ev === 'turbo' || ev === 'zone' || ev === 'curb') this.hiccup = true;
     const kit = d.audio.voiceKit();

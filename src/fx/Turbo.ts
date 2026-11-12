@@ -576,7 +576,7 @@ export class TurboFx {
       this.vaporRing(bus, f, 30, 16, 7);
       bus.localToWorld(this.tmp.copy(this.noseLocal));
       flash(this.tmp, T.boomFlash);
-    } else if (ev === 'down') {
+    } else if (ev === 'down' || ev === 'cruise') {
       rig.kick(0.8);
       this.backfire(bus, f, 4);
     } else if (ev === 'locked') {
