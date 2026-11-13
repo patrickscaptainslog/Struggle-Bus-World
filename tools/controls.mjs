@@ -36,6 +36,12 @@
 //   chain    a far shot's dip chained (not in the default list): Nonstop level 5 km up, a tap each refill for 20 s, then a far Comet with a look during
 //            it, one with the steering thumb during it, and a tap 0.3 s after one. The bus on screen at +0.35 or lower every frame, the share dipped
 //            printed; the look a look and the view back within 1.5 s; the thumb flies and turns the bus; no program made after ready -> chain.json
+//   swervefar ?swerve's handling under a far shot (not in the default list; docs/specs/flight/SWERVE.md, "The shots under the handling"): Nonstop level
+//            5 km over the Western Addition. A far Comet with no touch after it, for the record; then one, and 0.4 s on, while it flies, the long swipe by
+//            real touches from the top of the glass (8 moves of 50 px, stamped 240 ms): it answers (Cruise) under the thumb, the view still dipped at the hit,
+//            under -0.5 (a let-go dip is back over -0.02 by then), and the landing in the frame (the far shots' review F2). Then
+//            one rival 300 m ahead under the nose, flying the bus's way at its own height over the roofs (the tap's pick by its flat reach, the shell 5 km
+//            short), and a real tap: the far shot fires, no shell (F5). No program made after ready, no page error. Exits 1 when a row fails -> swervefar.json
 //   moonhigh no far shot over the Moon (not in the default list): ?moon 5 km up, a level tap at Turbo 3 and a nose-up one at Cruise; with SB_AGAINST
 //            (another build's moonhigh.json) the same shots as that build's                                             -> moonhigh.json
 //   stills   the stills for the producer's calls 4 and 5 (not in the default list): a far Comet's hit from 5 and 14 km three ways, the far Lob's ring
@@ -1758,6 +1764,158 @@ if (modes.has('chain')) {
   res.chain = R;
   console.log('chain:', R.verdicts.join('\n  '));
   writeFileSync(`${out}/chain.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('swervefar')) {
+  // ?swerve's long swipe and a rival's shell under a far shot (the header's swervefar): what the far shots' review's F2 and F5 asked, flown on the page
+  const R = { rows: [], verdicts: [], places: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const page = await open(Q + '&swerve', progInit);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, pts, timestamp) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y, id = 1]) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })), ...(timestamp !== undefined ? { timestamp } : {}) });
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), V = g.camera.position.constructor, v = new V();
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+    // (every frame while __sfTrace is set: the clock, the view's lift, a look held, the look's swipe, the gear, the last shot's landing's NDC)
+    const ndc = (x, y, z) => (v.set(x, y, z).applyMatrix4(g.camera.matrixWorldInverse).z >= 0 ? null : (v.set(x, y, z).project(g.camera), [+v.x.toFixed(3), +v.y.toFixed(3)]));
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      const tr = window.__sfTrace;
+      if (!tr) return;
+      const st = g.input.state, l = g.lastShot(), t = g.controls.turbo;
+      tr.push([+g.clock().toFixed(3), +g.rig.skyLift.toFixed(3), st.look.on, !!st.look.swipe, t.gear + t.level, l ? ndc(l.aim[0], l.aim[1], l.aim[2]) : null]);
+    };
+  });
+  await runFor(page, 2);
+  const progs0 = await page.evaluate(() => window.__progs);
+  const hasRivals = await page.evaluate(() => !!window.__rivals);
+  // (5 km over the Western Addition heading east, pinned while the city streams in, at Nonstop, no rival out: chain's place)
+  const place = async () => {
+    await page.evaluate(() => {
+      const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+      const y = g.city.groundAt(x, z) + 5000;
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+      while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+      for (let i = 0; i < 2; i++) g.controls.turbo.shift(1, g.flight);
+      if (window.__rivals) for (const r of window.__rivals.sim.list) r.live = false;
+    });
+    await runFor(page, 0.5);
+    // (the city in, or said so after 40 s: the row goes on, and its checks say what came of it. On the laptop the third place has waited past 120 s on
+    // City.loading with no tile pending, the far field's own load, a shot's ground not needing it)
+    const t0 = Date.now(), loaded = await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 40000, polling: 100 }).then(() => true, () => false);
+    R.places.push({ loaded, waited: Math.round((Date.now() - t0) / 1000), clock: await page.evaluate(() => +window.__game.clock().toFixed(2)) });
+    await page.evaluate(() => ((window.__qa = null), window.__game.forceReady()));
+    await runFor(page, 1);
+    await until(page, 'g.flight.fullness >= 1 && g.flight.barfT < 0', 4);
+  };
+  const fired = () => page.evaluate(() => window.__game.cometFx.stats.fired);
+  const tap = async () => {
+    const t0 = Date.now() / 1000;
+    await touch('touchStart', [[300, 300, 6]], t0);
+    await wall(60);
+    await touch('touchEnd', [], t0 + 0.06);
+  };
+  /** the lift and the landing's NDC in the frame of the last shot's hit (the trace from its tap) */
+  const atHit = async (shot, tr) => {
+    const f = shot ? tr.find((q) => q[0] >= shot.t + shot.travel) ?? null : null;
+    return f ? { lift: f[1], ndc: f[5] } : null;
+  };
+  const lastFar = () => page.evaluate(() => { const l = window.__game.lastShot(); return l ? { t: +l.t.toFixed(3), travel: +l.travel.toFixed(3), far: !!l.comet?.far } : null; });
+  // ---- A0. a far Comet and no touch after it, for the record: the lift at its hit, the swipe's to set beside it
+  await place();
+  await page.evaluate(() => (window.__sfTrace = []));
+  await tap();
+  await runFor(page, 0.4);
+  const shot0 = await lastFar();
+  if (shot0) await until(page, `g.clock() > ${shot0.t + shot0.travel + 0.3}`, 8);
+  const hit0 = await atHit(shot0, await page.evaluate(() => { const t = window.__sfTrace; window.__sfTrace = null; return t; }));
+  R.rows.push({ key: 'alone', shot: shot0, hit: hit0 });
+  console.log('swervefar:', JSON.stringify(R.rows.at(-1)));
+  // ---- A. a far Comet, and 0.4 s on, the long swipe
+  await place();
+  const planA = await page.evaluate(() => !!window.__game.cometState().plan?.far);
+  await page.evaluate(() => (window.__sfTrace = []));
+  const n0 = await fired();
+  await tap();
+  await runFor(page, 0.4);
+  const shotA = await lastFar();
+  const firedA = (await fired()) > n0;
+  const tSwipe = await page.evaluate(() => window.__game.clock());
+  {
+    // (as the warm row's: stamped from now, 8 moves of 50 px 30 ms apart from 110 px down the glass, off the lane)
+    const t0 = Date.now() / 1000 - 0.05, x = 330, ya = 110;
+    await touch('touchStart', [[x, ya, 5]], t0);
+    for (let i = 1; i <= 8; i++) {
+      await wall(25);
+      await touch('touchMove', [[x, ya + i * 50, 5]], t0 + i * 0.03);
+    }
+    await wall(40);
+    await touch('touchEnd', [], t0 + 0.27);
+  }
+  const tLift = await page.evaluate(() => window.__game.clock());
+  if (shotA) await until(page, `g.clock() > ${shotA.t + shotA.travel + 0.3}`, 8);
+  const trA = await page.evaluate(() => { const t = window.__sfTrace; window.__sfTrace = null; return t; });
+  const hitAt = shotA ? shotA.t + shotA.travel : Infinity, hitF = trA.find((q) => q[0] >= hitAt) ?? null;
+  // (the dip as the swipe lands: the last frame before it; Cruise from its landing to its lift; its frames of look while it may still be a swipe)
+  const before = [...trA].reverse().find((q) => q[0] < tSwipe) ?? null, stroke = trA.filter((q) => q[0] >= tSwipe && q[0] <= tLift);
+  const cruise = trA.find((q) => q[0] >= tSwipe && q[4] === 0) ?? null;
+  R.rows.push({ key: 'swipe', plan: planA, fired: firedA, shot: shotA, tSwipe: +tSwipe.toFixed(3), tLift: +tLift.toFixed(3), cruiseAt: cruise?.[0] ?? null, liftBefore: before?.[1] ?? null, liftAtHit: hitF?.[1] ?? null, hitNdc: hitF?.[5] ?? null, looks: stroke.filter((q) => q[2]).length, swipeLooks: stroke.filter((q) => q[3]).length, trace: trA });
+  console.log('swervefar:', JSON.stringify({ ...R.rows.at(-1), trace: undefined }));
+  ok(planA && firedA && shotA?.far, `swipe: a far Comet from 5 km by a real tap (planned far ${planA}, fired ${firedA}, far ${shotA?.far})`);
+  ok(!!cruise && cruise[0] <= tLift, `swipe: the long swipe answered under the thumb, Cruise (at ${cruise?.[0] ?? null}, its landing at ${+tSwipe.toFixed(2)}, its lift at ${+tLift.toFixed(2)})`);
+  // (let go, the lift is back over -0.02 by the hit, as a look's: chain's look row; held, it is still dipped, as with no touch: the row alone's)
+  ok(!!before && before[1] < -0.02 && !!hitF && hitF[1] < -0.5, `swipe: the dip held through it to the hit (the lift ${before?.[1] ?? null} as it landed, ${hitF?.[1] ?? null} at the hit; with no touch ${hit0?.lift ?? null})`);
+  ok(!!hitF?.[5] && hitF[5][1] > -1 && hitF[5][1] < 1 && Math.abs(hitF[5][0]) < 1, `swipe: the hit in the frame (its landing's NDC ${JSON.stringify(hitF?.[5] ?? null)})`);
+  // ---- B. a rival under the nose, out of the shell's reach, and a real tap
+  if (hasRivals) {
+    await place();
+    const put = await page.evaluate(() => {
+      const g = window.__game, f = g.flight, Rv = window.__rivals, S = Rv.sim, r = S.list[0];
+      const fx = Math.sin(f.heading), fz = -Math.cos(f.heading), x = f.x + fx * 300, z = f.z + fz * 300, y = g.city.obstacleAt(x, z) + 150;
+      for (const o of S.list) o.live = o === r;
+      Object.assign(r, { live: true, x, z, y, heading: f.heading, speed: f.ground, state: 0, act: 1, tripGear: 0, tx: x + fx * 1e7, tz: z + fz * 1e7, grudge: false, oneShot: false, bold: 0.9, ramIn: 0, skidLeft: 0, slip: 0, lift: 0, mischiefIn: 1e9 });
+      r.px = r.x;
+      r.pz = r.z;
+      r.py = r.y;
+      Object.assign(Rv.tune, { weave: 0, dodge: 0 });
+      Rv.tune.speeds[0] = f.ground;
+      S.hunter = null;
+      return { id: r.id, gap: Math.round(f.y - y) };
+    });
+    await runFor(page, 0.3);
+    const pre = await page.evaluate((id) => {
+      const g = window.__game, f = g.flight, Rv = window.__rivals, r = Rv.sim.list.find((q) => q.id === id);
+      return { pick: Rv.pick?.id ?? null, plan: !!g.cometState().plan?.far, full: +f.fullness.toFixed(2), ahead: Math.round(Math.hypot(r.x - f.x, r.z - f.z)), slant: Math.round(Math.hypot(r.x - f.x, r.y - f.y, r.z - f.z)), shells: Rv.counts.shell ?? 0 };
+    }, put.id);
+    const n1 = await fired();
+    await tap();
+    await runFor(page, 0.3);
+    const post = await page.evaluate(() => { const l = window.__game.lastShot(); return { shells: window.__rivals.counts.shell ?? 0, far: !!l?.comet?.far }; });
+    const firedB = (await fired()) > n1;
+    R.rows.push({ key: 'shell', put, pre, fired: firedB, post });
+    console.log('swervefar:', JSON.stringify(R.rows.at(-1)));
+    ok(pre.pick === put.id && pre.plan, `shell: the rival under the nose is the tap's pick by its flat reach, and a far shot is planned (pick ${pre.pick}, put ${put.id}; ${pre.ahead} m ahead, ${pre.slant} m slant; far ${pre.plan})`);
+    ok(firedB && post.far && post.shells === pre.shells, `shell: the tap fired the far shot, no shell (fired ${firedB}, far ${post.far}, shells ${pre.shells} to ${post.shells})`);
+  } else ok(false, 'shell: no rivals on the page (?swerve has them)');
+  const made = (await page.evaluate(() => window.__progs)) - progs0;
+  R.programs = { atReady: progs0, madeAfter: made };
+  ok(made === 0, `nothing compiles: ${made} programs made after ready`);
+  ok(errors === 0, `no page error (${errors})`);
+  await page.close();
+  res.swervefar = R;
+  console.log('swervefar:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/swervefar.json`, JSON.stringify(R, null, 1));
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
 }
 
