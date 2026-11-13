@@ -540,8 +540,8 @@ export class City {
    * variants, a row's proof it can fail: masks made and never filled; the paint looked up over the whole region, not clamped to its tile.
    */
   readonly rmask: false | 'on' | 'nofill' | 'noclamp';
-  /** Release A, 1a: coarse regions whose tiles show in their region's mask (regionViewsOn) */
-  private readonly regionViews = new Set<string>();
+  /** Release A, 1a: coarse regions whose tiles show in their region's mask (regionViewsOn), and its uniforms, which their ground takes */
+  private readonly regionViews = new Map<string, Record<string, THREE.IUniform>>();
   /** San Francisco (the mesher's icons and HIDDEN tables, and hidden footprints in the refs, apply) */
   private readonly sf: boolean;
   /** hand-built props whose own surface replaces hidden footprints in the obstacle grid (setPropObstacles) */
@@ -1360,6 +1360,8 @@ export class City {
     const N = cn * rs;
     const cls = new Uint8Array(N * N);
     const grids: THREE.BufferGeometry[] = [];
+    /** (each grid's tile, (i, j) in the region: the mask's tile path, aTile) */
+    const slots: number[] = [];
     let any = false;
     /** (?moon: a coarse region's one map comes with any of its tiles) */
     let moonTile: TerrainTile | null = null;
@@ -1373,7 +1375,8 @@ export class City {
         this.setMask(tx, tz, 255);
         if (this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
         if (this.rmask && this.ownGround.has(`${tx},${tz}`)) this.ground.flagRegionTile(tx, tz);
-        if (this.ownGround.has(`${tx},${tz}`)) {
+        // (with the region's paint mask none is split out: its paint shows in the merged ground. Release A, 1a)
+        if (!this.rmask && this.ownGround.has(`${tx},${tz}`)) {
           // its own ground (painted: ground paint attaches per tile), if this frame has a split left; else merged once more, and the region comes up again. A swap to
           // coarse splits all its own: it is the frame's whole budget already, and a painted region going coarse showed its other tiles bare till their splits came,
           // three a frame (review five, 38)
@@ -1392,6 +1395,7 @@ export class City {
         const ox = (tx - rx * rs) * cn, oz = (tz - rz * rs) * cn;
         for (let j = 0; j < cn; j++) cls.set(tr.cls.subarray(j * cn, j * cn + cn), (oz + j) * N + ox);
         grids.push(this.takeGrid(lt, 4));
+        slots.push(tx - rx * rs, tz - rz * rs);
       }
     if (any) {
       // one grid: the tiles' 8 m grids concatenated (typed copies, no per-vertex pushes)
@@ -1402,6 +1406,8 @@ export class City {
       }
       const pos = new Float32Array(vc * 3);
       const nrm = new Float32Array(vc * 3);
+      // (Release A, 1a: 4 bytes a vertex, a stride Metal takes as it is)
+      const slot = this.rmask ? new Uint8Array(vc * 4) : null;
       const idx = vc < 65535 ? new Uint16Array(ic) : new Uint32Array(ic);
       let vo = 0, io = 0;
       for (const g of grids) {
@@ -1409,6 +1415,13 @@ export class City {
         nrm.set(g.getAttribute('normal').array as Float32Array, vo * 3);
         const ii = g.getIndex()!.array;
         for (let k = 0; k < ii.length; k++) idx[io + k] = ii[k] + vo;
+        if (slot) {
+          const gi = grids.indexOf(g), n = g.getAttribute('position').count;
+          for (let v = vo; v < vo + n; v++) {
+            slot[v * 4] = slots[gi * 2];
+            slot[v * 4 + 1] = slots[gi * 2 + 1];
+          }
+        }
         vo += g.getAttribute('position').count;
         io += ii.length;
         g.dispose();
@@ -1423,10 +1436,14 @@ export class City {
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
       g.setIndex(new THREE.BufferAttribute(idx, 1));
+      if (slot) g.setAttribute('aTile', new THREE.BufferAttribute(slot, 4));
       g.computeBoundingSphere();
       dropAfterUpload(g);
+      // (Release A, 1a: the region's paint mask and its tiles' paths: GroundPaint's uniforms, shared by every ground drawing the region)
+      const ru = this.rmask ? this.regionViews.get(key) : undefined;
+      const tileM = ru ? { ...ru, uTileM: { value: new THREE.Vector4(ts, 1 / ts, cn, this.rmask === 'noclamp' ? 1 : 0) } } : undefined;
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
-      const mesh = groundMesh(g, this.moon && moonTile ? this.moon.regionMaterial(tex, moonTile, rx * rs * ts, rz * rs * ts, rs * ts) : makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N), false);
+      const mesh = groundMesh(g, this.moon && moonTile ? this.moon.regionMaterial(tex, moonTile, rx * rs * ts, rz * rs * ts, rs * ts) : makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N, 0, tileM), false);
       mesh.visible = !rm.hidden;
       this.root.add(mesh);
       this.firstDraw(mesh);
@@ -1449,6 +1466,8 @@ export class City {
     if (own) this.ownGround.add(k);
     else this.ownGround.delete(k);
     if (own && this.rmask) this.ground.flagRegionTile(tx, tz);
+    // (with the region's paint mask a touched tile needs no ground of its own, and its region isn't made again: the flag is all. Release A, 1a)
+    if (this.rmask) return;
     // (its region's ground is made again in this frame's update, once, however many of its tiles changed: a MEGA's 43 tiles made the same regions again and again in one frame. The third review)
     const rs = this.regionSize;
     this.groundStale.add(`${Math.floor(tx / rs)},${Math.floor(tz / rs)}`);
@@ -1462,10 +1481,7 @@ export class City {
   private regionViewsOn(key: string) {
     const [rx, rz] = key.split(',').map(Number);
     const rs = this.regionSize;
-    if (!this.regionViews.has(key)) {
-      this.ground.regionUniforms(rx, rz, rs);
-      this.regionViews.add(key);
-    }
+    if (!this.regionViews.has(key)) this.regionViews.set(key, this.ground.regionUniforms(rx, rz, rs));
     for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
       for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
         const tr = this.tiles.get(`${tx},${tz}`)?.terrainData;

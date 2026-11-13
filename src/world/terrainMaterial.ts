@@ -3,7 +3,7 @@ import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { held, heldOr, skyOn } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
-import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
+import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT, GROUND_N } from './GroundPaint';
 import { GLSL_LAKE, GLSL_LIFT, lifted } from './liftGlsl';
 import { liftUniforms, paintUniforms } from './buildingMaterial';
 import { GLSL_FACTION } from '../render/factionLook';
@@ -44,16 +44,30 @@ export const GLSL_WATER = /* glsl */ `
 const VS = /* glsl */ `
   ${GLSL_COMMON}
   uniform vec4 uTileRect; // originX, originZ, 1/size, 0
+  // (Release A, 1a: on a coarse region's ground with its paint mask, x a tile's size, y its inverse, z its class texels a side, w ?rmask=noclamp; x 0
+  // everywhere else, and then aTile, which only that ground has, is never read)
+  uniform vec4 uTileM;
+  in vec4 aTile;
   out vec3 vWorldPos;
   out vec3 vWorldNormal;
   out vec3 vViewNormal;
   out vec2 vClassUv;
+  out vec2 vTileUv;
+  flat out vec2 vTile;
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
     vWorldNormal = normalize(mat3(modelMatrix) * normal);
     vViewNormal = normalize(mat3(viewMatrix) * vWorldNormal);
     vClassUv = (wp.xz - uTileRect.xy) * uTileRect.z;
+    // (the tile's own uv, by the arithmetic its own ground's vClassUv has: its corner is exact in float, so the two are the same bits)
+    if (uTileM.x > 0.0) {
+      vTileUv = (wp.xz - (uTileRect.xy + aTile.xy * uTileM.x)) * uTileM.y;
+      vTile = aTile.xy;
+    } else {
+      vTileUv = vClassUv;
+      vTile = vec2(0.0);
+    }
     gl_Position = projectionMatrix * viewMatrix * wp;
   }
 `;
@@ -63,6 +77,8 @@ const FS = /* glsl */ `
   precision highp usampler2D;
   uniform sampler2D tClass;
   uniform float uClassN;
+  uniform vec4 uTileM;
+  uniform mat4 uGroundSq;
   uniform float uLift;${held(`
   uniform float uLamp;
   uniform vec2 uLampFar;`)}
@@ -78,18 +94,30 @@ const FS = /* glsl */ `
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
   in vec2 vClassUv;
+  in vec2 vTileUv;
+  flat in vec2 vTile;
+  // (the class texels a lookup may take: its tile's square on a tile's path, the whole texture on the region's)
+  ivec2 sbcLo, sbcHi;
   ${GLSL_OUT}
   ${GLSL_WATER}
   float ${heldOr('clsRaw', 'cls')}(ivec2 p) {
-    p = clamp(p, ivec2(0), ivec2(int(uClassN) - 1));
+    p = clamp(p, sbcLo, sbcHi);
     return floor(texelFetch(tClass, p, 0).r * 255.0 + 0.5);
   }${held(`
   // (the top 4 bits of a texel are a lamp's pool, Lamps.stamp: classes stop at 10)
   float cls(ivec2 p) { return mod(clsRaw(p), 16.0); }`)}
   void main() {
+    // (Release A, 1a: a tile with paint on a coarse region's ground takes its tile path, its classes and its paint as its own ground drew them, clamped to its
+    // square; the rest, and every tile's own ground, the code it always was)
+    bool tp = uTileM.x > 0.0 && uGroundSq[clamp(int(vTile.x), 0, 3)][clamp(int(vTile.y), 0, 3)] > 0.5;
+    vec2 cuv = tp ? vTileUv : vClassUv;
+    float cN = tp ? uTileM.z : uClassN;
+    ivec2 coff = tp ? ivec2(vTile) * int(uTileM.z) : ivec2(0);
+    sbcLo = coff;
+    sbcHi = coff + ivec2(int(cN) - 1);
     // smooth class masks via manual bilinear on per-class indicators
-    vec2 t = vClassUv * uClassN - 0.5;
-    ivec2 i0 = ivec2(floor(t));
+    vec2 t = cuv * cN - 0.5;
+    ivec2 i0 = ivec2(floor(t)) + coff;
     vec2 f = fract(t);
     ${heldOr(`vec4 raw = vec4(clsRaw(i0), clsRaw(i0 + ivec2(1, 0)), clsRaw(i0 + ivec2(0, 1)), clsRaw(i0 + ivec2(1, 1)));
     float c00 = mod(raw.x, 16.0), c10 = mod(raw.y, 16.0), c01 = mod(raw.z, 16.0), c11 = mod(raw.w, 16.0);`, 'float c00 = cls(i0), c10 = cls(i0 + ivec2(1, 0)), c01 = cls(i0 + ivec2(0, 1)), c11 = cls(i0 + ivec2(1, 1));')}
@@ -109,7 +137,7 @@ const FS = /* glsl */ `
     // both, and a share would erase it: the nearest texels keep those. Only pixels on a shore pay for this.
     if (bestLand > 0.0 && (c00 == ${Ground.WATER}.0 || c10 == ${Ground.WATER}.0 || c01 == ${Ground.WATER}.0 || c11 == ${Ground.WATER}.0)) {
       // (the texture ends at its tile: the square shrinks toward that edge, so the tiles on both sides of it agree)
-      vec2 toEdge = min(t + 0.5, uClassN - 0.5 - t);
+      vec2 toEdge = min(t + 0.5, cN - 0.5 - t);
       float h = clamp(min(toEdge.x, toEdge.y), 0.5, 2.5);
       float sea = 0.0;
       vec2 side = vec2(0.0);
@@ -159,8 +187,14 @@ const FS = /* glsl */ `
     }`)}
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
+    // (a coarse region's ground draws paint on its tiles' paths only, but ?rmask=noclamp's, which looks it up over the whole region)
+    bool pOn = uTileM.x <= 0.0 || tp || uTileM.w > 0.5;
+    bool wide = uTileM.x > 0.0 && uTileM.w > 0.5;
+    vec2 puv = wide ? vClassUv : cuv;
+    ivec2 poff = tp && !wide ? ivec2(vTile) * ${GROUND_N} : ivec2(0);
+    float pn = wide ? uClassN / uTileM.z : 1.0;
     // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads
-    if (best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+    if (best >= uGroundTone.z && pOn && sbGroundPaint(vWorldPos, puv, poff, pn, pr, pEdge, pWet, pFresh)) {
       // figure / ground: paint on the ground sits a couple of steps below the
       // painted walls (houses stand out of their splat); sidewalks a step
       // lighter than the street so the blocks still read; warm hues keep their
@@ -202,6 +236,9 @@ export function makeTerrainMaterial(
       uGroundLive: blastUniforms.uGroundLive,
       uGroundLive2: blastUniforms.uGroundLive2,
       uGroundTone: blastUniforms.uGroundTone,
+      // (a coarse region's ground with its paint mask overrides these in `ground`: City.buildRegionGround)
+      uTileM: { value: new THREE.Vector4(0, 1 / size, classN, 0) },
+      uGroundSq: { value: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) },
       ...(ground ?? {}),
       tClass: { value: classTex },
       uClassN: { value: classN },

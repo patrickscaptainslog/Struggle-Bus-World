@@ -568,6 +568,35 @@ if (det) {
     glide(p, 6);
     await runDet(p, 1);
   });
+  // (Release A, 1a; only when named: a line of blasts ahead at the street, then a climb toward it till its regions are coarse, so painted coarse ground is in
+  // the frame, drawn by the region's paint mask with ?rmask=1)
+  await detShot('paintup', '?lat=37.77615&lon=-122.4280&heading=268&skipintro&nohud', async (p) => {
+    glide(p, 6);
+    await runDet(p, 2);
+    for (const lat of [37.7754, 37.7758, 37.7762, 37.7766, 37.777, 37.7762, 37.7758]) {
+      barf(p, lat, -122.43262);
+      await runDet(p, 1.3);
+    }
+    await runDet(p, 2.5);
+    stick(p, -1);
+    await runDet(p, 10);
+    unstick(p);
+    await runDet(p, 1.5);
+  });
+  // (the same line of blasts thrown from about 1.3 km east, then a climb to about 400 m toward it: its regions stay coarse, past the stream's detail)
+  await detShot('paintfar', '?lat=37.77615&lon=-122.4180&heading=268&skipintro&nohud', async (p) => {
+    glide(p, 6);
+    await runDet(p, 2);
+    for (const lat of [37.7754, 37.7758, 37.7762, 37.7766, 37.777, 37.7762, 37.7758]) {
+      barf(p, lat, -122.43262);
+      await runDet(p, 1.3);
+    }
+    await runDet(p, 4);
+    stick(p, -1);
+    await runDet(p, 10);
+    unstick(p);
+    await runDet(p, 1.5);
+  });
   writeFileSync(`${out}/stats.json`, JSON.stringify(stats, null, 2));
   await browser.close();
   console.log('shots saved to', out);

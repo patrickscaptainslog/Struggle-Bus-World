@@ -286,7 +286,7 @@ const NEAR_FS = /* glsl */ `
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
       light = max(light, glow);
-    } else if (sbGroundPaint(vWorldPos + vec3(uSlide.x, 0.0, uSlide.y), vClassUv, pr, pEdge, pWet, pFresh)) {
+    } else if (sbGroundPaint(vWorldPos + vec3(uSlide.x, 0.0, uSlide.y), vClassUv, ivec2(0), 1.0, pr, pEdge, pWet, pFresh)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, 0.0, pWet);
       glow = 0.55 * pFresh;

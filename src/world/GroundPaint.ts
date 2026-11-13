@@ -117,7 +117,8 @@ float sbgNoise(vec2 p) {
   f = f * f * (3.0 - 2.0 * f);
   return mix(mix(sbgHash(i), sbgHash(i + vec2(1.0, 0.0)), f.x), mix(sbgHash(i + vec2(0.0, 1.0)), sbgHash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
-vec4 sbgTap(ivec2 p) { return texelFetch(tGround, clamp(p, ivec2(0), ivec2(${GROUND_N - 1})), 0); }
+// (a tap stays in the tile's own square of the mask, first texel off, n tiles a side: a tile's own texture, or its slot in its region's. Release A, 1a)
+vec4 sbgTap(ivec2 p, ivec2 off, int hi) { return texelFetch(tGround, clamp(p, ivec2(0), ivec2(hi)) + off, 0); }
 // coverage of one texel, 0 while a live blast hasn't reached it yet; age since it was revealed out
 float sbgCov(vec4 s, out float age) {
   age = 100.0;
@@ -131,15 +132,16 @@ float sbgCov(vec4 s, out float age) {
   }
   return s.r;
 }
-// paint on the ground at a world position (uv over the tile 0..1): false = bare ground
-bool sbGroundPaint(vec3 wp, vec2 uv, out float ramp, out float edge, out float wet, out float fresh) {
+// paint on the ground at a world position (uv over the tile 0..1; off: the tile's first texel in the mask, n its tiles a side, 1): false = bare ground
+bool sbGroundPaint(vec3 wp, vec2 uv, ivec2 off, float n, out float ramp, out float edge, out float wet, out float fresh) {
   if (uGroundOn < 0.5) return false;
   // organic edges: look the mask up through a smooth ~1.5 m warp
   vec2 wv = vec2(sbgNoise(wp.xz * 0.23), sbgNoise(wp.xz * 0.23 + 31.7)) - 0.5;
-  vec2 g = uv * ${GROUND_N}.0 - 0.5 + wv * 1.5;
+  vec2 g = uv * (${GROUND_N}.0 * n) - 0.5 + wv * 1.5;
   ivec2 i0 = ivec2(floor(g));
   vec2 f = fract(g);
-  vec4 s00 = sbgTap(i0), s10 = sbgTap(i0 + ivec2(1, 0)), s01 = sbgTap(i0 + ivec2(0, 1)), s11 = sbgTap(i0 + ivec2(1, 1));
+  int hi = int(${GROUND_N}.0 * n) - 1;
+  vec4 s00 = sbgTap(i0, off, hi), s10 = sbgTap(i0 + ivec2(1, 0), off, hi), s01 = sbgTap(i0 + ivec2(0, 1), off, hi), s11 = sbgTap(i0 + ivec2(1, 1), off, hi);
   float a00, a10, a01, a11;
   float c00 = sbgCov(s00, a00), c10 = sbgCov(s10, a10), c01 = sbgCov(s01, a01), c11 = sbgCov(s11, a11);
   float cov = mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
