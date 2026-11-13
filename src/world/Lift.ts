@@ -610,7 +610,7 @@ export class Lift implements LiftHooks, FieldHouses {
   wants(ref: BuildingRef, level: number, faction: number): 0 | 1 | 2 {
     const i = ref.index;
     if (!this.refs.has(i)) return 0;
-    if (this.seededAt(i)) return 2;
+    if (this.takes(i)) return 2;
     if (this.state[i] !== ST_GROUND) return 2;
     const can = Math.round(level) >= 3 && faction === this.block && this.g.city.paint.get(i).faction === this.block && this.nUp + this.nPending + this.asked < LIFT.cap;
     if (can) {
@@ -625,6 +625,13 @@ export class Lift implements LiftHooks, FieldHouses {
   /** the house at this paint index stands on a seeded square (one of the Lift's houses) */
   private seededAt(i: number): boolean {
     return this.takeSq.size > 0 && this.refs.has(i) && this.takeSq.has(keyAt(this.cx[i], this.cz[i]));
+  }
+  /**
+   * the take's rules hold the house at this paint index: staged, on a seeded square. One staging never had (past LIFT.cap, or its ref in after
+   * staging) is in no square's houses, so no change would ever reach it: it takes paint as any building does (the review's finding 8)
+   */
+  private takes(i: number): boolean {
+    return this.session.has(i) && this.seededAt(i);
   }
 
   /**
@@ -732,7 +739,10 @@ export class Lift implements LiftHooks, FieldHouses {
         s.crack = 0;
         s.sinkWait = true;
         // (the heart's stage 4 is its sky piece: it shudders and stays 4 m lower)
-        if (s.heart) this.sky?.crack(t);
+        if (s.heart) {
+          this.sky?.crack(t);
+          this.skyCrack = t;
+        }
         break;
       case 'heal':
         st.heals++;
@@ -741,7 +751,10 @@ export class Lift implements LiftHooks, FieldHouses {
         s.crack = s.sinkWait ? 0 : -t;
         if (!s.sinkWait) this.sinkSolid(s, false, t);
         s.sinkWait = false;
-        if (s.heart) this.sky?.crack(1e9);
+        if (s.heart) {
+          this.sky?.crack(1e9);
+          this.skyCrack = Infinity;
+        }
         break;
       case 'down':
         if (was >= TAKE.top) {
@@ -812,6 +825,8 @@ export class Lift implements LiftHooks, FieldHouses {
   }
   /** when the falling sky piece reaches the heart's ground and goes (game s; Infinity: it stands, or is gone) */
   private skyOut = Infinity;
+  /** when the heart's crack dropped the sky piece 4 m (game s; Infinity: whole, or healed) */
+  private skyCrack = Infinity;
 
   /**
    * A queued fall starts (LIFT_FALL's motion, D1's falling texel: x its start, y its rest, w its crouch start): a wall to the flight from now
@@ -892,7 +907,8 @@ export class Lift implements LiftHooks, FieldHouses {
     for (let k = 0; k < near.i.length; k++) if (this.state[near.i[k]] === ST_GROUND && (first < 0 || near.d[k] < near.d[first])) first = k;
     for (let k = 0; k < near.i.length; k++) {
       const i = near.i[k], ref = this.refs.get(i);
-      if (!ref || this.state[i] !== ST_GROUND) continue;
+      // (a house whose tile is out lifts when it comes back, as the wave's do: tileIn)
+      if (!ref || this.state[i] !== ST_GROUND || !this.loaded[i]) continue;
       this.schedule(i, t + near.d[k] / LIFT.wave + LIFT.waveJitter * liftSeed(i, 3), k === first ? BY_HIT : BY_WAVE);
       // (schedule refuses past the cap)
       if ((this.state[i] as number) !== ST_PENDING) continue;
@@ -933,7 +949,8 @@ export class Lift implements LiftHooks, FieldHouses {
     TAKE.fallFront = takeTune.fallFront;
     LIFT_WAKE.r = takeTune.wake;
     if (!this.takeSq.size) return;
-    for (const s of this.takeSq.values()) {
+    // (forEach, not for..of: a Map's iterator and its entries' arrays are made every frame otherwise, the review's finding 7)
+    this.takeSq.forEach((s) => {
       const a = this.rules.get(s.key)!;
       if (a.last === Infinity && this.waveAt >= 0) {
         let settle = this.settleOf(s);
@@ -946,8 +963,8 @@ export class Lift implements LiftHooks, FieldHouses {
         s.readyAt = r;
         this.writeTake(s);
       }
-    }
-    for (const s of this.takeSq.values()) {
+    });
+    this.takeSq.forEach((s) => {
       // (a crack's sink waits while a house of it would sink onto the bus or the lens; then the whole square sinks)
       if (s.sinkWait) {
         let held = false;
@@ -974,8 +991,8 @@ export class Lift implements LiftHooks, FieldHouses {
         for (const i of s.houses) this.look[i] = on ? CRACK_LOOK * this.lastDt : 0;
         if (!on) this.lookUntil.delete(s.key);
       }
-    }
-    for (const [i, at] of this.falls) {
+    });
+    this.falls.forEach((at, i) => {
       const ref = this.refs.get(i);
       if (this.state[i] === ST_FALL) {
         const u = now - this.fallT[i];
@@ -984,22 +1001,22 @@ export class Lift implements LiftHooks, FieldHouses {
           if (ref) this.landing(i, ref, bus, cam);
         }
         if (u >= fallEnds(this.H[i])) this.land(i, ref);
-        continue;
+        return;
       }
-      if (now < at) continue;
+      if (now < at) return;
       if (ref && fallBlocked(ref.x0, ref.z0, ref.x1, ref.z1, this.topOf(i, ref), this.margin[i], bus.x, bus.y, bus.z, bus.fx, bus.fz, BUS_HALF, this.busSpeed, cam.x, cam.y, cam.z, takeLead(this.H[i]))) {
         this.stats.fallHeld++;
-        continue;
+        return;
       }
       this.startFall(i, now);
-    }
-    for (const [i, end] of this.flinches) {
-      if (now < end) continue;
+    });
+    this.flinches.forEach((end, i) => {
+      if (now < end) return;
       this.flinches.delete(i);
-      if (this.state[i] !== ST_GROUND) continue;
+      if (this.state[i] !== ST_GROUND) return;
       this.writeTexel(i);
       this.data[i * 4 + 1] = 0;
-    }
+    });
     if (now >= this.skyOut && this.sky) {
       this.g.scene.remove(this.sky.mesh);
       this.sky = null;
@@ -1039,7 +1056,7 @@ export class Lift implements LiftHooks, FieldHouses {
     }
     make(this.heartKey, true);
     for (const s of this.takeSq.values()) this.writeTake(s);
-    this.g.city.paint.guard = (i) => !this.seededAt(i);
+    this.g.city.paint.guard = (i) => !this.takes(i);
   }
 
   /** A square's two texels in tTake (B5.2), uploaded with the frame. */
@@ -1076,10 +1093,14 @@ export class Lift implements LiftHooks, FieldHouses {
     return this.waiting(index) ? r * 0.5 : 0;
   }
 
-  /** The house at this paint index stands on a seeded square that won't take a counted change now (part C's glint). */
-  waiting(index: number): boolean {
-    if (!this.seededAt(index)) return false;
-    return this.now < this.takeSq.get(keyAt(this.cx[index], this.cz[index]))!.readyAt;
+  /**
+   * The house at this paint index stands on a seeded square that won't take a counted change now (part C's glint): its five seconds, or, by
+   * `faction`'s hand, its own square at the Lift, where every hit is an encore (the review's finding 11: the glint said "ready" there)
+   */
+  waiting(index: number, faction = -1): boolean {
+    if (!this.takes(index)) return false;
+    const k = keyAt(this.cx[index], this.cz[index]), a = this.rules.get(k)!;
+    return this.now < this.takeSq.get(k)!.readyAt || (a.faction === faction && a.stage >= TAKE.top);
   }
 
   /**
@@ -1098,15 +1119,17 @@ export class Lift implements LiftHooks, FieldHouses {
     const b = this.sky?.boxes;
     // (a piece coming down takes no more hits: its boxes are where it stood)
     if (!b || this.skyOut !== Infinity) return false;
-    const o = [ox, oy, oz], d = [dx, dy, dz];
+    // (a cracked piece stands 4 m lower, uSkyCrack's: the boxes are where it formed. Scalars, no arrays: the aim asks every frame)
+    const drop = this.now > this.skyCrack ? 4 : 0;
     for (let k = 0; k + 5 < b.length; k += 6) {
       let t0 = 0, t1 = 1;
       for (let ax = 0; ax < 3 && t0 <= t1; ax++) {
-        if (Math.abs(d[ax]) < 1e-9) {
-          if (o[ax] < b[k + ax] || o[ax] > b[k + 3 + ax]) t0 = 2;
+        const o = ax === 0 ? ox : ax === 1 ? oy + drop : oz, d = ax === 0 ? dx : ax === 1 ? dy : dz;
+        if (Math.abs(d) < 1e-9) {
+          if (o < b[k + ax] || o > b[k + 3 + ax]) t0 = 2;
           continue;
         }
-        const ta = (b[k + ax] - o[ax]) / d[ax], tb = (b[k + 3 + ax] - o[ax]) / d[ax];
+        const ta = (b[k + ax] - o) / d, tb = (b[k + 3 + ax] - o) / d;
         t0 = Math.max(t0, Math.min(ta, tb));
         t1 = Math.min(t1, Math.max(ta, tb));
       }

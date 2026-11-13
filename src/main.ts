@@ -1627,8 +1627,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const glint = aimer.update(flight, simTime, steering);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
-    // (?lift: the glint on a square that won't take the next hit sweeps in its owner's colour, not white: LIFT.md, "Taking it: the looks")
-    if (liftUniforms) liftUniforms.uGlintWait.value = glint && lift?.waiting(glint.index) ? 1 : 0;
+    // (?lift: the glint on a square that won't take the next hit sweeps in its owner's colour, not white, your own square at the Lift too, where
+    // every hit is an encore: LIFT.md, "Taking it: the looks")
+    if (liftUniforms) liftUniforms.uGlintWait.value = glint && lift?.waiting(glint.index, splatter.faction) ? 1 : 0;
     // (and on the rival's sky piece while the line of fire crosses it: a step brighter if the heart takes the hit, dimmer while it waits)
     if (lift && liftedOn) lift.skyGlint(aimer.skyAimed);
     paintUniforms.uTargetT.value = aimer.shownSince;
