@@ -1627,7 +1627,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   fogGround = city.lowGround();
   updateSun();
   globals.uFogBank.value = config.fog.openingBank;
-  rig.openingPull = 140;
+  // (the lens comes in 140 m as the fog thins; not on a return start, where it came in through the towers round the paint and stood inside a painted
+  // spire, r3's look: there it starts at the chase)
+  const openingPull = returned ? 0 : 140;
+  rig.openingPull = openingPull;
 
   // ---- the loop
   let last = performance.now();
@@ -1783,7 +1786,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       opening = loaded ? opening + step : Math.min(opening + step, config.fog.openingDuration * 0.15);
       const k = clamp(opening / config.fog.openingDuration, 0, 1);
       globals.uFogBank.value = 1 + (config.fog.openingBank - 1) * Math.pow(1 - k, 2);
-      rig.openingPull = 140 * Math.pow(1 - k, 2);
+      rig.openingPull = openingPull * Math.pow(1 - k, 2);
     } else {
       globals.uFogBank.value = 1;
       rig.openingPull = 0;
