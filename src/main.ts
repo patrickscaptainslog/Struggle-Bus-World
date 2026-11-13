@@ -307,6 +307,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     city.growTo(ref, level);
   };
   // ?lift: the Lift (world/Lift.ts, its own chunk: without the flag it's never fetched)
+  /** the take's sounds' clocks (wall s): the last landing's note and where down the scale it was, the last landing's kick, the last parry */
+  const takeAudio = { note: -9, down: 11, kick: -9, parry: -9 };
   const lift: Lift | null = liftHood
     ? new (await import('./world/Lift')).Lift({
         city,
@@ -330,15 +332,55 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           crouch: () => audio.heave(),
           jump: (n, hue) => audio.bloomBurst(n, hue, 3),
           note: (i, n, hue) => audio.bloomNote(i, n, hue, 3),
+          // (a fallen house's landing: a note down the scale, the wave's arpeggio backwards, at most 12 a second; a kick within 200 m, at most 4 a
+          // second, the first and the big ones only)
+          land: (d, hue, big) => {
+            const now = performance.now() / 1000;
+            if (now - takeAudio.note > 1 / 12) {
+              takeAudio.note = now;
+              takeAudio.down = now - takeAudio.kick > 2 ? 11 : Math.max(0, takeAudio.down - 1);
+              audio.bloomNote(takeAudio.down, 12, hue, 3);
+            }
+            if (d < 200 && now - takeAudio.kick > 0.25 && (big || now - takeAudio.kick > 2)) {
+              takeAudio.kick = now;
+              rig.kick(config.splat.kick * (1 - d / 200));
+            }
+          },
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
         camera,
-        // (the take's hits, LIFT.md "Taking the block": part C's looks and sounds hang here. Until then the existing calls, so a hit that waits
-        // never sounds like nothing: a parry the denied buzz, a crack or a knock-down the houses' heave, a flip or an up the ready chime)
-        took: (_key, outcome) => {
-          if (outcome === 'parry') audio.denied();
-          else if (outcome === 'crack' || outcome === 'down') audio.heave();
-          else if (outcome === 'flip' || outcome === 'up' || outcome === 'heal') audio.ready();
+        // (the take's hits, LIFT.md "Taking it: the looks": with the existing calls, each faction's own owed, and every one read by eye too, iOS on
+        // silent. A parry the denied buzz, its first in a window, then a soft tick, and the breath bounces off in the hitter's sparkles; the crack
+        // the houses' groan and the scale's top note; the fall the big impact and a kick (its landings: sound.land); a wilt the groan and a quiet
+        // burst; the flip a hit-stop of 6 frames, a rising burst and the ready chime; an up or a heal the chime)
+        took: (key, outcome, _at, x, z, hitter) => {
+          const now = performance.now() / 1000;
+          if (outcome === 'parry') {
+            if (now - takeAudio.parry > 3) audio.denied();
+            else audio.superHoseHit();
+            takeAudio.parry = now;
+            const at = new THREE.Vector3(x, 0, z);
+            at.y = city.lift ? city.lift.surface(x, z, 1e6, city.groundAt(x, z)) + 1 : city.groundAt(x, z) + 1;
+            const palette0 = particles.palette;
+            particles.palette = lookOf(hitter).spray;
+            particles.sparkles(at, 2, 6, [0, 2, 4], 10);
+            particles.palette = palette0;
+          } else if (outcome === 'crack') {
+            audio.heave();
+            audio.bloomNote(11, 12, 0, 3);
+          } else if (outcome === 'down') {
+            if (lift && lift.rules.get(key)?.stage === 3) {
+              audio.splatImpact(1.4);
+              rig.kick(config.splat.kick);
+            } else {
+              audio.heave();
+              audio.bloomBurst(3, 0, 1);
+            }
+          } else if (outcome === 'flip') {
+            hitStop = Math.max(hitStop, 6 / 60);
+            audio.bloomBurst(6, 0, 1);
+            audio.ready();
+          } else if (outcome === 'up' || outcome === 'heal') audio.ready();
         },
       })
     : null;

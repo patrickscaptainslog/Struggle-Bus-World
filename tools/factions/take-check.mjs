@@ -4,6 +4,7 @@
 // reads another branch), the five seconds, a square from the Lift to the flip in five counted hits and on to the Lift again in three, a super's id,
 // the firehose's swath, seeding and readiness; then each house's session paint (TakeHouses) through a crack, a fall, the wilts, the flip, the ups
 // and a tile streaming back in, the gardens' calls recorded by a stub (a wilt clears before it grows). And the plain fall's hold (fallBlocked).
+// And the take's motion (part C): the fall, the crack and its hold, the flinch (liftGlsl's liftAt), and the falling wall (LiftField's state 3).
 // Bundled with rolldown as lift-check.mjs bundles liftGlsl.ts. Prints pass or FAIL a line with its numbers, exits 1 on any failure.
 //
 //   node tools/factions/take-check.mjs
@@ -17,7 +18,7 @@ const root = resolve(here, '../..');
 const R = root.replace(/\\/g, '/');
 const out = `${here}.out`;
 mkdirSync(out, { recursive: true });
-writeFileSync(`${out}/take-entry.ts`, [`export * from '${R}/src/world/liftRules.ts';`, `export * from '${R}/src/world/liftGlsl.ts';`].join('\n'));
+writeFileSync(`${out}/take-entry.ts`, [`export * from '${R}/src/world/liftRules.ts';`, `export * from '${R}/src/world/liftGlsl.ts';`, `export * from '${R}/src/world/LiftField.ts';`].join('\n'));
 const bundle = await rolldown({ input: `${out}/take-entry.ts`, platform: 'node', logLevel: 'silent', external: [/^three/] });
 await bundle.write({ dir: out, format: 'esm', entryFileNames: 'take.mjs' });
 await bundle.close();
@@ -233,6 +234,115 @@ for (const [name, owner, stage, cracks, ready, own, want, st, cr, who] of ROWS) 
   report('the bus over its top plus 8: falls', String(fb(10, 89, 10)), 'false', fb(10, 89, 10) === false);
   report('the lens under it: held', String(fb(200, 20, 200, 0, 10, 60, 10)), 'true', fb(200, 20, 200, 0, 10, 60, 10) === true);
   report('the bus\'s tail under its edge, its middle 13 m out: held', String(fb(-13 + 0.5, 20, 10)), 'true', fb(-13 + 0.5, 20, 10) === true);
+}
+
+// ------------------------------------------------------------------ 6. the take's motion (C2): the fall, the crack, the flinch, the falling wall
+{
+  const F = L.LIFT_FALL, T = L.LIFT_TAKE, LT = L.LIFT;
+  const o = [0, 0, 0, 0], p = [0, 0, 0, 0];
+  // (rests 9 to 94 m, heaves of a big building's to a small house's, centres a few km apart, the swell's every phase by the clock)
+  const rests = [9, 12, 16, 34, 48, 62, 72, 94], heaves = [1.2, 2.2, 3.45];
+  let under = 0, underAt = null, lands = 0, landBad = 0, settleBad = 0, jump = 0, jumpLean = 0, n = 0;
+  for (const H of rests)
+    for (const hv of heaves)
+      for (const fps of [20, 30, 60])
+        for (const k of [0, 1, 2]) {
+          const t0 = 100 + 37 * k, f0 = t0 + 2.7 + 1.3 * k, cx = -2000 + 900 * k, cz = 300 - 700 * k, sb = 0.17 + 0.3 * k, rad = 18;
+          // (continuous at the fall's start: the motion where the swell has it, and the fall 0 s in)
+          L.liftAt(f0 - t0, f0, H, sb, cx, cz, hv, o);
+          L.liftAt(f0 - t0, f0, H, sb, cx, cz, hv, p, 0);
+          jump = Math.max(jump, Math.abs(o[0] - p[0]));
+          jumpLean = Math.max(jumpLean, Math.abs(o[2] - p[2]), Math.abs(o[3] - p[3]));
+          const dt = 1 / fps, land = L.fallLands(H), settle = land + F.settle;
+          let first = -1, last = -1;
+          for (let u = 0; u <= L.fallEnds(H) + dt; u += dt) {
+            L.liftAt(f0 + u - t0, f0 + u, H, sb, cx, cz, hv, o, u);
+            // (its lowest drawn point: its belly's centre less its lean across its reach, never under its ground less the landing's sink)
+            const low = o[0] - (Math.abs(o[2]) + Math.abs(o[3])) * rad;
+            if (low < -F.sink - 1e-9 && -F.sink - low > under) [under, underAt] = [-F.sink - low, { H, hv, fps, u: +u.toFixed(3) }];
+            if (first < 0 && o[0] <= 0) first = u;
+            if (o[0] !== 0 || o[1] !== 0) last = u;
+            n++;
+          }
+          lands++;
+          if (Math.abs(first - land) > dt + 1e-9) landBad++;
+          if (Math.abs(last - settle) > dt + 1e-9) settleBad++;
+        }
+  report('the fall: no drawn point under its ground less the landing\'s sink (rests 9-94 m, three heaves, 20/30/60 fps, a 18 m reach)', under ? `${under.toFixed(3)} m under at ${JSON.stringify(underAt)}` : `0 of ${n} samples`, 'none', !under);
+  report('the fall: each lands at its hitch plus its drop, within a frame', `${lands - landBad} of ${lands}`, 'all', !landBad);
+  report('the fall: each settles at hitch + drop + settle, within a frame', `${lands - settleBad} of ${lands}`, 'all', !settleBad);
+  report('the fall: dy and the lean continuous at its start (its launch 2.7 s old or more)', `dy ${(jump * 100).toFixed(2)} cm, the lean ${jumpLean.toExponential(1)}`, 'dy <= 1 cm', jump <= 0.01 && jumpLean <= 1e-6);
+  const drops = [9, 34, 72, 94].map((H) => L.fallDrop(H + 3).toFixed(2)).join(', ');
+  report('the fall: drop times from 9, 34, 72, 94 m and a 3 m crest', `${drops} s`, 'the design\'s 0.47, 0.82, 1.17, 1.33', drops === '0.47, 0.82, 1.17, 1.33');
+
+  // the crack: its peak vertical speed, its list with the swell's lean, the heal's speed; the defaults change nothing
+  let vMax = 0, vAt = null, tilt = 0, hvMax = 0, same = true;
+  for (const H of rests)
+    for (const hv of heaves)
+      for (let a = 0; a < 8; a++) {
+        const c = 500, la = (a * Math.PI) / 4, lx = Math.cos(la), lz = Math.sin(la), dt = 1 / 240;
+        let prev = null;
+        for (let u = -0.1; u < 4; u += dt) {
+          L.liftAt(50 + u, c + u, H, 0.31, -1800 + 40 * a, 200, hv, o, -1, c, lx, lz);
+          L.liftAt(50 + u, c + u, H, 0.31, -1800 + 40 * a, 200, hv, p);
+          // (the house's own swell taken out: the crack's own speed)
+          const d = o[0] - p[0];
+          if (prev !== null && Math.abs(d - prev) / dt > vMax) [vMax, vAt] = [Math.abs(d - prev) / dt, { H, u: +u.toFixed(3) }];
+          prev = d;
+          tilt = Math.max(tilt, Math.hypot(o[2], o[3]));
+        }
+        // (the heal 6 s on: back up)
+        prev = null;
+        for (let u = 0; u < 4; u += dt) {
+          L.liftAt(56 + u, c + 6 + u, H, 0.31, -1800, 200, hv, o, -1, -(c + 6), lx, lz);
+          L.liftAt(56 + u, c + 6 + u, H, 0.31, -1800, 200, hv, p);
+          const d = o[0] - p[0];
+          if (prev !== null) hvMax = Math.max(hvMax, Math.abs(d - prev) / dt);
+          prev = d;
+        }
+        L.liftAt(50, c, H, 0.31, -1800, 200, hv, o);
+        L.liftAt(50, c, H, 0.31, -1800, 200, hv, p, -1, 0, 0, 0);
+        same &&= o.every((v, i) => Object.is(v, p[i]));
+      }
+  report('the crack: its peak vertical speed (sink and jolt)', `${vMax.toFixed(2)} m/s at ${JSON.stringify(vAt)}`, '< 10 m/s', vMax < 10);
+  report('the crack: its list with the swell\'s lean never over tiltMax', `${tilt.toFixed(4)}`, `<= ${LT.tiltMax}`, tilt <= LT.tiltMax + 1e-12);
+  report('the heal: its rise\'s peak speed', `${hvMax.toFixed(2)} m/s`, '< 10 m/s', hvMax < 10);
+  report('the defaults (no fall, no crack) answer bit for bit as before', String(same), 'true', same);
+  const sinks = [9, 12, 20, 94].map((H) => L.crackSinkOf(H).toFixed(2)).join(', ');
+  report('the sink: 12 % of the rest, at least 1.5 m, the belly never under hMin', `${sinks} m for rests 9, 12, 20, 94`, '0.00, 1.50, 2.40, 11.28', sinks === '0.00, 1.50, 2.40, 11.28');
+
+  // the flinch: drawn only, never up, under 0.3 m, done by flinchT
+  let fUp = 0, fDown = 0, fEnd = 0;
+  for (let u = 0; u < 1; u += 1 / 240) {
+    L.liftAt(u, 0, -1, 0, 0, 0, 0, o);
+    fUp = Math.max(fUp, o[0], o[1]);
+    fDown = Math.max(fDown, -o[0]);
+    if (u >= T.flinchT) fEnd = Math.max(fEnd, Math.abs(o[0]), Math.abs(o[1]));
+  }
+  report('the flinch: never up, under 0.3 m down, done by its 0.6 s', `up ${fUp}, down ${fDown.toFixed(3)} m, after ${fEnd}`, 'up 0, down < 0.3, after 0', fUp === 0 && fDown < 0.3 && fEnd === 0);
+
+  // the crack's hold (crackBlocked): the bus under a house whose belly would sink onto it
+  const cb = (by, bx = 10, cy = 300) => L.crackBlocked(0, 0, 20, 20, 60, 80, 7, 4, bx, by, 10, 1, 0, 8, 0, 500, cy, 500);
+  report('the crack\'s hold: the bus 6 m under a belly about to sink 7 m: held', String(cb(54 - 5)), 'true', cb(49) === true);
+  report('the crack\'s hold: the bus 30 m under it: sinks', String(cb(20)), 'false', cb(20) === false);
+  report('the crack\'s hold: the bus 40 m beside it: sinks', String(cb(49, 60)), 'false', cb(49, 60) === false);
+  report('the crack\'s hold: the lens under it: held', String(L.crackBlocked(0, 0, 20, 20, 60, 80, 7, 4, 500, 20, 500, 1, 0, 8, 0, 10, 52, 10)), 'true', L.crackBlocked(0, 0, 20, 20, 60, 80, 7, 4, 500, 20, 500, 1, 0, 8, 0, 10, 52, 10) === true);
+}
+
+// ------------------------------------------------------------------ 7. the falling house is a wall to the flight (LiftField's state 3)
+{
+  const { LiftField } = L;
+  const one = (a) => new Float32Array([a]);
+  const houses = { state: new Uint8Array([2]), H: one(40), margin: one(4), tiltM: one(1.5), solid: new Uint8Array([0]), cx: one(4), cz: one(4), rad: one(6), base: one(0), t0: one(0), extra: one(0), now: 100, dyNow: () => 40, dyAt: () => 40 };
+  const world = { stampLift: (x, z, c, idx, top, o, max, rest) => ((idx[o] = 0), (top[o] = 10), (rest[0] = 0), 1) };
+  const f = new LiftField(0, 0, 64, 64, 8, world, houses);
+  f.reach(0, 0, 8, 8);
+  const up = f.query(4, 4, 5, 0, false);
+  const upUnder = f.under;
+  houses.state[0] = 3;
+  const lowQ = f.query(4, 4, 5, 0, false), lowUnder = f.under, highQ = f.query(4, 4, 200, 0, false);
+  report('the field: a floating house is a deck from under it', `floor ${up}, underside ${upUnder.toFixed(1)}`, 'floor 0, an underside', up === 0 && upUnder < Infinity);
+  report('the field: a falling one is a wall from the ground to its drawn top, from under and over', `from 5 m ${lowQ.toFixed(1)}, underside ${lowUnder}; from 200 m ${highQ.toFixed(1)}`, '>= 51.5 both, no underside', lowQ >= 51.5 && highQ >= 51.5 && lowUnder === Infinity);
 }
 
 console.log(failed ? `${failed} failed` : 'all passed');

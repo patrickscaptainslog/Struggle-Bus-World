@@ -11,7 +11,7 @@ import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWa
 import { type Beam, makeBeam, makeSkyPiece, registerBeamWarm, registerSkyWarm, type SkyPiece } from './liftSky';
 import { keyAt, OUTCOMES, type Outcome, TAKE, TakeHouses, type TakeHit, TakeRules, type TakeSink } from './liftRules';
 import {
-  fallBlocked, hoodStart, LAKE_FLOOD, LIFT_WAKE, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  crackBlocked, crackSinkOf, fallBlocked, fallEnds, fallLands, hoodStart, LIFT_TAKE, SLOW_FALL, LAKE_FLOOD, LIFT_WAKE, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
@@ -36,7 +36,7 @@ export interface LiftGame {
   bump(x: number, z: number, amt: number): void;
   /** petals at a jump: a burst and sparkles in the house's hue, in its owner's colours */
   petals(x: number, y: number, z: number, hue: number, n: number, faction: number): void;
-  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void };
+  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void };
   /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
   sun: [number, number];
   /** the scene's camera: the wake asks whether the heart is in its frame (as last drawn) */
@@ -69,6 +69,9 @@ interface TakeSquare {
   ix: number;
   iz: number;
   readyAt: number;
+  /** the crack's list: its way (rad, down toward the crack's impact), and a crack whose sink waits for the bus or the lens to be clear (crackBlocked) */
+  listA: number;
+  sinkWait: boolean;
 }
 
 /** the tuner's Take group (`topHits`: hitsToDrop[4], `wake`: LIFT_WAKE.r), copied into TAKE and LIFT_WAKE each frame */
@@ -76,7 +79,10 @@ const takeTune = { cooldown: TAKE.cooldown, topHits: TAKE.hitsToDrop[4], front: 
 /** the bus's half length for the fall's hold (m): LiftField's HALF, and 2 m */
 const BUS_HALF = 8;
 
-const ST_GROUND = 0, ST_PENDING = 1, ST_UP = 2;
+/** a house's state: on the ground, crouching or held, up, falling (the take's fall: a wall to the flight until it lands, LiftField) */
+const ST_GROUND = 0, ST_PENDING = 1, ST_UP = 2, ST_FALL = 3;
+/** the crack's look ahead on the flight's slab (m/s, for 2 s after its sink starts: LiftField's LOOK is sized for 3 m/s) */
+const CRACK_LOOK = 10;
 /** a house held back from jumping into the bus or the camera waits at most this long (s) */
 const HOLD_MAX = 3;
 const tmp = [0, 0, 0, 0];
@@ -210,14 +216,26 @@ export class Lift implements LiftHooks, FieldHouses {
   readonly stats = {
     scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, planMs: 0, turning: 0,
     counted: 0, parried: 0, encores: 0, cracks: 0, heals: 0, falls: 0, fallHeld: 0, landed: 0, wilts: 0, flips: 0, ups: 0, liftedAsTaker: 0,
+    crackHeld: 0, landings: 0,
   };
+  /** the game clock's last step (s): the crack's look ahead */
+  private lastDt = 1 / 30;
 
   // ---- the take (LIFT.md, "Taking the block"): the rules' stand-in, its seeded squares, the falls on their way, tTake
   /** the contest's rules on the squares (liftRules.ts: the areas engine's stand-in); squares are seeded when staging ends */
   readonly rules: TakeRules;
   private readonly takeSq = new Map<number, TakeSquare>();
-  /** a falling house's fall start (game s), by index, until it lands */
+  /** a house whose fall is queued or under way: its fall's due time (game s), by index, until it has landed and its lake drained */
   private readonly falls = new Map<number, number>();
+  /** a falling house's fall start (game s), and whether its landing has been heard */
+  private readonly fallT: Float32Array;
+  private readonly fallHeard: Uint8Array;
+  /** a flinching house's (a wilt's) end (game s): its texel back on the ground then */
+  private readonly flinches = new Map<number, number>();
+  /** each seeded house's square (the motion's crack and list) */
+  private readonly houseSq = new Map<number, TakeSquare>();
+  /** the flight's extra look ahead on a house's slab (m), LiftField's: a cracked square's for 2 s */
+  readonly look: Float32Array;
   private readonly takeData: Float32Array;
   private readonly takeTex: THREE.DataTexture;
   private takeDirty = false;
@@ -290,6 +308,9 @@ export class Lift implements LiftHooks, FieldHouses {
     this.held = new Float32Array(texels);
     this.fromHit = new Uint8Array(texels);
     this.turn = new Float32Array(texels);
+    this.fallT = new Float32Array(texels);
+    this.fallHeard = new Uint8Array(texels);
+    this.look = new Float32Array(texels);
     // (two texels a house, the second uLiftRows rows down: its crouch start, rest and seed; its centre, ground and heave)
     this.data = new Float32Array(texels * 8);
     this.tex = new THREE.DataTexture(this.data, city.paint.width, city.paint.height * 2, THREE.RGBAFormat, THREE.FloatType);
@@ -385,7 +406,10 @@ export class Lift implements LiftHooks, FieldHouses {
   /** the motion now, once a frame a house: mem's dy, lean x, lean z (the offset of its three) */
   private motion(i: number): number {
     if (this.memT[i] !== this.now) {
-      liftAt(this.now - this.t0[i], this.now, this.H[i], this.seedB[i], this.cx[i], this.cz[i], this.heave[i], tmp);
+      // (with its square's crack and list, and its fall: the GPU's sbLift reads the same from tTake and its texel)
+      const s = this.houseSq.get(i);
+      const fall = this.state[i] === ST_FALL ? this.now - this.fallT[i] : -1;
+      liftAt(this.now - this.t0[i], this.now, this.H[i], this.seedB[i], this.cx[i], this.cz[i], this.heave[i], tmp, fall, s ? s.crack : 0, s ? Math.cos(s.listA) : 0, s ? Math.sin(s.listA) : 0);
       this.memT[i] = this.now;
       this.mem[i * 3] = tmp[0];
       this.mem[i * 3 + 1] = tmp[2];
@@ -411,7 +435,7 @@ export class Lift implements LiftHooks, FieldHouses {
   }
 
   reach(index: number): number {
-    return this.state[index] === ST_UP ? this.H[index] * 1.14 + this.margin[index] : 0;
+    return this.state[index] >= ST_UP ? this.H[index] * 1.14 + this.margin[index] : 0;
   }
 
   over(index: number, baseY: number, fromY: number): boolean {
@@ -664,22 +688,33 @@ export class Lift implements LiftHooks, FieldHouses {
     const near = this.nearList(s, px, pz);
     switch (o) {
       case 'crack':
-        // (no paint changes: part C draws its veins and its sink)
+        // (no paint changes: its veins from the counted change, its sink and list from s.crack, down toward the impact, once no house of it would
+        // sink onto the bus or the lens: the crack's hold)
         st.cracks++;
-        s.crack = t;
         s.cracker = hitter;
+        s.listA = Math.atan2((squareIz(s.key) + 0.5) * SQUARE - pz, (squareIx(s.key) + 0.5) * SQUARE - px);
+        s.crack = 0;
+        s.sinkWait = true;
         break;
       case 'heal':
         st.heals++;
-        s.crack = -t;
+        // (a sink still waiting never starts)
+        s.crack = s.sinkWait ? 0 : -t;
+        if (!s.sinkWait) this.sinkSolid(s, false, t);
+        s.sinkWait = false;
         break;
       case 'down':
-        s.crack = 0;
-        if (was >= TAKE.top) this.fall(s, near, t);
-        else {
-          // (the wilt: a level off each house as the blast's shockwave reaches it, hue and owner kept, its garden cleared and grown again lower)
+        if (was >= TAKE.top) {
+          // (the houses fall from where the crack sank them: s.crack stays until the square lifts again)
+          s.sinkWait = false;
+          this.fall(s, near, t);
+        } else {
+          // (the wilt: a level off each house as the blast's shockwave reaches it, hue and owner kept, its garden cleared and grown again lower;
+          // and each flinches as it arrives, drawn only)
+          s.crack = 0;
           st.wilts++;
           this.session.change('wilt', near.i, near.d, t, TAKE.shock, a.faction, 0);
+          for (let k = 0; k < near.i.length; k++) this.flinch(near.i[k], t + near.d[k] / TAKE.shock);
         }
         break;
       case 'flip':
@@ -691,7 +726,10 @@ export class Lift implements LiftHooks, FieldHouses {
         break;
       case 'up':
         st.ups++;
-        if (a.stage >= TAKE.top) this.liftSquare(near, t, hitter);
+        if (a.stage >= TAKE.top) {
+          s.crack = 0;
+          this.liftSquare(near, t, hitter);
+        }
         else this.session.change('up', near.i, near.d, t, TAKE.front, a.faction, Math.min(a.stage, 3));
         break;
     }
@@ -731,7 +769,56 @@ export class Lift implements LiftHooks, FieldHouses {
     }
   }
 
-  /** A falling house lands (at its fall's start until part C's motion): on the ground, its lake and underside gone with it, the cap's room back. */
+  /**
+   * A queued fall starts (LIFT_FALL's motion, D1's falling texel: x its start, y its rest, w its crouch start): a wall to the flight from now
+   * until it lands (LiftField's state 3), its turn gone (Hyperglow's unwind is not built: it snaps square), its square still parrying.
+   */
+  private startFall(i: number, now: number) {
+    this.state[i] = ST_FALL;
+    this.fallT[i] = now;
+    this.fallHeard[i] = 0;
+    this.turn[i] = 0;
+    this.writeTexel(i);
+    const o = i * 4;
+    this.data[o] = -now - 1;
+    this.data[o + 3] = this.t0[i];
+  }
+
+  /** A wilt's flinch from `at` (game s): tLift's first texel y -1 (on the ground, flinching since x), drawn only, back after LIFT_TAKE.flinchT and 0.1 s. */
+  private flinch(i: number, at: number) {
+    if (this.state[i] !== ST_GROUND || this.falls.has(i)) return;
+    this.writeTexel(i);
+    this.data[i * 4] = at;
+    this.data[i * 4 + 1] = -1;
+    this.flinches.set(i, at + LIFT_TAKE.flinchT + 0.1);
+  }
+
+  /** A cracked square's sink starts (or a heal's rise): the flight's `solid` from the rest less the sink, and its look ahead for 2 s. */
+  private sinkSolid(s: TakeSquare, sunk: boolean, t: number) {
+    for (const i of s.houses) {
+      if (this.state[i] !== ST_UP) continue;
+      this.solid[i] = liftLow(this.H[i] - (sunk ? crackSinkOf(this.H[i]) : 0), this.margin[i]) ? 1 : 0;
+    }
+    this.lookUntil.set(s.key, t + 2);
+  }
+  /** squares whose houses' look ahead grows (sinkSolid), until when */
+  private readonly lookUntil = new Map<number, number>();
+
+  /**
+   * A falling house has landed: the first near the bus (200 m) or in the frame, with the bus under LIFT_WAKE.low, starts the fall's slow motion
+   * (call 2: at the landing, not the hit, so the first ring of squashes and hops plays slowly); main's sound and kick (a note down the scale).
+   */
+  private landing(i: number, ref: BuildingRef, bus: { x: number; y: number; z: number }, cam: THREE.Vector3) {
+    const d = Math.hypot(ref.cx - bus.x, ref.cz - bus.z, ref.baseY - bus.y);
+    heartAt.set(ref.cx, ref.baseY, ref.cz).project(this.g.camera);
+    const seen = heartAt.z < 1 && Math.abs(heartAt.x) <= 1 && Math.abs(heartAt.y) <= 1;
+    if ((d <= 200 || seen) && bus.y - this.heartY < LIFT_WAKE.low) this.slow(SLOW_FALL);
+    void cam;
+    this.stats.landings++;
+    this.g.sound.land(d, this.session.hue[i], ref.area > 400);
+  }
+
+  /** A falling house's fall is over (its landing settled and its lake drained): on the ground, its lake and underside gone with it, the cap's room back. */
   private land(i: number, ref: BuildingRef | undefined) {
     this.falls.delete(i);
     this.state[i] = ST_GROUND;
@@ -813,14 +900,58 @@ export class Lift implements LiftHooks, FieldHouses {
         this.writeTake(s);
       }
     }
+    for (const s of this.takeSq.values()) {
+      // (a crack's sink waits while a house of it would sink onto the bus or the lens; then the whole square sinks)
+      if (s.sinkWait) {
+        let held = false;
+        for (const i of s.houses) {
+          const ref = this.refs.get(i);
+          if (!ref || this.state[i] !== ST_UP) continue;
+          if (crackBlocked(ref.x0, ref.z0, ref.x1, ref.z1, ref.baseY + this.dy(i), this.topOf(i, ref), crackSinkOf(this.H[i]), this.margin[i], bus.x, bus.y, bus.z, bus.fx, bus.fz, BUS_HALF, this.busSpeed, cam.x, cam.y, cam.z)) {
+            held = true;
+            break;
+          }
+        }
+        if (held) this.stats.crackHeld++;
+        else {
+          s.sinkWait = false;
+          s.crack = now;
+          this.sinkSolid(s, true, now);
+          this.writeTake(s);
+          for (const i of s.houses) this.memT[i] = NaN;
+        }
+      }
+      const until = this.lookUntil.get(s.key);
+      if (until !== undefined) {
+        const on = now < until;
+        for (const i of s.houses) this.look[i] = on ? CRACK_LOOK * this.lastDt : 0;
+        if (!on) this.lookUntil.delete(s.key);
+      }
+    }
     for (const [i, at] of this.falls) {
-      if (now < at) continue;
       const ref = this.refs.get(i);
+      if (this.state[i] === ST_FALL) {
+        const u = now - this.fallT[i];
+        if (!this.fallHeard[i] && u >= fallLands(this.H[i])) {
+          this.fallHeard[i] = 1;
+          if (ref) this.landing(i, ref, bus, cam);
+        }
+        if (u >= fallEnds(this.H[i])) this.land(i, ref);
+        continue;
+      }
+      if (now < at) continue;
       if (ref && fallBlocked(ref.x0, ref.z0, ref.x1, ref.z1, this.topOf(i, ref), this.margin[i], bus.x, bus.y, bus.z, bus.fx, bus.fz, BUS_HALF, this.busSpeed, cam.x, cam.y, cam.z)) {
         this.stats.fallHeld++;
         continue;
       }
-      this.land(i, ref);
+      this.startFall(i, now);
+    }
+    for (const [i, end] of this.flinches) {
+      if (now < end) continue;
+      this.flinches.delete(i);
+      if (this.state[i] !== ST_GROUND) continue;
+      this.writeTexel(i);
+      this.data[i * 4 + 1] = 0;
     }
     this.session.drain(now, this.sink);
     if (this.takeDirty) {
@@ -838,7 +969,8 @@ export class Lift implements LiftHooks, FieldHouses {
     const make = (key: number, heart: boolean): TakeSquare => {
       let s = this.takeSq.get(key);
       if (!s) {
-        s = { key, heart, houses: [], hoseId: 0, hoseN: 0, crack: 0, cracker: 0, parry: 0, lastAt: 0, lastOut: 'none', ix: 0, iz: 0, readyAt: Infinity };
+        // (its claim line first draws itself round from the point nearest the heart: its impact until a counted change has one)
+        s = { key, heart, houses: [], hoseId: 0, hoseN: 0, crack: 0, cracker: 0, parry: 0, lastAt: 0, lastOut: 'none', ix: this.heart[0], iz: this.heart[1], readyAt: Infinity, listA: 0, sinkWait: false };
         this.takeSq.set(key, s);
         this.rules.seed(key, this.block, TAKE.top, Infinity);
       }
@@ -846,7 +978,10 @@ export class Lift implements LiftHooks, FieldHouses {
     };
     for (const { ref } of list) {
       const k = keyAt(ref.cx, ref.cz);
-      if (!this.tagged.has(k)) make(k, k === this.heartKey).houses.push(ref.index);
+      if (this.tagged.has(k)) continue;
+      const s = make(k, k === this.heartKey);
+      s.houses.push(ref.index);
+      this.houseSq.set(ref.index, s);
     }
     make(this.heartKey, true);
     for (const s of this.takeSq.values()) this.writeTake(s);
@@ -861,7 +996,8 @@ export class Lift implements LiftHooks, FieldHouses {
     const a = this.rules.get(s.key)!;
     const o = (iz * w + ix) * 4, o2 = ((h + iz) * w + ix) * 4, d = this.takeData;
     d[o] = s.crack;
-    d[o + 1] = s.cracker;
+    // (the cracker, and the crack's list's way as a fraction of a turn: sbLift's)
+    d[o + 1] = s.cracker + 0.999 * ((((s.listA / (2 * Math.PI)) % 1) + 1) % 1);
     d[o + 2] = s.parry;
     d[o + 3] = Math.min(1e9, s.readyAt);
     d[o2] = a.faction;
@@ -1274,6 +1410,7 @@ export class Lift implements LiftHooks, FieldHouses {
    */
   frame(renderer: THREE.WebGLRenderer, now: number, dt: number, realDt: number, bus: { x: number; y: number; z: number; ground: number; fx: number; fz: number }, cam: THREE.Vector3, fogGone: number) {
     this.now = now;
+    this.lastDt = dt;
     this.wall += realDt;
     let busy = false;
     // (the beam's foot on the heart's ground as the far field and the tiles bring it in, until staging has it)

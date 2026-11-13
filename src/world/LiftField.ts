@@ -16,7 +16,7 @@ export interface FieldWorld {
 
 /** The Lift's per-house state, by paint index (Lift.ts owns the arrays). */
 export interface FieldHouses {
-  /** 0 on the ground, 1 crouching or held, 2 up */
+  /** 0 on the ground, 1 crouching or held, 2 up, 3 falling (a wall from the ground to its drawn top, from any side, until it lands) */
   readonly state: Uint8Array;
   /** rest height (m) */
   readonly H: Float32Array;
@@ -36,6 +36,8 @@ export interface FieldHouses {
   readonly t0: Float32Array;
   /** gardens' and domes' tops over the house (m ASL), 0 for none */
   readonly extra: Float32Array;
+  /** the flight's extra look ahead on its slab (m): a cracked square's while it sinks (absent: none) */
+  readonly look?: Float32Array;
   /** game clock now (s) */
   readonly now: number;
   /** the drawn lift of a house's centre now (m) */
@@ -211,6 +213,13 @@ export class LiftField {
       const i = this.pIdx[p];
       const t = Math.max(this.pTop[p], h.extra[i]);
       if (t > tallest) tallest = t;
+      if (h.state[i] === 3) {
+        // (falling: a wall from the ground to its drawn top and the look ahead, from any side; its top only comes down)
+        any = true;
+        const tp = t + h.dyNow(i) + h.tiltM[i] + LOOK;
+        if (tp > top) top = tp;
+        continue;
+      }
       if (h.state[i] !== 2) {
         if (t > solid) solid = t;
         if (t > tallGround) tallGround = t;
@@ -229,7 +238,7 @@ export class LiftField {
         tp = t + h.H[i] * 1.14 + m;
       } else {
         // (riding the swell: where its centre is now, the lean's reach and a look ahead either side)
-        const dy = h.dyNow(i), m = h.tiltM[i] + LOOK;
+        const dy = h.dyNow(i), m = h.tiltM[i] + LOOK + (h.look ? h.look[i] : 0);
         u = h.base[i] + dy - m;
         tp = t + dy + m;
       }

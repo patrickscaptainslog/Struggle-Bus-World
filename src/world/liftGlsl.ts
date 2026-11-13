@@ -78,6 +78,8 @@ export const LIFT = {
   cap: 600,
 } as const;
 
+/** The areas' square size (m): FACTIONS.md section 3, C18. */
+export const SQUARE = 128;
 /**
  * Hyperglow's turns (FACTIONS.md section 2, "4 · Overdrive": towers turn in sharp snaps on the beat): a floating house turns 45 degrees (a big
  * building 90) once every `beats` beats of `beat` s, on its own beat of them, in `snap` s, each a way of its own; from the first of its beats
@@ -237,10 +239,24 @@ const swTmp = new Float64Array(3);
  * out[2] and out[3] its lean (its belly's slope along x and z: a point (dx, dz) off its centre is about dx * out[2] + dz * out[3] higher).
  * `cx`, `cz` its centre (the swell under it), `heave` its heave (liftHeave). Mirrors GLSL_LIFT's sbLiftAt line for line.
  */
-export function liftAt(t: number, now: number, H: number, seedB: number, cx: number, cz: number, heave: number, out: number[] | Float64Array | Float32Array): void {
+export function liftAt(
+  t: number, now: number, H: number, seedB: number, cx: number, cz: number, heave: number, out: number[] | Float64Array | Float32Array,
+  fall = -1, crack = 0, listX = 0, listZ = 0,
+): void {
   const L = LIFT;
   out[2] = 0;
   out[3] = 0;
+  // (the take's (LIFT.md, "Taking it: the looks"): `H` under -0.5 the wilt's flinch `t` s in; `fall` s into a fall; `crack` tTake's crack value,
+  // the list's way (listX, listZ). Their defaults leave every answer as it was)
+  if (H < -0.5) {
+    flinchAt(t, out);
+    return;
+  }
+  if (fall >= 0) {
+    liftAt(t, now, H, seedB, cx, cz, heave, out, -1, crack, listX, listZ);
+    fallAt(fall, H, heave, out);
+    return;
+  }
   if (t < 0 || H <= 0) {
     out[0] = 0;
     out[1] = 0;
@@ -274,6 +290,118 @@ export function liftAt(t: number, now: number, H: number, seedB: number, cx: num
   out[1] = sq;
   out[2] = f * sx;
   out[3] = f * sz;
+  if (crack !== 0) {
+    // (a cracked square: sunk like a punched raft and listing one way, its list with the swell's lean clamped as that is: liftReach holds)
+    const S = crackSinkOf(H), k = crackK(crack, now, S);
+    out[0] -= S * k + crackJolt(crack, now);
+    let lx = out[2] + LIFT_TAKE.list * k * listX, lz = out[3] + LIFT_TAKE.list * k * listZ;
+    const m = Math.hypot(lx, lz);
+    if (m > L.tiltMax) {
+      lx *= L.tiltMax / m;
+      lz *= L.tiltMax / m;
+    }
+    out[2] = lx;
+    out[3] = lz;
+  }
+}
+
+/**
+ * The take's motion (LIFT.md, "Taking it: the looks": the crack, the fall, the flinch), once here and once in GLSL_LIFT, from these tables.
+ * The fall: a hitch (`hitch` s, a lurch `lurch` m up: it loses its water), then a drop at `G` m/s² from where the swell has it, stretched by
+ * `stretch`, its heave and lean fading to nothing by the ground; the landing a `squash` and `sink` m in 0.08 s, one hop back up (`hopSmall` m
+ * for a small house, `hopBig` for a big one, by its heave), a wobble, settled `settle` s after it hit; its lake drains over `drain` s and its
+ * texel goes back to the ground then. `front` and `jitter`: its order out from the impact (TAKE.fallFront, TAKE.jitter). `unwind`: Hyperglow's
+ * unwind, not built (a turned house snaps square at its fall's start).
+ */
+export const LIFT_FALL = { hitch: 0.14, lurch: 0.8, G: 110, stretch: 0.1, squash: 0.24, sink: 0.5, hopSmall: 1.2, hopBig: 0.5, settle: 0.7, unwind: 0.18, front: 90, jitter: 0.08, drain: 1.2 } as const;
+/**
+ * The crack: each house of the square sinks `crackSink` of its rest (at least `crackMin` m, its belly never under LIFT.hMin), eased in over
+ * `crackT` s (longer for a deep sink: never faster than `crackV` m/s), a damped jolt on top (`jolt` m, `joltW` rad/s, decaying `joltK` a
+ * second), and lists `list` (a slope), down toward the impact. The heal rises back over `heal` s by the same bound. The flinch (a wilt's
+ * knock-down, the approved inverted jelly squash): `flinch` down and `flinchDy` m, a damped rebound over `flinchT` s, never up. `front`: the
+ * flip's front (m/s, TAKE.front).
+ */
+export const LIFT_TAKE = { crackSink: 0.12, crackMin: 1.5, crackT: 1.6, crackV: 8, jolt: 0.8, joltK: 3, joltW: 5, list: 0.04, heal: 1.0, flinch: 0.12, flinchDy: 0.25, flinchT: 0.6, front: 120 } as const;
+/** The fall's slow motion, from its first landing near the bus or in the frame (call 2) */
+export const SLOW_FALL = [0.35, 0.1, 0.7, 0.35] as const;
+
+/** A cracked house's sink (m) from its rest H. */
+export const crackSinkOf = (H: number) => Math.min(Math.max(LIFT_TAKE.crackSink * H, LIFT_TAKE.crackMin), Math.max(0, H - LIFT.hMin));
+/** how long a sink of S m eases in or out over at least T s (s) */
+const crackTOf = (S: number, T: number) => Math.max(T, (1.5 * S) / LIFT_TAKE.crackV);
+/** how far into its sink a house is now (0..1): `crack` tTake's crack value (its time; minus the heal's) */
+function crackK(crack: number, now: number, S: number): number {
+  if (crack > 0) return smooth(0, crackTOf(S, LIFT_TAKE.crackT), now - crack);
+  return 1 - smooth(0, crackTOf(S, LIFT_TAKE.heal), now + crack);
+}
+/** the crack's jolt (m, down) */
+function crackJolt(crack: number, now: number): number {
+  const u = now - crack;
+  return crack > 0 && u > 0 ? LIFT_TAKE.jolt * Math.exp(-LIFT_TAKE.joltK * u) * Math.sin(LIFT_TAKE.joltW * u) : 0;
+}
+/** A fall's drop from rest H (s): the ground is reached at its hitch plus this. */
+export const fallDrop = (H: number) => Math.sqrt((2 * Math.max(H, 0.5)) / LIFT_FALL.G);
+/** When a falling house lands, and when its fall is over (its lake drained, its texel back on the ground), from its fall's start (s). */
+export const fallLands = (H: number) => LIFT_FALL.hitch + fallDrop(H);
+export const fallEnds = (H: number) => fallLands(H) + Math.max(LIFT_FALL.settle, LIFT_FALL.drain);
+/** a landing's hop (m) by its heave: a small, light house's to a big building's (liftHeave runs from heaveSmall down to heaveBig) */
+const hopOf = (heave: number) => LIFT_FALL.hopSmall + (LIFT_FALL.hopBig - LIFT_FALL.hopSmall) * Math.min(1, Math.max(0, (LIFT.heaveSmall - heave) / (LIFT.heaveSmall - LIFT.heaveBig)));
+/** The fall `u` s in, over `out` (the motion where the swell has the house now): `out` becomes the falling house's. */
+function fallAt(u: number, H: number, heave: number, out: number[] | Float64Array | Float32Array) {
+  const F = LIFT_FALL, T = fallDrop(H);
+  if (u < F.hitch) {
+    out[0] += F.lurch * Math.sin((Math.PI * u) / F.hitch);
+    return;
+  }
+  const tau = u - F.hitch;
+  if (tau < T) {
+    const r = 1 - (tau / T) * (tau / T);
+    out[0] *= r;
+    out[1] += (F.stretch - out[1]) * smooth(0, 0.12, tau);
+    out[2] *= r;
+    out[3] *= r;
+    return;
+  }
+  const v = tau - T;
+  out[2] = 0;
+  out[3] = 0;
+  if (v < 0.08) {
+    out[0] = -F.sink * (v / 0.08);
+    out[1] = F.stretch + (-F.squash - F.stretch) * (v / 0.08);
+    return;
+  }
+  const r = (v - 0.08) / (F.settle - 0.08);
+  if (r < 0.5) {
+    const p = r / 0.5;
+    out[0] = -F.sink * (1 - p) + hopOf(heave) * Math.sin(Math.PI * p);
+    out[1] = -F.squash * (1 - p) * (1 - p) + 0.08 * Math.sin(Math.PI * p);
+  } else if (r < 1) {
+    const q = (r - 0.5) / 0.5;
+    out[0] = 0;
+    out[1] = -0.06 * Math.sin(2 * Math.PI * q) * (1 - q);
+  } else {
+    out[0] = 0;
+    out[1] = 0;
+  }
+}
+/** A wilt's flinch `t` s in (drawn only, on the ground): `out`'s dy and stretch, never up. */
+function flinchAt(t: number, out: number[] | Float64Array | Float32Array) {
+  const T = LIFT_TAKE;
+  const k = t < 0 ? 0 : Math.exp((-3 * t) / T.flinchT) * (0.5 + 0.5 * Math.cos(14 * t)) * (1 - smooth(0, T.flinchT, t));
+  out[0] = -T.flinchDy * k;
+  out[1] = -T.flinch * k;
+}
+
+/**
+ * Would a cracked house's sink bring its belly onto the bus or the lens (LIFT.md, the crack's hold): the bus's segment (as fallBlocked has it)
+ * or the lens within its footprint's bounds grown by its reach plus max(2 m, 0.6 s of the bus's ground speed), between its belly less the sink
+ * and its reach (the bus's body over its point and 2 m more; the lens 3 m) and its roof.
+ */
+export function crackBlocked(x0: number, z0: number, x1: number, z1: number, belly: number, roof: number, sink: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number): boolean {
+  const lo = belly - sink - reach;
+  // (fallBlocked with the other one far off: its own height test passed by giving it a top over everything)
+  if (cy + 3 > lo && cy < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, 1e9, 0, 1e9, 1, 0, 0, speed, cx, -Infinity, cz)) return true;
+  return by + 7 > lo && by < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, bx, -Infinity, bz, fx, fz, half, speed, 1e9, Infinity, 1e9);
 }
 
 const F = (x: number) => (Number.isInteger(x) ? `${x}.0` : `${x}`);
@@ -292,6 +420,9 @@ uniform highp sampler2D tLift;
 uniform vec4 uLiftRect;
 uniform float uLiftW;
 uniform float uLiftRows;
+// (the take's state, two texels a square over the neighbourhood's squares (Lift.writeTake), and its grid: x0, z0 (m), its width and height in squares)
+uniform highp sampler2D tTake;
+uniform vec4 uTakeRect;
 float sbSwellH(vec2 p, float t) {
   return ${F(S1.a)} * sin${SWELL_A('p', 't', S1)} + ${F(S2.a)} * sin${SWELL_A('p', 't', S2)};
 }
@@ -300,7 +431,7 @@ vec3 sbSwell(vec2 p, float t) {
   float c1 = ${F(S1.a)} * cos(a1), c2 = ${F(S2.a)} * cos(a2);
   return vec3(${F(S1.a)} * sin(a1) + ${F(S2.a)} * sin(a2), vec2(${F(S1.kx)}, ${F(S1.kz)}) * c1 + vec2(${F(S2.kx)}, ${F(S2.kz)}) * c2);
 }
-vec4 sbLiftAt(float t, float now, float H, float sb, vec2 cxz, float heave) {
+vec4 sbLiftAt0(float t, float now, float H, float sb, vec2 cxz, float heave) {
   if (t < ${F(LIFT.crouch)}) {
     float k = t / ${F(LIFT.crouch)};
     return vec4(-${F(LIFT.sink)} * k, -${F(LIFT.squash)} * sin(1.5707963 * k), 0.0, 0.0);
@@ -319,6 +450,44 @@ vec4 sbLiftAt(float t, float now, float H, float sb, vec2 cxz, float heave) {
   float l = length(ln);
   if (l > ${F(LIFT.tiltMax)}) ln *= ${F(LIFT.tiltMax)} / l;
   return vec4(dy, sq, f * ln);
+}
+vec4 sbLiftAt(float t, float now, float H, float sb, vec2 cxz, float heave) { return sbLiftAt0(t, now, H, sb, cxz, heave); }
+// (the take's motion, liftAt's line for line: the flinch, a cracked square's sink, jolt and list, the fall)
+vec4 sbLiftAt(float t, float now, float H, float sb, vec2 cxz, float heave, float fall, float crack, vec2 lst) {
+  if (H < -0.5) {
+    float k = t < 0.0 ? 0.0 : exp(-3.0 * t / ${F(LIFT_TAKE.flinchT)}) * (0.5 + 0.5 * cos(14.0 * t)) * (1.0 - smoothstep(0.0, ${F(LIFT_TAKE.flinchT)}, t));
+    return vec4(-${F(LIFT_TAKE.flinchDy)} * k, -${F(LIFT_TAKE.flinch)} * k, 0.0, 0.0);
+  }
+  vec4 lf = sbLiftAt0(t, now, H, sb, cxz, heave);
+  if (crack != 0.0) {
+    float S = min(max(${F(LIFT_TAKE.crackSink)} * H, ${F(LIFT_TAKE.crackMin)}), max(0.0, H - ${F(LIFT.hMin)}));
+    float k = crack > 0.0 ? smoothstep(0.0, max(${F(LIFT_TAKE.crackT)}, 1.5 * S / ${F(LIFT_TAKE.crackV)}), now - crack)
+      : 1.0 - smoothstep(0.0, max(${F(LIFT_TAKE.heal)}, 1.5 * S / ${F(LIFT_TAKE.crackV)}), now + crack);
+    float u = now - crack;
+    lf.x -= S * k + (crack > 0.0 && u > 0.0 ? ${F(LIFT_TAKE.jolt)} * exp(-${F(LIFT_TAKE.joltK)} * u) * sin(${F(LIFT_TAKE.joltW)} * u) : 0.0);
+    vec2 ln = lf.zw + ${F(LIFT_TAKE.list)} * k * lst;
+    float m = length(ln);
+    if (m > ${F(LIFT.tiltMax)}) ln *= ${F(LIFT.tiltMax)} / m;
+    lf.zw = ln;
+  }
+  if (fall < 0.0) return lf;
+  float T = sqrt(2.0 * max(H, 0.5) / ${F(LIFT_FALL.G)});
+  if (fall < ${F(LIFT_FALL.hitch)}) { lf.x += ${F(LIFT_FALL.lurch)} * sin(3.14159265 * fall / ${F(LIFT_FALL.hitch)}); return lf; }
+  float tau = fall - ${F(LIFT_FALL.hitch)};
+  if (tau < T) {
+    float r = 1.0 - (tau / T) * (tau / T);
+    return vec4(lf.x * r, lf.y + (${F(LIFT_FALL.stretch)} - lf.y) * smoothstep(0.0, 0.12, tau), lf.zw * r);
+  }
+  float v = tau - T;
+  if (v < 0.08) return vec4(-${F(LIFT_FALL.sink)} * (v / 0.08), ${F(LIFT_FALL.stretch)} + (-${F(LIFT_FALL.squash)} - ${F(LIFT_FALL.stretch)}) * (v / 0.08), 0.0, 0.0);
+  float r = (v - 0.08) / ${F(LIFT_FALL.settle - 0.08)};
+  if (r < 0.5) {
+    float p = r / 0.5;
+    float hop = ${F(LIFT_FALL.hopSmall)} + ${F(LIFT_FALL.hopBig - LIFT_FALL.hopSmall)} * clamp((${F(LIFT.heaveSmall)} - heave) / ${F(LIFT.heaveSmall - LIFT.heaveBig)}, 0.0, 1.0);
+    return vec4(-${F(LIFT_FALL.sink)} * (1.0 - p) + hop * sin(3.14159265 * p), -${F(LIFT_FALL.squash)} * (1.0 - p) * (1.0 - p) + 0.08 * sin(3.14159265 * p), 0.0, 0.0);
+  }
+  if (r < 1.0) { float q = (r - 0.5) / 0.5; return vec4(0.0, -0.06 * sin(6.2831853 * q) * (1.0 - q), 0.0, 0.0); }
+  return vec4(0.0);
 }
 // (a turning house's yaw now (rad), sbLift's: tLift's first texel's w, 0 for every house but Hyperglow's, sbYawAt; and its snap's flash, 1 at
 // the snap falling to 0 over a quarter second, for its walls)
@@ -355,11 +524,23 @@ vec4 sbLift(float idx, vec2 cxz, out vec4 T2) {
   sbSnapNow = 0.0;
   if (idx < 0.0 || cxz.x < uLiftRect.x || cxz.x > uLiftRect.z || cxz.y < uLiftRect.y || cxz.y > uLiftRect.w) return vec4(0.0);
   vec4 L = sbLiftTexel(idx);
-  float t = uTime - L.x;
+  // (tLift's first texel, LIFT.md's table: x >= 0 and y > 0 lifted, crouching from x; y 0 on the ground; y < -0.5 on the ground, flinching
+  // since x; x < -0.5 and y > 0 falling since -x - 1, its crouch start in w)
+  bool falling = L.x < -0.5;
+  float t = uTime - (falling ? L.w : L.x);
+  if (L.y < -0.5) {
+    if (t < 0.0) return vec4(0.0);
+    T2 = sbLiftTexel2(idx);
+    return sbLiftAt(t, uTime, L.y, L.z, T2.xz, T2.w, -1.0, 0.0, vec2(0.0));
+  }
   if (L.y <= 0.0 || t < 0.0) return vec4(0.0);
   T2 = sbLiftTexel2(idx);
-  vec4 lf = sbLiftAt(t, uTime, L.y, L.z, T2.xz, T2.w);
-  if (L.w > 0.5) sbYawNow = sbYawAt(L.w, uTime, L.x + ${F(LIFT.crouch + LIFT.bobIn1)});
+  // (its square's crack and the list's way, tTake's first texel: r the crack's time, g the cracker and the way as a fraction of a turn)
+  vec2 q = floor((cxz - uTakeRect.xy) / ${F(SQUARE)});
+  vec4 K = q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w ? vec4(0.0) : texelFetch(tTake, ivec2(q), 0);
+  float la = fract(K.g) * ${F((2 * Math.PI) / 0.999)};
+  vec4 lf = sbLiftAt(t, uTime, L.y, L.z, T2.xz, T2.w, falling ? uTime + L.x + 1.0 : -1.0, K.r, vec2(cos(la), sin(la)));
+  if (!falling && L.w > 0.5) sbYawNow = sbYawAt(L.w, uTime, L.x + ${F(LIFT.crouch + LIFT.bobIn1)});
   return lf;
 }
 // (v turned with its up leant to the slope s: up goes to the water's normal)
@@ -418,6 +599,11 @@ bool sbLake(vec3 wp, float flatL, out float ramp, out float light, out float glo
   float t = uTime - L.x;
   // (once 30 ms into its launch, a metre up for the lowest house: the motion's exp and trig are not run on every lake pixel)
   if (L.y <= 0.0 || t < ${F(LIFT.crouch)} + 0.03) return false;
+  // (a fallen house's lake drains into the ground from its shore in, over LIFT_FALL.drain s from its landing)
+  if (L.x < -0.5) {
+    float dr = (uTime + L.x + 1.0 - ${F(LIFT_FALL.hitch)} - sqrt(2.0 * max(L.y, 0.5) / ${F(LIFT_FALL.G)})) / ${F(LIFT_FALL.drain)};
+    if (dr > 0.0 && sd + ${F(LAKE_FLOOD)} < dr * ${F(LAKE_FLOOD + 40)}) return false;
+  }
   vec4 pt = texelFetch(uPaint, ivec2(int(mod(idx, uPaintW)), int(floor(idx / uPaintW))), 0);
   int fac = sbFac(pt.a > 7.5 ? pt.a - 8.0 : pt.a);
   float hue = floor(pt.r + 0.5);
@@ -545,8 +731,6 @@ export interface HoodList {
   squares: number[][];
   godless: boolean[];
 }
-/** The areas' square size (m): FACTIONS.md section 3, C18. */
-export const SQUARE = 128;
 export const squareIx = (key: number) => ((key >>> 16) << 16) >> 16;
 export const squareIz = (key: number) => ((key & 0xffff) << 16) >> 16;
 export const squareKey = (ix: number, iz: number) => (((ix & 0xffff) << 16) | (iz & 0xffff)) >>> 0;

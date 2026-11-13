@@ -76,9 +76,8 @@ const FS = /* glsl */ `
   ${GLSL_LIFT}
   ${GLSL_LAKE_LOOKS}
   ${GLSL_LAKE}
-  // the take (LIFT.md, "Taking the block"): on a square its rules hold the ground shows its owner's paint only (the store keeps all of it)
-  uniform sampler2D tTake;
-  uniform vec4 uTakeRect;
+  // the take (LIFT.md, "Taking the block"): on a square its rules hold the ground shows its owner's paint only (the store keeps all of it;
+  // tTake and uTakeRect are GLSL_LIFT's)
   bool sbTakeShows(vec2 p, float fac) {
     vec2 q = floor((p - uTakeRect.xy) / ${SQUARE}.0);
     if (q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w) return true;
