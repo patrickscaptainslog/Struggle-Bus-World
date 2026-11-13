@@ -21,6 +21,16 @@
       html.moon canvas#game { transition: opacity 0.6s; }
       html.moon:not(.in) canvas#game { opacity: 0; }
       html.moon:not(.in) body > div { visibility: hidden; }
+      /* the loading page: the title and the bus over the page's colour until the game's first frame (main.ts takes it down). No font, no image */
+      #sb-load { position: fixed; left: 0; right: 0; top: 36%; z-index: 0; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+      #sb-load svg { display: block; }
+      #sb-load .t { width: 183px; height: 27px; }
+      #sb-load .b { width: 88px; height: 48px; margin-top: 24px; animation: sb-bob 0.8s steps(1, end) infinite; }
+      @keyframes sb-bob { 50% { transform: translateY(-4px); } }
+      @media (prefers-reduced-motion: reduce) { #sb-load .b { animation: none; } }
+      html.noload #sb-load { display: none; }
+      /* (and the game's canvas stays hidden until its first frame: an opaque WebGL canvas never drawn to may show black, not the page's colour) */
+      html:not(.noload):not(.drawn) canvas#game { visibility: hidden; }
     </style>
     <script>
       // The boot downloads start now, not after the game's script has loaded and run: the game
@@ -42,6 +52,8 @@
             document.documentElement.dataset.wait = (new URLSearchParams(location.search).get('site') || 'the moon').toUpperCase();
             document.querySelector('meta[name=theme-color]').content = '#000000';
           }
+          var lq = new URLSearchParams(location.search);
+          if (lq.has('moonrun') || lq.has('moon') || lq.has('moonland') || lq.has('resume')) document.documentElement.classList.add('noload');
           if (new URLSearchParams(location.search).has('moonrun') || new URLSearchParams(location.search).has('moon') || new URLSearchParams(location.search).has('moonland')) return; // (no city in those: src/sky/moonrun.ts, src/moon/)
           var q = new URLSearchParams(location.search).get('city');
           var city = q === null ? 'sf' : q; // as main.ts reads it (an empty ?city= stays empty)
@@ -124,6 +136,10 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <div id="sb-load" role="img" aria-label="Struggle Bus">
+      <svg class="t" viewBox="0 0 61 9" shape-rendering="crispEdges" aria-hidden="true"><path fill="#0b0e13" d="M1 0h25v1h-25zM27 0h7v1h-7zM36 0h6v1h-6zM45 0h15v1h-15zM0 1h2v1h-2zM4 1h2v1h-2zM11 1h1v1h-1zM15 1h2v1h-2zM18 1h2v1h-2zM21 1h2v1h-2zM25 1h3v1h-3zM30 1h2v1h-2zM33 1h1v1h-1zM36 1h1v1h-1zM41 1h1v1h-1zM45 1h1v1h-1zM49 1h2v1h-2zM52 1h2v1h-2zM55 1h2v1h-2zM59 1h2v1h-2zM0 2h1v1h-1zM2 2h2v1h-2zM5 2h3v1h-3zM9 2h3v1h-3zM13 2h2v1h-2zM16 2h1v1h-1zM18 2h2v1h-2zM21 2h1v1h-1zM23 2h2v1h-2zM26 2h1v1h-1zM28 2h2v1h-2zM31 2h1v1h-1zM33 2h1v1h-1zM36 2h1v1h-1zM38 2h4v1h-4zM45 2h1v1h-1zM47 2h2v1h-2zM50 2h1v1h-1zM52 2h2v1h-2zM55 2h1v1h-1zM57 2h2v1h-2zM60 2h1v1h-1zM0 3h1v1h-1zM2 3h4v1h-4zM7 3h1v1h-1zM9 3h1v1h-1zM11 3h1v1h-1zM13 3h2v1h-2zM16 3h1v1h-1zM18 3h2v1h-2zM21 3h1v1h-1zM23 3h4v1h-4zM28 3h4v1h-4zM33 3h1v1h-1zM36 3h1v1h-1zM38 3h3v1h-3zM45 3h1v1h-1zM47 3h2v1h-2zM50 3h1v1h-1zM52 3h2v1h-2zM55 3h1v1h-1zM57 3h4v1h-4zM0 4h2v1h-2zM4 4h2v1h-2zM7 4h1v1h-1zM9 4h1v1h-1zM11 4h1v1h-1zM15 4h2v1h-2zM18 4h2v1h-2zM21 4h1v1h-1zM23 4h1v1h-1zM26 4h1v1h-1zM28 4h1v1h-1zM31 4h1v1h-1zM33 4h1v1h-1zM36 4h1v1h-1zM40 4h1v1h-1zM45 4h1v1h-1zM49 4h2v1h-2zM52 4h2v1h-2zM55 4h2v1h-2zM59 4h2v1h-2zM0 5h4v1h-4zM5 5h1v1h-1zM7 5h1v1h-1zM9 5h1v1h-1zM11 5h1v1h-1zM13 5h1v1h-1zM15 5h2v1h-2zM18 5h2v1h-2zM21 5h1v1h-1zM23 5h2v1h-2zM26 5h1v1h-1zM28 5h2v1h-2zM31 5h1v1h-1zM33 5h1v1h-1zM36 5h1v1h-1zM38 5h3v1h-3zM45 5h1v1h-1zM47 5h2v1h-2zM50 5h1v1h-1zM52 5h2v1h-2zM55 5h4v1h-4zM60 5h1v1h-1zM0 6h1v1h-1zM2 6h2v1h-2zM5 6h1v1h-1zM7 6h1v1h-1zM9 6h1v1h-1zM11 6h1v1h-1zM13 6h2v1h-2zM16 6h1v1h-1zM18 6h2v1h-2zM21 6h1v1h-1zM23 6h2v1h-2zM26 6h1v1h-1zM28 6h2v1h-2zM31 6h1v1h-1zM33 6h4v1h-4zM38 6h4v1h-4zM45 6h1v1h-1zM47 6h2v1h-2zM50 6h1v1h-1zM52 6h2v1h-2zM55 6h1v1h-1zM57 6h2v1h-2zM60 6h1v1h-1zM0 7h2v1h-2zM4 7h2v1h-2zM7 7h1v1h-1zM9 7h1v1h-1zM11 7h1v1h-1zM13 7h2v1h-2zM16 7h2v1h-2zM20 7h3v1h-3zM26 7h2v1h-2zM31 7h1v1h-1zM36 7h1v1h-1zM41 7h1v1h-1zM45 7h1v1h-1zM49 7h3v1h-3zM54 7h3v1h-3zM59 7h2v1h-2zM1 8h4v1h-4zM7 8h3v1h-3zM11 8h10v1h-10zM22 8h20v1h-20zM45 8h5v1h-5zM51 8h4v1h-4zM56 8h4v1h-4z"/><path fill="#ffffff" d="M2 1h2v1h-2zM6 1h5v1h-5zM12 1h3v1h-3zM17 1h1v1h-1zM20 1h1v1h-1zM23 1h2v1h-2zM28 1h2v1h-2zM32 1h1v1h-1zM37 1h4v1h-4zM46 1h3v1h-3zM51 1h1v1h-1zM54 1h1v1h-1zM57 1h2v1h-2zM1 2h1v1h-1zM4 2h1v1h-1zM8 2h1v1h-1zM12 2h1v1h-1zM15 2h1v1h-1zM17 2h1v1h-1zM20 2h1v1h-1zM22 2h1v1h-1zM25 2h1v1h-1zM27 2h1v1h-1zM30 2h1v1h-1zM32 2h1v1h-1zM37 2h1v1h-1zM46 2h1v1h-1zM49 2h1v1h-1zM51 2h1v1h-1zM54 2h1v1h-1zM56 2h1v1h-1zM59 2h1v1h-1zM1 3h1v1h-1zM8 3h1v1h-1zM12 3h1v1h-1zM15 3h1v1h-1zM17 3h1v1h-1zM20 3h1v1h-1zM22 3h1v1h-1zM27 3h1v1h-1zM32 3h1v1h-1zM37 3h1v1h-1zM46 3h1v1h-1zM49 3h1v1h-1zM51 3h1v1h-1zM54 3h1v1h-1zM56 3h1v1h-1zM2 4h2v1h-2zM8 4h1v1h-1zM12 4h3v1h-3zM17 4h1v1h-1zM20 4h1v1h-1zM22 4h1v1h-1zM24 4h2v1h-2zM27 4h1v1h-1zM29 4h2v1h-2zM32 4h1v1h-1zM37 4h3v1h-3zM46 4h3v1h-3zM51 4h1v1h-1zM54 4h1v1h-1zM57 4h2v1h-2zM4 5h1v1h-1zM8 5h1v1h-1zM12 5h1v1h-1zM14 5h1v1h-1zM17 5h1v1h-1zM20 5h1v1h-1zM22 5h1v1h-1zM25 5h1v1h-1zM27 5h1v1h-1zM30 5h1v1h-1zM32 5h1v1h-1zM37 5h1v1h-1zM46 5h1v1h-1zM49 5h1v1h-1zM51 5h1v1h-1zM54 5h1v1h-1zM59 5h1v1h-1zM1 6h1v1h-1zM4 6h1v1h-1zM8 6h1v1h-1zM12 6h1v1h-1zM15 6h1v1h-1zM17 6h1v1h-1zM20 6h1v1h-1zM22 6h1v1h-1zM25 6h1v1h-1zM27 6h1v1h-1zM30 6h1v1h-1zM32 6h1v1h-1zM37 6h1v1h-1zM46 6h1v1h-1zM49 6h1v1h-1zM51 6h1v1h-1zM54 6h1v1h-1zM56 6h1v1h-1zM59 6h1v1h-1zM2 7h2v1h-2zM8 7h1v1h-1zM12 7h1v1h-1zM15 7h1v1h-1zM18 7h2v1h-2zM23 7h3v1h-3zM28 7h3v1h-3zM32 7h4v1h-4zM37 7h4v1h-4zM46 7h3v1h-3zM52 7h2v1h-2zM57 7h2v1h-2z"/></svg>
+      <svg class="b" viewBox="0 0 22 12" shape-rendering="crispEdges" aria-hidden="true"><path fill="#0b0e13" d="M2 0h18v1h-18zM1 1h1v1h-1zM20 1h1v1h-1zM0 2h1v6h-1zM21 2h1v6h-1zM1 8h2v1h-2zM6 8h10v1h-10zM19 8h2v1h-2zM3 9h1v1h-1zM5 9h1v1h-1zM16 9h1v1h-1zM18 9h1v1h-1z"/><path fill="#ffd94a" d="M2 1h18v1h-18zM1 2h1v1h-1z"/><path fill="#fbbf24" d="M2 2h1v1h-1zM5 2h1v1h-1zM8 2h1v1h-1zM11 2h1v1h-1zM14 2h1v1h-1zM17 2h4v1h-4zM1 3h2v1h-2zM5 3h1v1h-1zM8 3h1v1h-1zM11 3h1v1h-1zM14 3h1v1h-1zM17 3h2v1h-2zM1 4h20v1h-20zM1 6h19v1h-19z"/><path fill="#283644" d="M3 2h2v2h-2zM6 2h2v2h-2zM9 2h2v2h-2zM12 2h2v2h-2zM15 2h2v2h-2zM19 3h2v1h-2z"/><path fill="#1f222b" d="M1 5h20v1h-20zM3 8h3v1h-3zM16 8h3v1h-3zM4 9h1v1h-1zM17 9h1v1h-1z"/><path fill="#f29e1c" d="M1 7h20v1h-20z"/><path fill="#fffbe8" d="M20 6h1v1h-1z"/><path fill="#e0405e" d="M5 11h2v1h-2z"/><path fill="#f58233" d="M7 11h2v1h-2z"/><path fill="#ffd23e" d="M9 11h2v1h-2z"/><path fill="#3cb84f" d="M11 11h2v1h-2z"/><path fill="#3a96f0" d="M13 11h2v1h-2z"/><path fill="#9a56e8" d="M15 11h2v1h-2z"/></svg>
+    </div>
     <script>
       // ?resume: the page before's last frame, on the screen at once, until the flight's third frame takes it away (src/sky/moonrun.ts). The page change in the long dark between Earth and the Moon,
       // docs/specs/earth/EARTHFLIGHT.md, E3: a second or so where the stars stand still. Under the HUD, which the new page puts up as it boots.

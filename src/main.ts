@@ -2217,6 +2217,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     sprouts.update(camera);
     pipeline.render(scene);
     framesDrawn++;
+    // (the loading page, index.html's #sb-load: gone with the first frame drawn, and the canvas shown, in the same paint)
+    if (framesDrawn === 1) {
+      document.getElementById('sb-load')?.remove();
+      document.documentElement.classList.add('drawn');
+    }
     // (a tap in the grey has skipped it already)
     if (framesDrawn === 2 && openingSeen && !openingSkip && opening < config.fog.openingDuration) controls.hud.toast(['TAP TO SKIP'], 2.2);
     // a deferred landmark (one per frame, early in the opening) when the warm-up didn't leave time for them all
