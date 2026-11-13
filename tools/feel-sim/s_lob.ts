@@ -653,6 +653,16 @@ for (const r of rows) {
   // loaded laptop; its slowest 2 % of frames left out)
   ok(r.aimMs <= 0.5, `${id}: the aim 0.5 ms a frame or less (${r.aimMs}, ${r.aimMsAll} with its slowest frames${r.aimTries ? `; timed ${r.aimTries.join(', ')}` : ''})`);
 }
+// (--high: a near Lob found after a far one in a held pull bars the far one for that pull; a tap's throw ends the bar, and a shot that didn't leave puts it
+// back. The review, 5: once the tower was behind, every nose-up tap was the plain splat until the nose dropped. Lob's own state, not a flight)
+if (HIGH) {
+  const lob = makeGame(city, new TurboDrive([-1e7, -1e7, 1e7, 1e7])).aimer.lob as any;
+  lob.farOpen = lob.farBarred = true;
+  lob.fired();
+  const after = lob.farBarred;
+  lob.unfired();
+  ok(after === false && lob.farBarred === true && lob.farOpen === true, `the far bar: a throw ends it, a shot that didn't leave puts it back (${after}, then ${lob.farBarred}, open ${lob.farOpen})`);
+}
 console.log(`${rows.length} rows in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
 console.log(fails.length ? `LOB FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `lob checks: all ${checks} passed`);
 process.exit(fails.length ? 1 : 0);

@@ -120,6 +120,11 @@ export function shotReach(city: City, f: Flight, fx: number, fz: number, captain
   return 0;
 }
 
+/** The middle of stretch j (m along the way from the bus), stretches of `size` m counted on the odometer `odo`: a function, not a closure made a frame. */
+export function stretchMid(j: number, size: number, odo: number): number {
+  return (j + 0.5) * size - odo;
+}
+
 /** How far a landing is from the bus over the ground (m). */
 function far(f: Flight, s: { x: number; z: number }): number {
   return Math.hypot(s.x - f.x, s.z - f.z);
@@ -366,15 +371,15 @@ export class Comet {
       tHit = S.inhale + travel;
       atHit = this.flown(v, tHit);
       this.lensOn(f, fx, fz, atHit, tHit);
-      const dFar = dNose > 0 ? Math.min(edge, dNose) : edge, mid = (j: number) => (j + 0.5) * Ls - this.odo;
+      const dFar = dNose > 0 ? Math.min(edge, dNose) : edge, odo = this.odo;
       let k = Math.floor((this.odo + dFar) / Ls - 0.5);
-      while (mid(k) <= atHit) k++;
-      if (mid(k) > edge) return this.none();
+      while (stretchMid(k, Ls, odo) <= atHit) k++;
+      if (stretchMid(k, Ls, odo) > edge) return this.none();
       // (held for its stretch, or latched while it's still inside the reach and ahead of the bus at the impact)
       const ha = (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz;
       const keep = this.heldOk && this.heldFar && (latched || this.heldK === k) && ha > atHit && ha <= edge;
       if (!keep) {
-        if (!this.land(f, fx, fz, mid(k), v, tHit)) return this.none();
+        if (!this.land(f, fx, fz, stretchMid(k, Ls, odo), v, tHit)) return this.none();
         this.heldK = k;
         this.heldFar = true;
         this.latchUntil = -1;

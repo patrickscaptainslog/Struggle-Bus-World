@@ -4,7 +4,7 @@ import { clamp } from './springs';
 import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
-import { Comet, shotReach, type CometPlan } from './Comet';
+import { Comet, shotReach, stretchMid, type CometPlan } from './Comet';
 import { inputTune } from './Input';
 import { blastRadiusFor } from './blastLayout';
 
@@ -120,9 +120,11 @@ export class Lob {
   private farZ = 0;
   private farT: BuildingRef | null = null;
   private farHid = false;
-  /** this pull planned a far Lob (the far branch stays open down to config.lob.highBack), and a near one was found after it (no far one again) */
+  /** this pull planned a far Lob (the far branch stays open down to config.lob.highBack), and a near one was found after it (no far one again until a tap
+   *  throws: fired) */
   private farOpen = false;
   private farBarred = false;
+  private firedBarred = false;
   /** QA (the sims): the last far plan's stretch middle, what it aimed for, the bus's travel to its impact and the reach (m along the way), its flight (s),
    *  and whether it kept a latched stretch (picked on an earlier frame) */
   readonly farLast = { mid: 0, want: 0, atImp: 0, reach: 0, travel: 0, latched: false };
@@ -318,11 +320,11 @@ export class Lob {
     const hold = this.heldOk && !this.heldFar && Math.abs(this.heldAngle - a) < 1e-6;
     let frozen = false, far = false;
     // (the far one latched: as it was, while it's still inside the reach and aheadMin past the bus at the impact. Its own flight's numbers, below)
-    const farHeld = this.heldFar && latched && Math.abs(this.heldAngle - a) < 1e-6 ? this.farPlan(f, fx, fz, a, vt, launch, true) : null;
-    if (farHeld) {
+    const farHeld = this.heldFar && latched && Math.abs(this.heldAngle - a) < 1e-6 ? this.farPlan(f, fx, fz, a, vt, launch, true) : NaN;
+    if (farHeld >= 0) {
       far = true;
       frozen = this.lastOk;
-      travel = farHeld.travel;
+      travel = farHeld;
     } else if (hold && latched && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
       // (latched: the landing as it was, while it's ahead of the bus at the impact and shows over it, its march's too)
       frozen = this.lastOk;
@@ -348,9 +350,9 @@ export class Lob {
         this.heldAngle = a;
       } else {
         const fp = this.farPlan(f, fx, fz, a, vt, launch, false);
-        if (!fp) return this.none();
+        if (!(fp >= 0)) return this.none();
         far = true;
-        travel = fp.travel;
+        travel = fp;
         this.heldAngle = a;
       }
     }
@@ -475,25 +477,24 @@ export class Lob {
   }
 
   /**
-   * The far Lob (null: none), where the near search found nothing: the bus config.lob.highFrom over the ground under it (down to highBack once this pull
+   * The far Lob's flight (s; NaN: none, a number and not an object, nothing made a frame), where the near search found nothing: the bus config.lob.highFrom over the ground under it (down to highBack once this pull
    * has had one), off the Moon. Its flight is lobFlight's, longer from high up, at most flightHigh, and cut so its impact is aheadMin and a stretch short of
    * the reach at the gear's speed vt (under flightMin, none); it lands on the stretch whose middle is nearest where a throw from that height would land
    * (lobRange, from the mouth), at least aheadMin past the bus at the impact and inside the reach. Held for its stretch, or `latched` while that stretch is
    * still inside both. Leaves the landing in held*.
    */
-  private farPlan(f: Flight, fx: number, fz: number, a: number, vt: number, launch: number, latched: boolean): { travel: number } | null {
+  private farPlan(f: Flight, fx: number, fz: number, a: number, vt: number, launch: number, latched: boolean): number {
     const L = config.lob, S = config.splat, city = this.city, Ls = L.stretch, odo = this.comet.odometer;
     const H = f.y - city.groundAt(f.x, f.z);
     if (H < L.highBack) this.farOpen = false;
-    if (city.isMoon || this.farBarred || !(H >= L.highFrom || (this.farOpen && H >= L.highBack))) return null;
+    if (city.isMoon || this.farBarred || !(H >= L.highFrom || (this.farOpen && H >= L.highBack))) return NaN;
     // (cut a stretch short of the reach, so a stretch's middle is always both aheadMin past the bus at the impact and inside it)
     const reach = shotReach(city, f, fx, fz), room = reach - L.aheadMin - Ls;
-    if (room <= 0) return null;
+    if (room <= 0) return NaN;
     const travel = Math.min(L.flightHigh, lobFlight(a) + (L.fallPerKm * Math.max(0, H - L.highFrom)) / 1000, this.travel.timeTo(vt, room) - S.inhale);
-    if (!(travel >= L.flightMin)) return null;
+    if (!(travel >= L.flightMin)) return NaN;
     const atImp = this.travel.flown(vt, S.inhale + travel), lo = atImp + L.aheadMin;
     const want = Math.min(reach, Math.max(launch + lobRange(a, H), lo));
-    const mid = (j: number) => (j + 0.5) * Ls - odo;
     const q = this.farLast;
     q.want = want;
     q.atImp = atImp;
@@ -501,23 +502,24 @@ export class Lob {
     q.travel = travel;
     q.latched = latched;
     if (latched) {
-      if (!this.farOk || mid(this.farK) < lo || mid(this.farK) > reach) return null;
-      q.mid = mid(this.farK);
+      const m = stretchMid(this.farK, Ls, odo);
+      if (!this.farOk || m < lo || m > reach) return NaN;
+      q.mid = m;
       this.useFar();
-      return { travel };
+      return travel;
     }
     let k = Math.round((odo + want) / Ls - 0.5);
-    while (mid(k) > reach) k--;
-    while (mid(k) < lo) k++;
-    q.mid = mid(k);
+    while (stretchMid(k, Ls, odo) > reach) k--;
+    while (stretchMid(k, Ls, odo) < lo) k++;
+    q.mid = stretchMid(k, Ls, odo);
     if (this.farOk && this.farK === k) this.useFar();
     else {
-      if (!this.land(f, fx, fz, mid(k))) return null;
+      if (!this.land(f, fx, fz, q.mid)) return NaN;
       this.farK = k;
       this.keepFar();
     }
     this.farOpen = true;
-    return { travel };
+    return travel;
   }
 
   /** The far landing back into held* (the near search ran over them)... */
@@ -561,9 +563,11 @@ export class Lob {
   fired(): void {
     this.firedHeld = this.heldOk;
     this.firedFar = this.farOk;
+    this.firedBarred = this.farBarred;
     this.firedUntil = this.latchUntil;
     this.firedParked = this.parkedAt;
-    this.heldOk = this.farOk = false;
+    // (and the bar on the far one goes: a near Lob thrown, the tower behind, the pull still held, the next tap was the plain splat. The review, 5)
+    this.heldOk = this.farOk = this.farBarred = false;
     this.latchUntil = this.ranFrom = -1;
     this.parkedAt = -1;
     this.stats.fired++;
@@ -573,6 +577,7 @@ export class Lob {
   unfired(): void {
     this.heldOk = this.firedHeld;
     this.farOk = this.firedFar;
+    this.farBarred = this.firedBarred;
     this.latchUntil = this.firedUntil;
     this.parkedAt = this.firedParked;
     this.stats.fired--;
