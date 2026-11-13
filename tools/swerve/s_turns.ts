@@ -239,6 +239,35 @@ function quickTurn(rungs: number, kind: 'hard' | 'skid', ang: number, dt: number
   row(ok, 'skid, the speed of sound', out);
 }
 {
+  // (...but only while the gear drives it there: a Jet skid at the leash, and 0.4 s in the long swipe (toCruise) or a flick down to Nonstop, the thumb held on.
+  // The swipe's brake still has the speed under 1.25 x Cruise within 1 s of it, the slide or no slide; the flick down's gear brakes it as out of a skid, and
+  // the speed is never held over 0.95 of the speed of sound once the gear is under it (the review of 1dfa24f: it was held at 326 m/s in Cruise, 4 s on))
+  const out: Record<string, unknown> = {};
+  let ok = true;
+  for (const how of ['toCruise', 'flick down'] as const) {
+    const b = bus(3, true, 1 / 60), f = b.f, sw = b.sw!;
+    let at = NaN, heldAt = 0, slid = 0, after1 = NaN;
+    for (let k = 0; k < 4 * 60; k++) {
+      if (k === 24) {
+        if (how === 'toCruise') b.drive.toCruise(f, T.brakeFor);
+        else b.drive.shift(-1, f);
+      }
+      b.frame(1 / 60, [172, 0]);
+      if (sw.sliding) slid++;
+      if (k < 24) continue;
+      const since = b.t - 0.4;
+      if (Number.isNaN(at) && f.speed <= config.flight.cruiseSpeed * 1.25) at = since;
+      if (Number.isNaN(after1) && since >= 1) after1 = f.speed;
+      // (held over 0.95 of the speed of sound past the gear's own brake to under it: 1 s)
+      if (since > 1 && f.speed >= 0.95 * 343 - 1) heldAt = Math.max(heldAt, since);
+    }
+    const good = slid > 30 && (how === 'toCruise' ? at <= 1 : heldAt === 0);
+    if (!good) ok = false;
+    out[how] = { framesSliding: slid, ...(how === 'toCruise' ? { under125CruiseIn: r2(at) } : { heldOverMachAfter1s: r2(heldAt) }), speed1sOn: r1(after1), gearNow: b.drive.name };
+  }
+  row(ok, 'skid, a gear down mid-slide', out);
+}
+{
   // (and after the grip the gear pulls the speed back as it does today: 95 % of it within 1.2 s of the turn's end, the grip's catch over, Nonstop to
   // Turbo 3; the grip itself began T.grip before that)
   const out: Record<string, number> = {};

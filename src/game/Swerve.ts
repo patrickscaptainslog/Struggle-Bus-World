@@ -169,6 +169,8 @@ export class Swerve {
   /** What the skid has left of the speed (0..1], 1 out of one, and the least it leaves (m/s). */
   keep = 1;
   least = 0;
+  /** ...the least it leaves of its own, from the slide's start (the speed of sound's is added each step while a gear drives over it). */
+  private least0 = 0;
   /** 0..1: the skid's weight for the camera, eased in and out at 12/s (CameraRig's stiffer yaw spring, fx/Turbo's lead across the view). 0 out of one. */
   skidW = 0;
   onEvent: ((ev: SwerveEvent, self: boolean) => void) | null = null;
@@ -231,8 +233,7 @@ export class Swerve {
       this.dir = side;
       this.slideT = 0;
       this.peak = Math.abs(this.slip);
-      // (and a bus over the speed of sound stays over the gears' boom line: a skid never takes it back through, and booms it again on the way up)
-      this.least = Math.max(Math.min(T.floor, f.speed), f.speed > SPEED_OF_SOUND ? clamp(T.machKeep, 0, 1) * SPEED_OF_SOUND : 0);
+      this.least0 = Math.min(T.floor, f.speed);
       this.armed = false;
       this.onEvent?.('skid', false);
     } else if (this.phase === Phase.Slide) {
@@ -242,6 +243,9 @@ export class Swerve {
       if (!held || (inp.skid ?? -Infinity) < -T.skidBack || side !== this.dir || timeUp) this.grip(f, timeUp, !held || timeUp);
     }
     if (this.phase === Phase.Slide) {
+      // (and a bus whose gear drives it over the speed of sound stays over the gears' boom line: a skid never takes it back through, and booms it again on
+      // the way up. Only while the gear drives there: a flick down or the long swipe mid-slide brakes as it would out of one)
+      this.least = Math.max(this.least0, Tb.speed > SPEED_OF_SOUND ? clamp(T.machKeep, 0, 1) * SPEED_OF_SOUND : 0);
       // (the share of the speed it keeps, of the gear's own or the classic flight's: the flight chases that, as it chases any speed)
       const base = Tb.speed > 0 ? Tb.speed : config.flight.cruiseSpeed;
       this.keep = Math.max(Math.min(1, this.least / base), this.keep * Math.exp(((-T.scrub * Math.abs(this.slip)) / (T.slipMax * DEG)) * dt));
