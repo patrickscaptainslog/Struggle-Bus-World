@@ -1432,8 +1432,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     // (a lock life or Recess holds takes the tap: its next shot homes, Holds.tap)
     if (holds.tap()) return;
-    // (?swerve: with a rival's bus in front of the nose the tap is the shell, and goes for it)
-    if (rivals?.tap()) return;
+    // (?swerve: with a rival's bus in front of the nose the tap is the shell, and goes for it. Not under a far shot's glint and ring: from about 4.5 km up the
+    // shell can't arrive inside its 5 s, and the tap went to it while the far shot showed, the far shots' review F5)
+    if (!aimer.planned?.far && rivals?.tap()) return;
     tapSplat();
   };
 
