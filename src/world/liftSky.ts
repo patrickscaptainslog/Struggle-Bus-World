@@ -370,6 +370,7 @@ ${GLSL_OUT}
 float sbH2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sbLit(vec3 n) { return clamp(uLight.y + uLight.z * (0.5 + 0.5 * n.y) + uLight.x * max(dot(n, uSunDir), 0.0), 0.0, 1.0); }
 uniform float uSkyGlint; // the aim's glint on the piece (Lift.skyGlint): 1 the heart takes the hit, -1 it waits, 0 not aimed at
+uniform vec2 uSkyFall; // the heart's fall (game clock; 1e9 none): the vertex tail's, and Inferno's smoke burns off
 // (a light step up, or down, as a 40 m band sweeps up it: the houses' glint, white on a ready square and dimmer on a waiting one)
 float sbGlint(float light) {
   if (uSkyGlint == 0.0) return light;
@@ -1229,6 +1230,13 @@ void main() {
     ramp = ${R(Ramp.OBSIDIAN)};
     light = 0.18 + 0.12 * bil * 0.5 + 0.1 * (1.0 - t);
     float red = (1.0 - t) * (0.6 + 0.4 * bil);
+    // (the heart's fall: the smoke burns off from its edge in over 0.5 s, what's left lit by the fire, so the sun comes down alone. Shrunk
+    // whole, it read as a black hole in the picture: the take's outside look)
+    float fk = uTime - uSkyFall.x;
+    if (fk > 0.0) {
+      if (t + 0.25 * sbH2(floor(vWorldPos.xz / 3.0)) > 1.25 - 1.3 * smoothstep(0.0, 0.5, fk)) HOLE;
+      red = max(red, 0.6 + 0.4 * smoothstep(0.0, 0.25, fk));
+    }
     if (red > 0.75) { ramp = ${R(Ramp.CRIMSON)}; light = 0.42 + 0.1 * beat; glow = 0.15; }
     else if (red > 0.55) { ramp = ${R(Ramp.CRIMSON)}; light = 0.3; }
   }
