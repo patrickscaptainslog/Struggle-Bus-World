@@ -21,7 +21,7 @@ const TAGS = [
   ['property', 'og:image', null],
   ['property', 'og:image:width', '1200'],
   ['property', 'og:image:height', '630'],
-  ['property', 'og:image:alt', 'The yellow bus over painted San Francisco roofs at golden hour'],
+  ['property', 'og:image:alt', 'A yellow school bus flies over Marina rooftops painted in rainbow colours, the Golden Gate Bridge behind it at golden hour'],
   ['name', 'twitter:card', 'summary_large_image'],
   ['name', 'twitter:image', null],
 ];
