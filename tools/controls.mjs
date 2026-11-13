@@ -1272,22 +1272,38 @@ if (modes.has('boom') || modes.has('falls')) {
   };
   // (every frame's draws, triangles and live particles, the fps meter's counters, from when __xTrace is set; and the bus's least distance to __xAt)
   const traceInit = () => {
-    const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), R = g.pipeline.renderer, c = g.city;
     g.audio.unlock();
+    // (each frame's draws split three ways: the sun pass's, first draws (City.firstDraw's meshes, culling off) and the rest, so a pass near the bound
+    // shows which moved it, r3's review)
+    let sun = 0, first = 0, firsts = new Set(), firstsOf = null;
+    const rbd = R.renderBufferDirect.bind(R);
+    R.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
+      if (window.__xTrace) {
+        if (firstsOf !== c.firsts) (firstsOf = c.firsts), (firsts = new Set(c.firsts));
+        if (R.getRenderTarget() === g.pipeline.shadowRT) sun++;
+        else if (firsts.has(object)) first++;
+      }
+      return rbd(camera, scene, geometry, material, object, group);
+    };
     p.frame = (dt, work) => {
       orig(dt, work);
       const T = window.__xTrace;
-      if (!T) return;
-      T.push([p.calls, p.tris, g.particles.alive]);
+      firstsOf = null;
+      if (!T) return (sun = first = 0);
+      T.push([p.calls, p.tris, g.particles.alive, sun, first]);
+      sun = first = 0;
       if (window.__xAt) window.__xMin = Math.min(window.__xMin ?? Infinity, Math.hypot(g.flight.x - window.__xAt[0], g.flight.z - window.__xAt[1]));
     };
   };
   const traced = (page) => page.evaluate(() => {
     const tr = window.__xTrace;
     window.__xTrace = null;
-    return { frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), particles: Math.max(...tr.map((t) => t[2])) };
+    const worst = tr.reduce((a, t) => (t[0] > a[0] ? t : a), tr[0] ?? [0, 0, 0, 0, 0]);
+    // (the worst frame's draws: the sun pass's, first draws outside it, the rest)
+    return { frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), particles: Math.max(...tr.map((t) => t[2])), split: [worst[3], worst[4], worst[0] - worst[3] - worst[4]] };
   });
-  const limits = (ok, key, t) => ok(t.frames > 10 && t.draws <= 200 && t.tris <= 1.5e6 && t.particles <= 8000, `${key}: at most 200 draws, 1.5 M triangles and 8,000 particles (${t.frames} frames, ${t.draws} draws, ${(t.tris / 1e6).toFixed(3)} M, ${t.particles} particles)`);
+  const limits = (ok, key, t) => ok(t.frames > 10 && t.draws <= 200 && t.tris <= 1.5e6 && t.particles <= 8000, `${key}: at most 200 draws, 1.5 M triangles and 8,000 particles (${t.frames} frames, ${t.draws} draws (the sun pass ${t.split[0]}, first draws ${t.split[1]}, the rest ${t.split[2]}), ${(t.tris / 1e6).toFixed(3)} M, ${t.particles} particles)`);
   const raisedBy = (page) => page.evaluate(() => {
     const d = window.__game.city.paint.data, d0 = window.__lv0;
     let raised = 0, wrong = 0;
