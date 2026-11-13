@@ -22,7 +22,8 @@
 // first drawn one, the fog's included, to 5 s after the fog at most 200 draws and 1.5 M triangles (Perf's own count of the frame, as __trace takes it);
 // then 5 s more and 20 s: __stats.callsMax at most 200, trisMax at most 1.5 M; no page error (the same downtown from its ?lat start beside it); then a
 // Comet at Nonstop onto a downtown tower on a fresh page: __stats.hitMs over 0 after its impact. Under the fog the start's whole ring landed at once
-// and its first frames drew 229-392 times, each new mesh's first draw unculled (r3; City.firstDraw now lets ten a frame)
+// and its first frames drew 229-392 times, each new mesh's first draw unculled (r3; City.firstDraw now lets ten a frame); how many wait their
+// turn, under the fog and after it, is printed
 // --high: (9)'s record with the bus 400 m up (a shot from high: a Comet's, a Lob's), a reload: after the fog P projects at 25-65 % of the frame's height
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -67,7 +68,7 @@ const TRACE = () => {
       // (from the first drawn frame: html.drawn, set at its end (index.html's loader); a build without the loader, from its clock's first move)
       const tick = () => {
         if (window.__trace.length < 4000 && (document.documentElement.classList.contains('drawn') || (!document.getElementById('sb-load') && v.clock() > 0)))
-          window.__trace.push({ t: performance.now(), c: v.clock(), x: f.x, y: f.y, z: f.z, h: f.heading, hold: v.returnHold?.() ?? false, gate: v.openingBridge ? v.openingBridge() !== null : v.controls.gearsLocked, locked: v.controls.gearsLocked, opening: v.controls.opening, shot: v.lastShot()?.t ?? null, roof: v.city.obstacleAt(f.x, f.z), regions: v.city.loadedRegionCount(), d: v.perf?.calls ?? null, tr: v.perf?.tris ?? null });
+          window.__trace.push({ t: performance.now(), c: v.clock(), x: f.x, y: f.y, z: f.z, h: f.heading, hold: v.returnHold?.() ?? false, gate: v.openingBridge ? v.openingBridge() !== null : v.controls.gearsLocked, locked: v.controls.gearsLocked, opening: v.controls.opening, shot: v.lastShot()?.t ?? null, roof: v.city.obstacleAt(f.x, f.z), regions: v.city.loadedRegionCount(), d: v.perf?.calls ?? null, tr: v.perf?.tris ?? null, w: v.city.firstsWaiting ?? null });
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -204,11 +205,12 @@ if (budget) {
       while (window.__game.clock() < c0 + 5) await new Promise((r) => requestAnimationFrame(r));
       const tr = window.__trace.filter((f) => f.d !== null && f.c <= c0 + 5);
       const top = tr.reduce((a, f) => (f.d > a.d ? f : a), { d: 0 });
-      return { frames: tr.length, fog: tr.filter((f) => f.opening).length, draws: Math.max(0, ...tr.map((f) => f.d)), tris: Math.max(0, ...tr.map((f) => f.tr)), at: top.c ?? null, under: top.opening ?? null, over: tr.filter((f) => f.d > 200).map((f) => [+f.c.toFixed(2), f.d]) };
+      return { frames: tr.length, fog: tr.filter((f) => f.opening).length, draws: Math.max(0, ...tr.map((f) => f.d)), tris: Math.max(0, ...tr.map((f) => f.tr)), at: top.c ?? null, under: top.opening ?? null, over: tr.filter((f) => f.d > 200).map((f) => [+f.c.toFixed(2), f.d]), waitFog: Math.max(0, ...tr.filter((f) => f.opening).map((f) => f.w ?? 0)), waitAfter: Math.max(0, ...tr.filter((f) => !f.opening).map((f) => f.w ?? 0)), waitAfterFrames: tr.filter((f) => !f.opening && f.w > 0).length };
     }, fog.first.c);
     B.first = first;
     ok(first.frames > 10 && first.draws <= 200, `budget, ${where}: the return start's frames from the first drawn one to 5 s after the fog at most 200 draws (${first.frames} frames, ${first.fog} under the fog; the most ${first.draws} at ${first.at} s, ${first.under ? 'under the fog' : 'after it'}${first.over.length ? `; over 200: ${JSON.stringify(first.over.slice(0, 8))}` : ''})`);
     ok(first.tris <= 1.5e6, `budget, ${where}: ... and at most 1.5 M triangles (${(first.tris / 1e6).toFixed(3)} M)`);
+    console.log(`budget, ${where}: meshes waiting their first draw (City.firstsWaiting), the most under the fog ${first.waitFog}, after it ${first.waitAfter} (in ${first.waitAfterFrames} frames to 5 s past it; not a pass line)`);
     const st = await page.evaluate(FLY20);
     B.stats = st;
     ok(st.has, `budget, ${where}: __stats carries callsMax and trisMax`);

@@ -1245,21 +1245,23 @@ export class City {
    * A mesh's first draw happens the next frame, in view or not: three uploads a mesh the first time it is
    * drawn, so without this everything streamed in beside or behind the bus uploads the moment the view turns
    * to it, all at once. This way each upload lands with its adoption, on the adoption's byte budget: FIRSTS_A_FRAME of
-   * them a frame, and the rest on the frames after, oldest first (a ghost hidden till then).
+   * them a frame, and the rest on the frames after, oldest first (a ghost never waits).
    */
   firstDraw(m: THREE.Mesh) {
-    if (this.firsts.length < FIRSTS_A_FRAME) this.forceDraw(m);
-    else {
-      if (m.userData.ghost) m.visible = false;
-      this.waiting.push(m);
-    }
+    // (a ghost goes first: it is one mesh drawn unseen so its swap's commit uploads nothing in view, and waiting it could be committed first, r3's review)
+    if (m.userData.ghost || this.firsts.length < FIRSTS_A_FRAME) this.forceDraw(m);
+    else this.waiting.push(m);
+  }
+
+  /** Meshes waiting their first draw's turn (FIRSTS_A_FRAME): the checks read it each frame. */
+  get firstsWaiting(): number {
+    return this.waiting.length - this.waitFrom;
   }
 
   private forceDraw(m: THREE.Mesh) {
     m.frustumCulled = false;
     m.userData.sunCullAfter = m.userData.sunCull;
     m.userData.sunCull = false;
-    if (m.userData.ghost) m.visible = true;
     this.firsts.push(m);
   }
 
@@ -1288,7 +1290,7 @@ export class City {
       }
     }
     this.firsts.length = 0;
-    // (the next waiting their turn: a ghost committed meanwhile is a mesh like any other now, shown and maybe drawn already, and its forced draw is one more)
+    // (the next waiting their turn)
     while (this.firsts.length < FIRSTS_A_FRAME && this.waitFrom < this.waiting.length) this.forceDraw(this.waiting[this.waitFrom++]);
     if (this.waitFrom >= this.waiting.length) this.waiting.length = this.waitFrom = 0;
   }
