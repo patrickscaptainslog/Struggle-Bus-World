@@ -48,7 +48,20 @@ export interface LiftGame {
    * the impact (m) and the hitter. Part C's looks and sounds hang here
    */
   took(key: number, outcome: Outcome, at: number, x: number, z: number, hitter: number): void;
+  /** the bus's own faction, the paint's (main: the Splatter's, from the faction button, Rainbow without it, or &paintas): whose blasts the block hears */
+  faction(): number;
 }
+
+/**
+ * Whose blasts the block hears (its knock, its hits, a house lifted by a breath): the bus's own. A computer bus's (src/rivals, ?swerve) paint nothing on
+ * the block either way (PaintState.guard), and with `rivals` off its shots don't crack, fell, heal or wake it: a first-time player must not find the block
+ * taken or healed by something they never saw. Whether a computer bus may take squares is open (the second account's and the producer's to rule):
+ * until then, off.
+ */
+export const LIFT_HITS = { rivals: false };
+
+/** What landed() reads of a blast (Splat's Blast) */
+type LandedBlast = { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number };
 
 /**
  * One seeded square (LIFT.md, "Taking the block"): its houses (the staged ones on it), whether it is the heart, the firehose's impacts on it
@@ -602,6 +615,11 @@ export class Lift implements LiftHooks, FieldHouses {
 
   // ------------------------------------------------------------ lifting
 
+  /** a blast of `faction`'s counts on the block: the bus's own, or any with LIFT_HITS.rivals */
+  private counts(faction: number): boolean {
+    return LIFT_HITS.rivals || faction === this.g.faction();
+  }
+
   /**
    * Splat's question for a building a blast reaches (0 no, 1 it lifts now, 2 it's lifting or up already, or not the blast's to paint): the Lift's
    * faction on its own, level 3 before the blast. On a seeded square only the Lift writes paint (the take's rules, landed()): the blast leaves its
@@ -612,7 +630,7 @@ export class Lift implements LiftHooks, FieldHouses {
     if (!this.refs.has(i)) return 0;
     if (this.takes(i)) return 2;
     if (this.state[i] !== ST_GROUND) return 2;
-    const can = Math.round(level) >= 3 && faction === this.block && this.g.city.paint.get(i).faction === this.block && this.nUp + this.nPending + this.asked < LIFT.cap;
+    const can = Math.round(level) >= 3 && faction === this.block && this.counts(faction) && this.g.city.paint.get(i).faction === this.block && this.nUp + this.nPending + this.asked < LIFT.cap;
     if (can) {
       // (one blast asks for each of its houses before any starts: the cap counts them as they're asked)
       this.asked++;
@@ -667,9 +685,15 @@ export class Lift implements LiftHooks, FieldHouses {
    * A blast has landed (Splat): one on a staged square before the wave wakes the block to the knock, the wave's own boom with it (and counts for
    * nothing). Nothing while staging waits on its tiles. After the wave, a blast on a seeded square is a hit by its faction (B3): its aim square is
    * the heart if its line of fire crossed the sky piece (`via` 1), else the building it hit's, else the impact's (STAGES.md 1.2); a tap and a
-   * MEGA's release are aimed hits, the firehose's impacts count on a square to one hit at the TAKE.dwell-th, a super counts once a square.
+   * MEGA's release are aimed hits, the firehose's impacts count on a square to one hit at the TAKE.dwell-th, a super counts once a square. The bus's
+   * own blasts only, the knock's too (LIFT_HITS).
    */
-  landed(b: { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number }) {
+  landed(b: LandedBlast) {
+    if (this.counts(b.spec.faction ?? FACTION_RAINBOW)) this.heard(b);
+  }
+
+  /** landed(), whoever's blast it is (and QA's scripted hits, qaHit, any faction's) */
+  private heard(b: LandedBlast) {
     if (!liftedOn || !this.staged) return;
     if (this.waveAt < 0) {
       const x = b.primary ? b.primary.cx : b.pos.x, z = b.primary ? b.primary.cz : b.pos.z;
@@ -1160,7 +1184,7 @@ export class Lift implements LiftHooks, FieldHouses {
 
   /** QA: a hit as a blast lands one, by `faction` at (x, z) (m), now (`via` 1: through the sky piece). */
   qaHit(x: number, z: number, faction: number, via = 0) {
-    this.landed({ primary: null, pos: { x, z }, t: this.now, spec: { faction }, super: null, via });
+    this.heard({ primary: null, pos: { x, z }, t: this.now, spec: { faction }, super: null, via });
   }
 
   /** A house is lifting or up already, or the session's (staged for its wave, or on a square the take holds): what wants() answers 2 for, asked of nothing else, so it starts no lift and counts toward no cap

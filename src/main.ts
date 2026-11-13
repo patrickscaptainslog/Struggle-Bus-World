@@ -426,6 +426,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
         camera,
+        // (the bus's one faction, the paint's: the faction button's pick, Rainbow without it, or &paintas. The block hears its blasts alone: Lift.LIFT_HITS)
+        faction: () => splatter.faction,
         // (the take's hits, LIFT.md "Taking it: the looks": with the existing calls, each faction's own owed, and every one read by eye too, iOS on
         // silent. A parry the denied buzz, its first in a window, then a soft tick, and the breath bounces off in the hitter's sparkles; the crack
         // the houses' groan and the scale's top note; the fall the big impact and a kick (its landings: sound.land); a wilt the groan and a quiet
