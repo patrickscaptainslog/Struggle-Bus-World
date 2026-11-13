@@ -182,6 +182,8 @@ export interface TakeSink {
 interface TakeWrite {
   i: number;
   at: number;
+  /** its change's order: a house takes a later change's write over an earlier one's, whatever the frame they fall due in */
+  seq: number;
   faction: number;
   hue: number;
   level: number;
@@ -198,8 +200,12 @@ export class TakeHouses {
   readonly hue: Int8Array;
   readonly level: Int8Array;
   private readonly q: TakeWrite[] = [];
+  /** each house's last write taken (its seq), and the changes' count */
+  private readonly took: Int32Array;
+  private seq = 0;
 
   constructor(texels: number) {
+    this.took = new Int32Array(texels);
     this.faction = new Int8Array(texels).fill(-1);
     this.hue = new Int8Array(texels).fill(-1);
     this.level = new Int8Array(texels);
@@ -225,6 +231,7 @@ export class TakeHouses {
    * is the change's at once; the texel takes it at arrival.
    */
   change(kind: 'wilt' | 'flip' | 'up', houses: ArrayLike<number>, dist: ArrayLike<number>, t: number, speed: number, faction: number, level: number) {
+    const seq = ++this.seq;
     for (let k = 0; k < houses.length; k++) {
       const i = houses[k];
       if (!this.has(i)) continue;
@@ -233,7 +240,7 @@ export class TakeHouses {
       if (kind === 'up' && lv === this.level[i] && f === this.faction[i]) continue;
       this.faction[i] = f;
       this.level[i] = lv;
-      this.q.push({ i, at: t + dist[k] / speed, faction: f, hue: this.hue[i], level: lv, garden: kind === 'up' ? (lv >= 2 ? 3 : 0) : kind === 'flip' || lv < 2 ? 1 : 2 });
+      this.q.push({ i, seq, at: t + dist[k] / speed, faction: f, hue: this.hue[i], level: lv, garden: kind === 'up' ? (lv >= 2 ? 3 : 0) : kind === 'flip' || lv < 2 ? 1 : 2 });
     }
   }
 
@@ -247,6 +254,9 @@ export class TakeHouses {
       }
       this.q[k] = this.q[this.q.length - 1];
       this.q.pop();
+      // (two changes' fronts reaching a house in one frame, a flip and a flip back: the later change's write is the one it keeps)
+      if (w.seq < this.took[w.i]) continue;
+      this.took[w.i] = w.seq;
       sink.stage(w.i, w.faction, w.hue, w.level, now);
       if (w.garden === 1 || w.garden === 2) sink.clear(w.i);
       // (a wilt's garden stands at its lower level at once; an up's grows as the front reaches it)

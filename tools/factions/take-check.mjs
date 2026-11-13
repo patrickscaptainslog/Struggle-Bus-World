@@ -224,6 +224,21 @@ for (const [name, owner, stage, cracks, ready, own, want, st, cr, who] of ROWS) 
   report('a house the takeover never held is left to its save', `${H.has(7)}`, 'false', !H.has(7));
 }
 
+// ------------------------------------------------------------------ 4b. a flip and a flip back whose fronts reach the houses in one frame
+{
+  const tex = new Map();
+  const sink = { stage: (i, f, h, l) => tex.set(i, `${f}/${l}`), clear: () => {}, grow: () => {} };
+  const H = new TakeHouses(16);
+  const hs = [2, 4, 6], ds = [10, 50, 90];
+  hs.forEach((i, k) => H.stage(i, INF, k, 1, sink));
+  // (Inferno's flip, then Rainbow's back 0.02 s later, both drained in one frame of 0.5 s: the take-fly run's FAIL of 2026-11-12)
+  H.change('flip', hs, ds, 200, TAKE.front, AT, 1);
+  H.change('flip', hs, ds, 200.02, TAKE.front, RB, 1);
+  H.drain(201, sink);
+  const got = hs.map((i) => tex.get(i)).join(' ');
+  report('two changes\' writes due in one frame: each house keeps the later change\'s', got, '1/1 1/1 1/1', got === '1/1 1/1 1/1');
+}
+
 // ------------------------------------------------------------------ 5. the plain fall's hold (fallBlocked)
 {
   const box = { x0: 0, z0: 0, x1: 20, z1: 20, top: 80, reach: 4 };
