@@ -7,6 +7,9 @@
 //            the dip go
 //   look     a slow stroke from the top (it dies a look), one from under the swipe's top, and one from the top that pans 60 px in 200 ms and holds still
 //            1.5 s (it dies a look on the clock, by the swipe's window, with no move: the build's review, 5): each is a look that lets the dip go
+//   late     a stroke of 240 ms in 8 moves by its events' own times, each move coming in 90 ms of frames after the last, 720 ms in all on the frame's clock (a page behind slow
+//            frames, as the laptop's warm row at Jet): it fires, as its events say (the frame's clock alone killed it before its length, and the long swipe
+//            never answered)
 // Prints a row each, and exits 1 if one fails.
 import { installDom, Target, clock, ptr, newId, runTimers } from '../controls-sim/fakedom';
 installDom();
@@ -24,7 +27,7 @@ const step = 16.7;
 
 /** One stroke from (x, y) by (dx, dy) px over ms, held still `hold` ms before its lift: when it fired (ms from its landing, null never), its frames of look,
  *  and those that would let a dip go */
-function stroke(x: number, y: number, dx: number, dy: number, ms: number, hold = 200) {
+function stroke(x: number, y: number, dx: number, dy: number, ms: number, hold = 200, late = 0) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
@@ -56,11 +59,13 @@ function stroke(x: number, y: number, dx: number, dy: number, ms: number, hold =
     clock.ms = end;
     runTimers();
   };
-  const id = newId(), n = Math.max(1, Math.round(ms / step));
+  // (late: in 8 moves, as the warm row's stroke)
+  const id = newId(), n = late ? 8 : Math.max(1, Math.round(ms / step));
   el.dispatch('pointerdown', ptr('pointerdown', id, x, y, true));
   for (let i = 1; i <= n; i++) {
-    wait(ms / n);
-    el.dispatch('pointermove', ptr('pointermove', id, x + (dx * i) / n, y + (dy * i) / n));
+    // (late: each move stamped where the stroke had it, and handled `late` ms of frames on)
+    wait(late || ms / n);
+    el.dispatch('pointermove', { ...ptr('pointermove', id, x + (dx * i) / n, y + (dy * i) / n), ...(late ? { timeStamp: t0 + (ms * i) / n } : {}) });
   }
   wait(hold);
   el.dispatch('pointerup', ptr('pointerup', id, x + dx, y + dy));
@@ -82,6 +87,8 @@ row(under.fired === null && under.lets > 0, 'look: a stroke from under the swipe
 // (the window is swipeTune.ms from the landing: a frame or two past it lets the dip go)
 const still = stroke(70, 120, 0, 60, 200, 1500);
 row(still.fired === null && still.lets > 0 && still.firstLet !== null && still.firstLet <= swipeTune.ms + 2 * step, 'look: a pan from the top held still', { ...still, window: swipeTune.ms });
+const late = stroke(320, 110, 0, 400, 240, 40, 90);
+row(late.fired !== null, 'late: 240 ms by its events, 720 ms of frames', late);
 
 console.log(bad ? `${bad} FAILED` : 'all pass');
 process.exit(bad ? 1 : 0);

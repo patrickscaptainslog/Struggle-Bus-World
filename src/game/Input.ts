@@ -255,6 +255,10 @@ interface Slot {
   flick: Flick;
   /** ?swerve's long swipe: whether this stroke may be one, was, or can't be. */
   swipe: Swipe;
+  /** Its last event's own time (tEv, the event clock, ms) and when it was handled (tAt, performance.now()): the stroke's age on the clock between events
+   *  is tEv - t0 plus the time since tAt, so a stroke whose events came late is as old as they say, not as old as the frame that saw them. */
+  tEv: number;
+  tAt: number;
   /** This thumb has the view. */
   looking: boolean;
   /** The mouse's right button: a look from the first pixel, and nothing else. */
@@ -515,7 +519,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, swipe: Swipe.No, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, swipe: Swipe.No, tEv: 0, tAt: 0, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -638,8 +642,10 @@ export class Input {
     // the look starts on the clock too: a thumb can stop moving inside the delay
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
-      // (and ?swerve's long swipe dies on the clock: a thumb held still past its window is a look, which lets a far shot's dip go)
-      if (s.swipe === Swipe.Live && now - s.t0 > this.swipeRule.ms) {
+      // (and ?swerve's long swipe dies on the clock: a thumb held still past its window is a look, which lets a far shot's dip go. Its age is its own
+      // events' clock, and the frame's only since its last event: the frame's alone killed a quick stroke whose moves came in behind slow frames, before it
+      // reached its length, and the long swipe never answered)
+      if (s.swipe === Swipe.Live && s.tEv - s.t0 + (now - s.tAt) > this.swipeRule.ms) {
         s.swipe = Swipe.Dead;
         if (this.looker === s) st.look.swipe = false;
       }
@@ -871,7 +877,9 @@ export class Input {
       this.state.aim.x = x;
       this.state.aim.y = y;
     } else if (slot.role === Role.Second) {
-      if (slot.swipe === Swipe.Live) this.swipeStep(slot, evTime(e));
+      slot.tEv = evTime(e);
+      slot.tAt = performance.now();
+      if (slot.swipe === Swipe.Live) this.swipeStep(slot, slot.tEv);
       if (slot.swipe !== Swipe.Fired) this.lookStep(slot, evTime(e));
     }
   }
@@ -980,7 +988,8 @@ export class Input {
     slot.type = e.pointerType;
     slot.x0 = slot.x = e.clientX - this.rectL;
     slot.y0 = slot.y = e.clientY - this.rectT;
-    slot.t0 = now;
+    slot.t0 = slot.tEv = now;
+    slot.tAt = performance.now();
     slot.seq = ++this.landings;
     slot.maxDist = 0;
     slot.flick = Flick.No;
