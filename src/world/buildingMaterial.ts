@@ -23,6 +23,9 @@ export const liftUniforms = liftOn
       uLiftRows: { value: 0 },
       tLake: { value: null as THREE.Texture | null },
       uLakeRect: { value: new THREE.Vector4(1e9, 1e9, 0.5, 0) },
+      /** the take's state, two texels a square over the neighbourhood's squares (Lift.writeTake), and its grid: x0, z0 (m), its width and height in squares */
+      tTake: { value: null as THREE.Texture | null },
+      uTakeRect: { value: new THREE.Vector4(0, 0, 0, 0) },
     }
   : null;
 

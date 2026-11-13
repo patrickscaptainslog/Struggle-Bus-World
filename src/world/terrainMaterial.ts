@@ -4,7 +4,7 @@ import { Ramp } from '../render/palette';
 import { held, heldOr, skyOn } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
-import { GLSL_LAKE, GLSL_LIFT, lifted } from './liftGlsl';
+import { GLSL_LAKE, GLSL_LIFT, lifted, SQUARE } from './liftGlsl';
 import { liftUniforms, paintUniforms } from './buildingMaterial';
 import { GLSL_FACTION } from '../render/factionLook';
 import { GLSL_LAKE_LOOKS } from './liftLakes';
@@ -75,7 +75,16 @@ const FS = /* glsl */ `
   ${GLSL_FACTION}
   ${GLSL_LIFT}
   ${GLSL_LAKE_LOOKS}
-  ${GLSL_LAKE}`)}
+  ${GLSL_LAKE}
+  // the take (LIFT.md, "Taking the block"): on a square its rules hold the ground shows its owner's paint only (the store keeps all of it)
+  uniform sampler2D tTake;
+  uniform vec4 uTakeRect;
+  bool sbTakeShows(vec2 p, float fac) {
+    vec2 q = floor((p - uTakeRect.xy) / ${SQUARE}.0);
+    if (q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w) return true;
+    float own = texelFetch(tTake, ivec2(q.x, q.y + uTakeRect.w), 0).r;
+    return own < 0.5 || abs(own - fac) < 0.5;
+  }`)}
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -162,7 +171,7 @@ const FS = /* glsl */ `
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
     // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads
-    if (best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+    if (best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)${lifted(' && sbTakeShows(vWorldPos.xz, sbgFac)')}) {
       // figure / ground: paint on the ground sits a couple of steps below the
       // painted walls (houses stand out of their splat); sidewalks a step
       // lighter than the street so the blocks still read; warm hues keep their

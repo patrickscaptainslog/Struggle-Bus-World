@@ -12,7 +12,7 @@ import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
-import { paintAsOf } from './game/factions';
+import { FACTION_RAINBOW, paintAsOf } from './game/factions';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
@@ -47,7 +47,7 @@ import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
 import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
-import { hoodStart, liftHoodStart, liftOn, pickHood } from './world/liftGlsl';
+import { hoodStart, liftedOn, liftHoodStart, liftOn, pickHood } from './world/liftGlsl';
 import { loadHoods, type HoodsRef, type HoodsTable } from './world/hoods';
 import type { Lift } from './world/Lift';
 
@@ -333,6 +333,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
         camera,
+        // (the take's hits, LIFT.md "Taking the block": part C's looks and sounds hang here. Until then the existing calls, so a hit that waits
+        // never sounds like nothing: a parry the denied buzz, a crack or a knock-down the houses' heave, a flip or an up the ready chime)
+        took: (_key, outcome) => {
+          if (outcome === 'parry') audio.denied();
+          else if (outcome === 'crack' || outcome === 'down') audio.heave();
+          else if (outcome === 'flip' || outcome === 'up' || outcome === 'heal') audio.ready();
+        },
       })
     : null;
   /**
@@ -413,13 +420,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (!tf || !list) return;
     for (let i = 0; i < list.length; i++) {
       const g = city.ground.sample(list[i].x, list[i].z);
-      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0) continue;
+      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0 || lift?.refuses(list[i].x, list[i].z, g.faction)) continue;
       const near = city.nearestBuilding(list[i].x, list[i].z, 25);
       const lv = near ? Math.round(city.paint.level(near.index)) : 0;
       tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
     }
   };
   city.onTileUnload = (tx, tz) => {
+    lift?.tileOut(tx, tz);
     const k = `${tx},${tz}`;
     const tf = treeFields.get(k);
     if (tf) {
@@ -646,6 +654,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           const t = list[i];
           const d = Math.hypot(t.x - x, t.z - z);
           if (d > reach || (freshOnly && tf.paintLevel(i) > 0)) continue;
+          // (?lift: a tree on a square the take's rules hold takes its owner's paint only)
+          if (lift?.refuses(t.x, t.z, b.spec.faction ?? FACTION_RAINBOW)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) continue;
           tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + 1), b.t + arrival(d, r), g.faction);
@@ -985,7 +995,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // (?life: a breath at a mover paints the mover, at the impact's game time, and nothing under it. CONTRACT.md section 3)
       const mover = shot.mover && life ? shot.mover : null;
       const moverFresh = mover ? life!.hit(mover.key, splatter.hueNext, skyClock.now(), simTime + config.splat.inhale + shot.travel) : false;
-      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
+      splatter.barf(shot.x, shot.z, { drop: shot.drop, travel: config.splat.inhale + shot.travel, target: shot.target, y: shot.y, exact: shot.exact, from: flight.y, radius: mega?.radius, hitStop: mega?.hitStop, super: mega?.tag, via: shot.via, ...moonPaint?.barf(shot, !!mega), ...(mover ? { mover, moverFresh } : {}) });
     } finally {
       breathTravel = null;
       breathWidth = 1;
@@ -1208,6 +1218,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     : null;
   // (and the aim asks it for a mover on the line of fire)
   if (life) aimer.life = life;
+  // (?lift&lifted: the line of fire through the rival's sky piece hits the heart)
+  if (lift && liftedOn) aimer.sky = (ox, oy, oz, dx, dy, dz) => lift.skyHit(ox, oy, oz, dx, dy, dz);
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);

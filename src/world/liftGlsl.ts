@@ -637,5 +637,7 @@ export interface LiftHooks {
    * A blast has landed (Splat, once, after its impact): the building it hit (its centroid), the impact, the game clock, the hitter, the super
    * that made it and what its line of fire crossed (`via`). &lifted's knock wakes the block (LIFT.md)
    */
+  /** the aim's pick's cost for a house (m added to its distance): a house on a seeded square that isn't ready counts half the pick radius r farther */
+  pickCost(index: number, r: number): number;
   landed(b: { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number }): void;
 }

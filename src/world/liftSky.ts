@@ -1309,6 +1309,8 @@ export interface SkyPiece {
   tris: number;
   /** its highest point (m, world y): its parts' boxes, smoke and corona included, and its risers' */
   top: number;
+  /** its parts' boxes (x0, y0, z0, x1, y1, z1 each, m), formed: the aim's line of fire through the piece takes the heart (Lift.skyHit) */
+  boxes: Float32Array;
   feet: Array<[number, number]>;
   cols: number[][];
   start(t: number): void;
@@ -1373,6 +1375,7 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
     mesh,
     tris: g.idx.length / 3,
     top,
+    boxes: reach.subarray(0, parts),
     feet,
     cols,
     start: (t: number) => {

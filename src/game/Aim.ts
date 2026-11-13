@@ -62,6 +62,8 @@ export interface Shot {
   travel: number;
   /** ?moon: the crater it lands on (src/moon/CraterPaint.ts), which gives the shot its place and its time */
   crater?: unknown;
+  /** ?lift: what its line of fire crosses (1: the rival's sky piece, and the heart's square takes the hit; 0 nothing) */
+  via?: number;
 }
 
 const F_CLEAR = 12; // the classic shot drops about this far onto the roofs (m)
@@ -74,6 +76,10 @@ export class Aimer {
   target: BuildingRef | null = null;
   /** ?life: the movers (main.ts sets it under the flag; with none the aim is the street's as it was) */
   life: MoverAim | null = null;
+  /** ?lift&lifted: does the line from the mouth along (dx, dy, dz) cross the rival's sky piece (main.ts sets it to Lift.skyHit) */
+  sky: ((ox: number, oy: number, oz: number, dx: number, dy: number, dz: number) => boolean) | null = null;
+  /** the line of fire to the aim point crosses the sky piece now (Shot.via) */
+  private via = 0;
   /** the mover this frame's aim takes, and one held by a press, as the building latch is */
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
@@ -303,6 +309,7 @@ export class Aimer {
     // from altitude is wider than the pick radius: the bungee settles a few degrees after the thumb lifts)
     if (this.latchRef && (t >= this.latchUntil || !this.holds(this.latchRef, Math.max(r, S.aimLatchCone * this.horiz), S.aimHoldAlong))) this.latchRef = null;
     this.occlude(this.latchRef ?? this.target);
+    this.viaNow(f);
     if (this.life) return this.noteShown(this.pickMover(f, t, r));
     return this.noteShown(this.shown());
   }
@@ -415,7 +422,17 @@ export class Aimer {
     const aim = this.aim;
     const pick = this.splatter.pick(aim.x, aim.z, this.splatter.pickRadius(aim.drop), f.y);
     this.occlude(pick);
+    this.viaNow(f);
     return this.shotAt(f, this.wallRef ?? pick);
+  }
+
+  /**
+   * ?lift&lifted: the sky piece takes the heart's hits (LIFT.md, "Taking the block"): the line of fire from the bus to where the breath lands
+   * crossing one of its parts is nearer than the building it lands on, so the shot's hit is the heart's. The breath still flies on and lands.
+   */
+  private viaNow(f: Flight) {
+    const a = this.aim;
+    this.via = this.sky && this.sky(f.x, f.y, f.z, a.x - f.x, a.y - f.y, a.z - f.z) ? 1 : 0;
   }
 
   private shotAt(f: Flight, target: BuildingRef | null): Shot {
@@ -431,6 +448,6 @@ export class Aimer {
     const iy = y ?? (target ? this.city.roofAtPart(target, x, z, f.y) + 0.5 : this.city.groundAt(x, z));
     const dist = Math.hypot(x - f.x, z - f.z, f.y - iy);
     this.latchRef = null;
-    return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.ground) };
+    return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.ground), via: this.via };
   }
 }

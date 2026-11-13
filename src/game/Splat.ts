@@ -42,6 +42,8 @@ export interface Blast {
   super: SuperTag | null;
   /** ?moon: what it was aimed at (BarfOpts.tag) */
   tag?: unknown;
+  /** ?lift: what its line of fire crossed (BarfOpts.via: 1 the sky piece, so the heart's square takes the hit) */
+  via?: number;
 }
 
 export interface SplatFx {
@@ -94,6 +96,8 @@ export interface BarfOpts {
   bands?: GroundBands;
   /** ?moon: handed back on the Blast */
   tag?: unknown;
+  /** ?lift: handed back on the Blast (Aim's Shot.via) */
+  via?: number;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
@@ -212,7 +216,8 @@ export class Splatter {
    * from fromY, the bus's height: a deck over it is no target.
    */
   pick(x: number, z: number, radius = config.splat.snapRadius, fromY = Infinity): BuildingRef | null {
-    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY);
+    // (?lift: a house on a square that won't take a counted hit now counts farther, so the glint pulls to one that will. Without the flag the City has no Lift)
+    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY, true);
   }
 
   /** Blast radius for a barf from `drop` meters above the impact (m). */
@@ -315,7 +320,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, primary, super: opts?.super ?? null, tag: opts?.tag, via: opts?.via },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
