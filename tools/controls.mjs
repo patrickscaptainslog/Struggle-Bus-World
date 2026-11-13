@@ -52,7 +52,7 @@
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //            floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //            <baseUrl>, in one browser session                                              -> perf in controls.json
-// SB_Q=&hour=blue appends to the street page's query (thumbs, states, keyboard, audio): the same rows under a flag.
+// SB_Q=&hour=blue appends to the street page's query (thumbs, states, keyboard, audio, firstrun): the same rows under a flag.
 // Launches through tools/browser.mjs (the GPU here, SwiftShader in the cloud): everything waits on the game
 // clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
@@ -1645,12 +1645,12 @@ if (modes.has('firstrun')) {
   mkdirSync(`${out}/firstrun`, { recursive: true });
   const FR = {};
   // (&noreturn: the next visit below is the Golden Gate's, not a return start over this visit's splat: src/game/Return.ts)
-  const page = await open('?fixeddt=0.05&noreturn', null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
+  const page = await open(`?fixeddt=0.05&noreturn${process.env.SB_Q ?? ''}`, null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
   const cdp = await page.context().newCDPSession(page);
   const H = hand(page, cdp);
   const ui = () => page.evaluate(() => {
     const g = window.__game, s = g.controls.snapshot();
-    return { t: +g.clock().toFixed(1), opening: g.controls.opening, coach: s.coach, mega: getComputedStyle(document.querySelector('[data-hud="mega"]')).display, glint: g.glintNow()?.index ?? -1, prefs: s.prefs };
+    return { t: +g.clock().toFixed(1), opening: g.controls.opening, coach: s.coach, mega: getComputedStyle(document.querySelector('[data-hud="mega"]')).display, glint: g.glintNow()?.index ?? -1, prefs: s.prefs, bridge: g.openingBridge ? g.openingBridge() !== null : null };
   });
   await runFor(page, 0.5);
   FR.frame0 = await ui();
