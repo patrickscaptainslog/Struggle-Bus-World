@@ -1276,8 +1276,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       openingSkip = true;
       controls.hud.clearToast();
       // (a return visit at the Golden Gate: the skip opens the gate too (CORE.md 3.6). In the fog it skips, the bus jumps on along its heading to just past
-      // where the gate opens, the lens and its look with it by the same step (the Moon's map slide), clear of the cables; under the deck it would rise through them)
-      if (openingBridge) {
+      // where the gate opens, the lens and its look with it by the same step (the Moon's map slide), clear of the cables; under the deck it would rise through them.
+      // Not on ?earth, whose opening stays as it was: its tools' call)
+      if (openingBridge && !earthFly) {
         const along = (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz;
         if (along < config.camera.openingClimbAfter) {
           const d = config.camera.openingClimbAfter + 10 - along, dx = flight.fx * d, dz = flight.fz * d;
