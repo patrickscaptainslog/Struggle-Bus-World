@@ -11,8 +11,9 @@
 // Part C's: the crack's sink (or its hold) and the waiting glint, the houses falling through the air and each landing once, the sky piece
 // coming down in its cut program and then out; the flip's chime once, as its front ends; a landing's corner bursts. And:
 //   - the real cadence on a third square: a real breath every 2.6 s from its ready time until it flips, each counted or parried, logged;
-//   - the hold: the bus pinned under a floating house of a fourth square as it loses the Lift: that house stays up while the rest come down,
-//     a rival hit on the square is parried until it has landed, and it comes down once the bus has gone;
+//   - the hold: the bus pinned under a floating house of a fourth square as it loses the Lift: that house stays up past its fall's time (with
+//     every house the hold's grown footprint covers: at Cruise most of the square), a hit on the square is parried meanwhile, and they come
+//     down once the bus has gone;
 //   - with &veins=stay in --q (call 5), the veins' band on the square as each change leaves it (1 after the fall, 2, 3, 0 after an up).
 // Still to add: the flight from the producer's link, the stream and the tile. Writes <out>/take-fly.json; prints pass or FAIL a line; exit 1 on
 // any failure.
@@ -236,7 +237,8 @@ report('A: the encore flares the claim line, not the parry\'s', `parry time ${r.
       const i = hs.slice().sort((a, b) => L.H[b] - L.H[a])[0], ref = L.refs.get(i);
       return { i, x: ref.cx, z: ref.cz, y: window.__game.city.groundAt(ref.cx, ref.cz) + 6, H: L.H[i] };
     }, D.houses);
-    await page.evaluate((p) => (window.__qa.pin = { x: p.x, y: p.y, z: p.z, heading: 0 }), pick);
+    // (the QA's hooks are the tool's to make: main reads window.__qa each frame)
+    await page.evaluate((p) => ((window.__qa = window.__qa ?? {}), (window.__qa.pin = { x: p.x, y: p.y, z: p.z, heading: 0 })), pick);
     await wait((k) => window.__game.lift.takeState().find((s) => s.key === k).readyAt <= window.__game.lift.now, D.key, 60000).catch(() => {});
     const hitD = (f) => page.evaluate(([x, z, f]) => window.__game.lift.qaHit(x, z, f, 0), [D.x, D.z, f]);
     await hitD(RB);
@@ -244,11 +246,12 @@ report('A: the encore flares the claim line, not the parry\'s', `parry time ${r.
     const h0 = (await stats()).fallHeld;
     await hitD(RB);
     let d = (await state()).find((s) => s.key === D.key);
-    // (the rest come down; the one over the bus stays)
-    await wait(([k, i]) => window.__game.lift.takeState().find((s) => s.key === k).houses.every((j) => j === i || window.__game.lift.state[j] === 0), [D.key, pick.i], 30000).catch(() => {});
-    const mid = await page.evaluate(([k, i]) => ({ st: window.__game.lift.state[i], falling: window.__game.lift.takeState().find((s) => s.key === k).falling }), [D.key, pick.i]);
+    // (the one over the bus stays up, and so does every house whose footprint, grown by its reach and its own time to land at the bus's ground
+    // speed (takeLead), the bus's segment or the lens is in: a bus at Cruise under a square holds most of it. The whole of its fall's time and more)
+    await until((await now()) + 6);
+    const mid = await page.evaluate(([k, i]) => ({ st: window.__game.lift.state[i], falling: window.__game.lift.takeState().find((s) => s.key === k).falling, down: window.__game.lift.takeState().find((s) => s.key === k).houses.filter((j) => window.__game.lift.state[j] === 0).length }), [D.key, pick.i]);
     const held = (await stats()).fallHeld - h0;
-    report('the hold: the house over the bus stays up while the rest come down', `stage ${d.stage}; the house's state ${mid.st}, ${mid.falling} still in the queue, held ${held} frames (its rest ${pick.H.toFixed(1)} m, the bus 6 m up)`, 'stage 3; up (2), 1 queued, held > 0', d.stage === 3 && mid.st === 2 && mid.falling === 1 && held > 0);
+    report('the hold: the house over the bus stays up, held, past its fall\'s time', `stage ${d.stage}; the house's state ${mid.st} 6 s on; ${mid.falling} of ${d.houses.length} still queued, ${mid.down} down; held ${held} house-frames (its rest ${pick.H.toFixed(1)} m, the bus 6 m up)`, 'stage 3; up (2), queued, held > 0', d.stage === 3 && mid.st === 2 && mid.falling >= 1 && held > 0);
     await ready5();
     const p0 = (await stats()).parried;
     await hitD(RB);
