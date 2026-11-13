@@ -1321,6 +1321,13 @@ if (modes.has('boom') || modes.has('falls')) {
       await wall(60);
       await H.up(1);
       await runFor(page, 1);
+      // (what that first touch hit: over the Financial District it can pour too, and its pool landed in the measured tap's window, a second pool, in 5 of
+      // 18 runs (r3: its run still going when the window opened). So the Waterfall's page lets every run of it finish on the game clock first)
+      const warm = await page.evaluate(() => ({ target: window.__game.lastShot()?.target?.index ?? null, pours: window.__game.falls?.stats.pours ?? 0, c: +window.__game.clock().toFixed(2) }));
+      if (mode === 'falls') {
+        await page.waitForFunction(() => window.__game.falls.runs.length === 0, null, { timeout: 120000, polling: 100 });
+        warm.done = +(await page.evaluate(() => window.__game.clock())).toFixed(2);
+      }
       const progs0 = await page.evaluate(() => window.__progs);
       if (mode === 'boom') {
         const E = Math.PI / 2;
@@ -1450,7 +1457,7 @@ if (modes.has('boom') || modes.has('falls')) {
           await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
           await page.evaluate(() => window.__game.forceReady());
           await runFor(page, 0.3);
-          const a = await page.evaluate(() => ({ ...window.__game.falls.stats }));
+          const a = await page.evaluate(() => ({ ...window.__game.falls.stats, c: +window.__game.clock().toFixed(2), running: window.__game.falls.runs.map((r) => [r.ref.index, +r.t0.toFixed(2), +r.land.toFixed(2), r.landed, r.dropped, r.drops]) }));
           await page.evaluate(() => ((window.__xTrace = []), (window.__xAt = null)));
           await H.down(1, 300, 260);
           await wall(90);
@@ -1478,10 +1485,11 @@ if (modes.has('boom') || modes.has('falls')) {
             }
             return { ...g.falls.stats, wet };
           }, [r, hit.target]);
-          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, ...t };
+          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, warm, at: a.c, running: a.running, ...t };
           R.rows.push(row);
           console.log('falls:', JSON.stringify(row));
           if (!poured) continue;
+          ok(row.running.length === 0, `${key}: nothing poured before its tap still running as it came (${JSON.stringify(row.running)}; the page's first touch hit ${warm.target}, ${warm.pours} pours)`);
           ok(row.pools === 1 && row.drops > 0, `${key}: it poured, its drops and its pool (${row.drops} drops, ${row.pools} pool; tower ${r.index}, ${r.h} m)`);
           ok(row.wet >= 8, `${key}: its pool round its foot (${row.wet} of 16)`);
           limits(ok, key, t);
