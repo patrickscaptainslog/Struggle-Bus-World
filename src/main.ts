@@ -1807,9 +1807,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
-  // (?earth: the flight boots behind the street once the page is ready (bootSky), the bus's speed lines and trail for open space in its scene. Theirs are
-  // the boot's programs: one made here and warmed, so none compiles as the opening's fog clears (the one link flown, ?show: 4 at game 4.2 s, every run)
-  if (earthFly && !resumed && !land) warm.add(new (await import('./sky/SpaceFx')).SpaceFx(bus.length).object, 'earth flight');
+  // (?earth: the flight boots behind the street once the page is ready (bootSky), its stars and sky lines and the bus's speed lines and trail for open
+  // space in its scene. Theirs are the boot's programs: one of each made here and warmed, so none compiles as the opening's fog clears (the one link
+  // flown, ?show: 4 at game 4.2 s, every run)
+  if (earthFly && !resumed && !land) {
+    const [{ SpaceFx }, { SkyDraw }] = await Promise.all([import('./sky/SpaceFx'), import('./sky/SkyDraw')]);
+    warm.add([new SpaceFx(bus.length).object, new SkyDraw(pipeline).object], 'earth flight');
+  }
   exposeQA();
   /** ?moonland: what the thumb does down here, until it is down here. (?swerve's long swipe is the low game's: off while the flight has the thumb) */
   const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
