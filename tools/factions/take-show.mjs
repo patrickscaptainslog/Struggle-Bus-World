@@ -158,7 +158,8 @@ await page.evaluate(() => {
   };
   const ol = L.landed.bind(L);
   L.landed = (b) => {
-    S.landed.push({ t: +b.t.toFixed(2), faction: b.spec.faction ?? null, tag: b.spec.tag ?? null, x: Math.round(b.pos.x), z: Math.round(b.pos.z), via: b.via ?? 0 });
+    // (the tag is the blast's own, Splat's b.tag: the rivals' { rivals: 'quiet' | 'loud' }, else none)
+    S.landed.push({ t: +b.t.toFixed(2), faction: b.spec.faction ?? null, tag: b.tag === undefined ? 'none' : b.tag?.rivals ?? 'other', x: Math.round(b.pos.x), z: Math.round(b.pos.z), via: b.via ?? 0 });
     return ol(b);
   };
 });
