@@ -876,6 +876,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the bus's pose as it breathed its last shot (breatheNow): a return visit starts from it (game/Return.ts) */
   const breathPose = { x: 0, y: 0, z: 0, heading: 0 };
   let breathed = false;
+  /** QA: every shot's breath and each Hose pour as it opens, the last SHOT_LOG in a ring written in place (nothing made per shot or per frame), read by
+   *  window.__game.shots(): { t (game s), kind (tap, comet, lob, cloud, or a super's: mega, bomb, ...; hose), bodyDeg (the bus's body, Flight.pitch; a
+   *  Lob's the body it threw at, at most config.lob.most) }. tools/flight5.mjs asks of each that a touch meant it */
+  const SHOT_LOG = 256;
+  const shotLog = Array.from({ length: SHOT_LOG }, () => ({ t: 0, kind: '', bodyDeg: 0 }));
+  let shotsLogged = 0;
+  const logShot = (kind: string, body: number) => {
+    const e = shotLog[shotsLogged++ % SHOT_LOG];
+    e.t = simTime;
+    e.kind = kind;
+    e.bodyDeg = Math.round(THREE.MathUtils.radToDeg(body) * 10) / 10;
+  };
+  let hoseWasPouring = false;
   /** paint here is the saved city's, so where it lands is kept for the next visit: not the Moon, not a city that saves none, not the Lift's staged paint, not recess or swerve */
   const keepsReturn = !moon && city.paint.saves && !liftedOn && notesReturn(params);
   // (the record goes out only after a save of the paint it points at went through: the paint's own debounce, pagehide and a hidden page)
@@ -1231,6 +1244,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     breathPose.z = flight.z;
     breathPose.heading = flight.heading;
     breathed = true;
+    logShot(mega ? mega.tag.kind : (shot.comet?.kind ?? (shot.comet ? 'comet' : 'tap')), shot.comet?.kind === 'lob' ? (shot.comet.angle ?? flight.pitch) : flight.pitch);
     const hue = splatter.hueNext;
     const landsAt = breathe(shot, mega);
     // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast. A Bomb's at Comet range plays the full show, every time)
@@ -2051,6 +2065,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     hose.bombing = input.state.bomb.on;
     holds.frame(dt);
     hose.update(dt);
+    if (hose.pouring && !hoseWasPouring) logShot('hose', flight.pitch);
+    hoseWasPouring = hose.pouring;
     splatter.update(dt);
     boom.update(dt);
     falls.update(simTime);
@@ -2508,6 +2524,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         pipeline.render(scene);
       },
       lastShot: () => lastShot,
+      /** QA: the shot log, oldest first (a copy) */
+      shots: () => Array.from({ length: Math.min(shotsLogged, SHOT_LOG) }, (_, i) => ({ ...shotLog[(shotsLogged - Math.min(shotsLogged, SHOT_LOG) + i) % SHOT_LOG] })),
       /** QA: the return start this load chose ({ pose, which, p, id }, or { pose: null, why }), whether its hold still holds, and the opening's gap under the Golden Gate (null: no gate) */
       returnStart: () => returnStart,
       returnHold: () => returnHold,
