@@ -797,8 +797,8 @@ if (process.argv.includes('--gpu')) {
   const { chromium } = await import('playwright-core');
   const { browserOptions } = await import(pathToFileURL(`${root}/tools/browser.mjs`).href);
   // 4,096 samples: every phase (before the crouch, the crouch, the launch, the overshoot, the swell), five heights, three heaves, centres a few
-  // km apart, points of the house off its centre (dx, dz) and up it (hgt) for the lean
-  const N = 4096, inp = new Float32Array(N * 4 * 3);
+  // km apart, points of the house off its centre (dx, dz) and up it (hgt) for the lean; and the take's motion on them (mode 2)
+  const N = 4096, inp = new Float32Array(N * 4 * 4);
   const rnd = (k, s) => {
     const x = Math.sin(k * 12.9898 + s * 78.233) * 43758.5453;
     return x - Math.floor(x);
@@ -810,6 +810,9 @@ if (process.argv.includes('--gpu')) {
     inp.set([t, now, H, sb], k * 4);
     inp.set([cx, cz, hv, dx], (N + k) * 4);
     inp.set([dz, gy, hg, 0], (2 * N + k) * 4);
+    // (the take's, mode 2: a fall 0 to 2.6 s in or none, a crack 0 to 3 s old, a heal 0 to 2.5 s old or none, the list's way; one in eight a flinch)
+    const fl = rnd(k, 11) < 0.5 ? -1 : 2.6 * rnd(k, 12), r = rnd(k, 13), ck = r < 0.3 ? 0 : r < 0.7 ? now - 3 * rnd(k, 14) : -(now - 2.5 * rnd(k, 14)), la = 6.2832 * rnd(k, 15);
+    inp.set([fl, ck, Math.cos(la), Math.sin(la)], (3 * N + k) * 4);
   }
   const fs = `#version 300 es
 precision highp float;
@@ -822,9 +825,10 @@ uniform int uMode;
 out vec4 o;
 void main() {
   int k = int(gl_FragCoord.x) + int(gl_FragCoord.y) * 64;
-  vec4 a = texelFetch(tIn, ivec2(k, 0), 0), b = texelFetch(tIn, ivec2(k, 1), 0), c = texelFetch(tIn, ivec2(k, 2), 0);
+  vec4 a = texelFetch(tIn, ivec2(k, 0), 0), b = texelFetch(tIn, ivec2(k, 1), 0), c = texelFetch(tIn, ivec2(k, 2), 0), d = texelFetch(tIn, ivec2(k, 3), 0);
   vec4 lf = a.x < 0.0 ? vec4(0.0) : sbLiftAt(a.x, a.y, a.z, a.w, b.xy, b.z);
   if (uMode == 0) { o = lf; return; }
+  if (uMode == 2) { o = a.x < 0.0 ? vec4(0.0) : sbLiftAt(max(a.x, 0.31), a.y, k % 8 == 0 ? -1.0 : a.z, a.w, b.xy, b.z, d.x, d.y, d.zw); return; }
   vec4 T2 = vec4(b.x, c.y, b.y, b.z);
   vec3 p = sbLiftMove(vec3(b.x + b.w, c.y + c.z, b.y + c.x), c.y, lf, T2);
   o = vec4(p - vec3(b.x, 0.0, b.y), 0.0);
@@ -850,7 +854,7 @@ void main() {
       if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return { error: gl.getProgramInfoLog(pr) };
       const tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, N, 3, 0, gl.RGBA, gl.FLOAT, new Float32Array(inp));
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, N, 4, 0, gl.RGBA, gl.FLOAT, new Float32Array(inp));
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       const rt = gl.createTexture();
@@ -865,7 +869,7 @@ void main() {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.uniform1i(gl.getUniformLocation(pr, 'tIn'), 0);
       const out = [];
-      for (const mode of [0, 1]) {
+      for (const mode of [0, 1, 2]) {
         gl.uniform1i(gl.getUniformLocation(pr, 'uMode'), mode);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         const px = new Float32Array(64 * 64 * 4);
@@ -893,6 +897,18 @@ void main() {
       dAim = Math.max(dAim, Math.abs(m[1] - aimY));
     }
     report('GLSL on the GPU', `${res.renderer}: ${N} samples, dy within ${(dDy * 1000).toFixed(2)} mm (worst at ${JSON.stringify(at)}), the stretch within ${dSq.toExponential(1)}, the lean within ${dLean.toExponential(1)}`, 'dy <= 5 mm, the lean <= 1e-4', dDy <= 0.005 && dLean <= 1e-4);
+    // (mode 2, the take's motion: the fall, the crack's sink, jolt and list, the heal, the flinch, against liftAt with the same)
+    let tDy = 0, tSq = 0, tLean = 0, tAt = null;
+    for (let k = 0; k < N; k++) {
+      const [t, now, H, sb] = inp.subarray(k * 4, k * 4 + 4), [cx, cz, hv] = inp.subarray((N + k) * 4, (N + k) * 4 + 3), [fl, ck, lx, lz] = inp.subarray((3 * N + k) * 4, (3 * N + k) * 4 + 4);
+      if (t < 0) continue;
+      L.liftAt(Math.max(t, 0.31), now, k % 8 === 0 ? -1 : H, sb, cx, cz, hv, o, fl, ck, lx, lz);
+      const g = res.out[2].slice(k * 4, k * 4 + 4);
+      if (Math.abs(g[0] - o[0]) > tDy) [tDy, tAt] = [Math.abs(g[0] - o[0]), { t: +t.toFixed(3), H, fl: +fl.toFixed(3), ck: +(ck - now).toFixed(3) }];
+      tSq = Math.max(tSq, Math.abs(g[1] - o[1]));
+      tLean = Math.max(tLean, Math.abs(g[2] - o[2]), Math.abs(g[3] - o[3]));
+    }
+    report('the take's motion on the GPU', `the fall, the crack, the heal, the flinch: dy within ${(tDy * 1000).toFixed(2)} mm (worst at ${JSON.stringify(tAt)}), the stretch within ${tSq.toExponential(1)}, the lean within ${tLean.toExponential(1)}`, 'dy <= 5 mm, the stretch <= 1e-3, the lean <= 1e-4', tDy <= 0.005 && tSq <= 1e-3 && tLean <= 1e-4);
     report('the aim against the drawn', `a point up to 12 m off the centre and 14 m up it: the CPU's height within ${f2(dAim * 100)} cm of the GPU's turned house`, '<= 25 cm (inside the lean\'s margin, liftTiltReach)', dAim <= 0.25);
   }
 }

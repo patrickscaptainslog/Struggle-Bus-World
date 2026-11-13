@@ -6,7 +6,7 @@ import { HUE_RAMPS } from './render/palette';
 import { lookOf } from './render/factionLook';
 import { WarmUp } from './render/warmup';
 import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
-import { paintUniforms, setFacadeView } from './world/buildingMaterial';
+import { liftUniforms, paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
@@ -332,6 +332,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           crouch: () => audio.heave(),
           jump: (n, hue) => audio.bloomBurst(n, hue, 3),
           note: (i, n, hue) => audio.bloomNote(i, n, hue, 3),
+          // (the rival's sky piece reaches the heart's ground and goes out: a burst of the block's colours, the big boom, a kick by the distance)
+          skyOut: (x, y, z, d) => {
+            const palette0 = particles.palette;
+            particles.palette = lookOf(lift ? lift.block : 0).spray;
+            particles.burst(new THREE.Vector3(x, y + 4, z), 0, 1.0, y);
+            particles.sparkles(new THREE.Vector3(x, y + 4, z), 20, 30, [0, 1, 2, 3, 4, 5], 60);
+            particles.palette = palette0;
+            audio.superMega(1.0);
+            rig.kick(config.splat.kick * Math.max(0.3, 1 - d / 600));
+          },
           // (a fallen house's landing: a note down the scale, the wave's arpeggio backwards, at most 12 a second; a kick within 200 m, at most 4 a
           // second, the first and the big ones only)
           land: (d, hue, big) => {
@@ -1600,6 +1610,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const glint = aimer.update(flight, simTime, steering);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
+    // (?lift: the glint on a square that won't take the next hit sweeps in its owner's colour, not white: LIFT.md, "Taking it: the looks")
+    if (liftUniforms) liftUniforms.uGlintWait.value = glint && lift?.waiting(glint.index) ? 1 : 0;
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;

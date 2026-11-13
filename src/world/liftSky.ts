@@ -329,6 +329,8 @@ const VS_HEAD = /* glsl */ `
 ${GLSL_COMMON}
 uniform vec4 uSkyC; // the heart x, the pieces' height, the heart z, the neighbourhood's radius
 uniform float uSkyT0; // the wave's start (game clock): it forms after it
+uniform float uSkyCrack; // the heart's crack (game clock; 1e9 none): the piece shudders and stays 4 m lower
+uniform vec2 uSkyFall; // the heart's fall (game clock; 1e9 none) and the heart's ground (m): it shrinks and comes down
 in vec4 aK;
 in vec3 aE;
 out vec3 vWorldPos;
@@ -340,6 +342,16 @@ float sbH(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
 vec3 sbYawY(vec3 v, float a) { float c = cos(a), s = sin(a); return vec3(c * v.x - s * v.z, v.y, s * v.x + c * v.z); }
 `;
 const VS_TAIL = /* glsl */ `
+  // (the take's, LIFT.md "Taking it: the looks": the heart's crack, a damped 2 m sway over 0.8 s and 4 m lower; its fall, to 15 % about its
+  // centre over 0.6 s and down to the heart's ground over 1.0 s, accelerating. Vertex only: the programs with no discard keep it)
+  float ck = uTime - uSkyCrack;
+  if (ck > 0.0) p += vec3(2.0 * exp(-5.0 * ck) * sin(17.0 * ck) * (1.0 - smoothstep(0.0, 0.8, ck)), -4.0 * smoothstep(0.0, 0.3, ck), 0.0);
+  float fk = uTime - uSkyFall.x;
+  if (fk > 0.0) {
+    vec3 c = uSkyC.xyz;
+    p = c + (p - c) * mix(1.0, 0.15, smoothstep(0.0, 0.6, fk));
+    p.y -= (c.y - uSkyFall.y) * min(1.0, fk * fk);
+  }
   vWorldPos = p;
   vN = n;
   vE = aE;
@@ -1262,6 +1274,8 @@ function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.S
     uSkyC: { value: new THREE.Vector4() },
     uSkyT0: { value: 1e9 },
     uSkyBus: { value: new THREE.Vector4(0, -1e6, 0, SKY_CUT) },
+    uSkyCrack: { value: 1e9 },
+    uSkyFall: { value: new THREE.Vector2(1e9, 0) },
   };
   if (faction === FACTION_ELDERWOOD) uniforms.uIsles = { value: Array.from({ length: 7 }, () => new THREE.Vector4()) };
   const make = (defines: Record<string, string>) =>
@@ -1314,6 +1328,10 @@ export interface SkyPiece {
   feet: Array<[number, number]>;
   cols: number[][];
   start(t: number): void;
+  /** the heart's crack at t (game s): it shudders and stays 4 m lower; a heal (`t` 1e9) puts it back */
+  crack(t: number): void;
+  /** the heart's fall at t, down to `ground` (m): it draws in its cut program from then (its parts leave the boxes the cut was tried on) */
+  fall(t: number, ground: number): void;
   /**
    * where the bus and the lens are as the frame is drawn (m): the piece isn't drawn between the lens and it (the shaders' sbCut), and draws in
    * its cut program only while the cut's cone can reach it
@@ -1381,13 +1399,20 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
     start: (t: number) => {
       cut.uniforms.uSkyT0.value = t;
     },
+    crack: (t: number) => {
+      cut.uniforms.uSkyCrack.value = t;
+    },
+    fall: (t: number, ground: number) => {
+      (cut.uniforms.uSkyFall.value as THREE.Vector2).set(t, ground);
+    },
     bus: (x: number, y: number, z: number, cam: THREE.Vector3) => {
       b.x = x;
       b.y = y;
       b.z = z;
       // (the lens as the frame is drawn, Lift.lens: 4 m of slack for the pipeline's snapped copy of it, a pixel off)
       const n = (cut.uniforms.uTime.value as number) - (cut.uniforms.uSkyT0.value as number) >= colsGone ? parts : reach.length;
-      const cuts = cutReaches(reach, n, cam.x, cam.y, cam.z, x, y, z, b.w, 4);
+      // (through the heart's fall, the cut program whatever the boxes say: they're where it stood formed, and the solid one would draw it over the bus)
+      const cuts = (cut.uniforms.uSkyFall.value as THREE.Vector2).x < 1e8 || cutReaches(reach, n, cam.x, cam.y, cam.z, x, y, z, b.w, 4);
       mesh.material = cuts ? cut : solid;
       if (apart) apart.material = cuts ? cut : plain;
     },

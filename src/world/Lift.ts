@@ -36,7 +36,7 @@ export interface LiftGame {
   bump(x: number, z: number, amt: number): void;
   /** petals at a jump: a burst and sparkles in the house's hue, in its owner's colours */
   petals(x: number, y: number, z: number, hue: number, n: number, faction: number): void;
-  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void };
+  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void; skyOut(x: number, y: number, z: number, d: number): void };
   /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
   sun: [number, number];
   /** the scene's camera: the wake asks whether the heart is in its frame (as last drawn) */
@@ -216,7 +216,7 @@ export class Lift implements LiftHooks, FieldHouses {
   readonly stats = {
     scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, planMs: 0, turning: 0,
     counted: 0, parried: 0, encores: 0, cracks: 0, heals: 0, falls: 0, fallHeld: 0, landed: 0, wilts: 0, flips: 0, ups: 0, liftedAsTaker: 0,
-    crackHeld: 0, landings: 0,
+    crackHeld: 0, landings: 0, skyOut: 0,
   };
   /** the game clock's last step (s): the crack's look ahead */
   private lastDt = 1 / 30;
@@ -695,6 +695,8 @@ export class Lift implements LiftHooks, FieldHouses {
         s.listA = Math.atan2((squareIz(s.key) + 0.5) * SQUARE - pz, (squareIx(s.key) + 0.5) * SQUARE - px);
         s.crack = 0;
         s.sinkWait = true;
+        // (the heart's stage 4 is its sky piece: it shudders and stays 4 m lower)
+        if (s.heart) this.sky?.crack(t);
         break;
       case 'heal':
         st.heals++;
@@ -702,6 +704,7 @@ export class Lift implements LiftHooks, FieldHouses {
         s.crack = s.sinkWait ? 0 : -t;
         if (!s.sinkWait) this.sinkSolid(s, false, t);
         s.sinkWait = false;
+        if (s.heart) this.sky?.crack(1e9);
         break;
       case 'down':
         if (was >= TAKE.top) {
@@ -762,12 +765,15 @@ export class Lift implements LiftHooks, FieldHouses {
       this.falls.set(i, t + near.d[k] / TAKE.fallFront + TAKE.jitter * liftSeed(i, 5));
       this.stats.falls++;
     }
-    if (s.heart && this.sky) {
-      this.g.scene.remove(this.sky.mesh);
-      this.sky = null;
+    // (the heart's sky piece goes out: it shrinks and comes down in its cut program, then is gone, the beam draining with it)
+    if (s.heart && this.sky && this.skyOut === Infinity) {
+      this.sky.fall(t, this.heartY);
+      this.skyOut = t + 1;
       this.beam?.drain(t);
     }
   }
+  /** when the falling sky piece reaches the heart's ground and goes (game s; Infinity: it stands, or is gone) */
+  private skyOut = Infinity;
 
   /**
    * A queued fall starts (LIFT_FALL's motion, D1's falling texel: x its start, y its rest, w its crouch start): a wall to the flight from now
@@ -953,6 +959,13 @@ export class Lift implements LiftHooks, FieldHouses {
       this.writeTexel(i);
       this.data[i * 4 + 1] = 0;
     }
+    if (now >= this.skyOut && this.sky) {
+      this.g.scene.remove(this.sky.mesh);
+      this.sky = null;
+      this.skyOut = Infinity;
+      this.stats.skyOut++;
+      this.g.sound.skyOut(this.heart[0], this.heartY, this.heart[1], Math.hypot(bus.x - this.heart[0], bus.y - this.heartY, bus.z - this.heart[1]));
+    }
     this.session.drain(now, this.sink);
     if (this.takeDirty) {
       this.takeDirty = false;
@@ -1028,7 +1041,8 @@ export class Lift implements LiftHooks, FieldHouses {
   /** Does the segment from (ox, oy, oz), (dx, dy, dz) long, cross one of the sky piece's parts (its boxes): the aim takes the heart (B3.3). */
   skyHit(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number): boolean {
     const b = this.sky?.boxes;
-    if (!b) return false;
+    // (a piece coming down takes no more hits: its boxes are where it stood)
+    if (!b || this.skyOut !== Infinity) return false;
     const o = [ox, oy, oz], d = [dx, dy, dz];
     for (let k = 0; k + 5 < b.length; k += 6) {
       let t0 = 0, t1 = 1;
