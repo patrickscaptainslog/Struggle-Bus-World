@@ -74,8 +74,8 @@ interface TakeSquare {
   sinkWait: boolean;
 }
 
-/** the tuner's Take group (`topHits`: hitsToDrop[4], `wake`: LIFT_WAKE.r), copied into TAKE and LIFT_WAKE each frame */
-const takeTune = { cooldown: TAKE.cooldown, topHits: TAKE.hitsToDrop[4], front: TAKE.front, fallFront: TAKE.fallFront, fallG: TAKE.fallG, wake: LIFT_WAKE.r };
+/** the tuner's Take group (`topHits`: hitsToDrop[4], `wake`: LIFT_WAKE.r), copied into TAKE and LIFT_WAKE each frame. Not the fall's drop: LIFT_FALL.G is the GLSL's too, a constant */
+const takeTune = { cooldown: TAKE.cooldown, topHits: TAKE.hitsToDrop[4], front: TAKE.front, fallFront: TAKE.fallFront, wake: LIFT_WAKE.r };
 /** the bus's half length for the fall's hold (m): LiftField's HALF, and 2 m */
 const BUS_HALF = 8;
 
@@ -355,7 +355,7 @@ export class Lift implements LiftHooks, FieldHouses {
     u.tTake.value = this.takeTex;
     u.uTakeRect.value.set(x0, z0, tw, th);
     this.rules = new TakeRules(this.tagged);
-    if (liftedOn) registerTunables('Take', takeTune, { cooldown: [1, 10, 0.5], topHits: [1, 3, 1], front: [40, 300, 10], fallFront: [30, 200, 10], fallG: [40, 200, 5], wake: [150, 1200, 25] });
+    if (liftedOn) registerTunables('Take', takeTune, { cooldown: [1, 10, 0.5], topHits: [1, 3, 1], front: [40, 300, 10], fallFront: [30, 200, 10], wake: [150, 1200, 25] });
 
     const c = ts / m.obstN;
     this.field = new LiftField(Math.floor(this.rect[0] / c) * c, Math.floor(this.rect[1] / c) * c, this.rect[2], this.rect[3], c, city, this);
@@ -889,7 +889,6 @@ export class Lift implements LiftHooks, FieldHouses {
     TAKE.hitsToDrop[4] = takeTune.topHits;
     TAKE.front = takeTune.front;
     TAKE.fallFront = takeTune.fallFront;
-    TAKE.fallG = takeTune.fallG;
     LIFT_WAKE.r = takeTune.wake;
     if (!this.takeSq.size) return;
     for (const s of this.takeSq.values()) {

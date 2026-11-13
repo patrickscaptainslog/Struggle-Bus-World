@@ -8,7 +8,8 @@
 //     the third lifting the square as Rainbow's (its houses up, Rainbow's at level 3);
 //   - the heart through the sky piece (via 1): a crack, then the fall takes the piece out;
 //   - all the way: no program made after the warm-up, no page error, no shader error.
-// Part C adds the flight to it, the real cadence, the hold, the stream, the tile and the producer's own link. Writes <out>/take-fly.json; prints
+// Part C's: the crack's sink (or its hold) and the waiting glint, the houses falling through the air and each landing once, the sky piece
+// coming down in its cut program and then out. Still to add: the flight, the real cadence, the hold, the stream, the tile and the producer's link. Writes <out>/take-fly.json; prints
 // pass or FAIL a line; exit 1 on any failure.
 //
 //   node tools/factions/take-fly.mjs <url> <outDir> [--q=<query>]
@@ -104,6 +105,10 @@ const all = (rows, f, lv) => rows.every(([a, b]) => a === f && b === lv);
 await hit(RB);
 let r = await rec();
 report('A: the first counted hit cracks it', `stage ${r.stage}, cracks ${r.cracks}`, 'stage 4, cracks 1', r.stage === 4 && r.cracks === 1);
+// (part C: its sink starts once no house of it would sink onto the bus or the lens; the glint on it is the waiting one now)
+await until((await now()) + 0.3);
+const ck = await page.evaluate(([k, i]) => ({ crack: window.__game.lift.takeSq.get(k).crack, wait: window.__game.lift.takeSq.get(k).sinkWait, waiting: window.__game.lift.waiting(i), held: window.__game.lift.stats.crackHeld }), [A.key, A.houses[0]]);
+report('A: the sink of the crack under way (or held for the bus), and its houses waiting for the glint', `crack at ${ck.crack.toFixed(2)}, waiting for the bus ${ck.wait} (${ck.held} frames), the glint's wait ${ck.waiting}`, 'a crack time or a hold; waiting', (ck.crack > 0 || ck.wait) && ck.waiting === true);
 const s0 = await stats();
 await hit(RB);
 r = await rec();
@@ -113,9 +118,16 @@ await ready5();
 await hit(RB);
 r = await rec();
 report('A: the second counted hit takes the Lift off it', `stage ${r.stage}, ${r.falling} of ${r.houses.length} falling`, 'stage 3, its floating houses falling', r.stage === 3 && r.falling > 0);
+// (part C: the houses come down in the air, a wall to the flight while they fall, and land)
+const nFall = r.falling, land0 = (await stats()).landings;
+await wait((hs) => hs.some((i) => window.__game.lift.state[i] === 3 && window.__game.lift.dy(i) > 2), A.houses, 20000).catch(() => {});
+const mid = await page.evaluate((hs) => hs.filter((i) => window.__game.lift.state[i] === 3).map((i) => +window.__game.lift.dy(i).toFixed(1)), A.houses);
+report('A: its houses fall through the air (state 3, drawn above the ground)', `${mid.length} falling, heights ${mid.slice(0, 6).join(', ')} m`, 'some, over 2 m', mid.length > 0 && mid.some((h) => h > 2));
 await wait((k) => window.__game.lift.takeState().find((s) => s.key === k).falling === 0, A.key, 60000).catch(() => {});
 r = await rec();
 report('A: every house down', `${r.up} up, ${r.falling} falling of ${r.houses.length}`, '0 and 0', r.up === 0 && r.falling === 0);
+const land1 = (await stats()).landings;
+report('A: each one landed once', `${land1 - land0} landings for ${nFall} falls`, 'equal', land1 - land0 === nFall);
 await ready5();
 await hit(RB);
 await until((await now()) + 1);
@@ -172,8 +184,12 @@ report('A: Rainbow\'s hit on its own square at the top is an encore', `stage ${r
     await ready5();
     await hv(RB);
     h = (await state()).find((s) => s.heart);
-    const sky = await page.evaluate(() => !!window.__game.lift.sky);
-    report('and its fall takes the piece out', `stage ${h.stage}, the piece ${sky ? 'still there' : 'gone'}`, 'stage 3, gone', h.stage === 3 && !sky);
+    // (part C: it comes down over 1 s in its cut program, then goes)
+    await until((await now()) + 0.2);
+    const down = await page.evaluate(() => ({ sky: !!window.__game.lift.sky, cut: window.__game.lift.sky?.mesh.material.defines?.SB_CUT !== undefined }));
+    await until((await now()) + 1.1);
+    const sky = await page.evaluate(() => !!window.__game.lift.sky), skyOut = (await stats()).skyOut;
+    report('and its fall brings the piece down in its cut program, then takes it out', `stage ${h.stage}; at the hit the piece ${down.sky ? 'there' : 'gone'}, its cut program ${down.cut}; 1.3 s on ${sky ? 'still there' : 'gone'}, out ${skyOut}`, 'stage 3; there; cut; gone, out 1', h.stage === 3 && down.sky && !sky && skyOut === 1);
   } else report('the heart through the sky piece', `no piece (${hasSky}) or the heart at ${heart.stage}`, 'Inferno\'s piece at the Lift', false);
 }
 
