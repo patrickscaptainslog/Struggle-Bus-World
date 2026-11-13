@@ -181,7 +181,8 @@ export interface CityMoon {
   tileTexture(t: TerrainTile): THREE.DataTexture;
   regionTexture(t: TerrainTile): THREE.DataTexture;
   material(tex: THREE.DataTexture, t: TerrainTile, originX: number, originZ: number, size: number, ground?: Record<string, THREE.IUniform>): THREE.ShaderMaterial;
-  regionMaterial(tex: THREE.DataTexture, t: TerrainTile, originX: number, originZ: number, size: number): THREE.ShaderMaterial;
+  /** (`ground`: the region's paint mask and its tiles' paths, Release A 1a) */
+  regionMaterial(tex: THREE.DataTexture, t: TerrainTile, originX: number, originZ: number, size: number, ground?: Record<string, THREE.IUniform>): THREE.ShaderMaterial;
   /** The ground where no tile is loaded. */
   groundAt(x: number, z: number): number;
   /** A region landed, or went. */
@@ -536,7 +537,7 @@ export class City {
   private ownGround = new Set<string>();
   /**
    * Release A, 1a (?rmask=1; config.city.regionPaint): a coarse region's tiles show their paint in one mask of the region's (GroundPaint.attachRegion), not
-   * through ground of their own. Off (?rmask=0, and on the Moon until it takes it) is the split ground as it was. 'nofill' and 'noclamp' are QA's broken
+   * through ground of their own. Off (?rmask=0) is the split ground as it was. 'nofill' and 'noclamp' are QA's broken
    * variants, a row's proof it can fail: masks made and never filled; the paint looked up over the whole region, not clamped to its tile.
    */
   readonly rmask: false | 'on' | 'nofill' | 'noclamp';
@@ -582,7 +583,7 @@ export class City {
       const v = new URLSearchParams(location.search).get('rmask') ?? (config.city.regionPaint ? '1' : '0');
       // (a region's mask flags its tiles in a mat4: 4 x 4 tiles, as every city's data and the Moon have them)
       if (v !== '0' && manifest.regionSize > 4) console.warn(`?rmask: regions of ${manifest.regionSize} tiles a side, past 4: the mask stays off`);
-      this.rmask = v === '0' || moon || manifest.regionSize > 4 ? false : v === 'nofill' ? 'nofill' : v === 'noclamp' ? 'noclamp' : 'on';
+      this.rmask = v === '0' || manifest.regionSize > 4 ? false : v === 'nofill' ? 'nofill' : v === 'noclamp' ? 'noclamp' : 'on';
       this.ground.regionNoFill = this.rmask === 'nofill';
     }
     this.ext = (manifest as { binExt?: string }).binExt ?? '.bin';
@@ -1029,6 +1030,10 @@ export class City {
       tex(rm.classTex);
       this.regionMeshes.set(region(key), rm);
     }
+    // (Release A, 1a: the regions' paint masks by their new keys, as GroundPaint's own; their uniforms move with the meshes that hold them)
+    const views = [...this.regionViews];
+    this.regionViews.clear();
+    for (const [key, u] of views) this.regionViews.set(region(key), u);
     const loaded = [...this.regionsLoaded].map(region);
     this.regionsLoaded = new Set(loaded);
     this.regionsRequested = new Set(loaded);
@@ -1377,7 +1382,8 @@ export class City {
         const tr = lt?.terrainData;
         if (!lt || !tr) continue;
         this.setMask(tx, tz, 255);
-        if (this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
+        // (?moon with the mask on: its region view asked for its kept copy already, attachRegion -> attachGeo)
+        if (!(this.rmask && this.moon) && this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
         if (this.rmask && this.ownGround.has(`${tx},${tz}`)) this.ground.flagRegionTile(tx, tz);
         // (with the region's paint mask none is split out: its paint shows in the merged ground. Release A, 1a)
         if (!this.rmask && this.ownGround.has(`${tx},${tz}`)) {
@@ -1447,7 +1453,7 @@ export class City {
       const ru = this.rmask ? this.regionViews.get(key) : undefined;
       const tileM = ru ? { ...ru, uTileM: { value: new THREE.Vector4(ts, 1 / ts, cn, this.rmask === 'noclamp' ? 1 : 0) } } : undefined;
       // (far ground doesn't cast: the shadow window is near the view, and buildings carry the shadows up high)
-      const mesh = groundMesh(g, this.moon && moonTile ? this.moon.regionMaterial(tex, moonTile, rx * rs * ts, rz * rs * ts, rs * ts) : makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N, 0, tileM), false);
+      const mesh = groundMesh(g, this.moon && moonTile ? this.moon.regionMaterial(tex, moonTile, rx * rs * ts, rz * rs * ts, rs * ts, tileM) : makeTerrainMaterial(tex, rx * rs * ts, rz * rs * ts, rs * ts, N, 0, tileM), false);
       mesh.visible = !rm.hidden;
       this.root.add(mesh);
       this.firstDraw(mesh);

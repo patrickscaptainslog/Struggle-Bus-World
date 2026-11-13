@@ -565,6 +565,18 @@ export class GroundPaint {
     remap(this.store);
     remap(this.replaying);
     remap(this.prepared);
+    // (Release A, 1a: the map slides by whole regions, so a tile keeps its slot in its region's mask; the masks take their new keys)
+    const regions = [...this.regions.values()];
+    this.regions.clear();
+    for (const r of regions) {
+      if (dtx % r.n || dtz % r.n) console.error(`GroundPaint.slide: ${dtx}, ${dtz} tiles is not whole regions of ${r.n}`);
+      r.rx -= dtx / r.n;
+      r.rz -= dtz / r.n;
+      const tiles = [...r.tiles].map(key);
+      r.tiles.clear();
+      for (const k of tiles) r.tiles.add(k);
+      this.regions.set(`${r.rx},${r.rz}`, r);
+    }
     this.pics?.slid(dtx, dtz, dx, dz);
     this.saveQueue.splice(0, this.saveQueue.length, ...this.saveQueue.map(key));
     const saving = [...this.saveSet].map(key);

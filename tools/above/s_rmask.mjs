@@ -244,6 +244,24 @@ row('  its painted texels as before the reload (the saved code is 5-bit: within 
   const st = A2.regionStats();
   row('region (0, 0)\'s views dropped: its masks gone, still saved; the region freed', [...A2.masks.keys()].every((k) => Number(k.split(',')[0]) >= RS) && st.regions === 1 && A2.tileCount === saved0 && saved0 > 0, { ...st, saved: [saved0, A2.tileCount] });
 }
+// 10. ?moon's slide, by a whole region (City.slide): the masks rekeyed, each tile still in its slot, and a blast after it lands there
+{
+  const before = new Map();
+  for (const [tx, tz] of tilesOf([1, 0])) before.set(`${tx - RS},${tz}`, A2.regionSlot(tx, tz)?.data ?? null);
+  A2.slide(RS, 0, RS * TS, 0, new Set());
+  const st = A2.regionStats();
+  let same = 0, n = 0;
+  for (const [tx, tz] of tilesOf([0, 0])) {
+    const s = A2.regionSlot(tx, tz);
+    n++;
+    if (s && s.rx === 0 && s.rz === 0 && s.data === before.get(`${tx},${tz}`)) same++;
+  }
+  row('a slide by one region: the mask under its new key, each tile in its slot with its own array', st.regions === 1 && A2.regions.has('0,0') && same === n && [...before.values()].some((d) => d), { ...st, same, n });
+  A2.blast(makeBlastSpec(2 * TS, 2 * TS, tap, 3, 4321), -100);
+  frame(3);
+  const h = held(A2);
+  row('  a blast after the slide: the region\'s slots equal the tiles\' arrays', h.diff === 0 && h.unflagged === 0 && h.painted > 0, h);
+}
 row('every frame: at most one upload a region slot', worstSlot <= 1, { worstSlot });
 console.log(bad ? `S_RMASK FAILED: ${bad}` : 's_rmask: all passed');
 process.exit(bad ? 1 : 0);

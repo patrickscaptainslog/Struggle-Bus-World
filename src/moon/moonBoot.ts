@@ -288,9 +288,10 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
       const own = (tex as THREE.DataTexture & { moonAt?: { x: number; z: number; n: number } }).moonAt;
       return own ? makeMoonGround(tex, own.x, own.z, m.mapCell, own.n, ox, oz, size, ground) : makeMoonGround(tex, m.mapX, m.mapZ, m.mapCell, m.mapN, ox, oz, size, ground);
     },
-    regionMaterial: (tex, t, ox, oz, size) => {
+    regionMaterial: (tex, t, ox, oz, size, ground) => {
       const m = t.moon!;
-      return makeMoonGround(tex, m.mapX, m.mapZ, m.mapCell, m.mapN, ox, oz, size);
+      // (`ground`: the region's paint mask, Release A 1a: its painted tiles' paint, which split them out of it before)
+      return makeMoonGround(tex, m.mapX, m.mapZ, m.mapCell, m.mapN, ox, oz, size, ground);
     },
     groundAt: (x, z) => far?.heightAt(x, z) ?? startY,
     regionLanded(m) {

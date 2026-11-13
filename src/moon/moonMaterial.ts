@@ -3,7 +3,7 @@ import { GLSL_COMMON, GLSL_OUT, globals } from '../render/materials';
 import { GLSL_MOON_CURVE, landOnly } from '../sky/flag';
 import { HUE_RAMPS, Ramp } from '../render/palette';
 import { GLSL_MOON_PAINTED, GLSL_MOON_PAINTED_UNIFORMS, GLSL_MOON_SHADE, GLSL_MOON_SHADE_UNIFORMS, spaceResolveUniforms as U } from '../render/skyResolve';
-import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from '../world/GroundPaint';
+import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT, GROUND_N } from '../world/GroundPaint';
 import { FAR, LIT_MAX, LIT_POW, LIT_TONE0, LIT_TONE1, SHADOW_MAX, SLOPE_MAX, type MoonTileData } from './gen';
 
 /** Texels a side of a paint window (PaintClip.ts). */
@@ -224,15 +224,28 @@ const NEAR_VS = /* glsl */ `
   ${GLSL_MOON_CURVE}
   uniform vec4 uTileRect; // originX, originZ, 1/size, 0
   uniform vec4 uMapRect;  // the map's first texel, per metre, half a texel
+  // (Release A, 1a: on a coarse region's ground with its paint mask, x a tile's size, y its inverse; x 0 everywhere else, and then aTile, which only that ground
+  // has, is never read: terrainMaterial.ts's tile path)
+  uniform vec4 uTileM;
+  in vec4 aTile;
   out vec3 vWorldPos;
   out vec2 vClassUv;
   out vec2 vMapUv;
+  out vec2 vTileUv;
+  flat out vec2 vTile;
   ${landOnly('out vec3 vRound;')}
   void main() {
     vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
     vClassUv = (wp.xz - uTileRect.xy) * uTileRect.z;
     vMapUv = (wp.xz - uMapRect.xy) * uMapRect.z + uMapRect.w;
+    if (uTileM.x > 0.0) {
+      vTileUv = (wp.xz - (uTileRect.xy + aTile.xy * uTileM.x)) * uTileM.y;
+      vTile = aTile.xy;
+    } else {
+      vTileUv = vClassUv;
+      vTile = vec2(0.0);
+    }
     vec3 rolled = moonCurve(wp.xyz);
     ${landOnly('vRound = rolled - vec3(cameraPosition.x, -MOON_R, cameraPosition.z);')}
     gl_Position = projectionMatrix * viewMatrix * vec4(rolled, 1.0);
@@ -251,6 +264,10 @@ const NEAR_FS = /* glsl */ `
   in vec3 vWorldPos;
   in vec2 vClassUv;
   in vec2 vMapUv;
+  in vec2 vTileUv;
+  flat in vec2 vTile;
+  uniform vec4 uTileM;
+  uniform mat4 uGroundSq;
   ${landOnly('in vec3 vRound;')}
   ${GLSL_OUT}
   void main() {
@@ -275,6 +292,8 @@ const NEAR_FS = /* glsl */ `
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh, pLift, pGlow;
     float site = moonSite(vWorldPos.xz, px);
+    // (Release A, 1a: on a coarse region's ground a tile with paint looks it up in its square of the region's mask, as its own ground did; the rest has none)
+    bool tp = uTileM.x > 0.0 && uGroundSq[clamp(int(vTile.x), 0, 3)][clamp(int(vTile.y), 0, 3)] > 0.5;
     // what's on a crater first: a bowl keeps its colour whatever lands round it
     // (not the long axis alone: at a grazing view that would blur what the short axis can still read)
     float pa = length(dFdx(vWorldPos.xz)), pb = length(dFdy(vWorldPos.xz));
@@ -286,7 +305,7 @@ const NEAR_FS = /* glsl */ `
       light = moonPaintLight(pr, light, pEdge, pLift, 0.0);
       glow = pGlow;
       light = max(light, glow);
-    } else if (sbGroundPaint(vWorldPos + vec3(uSlide.x, 0.0, uSlide.y), vClassUv, ivec2(0), 1.0, pr, pEdge, pWet, pFresh)) {
+    } else if ((uTileM.x <= 0.0 || tp) && sbGroundPaint(vWorldPos + vec3(uSlide.x, 0.0, uSlide.y), vTileUv, ivec2(vTile) * ${GROUND_N}, 1.0, pr, pEdge, pWet, pFresh)) {
       ramp = pr;
       light = moonPaintLight(pr, light, pEdge, 0.0, pWet);
       glow = 0.55 * pFresh;
@@ -349,6 +368,9 @@ export function makeMoonGround(tex: THREE.Texture, mapX: number, mapZ: number, m
       uGroundLive: blastUniforms.uGroundLive,
       uGroundLive2: blastUniforms.uGroundLive2,
       uGroundTone: blastUniforms.uGroundTone,
+      // (a coarse region's ground with its paint mask overrides these in `ground`: City.buildRegionGround)
+      uTileM: { value: new THREE.Vector4(0, 1 / size, 0, 0) },
+      uGroundSq: { value: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) },
       ...(ground ?? {}),
       tMoon: { value: tex },
       uTileRect: { value: new THREE.Vector4(originX, originZ, 1 / size, 0) },
