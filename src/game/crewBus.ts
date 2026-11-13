@@ -53,6 +53,8 @@ export class CrewBus {
   /** a rival's flood as it shows: when it began, when its drain does */
   private flood: { at: number; drainAt: number } | null = null;
   private flung = 0;
+  /** the rivals' hits as counted just before their frame (pre()) */
+  private flungPre = 0;
   private wasOut = false;
   private shown = -1;
   private version = -1;
@@ -91,21 +93,27 @@ export class CrewBus {
     this.shown = -1;
   }
 
+  /** Each frame, just before the rivals' frame: what they have counted so far, so frame() can tell a hit made inside their frame. */
+  pre(rivals: RivalsSeen): void {
+    this.flungPre = rivals.counts.flung ?? 0;
+  }
+
   /** Each frame, after the rivals' (game s), before the render. */
   frame(t: number, rivals: RivalsSeen | null = null): void {
     const prev = this.now;
     this.now = t;
     this.framedAt = performance.now();
     if (Number.isNaN(this.at)) this.at = t;
-    // (a rival's flood: a new hit began one by the last frame (a shell's lands before the rivals' frame, and the front here must never be behind theirs:
-    // behind it, a Rainbow hitter's yellow would be written over and stay so), the throw's end starts its drain 0.4 s on, as rivalsBoot's hitFx)
+    // (a rival's flood: it starts when theirs does, so the two fronts agree. A hit made inside the rivals' frame (a ram's, from sim.step) starts at this
+    // frame's time; one made between their frames (a shell's) at the last frame's. A front here behind theirs would write a Rainbow hitter's yellow over and
+    // leave it so; one ahead of it leaves yellow showing between the two. The throw's end starts its drain 0.4 s on, as rivalsBoot's hitFx)
     let fk = -1;
     let reach = -Infinity, gone = Infinity;
     if (rivals) {
       const n = rivals.counts.flung ?? 0;
       if (n !== this.flung) {
         this.flung = n;
-        this.flood = { at: Math.min(prev, t), drainAt: Infinity };
+        this.flood = { at: n !== this.flungPre ? t : Math.min(prev, t), drainAt: Infinity };
       }
       if (this.wasOut && !rivals.out && this.flood) this.flood.drainAt = t + 0.4;
       this.wasOut = rivals.out;

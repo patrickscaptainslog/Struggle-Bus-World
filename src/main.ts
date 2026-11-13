@@ -2425,6 +2425,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     signs.update(dt, camera);
     life?.frame(dt, simTime, skyClock.now(), flight, camera);
     recess?.frame(dt, simTime, camera, held ? 0 : realDt);
+    // (the bus's crew notes the rivals' hits before their frame, to tell one made inside it)
+    if (rivalsSeen) crewBus?.pre(rivalsSeen);
     // (?swerve: the city's other buses fly, touch and are drawn; they aren't out until the opening is over)
     rivals?.frame(dt, simTime, held ? 0 : realDt, gateShut || opening < config.fog.openingDuration);
     // (the bus's crew: after the rivals' flood has drawn this frame)
