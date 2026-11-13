@@ -112,33 +112,43 @@ if (!opt.q && !opt.noflight) {
     window.__qa.sx = Math.max(-1, Math.min(1, 2 * e * turn));
     return L.waveAt;
   }, turn);
-  // (on the way, a real tap on the city once the bus is 1.6 to 2.4 km out: the paint it leaves is Rainbow's)
-  let painted = null, wave = null, tries = 0;
+  let wave = null;
   const t0 = await pnow();
   while (wave === null && (await pnow()) < t0 + 75) {
     const wa = await steer();
     const w = await where();
     if (wa > 0) wave = w;
-    if (!painted && tries < 20 && w.heart < 2400 && w.heart > 1600) {
-      tries++;
-      painted = await pp.evaluate(() => {
-        const g = window.__game;
-        g.forceReady();
-        g.tap();
-        const s = g.lastShot();
-        return s && s.target && !g.lift.refuses(s.target.cx, s.target.cz, 0) ? { i: s.target.index, at: s.t + s.travel } : null;
-      });
-    }
     await pp.waitForTimeout(40);
   }
   await pp.evaluate(() => (window.__qa.sx = 0));
+  report("the producer's link: the block wakes ahead of the bus flown to it at Nonstop", wave ? `at ${wave.t} s: ${wave.dh} m from the block, ${wave.h} m over the heart's ground, the heart ${wave.off} degrees off the heading and ${wave.heart} m off, ${wave.speed} m/s` : 'no wave in 75 s',
+    'a wave, the bus not in the block yet (over 0 m from it)', !!wave && wave.dh !== null && wave.dh > 0);
+  // ---- a real tap on the city off the block: the bus held still 1.5 km out from the heart, 40 m up, its glint on a building of no seeded
+  // square; the paint it leaves is Rainbow's (at Nonstop on the way a breath's 1 s rarely met a roof: held, it's the tap the producer makes)
+  let painted = null;
+  for (const [ox, oz] of [[0, 1500], [1500, 0], [0, -1500], [-1500, 0]]) {
+    if (painted) break;
+    const at = await pp.evaluate(([ox, oz]) => {
+      const g = window.__game, L = g.lift, x = L.heart[0] + ox, z = L.heart[1] + oz;
+      window.__qa.pin = { x, y: g.city.groundAt(x, z) + 40, z, heading: Math.atan2(-ox, oz), speed: 0 };
+      return g.lift.now;
+    }, [ox, oz]);
+    await pw((t) => window.__game.lift.now >= t, at + 0.8);
+    painted = await pp.evaluate(() => {
+      const g = window.__game, gl = g.glintNow();
+      if (!gl || g.lift.refuses(gl.cx, gl.cz, 0)) return null;
+      g.forceReady();
+      const t = g.lift.now;
+      g.tapSplat();
+      const s = g.lastShot();
+      return s && s.t >= t - 0.001 && s.target ? { i: s.target.index, at: s.t + s.travel } : null;
+    });
+  }
   if (painted) {
     await pw((t) => window.__game.lift.now >= t, painted.at + 0.6);
     const p = await pp.evaluate((i) => window.__game.city.paint.get(i), painted.i);
-    report("the producer's link: a real tap on the city on the way paints Rainbow's", `building ${painted.i}: faction ${p.faction} level ${Math.round(p.level)}`, 'faction 1', p.faction === RB);
-  } else report("the producer's link: a real tap on the city on the way paints Rainbow's", `no tap of ${tries} hit a building 1.6-2.4 km out`, 'one', false);
-  report("the producer's link: the block wakes ahead of the bus flown to it at Nonstop", wave ? `at ${wave.t} s: ${wave.dh} m from the block, ${wave.h} m over the heart's ground, the heart ${wave.off} degrees off the heading and ${wave.heart} m off, ${wave.speed} m/s` : 'no wave in 75 s',
-    'a wave, the bus not in the block yet (over 0 m from it)', !!wave && wave.dh !== null && wave.dh > 0);
+    report("the producer's link: a real tap on the city off the block paints Rainbow's", `building ${painted.i}: faction ${p.faction} level ${Math.round(p.level)}`, 'faction 1', p.faction === RB);
+  } else report("the producer's link: a real tap on the city off the block paints Rainbow's", 'no held pose had a glint off the block', 'one', false);
   // ---- the real aim through the sky piece: the bus held where a loaded breath's line of fire crosses the piece, then a real tap
   await pw(() => !!window.__game.lift.sky && window.__game.lift.takeState().find((s) => s.heart).readyAt <= window.__game.lift.now, null, 60000).catch(() => {});
   const pose = await pp.evaluate(() => {
@@ -164,7 +174,7 @@ if (!opt.q && !opt.noflight) {
     const at = await pp.evaluate(() => {
       const g = window.__game;
       g.forceReady();
-      g.tap();
+      g.tapSplat();
       const s = g.lastShot();
       return s ? s.t + s.travel : null;
     });

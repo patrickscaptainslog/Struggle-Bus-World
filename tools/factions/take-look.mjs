@@ -147,7 +147,7 @@ try {
       const x = s.x + ((s.x - hx) / l) * d, z = s.z + ((s.z - hz) / l) * d;
       window.__qa.camAt = null;
       // (held still: a pinned bus keeps its ground speed otherwise, and the fall's hold keeps the houses on its path ahead up)
-      window.__qa.pin = { x, y: g.city.groundAt(x, z) + up, z, heading: Math.atan2(s.x - x, -(s.z - z)), speed: 0, ground: 0 };
+      window.__qa.pin = { x, y: g.city.groundAt(x, z) + up, z, heading: Math.atan2(s.x - x, -(s.z - z)), speed: 0 };
     }, [s, heart.x, heart.z, d, up]);
     await after(0.4);
     return page.evaluate((s) => {
@@ -167,7 +167,7 @@ try {
       const at = await page.evaluate(() => {
         const g = window.__game;
         g.forceReady();
-        g.tap();
+        g.tapSplat();
         const s = g.lastShot();
         return s ? s.t + s.travel : null;
       });
