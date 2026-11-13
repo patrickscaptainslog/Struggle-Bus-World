@@ -38,6 +38,10 @@ function semis(x: number): number {
   return clamp(Math.round(fin(x)), -12, 12);
 }
 const PUSH_INTERVAL = 1 / 30;
+/** a bloom's later notes waiting their time (bloomBurst), and how far ahead of it each is made (s, past LOOKAHEAD): under the 55 ms between notes, so none
+ *  but the first is made in the frame that blooms, and a frame and a half at 60 fps ahead of its time */
+const QUEUE = 32;
+const NOTE_LEAD = 0.05;
 
 export class SoundGraph {
   readonly ctx: BaseAudioContext;
@@ -74,6 +78,11 @@ export class SoundGraph {
   private transpose = 0;
   private tunedTranspose = 0;
   private lastBloom = -10;
+  /** a bloom's arpeggio past its first note, made when each is due (update): a Comet's impact frame made every note's voices at once, 7-11 ms of
+   *  oscillators, gains and connections on a laptop (r3). Each note keeps its time, chord and centre hue; QUEUE of them at most, more played at once */
+  private readonly qT = new Float64Array(QUEUE);
+  private readonly qNote = new Int16Array(QUEUE * 6);
+  private queued = 0;
   // smoothed frame
   private speedN = 0;
   private surge = 0;
@@ -247,6 +256,7 @@ export class SoundGraph {
     }
 
     const now = this.ctx.currentTime;
+    if (this.queued) this.ringDue(now);
     if (now - this.lastNow > 0.5) {
       // resumed after a stall / background: don't burst everything that came due
       this.nextBreath = Math.max(this.nextBreath, now + 0.2);
@@ -384,7 +394,45 @@ export class SoundGraph {
     const step = clamp(fin(config.audio.arpStep, 0.055), 0.01, 0.2);
     const hue = ((fin(hueIn) % 6) + 6) % 6;
     const level = clamp(Math.round(fin(levelIn, 1)), 1, 3);
-    for (let i = 0; i < n; i++) this.bloomNote(t + i * step, i, n, i === 0 ? hue : (hue + (i % 2 ? i : -i)) % 6, level);
+    for (let i = 0; i < n; i++) {
+      const h = i === 0 ? hue : (hue + (i % 2 ? i : -i)) % 6;
+      if (i === 0 || this.queued >= QUEUE) this.bloomNote(t + i * step, i, n, h, level);
+      else {
+        const q = this.queued++, o = q * 6;
+        this.qT[q] = t + i * step;
+        this.qNote[o] = i;
+        this.qNote[o + 1] = n;
+        this.qNote[o + 2] = h;
+        this.qNote[o + 3] = level;
+        this.qNote[o + 4] = this.chord;
+        this.qNote[o + 5] = this.centerHue;
+      }
+    }
+  }
+
+  /** The queued notes due within the next frame or so (by the audio clock: the lead's LOOKAHEAD and NOTE_LEAD), each on its own chord; one come due
+   *  behind a stall of more than half a second is dropped, as the schedulers below drop theirs. */
+  private ringDue(now: number): void {
+    let k = 0;
+    for (let q = 0; q < this.queued; q++) {
+      const t = this.qT[q], o = q * 6;
+      if (t > now + LOOKAHEAD + NOTE_LEAD) {
+        if (k !== q) {
+          this.qT[k] = t;
+          for (let j = 0; j < 6; j++) this.qNote[k * 6 + j] = this.qNote[o + j];
+        }
+        k++;
+        continue;
+      }
+      if (t < now - 0.5) continue;
+      const chord = this.chord, center = this.centerHue;
+      this.chord = this.qNote[o + 4];
+      this.centerHue = this.qNote[o + 5];
+      this.bloomNote(t, this.qNote[o], this.qNote[o + 1], this.qNote[o + 2], this.qNote[o + 3]);
+      this.chord = chord;
+      this.centerHue = center;
+    }
+    this.queued = k;
   }
 
   bloomNote(t: number, indexIn: number, totalIn: number, hueIn: number, levelIn: number): void {
