@@ -7,7 +7,7 @@
 //             hands over; a real flick to Nonstop and a real thumb steering at the heart; the block waking ahead of the bus; then real taps on a square of
 //             the block, one each 2.6 s from its ready time: the paint is the bus's (Rainbow), and the square parries inside its 5 s, cracks, falls, wilts
 //             and flips by the rules (liftRules' hit, wrapped to log its hitter and outcome); the same on the heart until it flips, and the block's light
-//             relit in the taker's colours; no page error, no program after the warm-up, the draws and triangles all the way
+//             relit in the taker's colours; no page error, no program after the warm-up, the draws and triangles all the way (and the sun pass's share)
 //   crew      the faction button with real taps: Atlantis picked, a tap off the block and one on a square are Atlantis's (paint and hitter); Inferno
 //             picked, the hits on Inferno's block are the owner's and nothing cracks
 //   rivals    four rival buses put painting the block's squares round the bus, 24 s: no square's record changes, nothing lifts (decision (d)); then the
@@ -100,15 +100,46 @@ const tapHud = async (key) => {
   return r;
 };
 
-// the sampler: each frame the draws and triangles (Perf's whole frame) into the phase's most, a phase named by the tool; the rules' hits logged with their
+// the sampler: each frame the draws and triangles (Perf's whole frame) into the phase's most, a phase named by the tool, with the sun pass's share of that
+// frame and its draws by who drew them (the nearest named object up the scene graph, else the top-level object's place); the rules' hits logged with their
 // hitter and outcome (TakeRules.hit wrapped), and the blasts the Lift was told of (Lift.landed wrapped: faction, tag, where)
 await page.evaluate(() => {
   const g = window.__game, p = g.perf, L = g.lift, S = (window.__ts = { phase: 'warm', max: {}, hits: [], landed: [], glance: [] });
+  const pl = g.pipeline, r = pl.renderer, info = r.info.render;
+  const F = { sunCalls: 0, sunTris: 0, inSun: false, by: new Map() };
+  const label = (o) => {
+    let n = o;
+    while (n && !n.name && n.parent && !n.parent.isScene) n = n.parent;
+    if (n?.name) return n.name;
+    const top = n ?? o;
+    return `${top.type}#${top.parent ? top.parent.children.indexOf(top) : -1}`;
+  };
+  const od = pl.drawSun.bind(pl);
+  pl.drawSun = (scene, cam) => {
+    const c0 = info.calls, t0 = info.triangles;
+    F.inSun = true;
+    od(scene, cam);
+    F.inSun = false;
+    F.sunCalls += info.calls - c0;
+    F.sunTris += info.triangles - t0;
+  };
+  const orb = r.renderBufferDirect.bind(r);
+  r.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
+    const k = `${F.inSun ? 'sun' : 'view'} ${label(object)}`;
+    F.by.set(k, (F.by.get(k) ?? 0) + 1);
+    return orb(camera, scene, geometry, material, object, group);
+  };
   const of = p.frame.bind(p);
   p.frame = (dt, work) => {
     of(dt, work);
     const m = (S.max[S.phase] ??= { calls: 0, tris: 0, frames: 0 });
-    if (p.calls > m.calls) m.at = [+g.clock().toFixed(2), Math.round(g.flight.x - L.heart[0]), Math.round(g.flight.y), Math.round(g.flight.z - L.heart[1]), +g.flight.heading.toFixed(2)];
+    if (p.calls > m.calls) {
+      m.at = [+g.clock().toFixed(2), Math.round(g.flight.x - L.heart[0]), Math.round(g.flight.y), Math.round(g.flight.z - L.heart[1]), +g.flight.heading.toFixed(2)];
+      m.sun = [F.sunCalls, F.sunTris];
+      m.by = [...F.by].sort((a, b) => b[1] - a[1]).slice(0, 24);
+    }
+    F.sunCalls = F.sunTris = 0;
+    F.by.clear();
     m.calls = Math.max(m.calls, p.calls);
     m.tris = Math.max(m.tris, p.tris);
     m.frames++;
@@ -237,7 +268,7 @@ R.hitsAt = atHit;
 report('page and console errors', String(errors), '0', errors === 0);
 const ts = await page.evaluate(() => window.__ts);
 const draws = Object.entries(ts.max).filter(([k]) => k !== 'warm');
-report('draws and triangles through the leg, the most in each phase', draws.map(([k, m]) => `${k} ${m.calls} / ${(m.tris / 1e6).toFixed(2)} M (the most draws at ${JSON.stringify(m.at)}: game s, the bus off the heart x, its y, off z, heading)`).join('; '), 'at most 200 draws and 1.5 M triangles', draws.every(([, m]) => m.calls <= 200 && m.tris <= 1.5e6));
+report('draws and triangles through the leg, the most in each phase', draws.map(([k, m]) => `${k} ${m.calls} / ${(m.tris / 1e6).toFixed(2)} M (the sun pass ${m.sun ? `${m.sun[0]} / ${(m.sun[1] / 1e6).toFixed(2)} M` : '-'} of that frame; the most draws at ${JSON.stringify(m.at)}: game s, the bus off the heart x, its y, off z, heading)`).join('; '), 'at most 200 draws and 1.5 M triangles', draws.every(([, m]) => m.calls <= 200 && m.tris <= 1.5e6));
 Object.assign(R, { hits: ts.hits, landed: ts.landed.slice(-200), glance: ts.glance, max: ts.max });
 await browser.close();
 writeFileSync(`${out}/take-show-${LEG}.json`, JSON.stringify(R, null, 1));
