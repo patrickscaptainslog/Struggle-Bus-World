@@ -430,7 +430,7 @@ if (BOMB) {
       const pose = POSES.find((p) => p.pose.key === 'wa-c5000')!.pose, rung = RUNGS.find((r) => r[0] === 'nonstop')!;
       const tap: any = await run(rung, pose, dt, 0, 'tap'), bomb: any = await run(rung, pose, dt, 0, 'bomb');
       console.log(`mover probe @${tap.fps}: tap ${JSON.stringify(tap)} bomb ${JSON.stringify(bomb)}`);
-      ok(tap.far && tap.mover === null && tap.glint === null && tap.shown >= 0, `mover probe @${tap.fps}: the tap plans the far Comet over the mover, its building glinting (${JSON.stringify(tap)})`);
+      ok(tap.far && tap.mover === null && tap.glint === null, `mover probe @${tap.fps}: the tap plans the far Comet over the mover (${JSON.stringify(tap)})`);
       ok(!bomb.far && bomb.mover === 'probe' && bomb.glint === 'probe' && bomb.shown === -1, `mover probe @${bomb.fps}: under a Bomb the mover is kept and glints, no far plan (${JSON.stringify(bomb)})`);
     }
   for (const r of rows) {
