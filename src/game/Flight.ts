@@ -130,6 +130,8 @@ export class Flight {
   groundBroad = NaN;
   /** 0..1: the bus is straining against the soft ceiling (wheeze, sputter) */
   strain = 0;
+  /** the nose the stick asks for (rad), before the ceiling's limit turns it: read by the Lob alone (Lob.ts's bodyOf), nothing here reads it */
+  noseWant = 0;
   /** current yoke mode (0 floor, 1 hold, 2 climb, 3 dive) */
   mode: number = Yoke.Floor;
   /** belly left after this breath ends (a miss refunds part of it), else 0 */
@@ -340,6 +342,7 @@ export class Flight {
       noseWant = Math.atan2(plainRate, targetSpeed);
       targetSpeed = Math.hypot(plainRate, targetSpeed);
     }
+    this.noseWant = noseWant;
     // (?swerve: a skid scrubs the speed the flight chases, a share of the gear's or of the classic flight's, and never the gear's own)
     // (and a hit's throw holds the gear's drive while it lasts, as far as it goes against the bus's way: shove())
     const scrub = sw.sliding, kept = this.sh.on ? 1 - this.sh.hold : 1;

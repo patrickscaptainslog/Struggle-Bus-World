@@ -25,6 +25,21 @@
 //            0.1 s later, at Cruise, Express and Nonstop (where the Comet lands farther, the Comet), with ?life and on ?moon's ground. Each: a Lob at the body
 //            as it was at the lift, every building it raised (?moon: the craters) a level and no more, and from the tap to 1.5 s after it lands the frame's
 //            draws, triangles and particles (at most 200, 1.5 M and 8,000), no program made after ready, and stills of its ring and its landing -> lob.json
+//   lobhigh  the Lob from any height (not in the default list): pinned 2, 5 and 14 km over the Western Addition and at the 15 km ceiling, Cruise and
+//            Turbo 3, a real pull and a tap. Each: a Lob, its ring planned in the pull, on loaded ground; from the tap to the dip's hold after the hit
+//            the bus on screen at +0.35 or lower, the star on screen, the hit at -0.3 or higher from 5 km and under, the frame's draws, triangles
+//            and wall time; no program made after ready, no page error, a still at the hit                              -> lobhigh.json
+//   comet    the Comet dead ahead (not in the default list): Turbo 3 and Nonstop at the floor, 300 m, 1, 5 and 14 km over the Western Addition and in a
+//            45 degree dive from 5 km, SB_TAPS real taps a pose (10). Each: a Comet, never the classic shot; low ones straight ahead and the view never
+//            dipped, far ones on loaded ground; the star and the bus on screen; at the floor the drops; the frame's draws, triangles and wall time; no
+//            program made after ready, no page error                                                                    -> comet.json
+//   chain    a far shot's dip chained (not in the default list): Nonstop level 5 km up, a tap each refill for 20 s, then a far Comet with a look during
+//            it, one with the steering thumb during it, and a tap 0.3 s after one. The bus on screen at +0.35 or lower every frame, the share dipped
+//            printed; the look a look and the view back within 1.5 s; the thumb flies and turns the bus; no program made after ready -> chain.json
+//   moonhigh no far shot over the Moon (not in the default list): ?moon 5 km up, a level tap at Turbo 3 and a nose-up one at Cruise; with SB_AGAINST
+//            (another build's moonhigh.json) the same shots as that build's                                             -> moonhigh.json
+//   stills   the stills for the producer's calls 4 and 5 (not in the default list): a far Comet's hit from 5 and 14 km three ways, the far Lob's ring
+//            and beacon capped and uncapped, a low Comet's bow at Turbo 3                                               -> stills-*.png
 //   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 and 300 m over the Western Addition and 150 over
 //            downtown, a real flick into Turbo 3, in Rainbow, Atlantis, Hyperglow and Inferno (&paintas). Each: one crack, the hoop threaded, a ring, every
 //            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
@@ -1212,7 +1227,8 @@ if (modes.has('lob')) {
       const row = { key, body: +pull.body.toFixed(1), planned: pull.plan, ringK: +pull.ring.k.toFixed(2), ...b, angle: b.angle === null ? null : +b.angle.toFixed(1), reach: b.reach === null ? null : Math.round(b.reach) };
       R.rows.push(row);
       console.log('lob:', JSON.stringify(row));
-      if (rung === 'nonstop') ok(row.kind === 'lob' || row.kind === 'comet', `${key}: a Lob, or the Comet where it lands farther (${row.kind}, ${row.reach} m)`);
+      // (at Nonstop the Lob whenever one is planned, config.lob.wins: a Comet only where the pull planned none, its body latched as the thumb lifted)
+      if (rung === 'nonstop') ok(row.kind === 'lob' || (row.kind === 'comet' && pull.plan?.kind !== 'lob'), `${key}: a Lob, or the Comet where none was planned (${row.kind}, ${row.reach} m, planned ${pull.plan?.kind ?? null})`);
       else ok(row.kind === 'lob' && row.lobs === 1, `${key}: a Lob (${row.kind}, ${row.lobs} thrown, the body ${row.body} at the lift)`);
       if (row.kind === 'lob') {
         // (at Nonstop, pulling, the Comet's landing can be the farther, or the Lob's not yet over the bus while it climbs: its ring may come only as the thumb lifts)
@@ -1232,6 +1248,857 @@ if (modes.has('lob')) {
   console.log('lob:', R.verdicts.join('\n  '));
   writeFileSync(`${out}/lob.json`, JSON.stringify(R, null, 1));
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('lobhigh')) {
+  // The Lob from any height (BUILT.md, "The Lob from any height"; not in the default list): "I want to shoot lob shots even when I'm high elevation in the
+  // sky" (the producer, 2026-11-12). Pinned 2, 5 and 14 km over the Western Addition heading east while the city streams, at Cruise and Turbo 3: a 2 s real
+  // pull up (the vista comes in), the steering thumb lifted and a tap 0.1 s later; and at the 15 km ceiling with the pull held to a second finger's tap.
+  // Each: a Lob (cometFx.stats.lobs), its ring planned in the pull, on a loaded tile at the tap and not a miss on land; from the tap to config.shotView.hold
+  // after the hit, every frame: the bus on screen and at +0.35 or lower (NDC, the dip's limit), the star on screen on 90 % of its frames in the air, the hit
+  // at -0.3 or higher at the impact from 5 km and under, at most 200 draws and 1.5 M triangles, no frame over 100 ms of wall time; no program made after
+  // ready, no page error; and a still at the hit. Exits 1 when a row fails                                                                -> lobhigh.json
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const page = await open(Q, progInit);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), V = g.camera.position.constructor, v = new V(), s = new V();
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+    // (every frame, from when __hiTrace is set: the clock, draws, triangles, the wall time since the last, the bus's NDC, the landing's, and the star's
+    // while a Lob is in the air (null when none))
+    const ndc = (x, y, z) => (v.set(x, y, z).applyMatrix4(g.camera.matrixWorldInverse).z >= 0 ? null : (v.set(x, y, z).project(g.camera), [+v.x.toFixed(3), +v.y.toFixed(3)]));
+    let last = performance.now();
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      // (the frame after the still's freeze isn't a frame's time: __hiGap marks it)
+      const now = performance.now(), ms = window.__hiGap ? 0 : now - last;
+      last = now;
+      window.__hiGap = false;
+      const tr = window.__hiTrace;
+      if (!tr) return;
+      const f = g.flight, c = g.lastShot()?.comet, t = g.clock();
+      const star = g.cometFx.live.find((q) => q.on && q.lob && t >= q.t0 && t <= q.t1);
+      let st = null;
+      if (star) {
+        g.cometFx.at(star, Math.min(1, Math.max(0, (t - star.t0) / (star.t1 - star.t0))), s);
+        st = ndc(s.x, s.y, s.z) ?? 'behind';
+      }
+      // (and how far the view looks down, its dip taken off: the dip never takes it past config.shotView.pitchMax in all, CameraRig.update)
+      const down = -(Math.asin(Math.max(-1, Math.min(1, g.camera.getWorldDirection(s).y))) * 180) / Math.PI + g.rig.skyLift;
+      // (and whether the dip's target is over where the landing, led as main.ts leads it, would show at config.shotView.low: a limit holds it, the bus's
+      // or the swing, as s_lob --high's boundImp)
+      let held = false;
+      if (c) {
+        const V = g.config.shotView, half = g.camera.fov / 2;
+        s.set(c.x - f.fx * f.ground * V.lead, c.y - f.vy * V.lead, c.z - f.fz * f.ground * V.lead).applyMatrix4(g.camera.matrixWorldInverse);
+        const want = (Math.atan2(s.y, -s.z) * 180) / Math.PI + g.rig.skyLift - (Math.atan(V.low * Math.tan((half * Math.PI) / 180)) * 180) / Math.PI;
+        held = g.rig.skyLiftTarget > want + 0.5;
+      }
+      tr.push([+t.toFixed(3), p.calls, p.tris, +ms.toFixed(1), ndc(f.x, f.y, f.z), c ? ndc(c.x, c.y, c.z) : null, st, +g.rig.skyLift.toFixed(2), +down.toFixed(2), held]);
+    };
+  });
+  await runFor(page, 2);
+  await H.down(1, 196, 780);
+  await wall(60);
+  await H.up(1);
+  await runFor(page, 1);
+  const progs0 = await page.evaluate(() => window.__progs);
+  const poses = [[2000, 'cruise'], [2000, 't3'], [5000, 'cruise'], [5000, 't3'], [14000, 'cruise'], [14000, 't3'], ['ceil', 'cruise'], ['ceil', 't3']];
+  for (const [h, rung] of poses) {
+    const key = h === 'ceil' ? `ceil-${rung}` : `${h / 1000}km-${rung}`;
+    await page.evaluate((r) => {
+      const g = window.__game;
+      while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+      for (let i = 0; i < (r === 't3' ? 6 : 0); i++) g.controls.turbo.shift(1, g.flight);
+    }, rung);
+    // (pinned over the Western Addition heading east, h over the ground there (the ceiling: 100 m under it), held while the city streams in)
+    await page.evaluate((h) => {
+      const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4352 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7763 - o[0]) * r * 6378137;
+      const y = h === 'ceil' ? g.config.flight.ceiling - 100 : g.city.groundAt(x, z) + h;
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+    }, h);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+    await page.evaluate(() => {
+      const g = window.__game;
+      window.__lv0 = g.city.paint.data.slice();
+      window.__lob0 = g.lobState().lobs;
+    });
+    // the pull: a thumb down in the lane under the bus, drawn 60 px down (most of the stick), held 2 s on the game's clock
+    await H.down(1, 196, 690);
+    for (let i = 1; i <= 6; i++) {
+      await wall(25);
+      await H.move(1, 196, 690 + i * 10);
+    }
+    await runFor(page, 2);
+    const pull = await page.evaluate(() => {
+      const g = window.__game, s = g.lobState(), f = g.flight;
+      return { body: (f.pitch * 180) / Math.PI, strain: +f.strain.toFixed(2), agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), plan: s.plan && { kind: s.plan.kind, far: !!s.plan.far, loaded: !!s.plan.loaded }, ringK: +s.ring.k.toFixed(2) };
+    });
+    await page.evaluate(() => (window.__hiTrace = []));
+    if (h === 'ceil') {
+      // (at the ceiling the pull held to the tap: a second finger's, then the steering thumb lifted)
+      await H.down(2, 300, 300);
+      await wall(60);
+      await H.up(2);
+      await runFor(page, 0.3);
+      await H.up(1);
+    } else {
+      await H.up(1);
+      await runFor(page, 0.1);
+      await H.down(2, 300, 300);
+      await wall(60);
+      await H.up(2);
+    }
+    await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel - 0.05', 8);
+    await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+    await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
+    await page.screenshot({ path: `${out}/lobhigh-${key}-hit.png` });
+    await page.evaluate(() => ((window.__hiGap = true), (window.__qa = null)));
+    await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel + 0.05 + g.config.shotView.hold', 4);
+    const b = await page.evaluate(() => {
+      const g = window.__game, l = g.lastShot(), c = l?.comet, tr = window.__hiTrace;
+      window.__hiTrace = null;
+      return { t: l?.t ?? null, travel: l?.travel ?? null, kind: c?.kind ?? (c ? 'comet' : 'splat'), far: !!c?.far, loaded: !!c?.loaded, miss: !!l?.miss, lobs: g.lobState().lobs - window.__lob0, hold: g.config.shotView.hold, tr };
+    });
+    // (the frames from the tap to config.shotView.hold after the hit; the impact's frame the first at or past its time)
+    const hold = b.hold, tImp = b.t !== null ? b.t + b.travel : Infinity, tr = b.tr.filter((q) => q[0] <= tImp + hold + 1e-6);
+    const atImp = tr.find((q) => q[0] >= tImp - 1e-6) ?? null;
+    const starFrames = tr.filter((q) => q[6] !== null), starIn = starFrames.filter((q) => Array.isArray(q[6]) && Math.abs(q[6][0]) <= 1 && Math.abs(q[6][1]) <= 1).length;
+    const busOff = tr.filter((q) => !q[4] || Math.abs(q[4][0]) > 1 || q[4][1] < -1 || q[4][1] > 0.35).length;
+    const row = {
+      key, pull, kind: b.kind, far: b.far, loaded: b.loaded, miss: b.miss, lobs: b.lobs, frames: tr.length,
+      busHi: tr.length ? Math.max(...tr.map((q) => (q[4] ? q[4][1] : 9))) : null, busOff, starFrames: starFrames.length, starIn,
+      landAtImp: atImp?.[5] ?? null, liftAtImp: atImp?.[7] ?? null, liftLeast: tr.length ? Math.min(...tr.map((q) => q[7])) : null,
+      draws: tr.length ? Math.max(...tr.map((q) => q[1])) : null, tris: tr.length ? Math.max(...tr.map((q) => q[2])) : null, worstMs: tr.length ? Math.max(...tr.slice(1).map((q) => q[3])) : null,
+      // (its frames, for the record: [clock, draws, triangles, ms, the bus's NDC, the landing's, the star's, the view's lift, how far it looks down undipped])
+      trace: tr,
+    };
+    R.rows.push(row);
+    console.log('lobhigh:', JSON.stringify({ ...row, trace: undefined }));
+    ok(row.kind === 'lob' && row.lobs === 1, `${key}: a Lob (${row.kind}${row.far ? ', far' : ''}, ${row.lobs} thrown, the body ${pull.body.toFixed(1)} and the strain ${pull.strain} in the pull, ${pull.agl} m up)`);
+    ok(pull.plan?.kind === 'lob' && pull.ringK > 0.9, `${key}: its ring planned in the pull (${JSON.stringify(pull.plan)}, ring ${pull.ringK})`);
+    ok(row.loaded && !row.miss, `${key}: on a loaded tile at the tap, the hit on a building or the ground (loaded ${row.loaded}, a miss ${row.miss})`);
+    ok(row.frames > 10 && row.busOff === 0, `${key}: the bus on screen and at +0.35 or lower every frame (${row.busOff} of ${row.frames} not, at most ${row.busHi})`);
+    // (at the ceiling the dip stays within config.shotView.swing of the sky's lift, about level, and the hit is under the frame: the design's, V5)
+    if (h !== 'ceil') ok(row.starFrames > 0 && row.starIn >= 0.9 * row.starFrames, `${key}: the star on screen on 90 % of its frames (${row.starIn} of ${row.starFrames})`);
+    // (where the view's limits let it, as s_lob --high has it: not with the bus at busMax, nor the dip at its swing under the lift at the tap, at its
+    // most, or where it would look past pitchMax down. At Turbo 3 the bus is 300 m short of the landing at the impact, nearly over it)
+    const V = { busMax: 0.3, swing: 25, most: 30, pitchMax: 85 }, liftTap = tr[0]?.[7] ?? 0, busImp = atImp?.[4]?.[1] ?? 0, downImp = atImp?.[8] ?? 0;
+    const bound = atImp?.[9] === true || busImp >= V.busMax - 0.02 || row.liftAtImp <= liftTap - V.swing + 0.5 || row.liftAtImp <= -V.most + 0.5 || row.liftAtImp <= -(V.pitchMax - downImp) + 0.5;
+    if (h !== 'ceil' && h <= 5000) ok(!!row.landAtImp && (row.landAtImp[1] >= -0.3 || bound), `${key}: the hit at -0.3 or higher at the impact where the view's limits let it (${JSON.stringify(row.landAtImp)}, the bus ${busImp}, the lift ${row.liftAtImp} from ${liftTap} at the tap, ${downImp} down undipped, the target held ${atImp?.[9]})`);
+    ok(row.draws <= 200 && row.tris <= 1.5e6, `${key}: at most 200 draws and 1.5 M triangles (${row.draws}, ${(row.tris / 1e6).toFixed(3)} M)`);
+    ok(row.worstMs !== null && row.worstMs <= 100, `${key}: no frame over 100 ms (${row.worstMs})`);
+  }
+  const made = (await page.evaluate(() => window.__progs)) - progs0;
+  R.programs = { atReady: progs0, madeAfter: made };
+  ok(made === 0, `nothing compiles: ${made} programs made after ready`);
+  ok(errors === 0, `no page error (${errors})`);
+  await page.close();
+  res.lobhigh = R;
+  console.log('lobhigh:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/lobhigh.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+if (modes.has('comet')) {
+  // The Comet dead ahead at any speed (BUILT.md, "The Comet dead ahead"; not in the default list): "I want this shot to soar essentially directly in front
+  // of me, even when I'm traveling very fast" (the producer, 2026-11-12). At Turbo 3 and Nonstop: at the gear's floor, and pinned 300 m, 1, 5 and 14 km
+  // over the Western Addition heading east while the city streams (a gentle real pull of 1 s, the vista as a climb leaves it, then level), and in a 45
+  // degree dive from 5 km (the stick held forward). SB_TAPS taps a pose (10), a real tap each time the belly refills. Each tap: a Comet, never the classic
+  // shot; low ones (near the roofs, the page's lens) on the line, at the impact its screen x within 0.25 of the middle and the view never dipped; far ones
+  // on loaded ground, at Turbo 3 at most 1 in 10 a miss on land; the star on screen on 90 % of its frames in the air; the bus on screen at +0.35 or lower.
+  // At the floor the full show's drops on the lens. Every frame at most 200 draws and 1.5 M triangles, none over 100 ms; no program made after ready, no
+  // page error. Exits 1 when a row fails                                                                                               -> comet.json
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const N = Number(process.env.SB_TAPS ?? 10);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const page = await open(Q, progInit);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), V = g.camera.position.constructor, v = new V(), s = new V();
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+    // (every frame while __coTrace is set: the clock, draws, triangles, the wall time since the last, the bus's NDC, the last shot's landing's, the newest
+    // Comet star's in the air (null when none), the view's lift)
+    const ndc = (x, y, z) => (v.set(x, y, z).applyMatrix4(g.camera.matrixWorldInverse).z >= 0 ? null : (v.set(x, y, z).project(g.camera), [+v.x.toFixed(3), +v.y.toFixed(3)]));
+    let last = performance.now();
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      const now = performance.now(), ms = now - last;
+      last = now;
+      const tr = window.__coTrace;
+      if (!tr) return;
+      const f = g.flight, c = g.lastShot()?.comet, t = g.clock();
+      let star = null;
+      for (const q of g.cometFx.live) if (q.on && !q.lob && t >= q.t0 && t <= q.t1 && (!star || q.t0 > star.t0)) star = q;
+      let st = null;
+      if (star) {
+        g.cometFx.at(star, Math.min(1, Math.max(0, (t - star.t0) / (star.t1 - star.t0))), s);
+        st = ndc(s.x, s.y, s.z) ?? 'behind';
+      }
+      tr.push([+t.toFixed(3), p.calls, p.tris, +ms.toFixed(1), ndc(f.x, f.y, f.z), c ? ndc(c.x, c.y, c.z) : null, st, +g.rig.skyLift.toFixed(2)]);
+    };
+  });
+  await runFor(page, 2);
+  await H.down(1, 196, 780);
+  await wall(60);
+  await H.up(1);
+  await runFor(page, 1);
+  const progs0 = await page.evaluate(() => window.__progs);
+  const poses = [];
+  for (const rung of ['t3', 'nonstop']) for (const h of ['floor', 300, 1000, 5000, 14000, 'dive']) poses.push([h, rung]);
+  for (const [h, rung] of poses) {
+    const key = `${h === 'floor' || h === 'dive' ? h : `${h / 1000}km`}-${rung}`;
+    await page.evaluate((r) => {
+      const g = window.__game;
+      while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+      for (let i = 0; i < (r === 't3' ? 6 : 2); i++) g.controls.turbo.shift(1, g.flight);
+    }, rung);
+    // (pinned over the Western Addition heading east, 2 km short of Alamo Square, while the city streams in: at the gear's floor, h over the ground, the
+    // dive 5.6 km. Each tap is flown from there again: at Turbo 3 the bus crosses the map in seconds. The view's lens stays as it was: only the yoke moves it)
+    const place = (qa) => page.evaluate(([h, r, qa]) => {
+      const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+      const T = g.config.turbo, y = g.city.groundAt(x, z) + (h === 'floor' ? (r === 't3' ? T.jetAlt : T.nonstopAlt) : h === 'dive' ? 5600 : h);
+      if (qa) window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: h === 'floor' ? -Infinity : y, targetY: y, vy: 0, ...(qa ? { mode: 0 } : {}) });
+    }, [h, rung, qa]);
+    await place(true);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+    if (h !== 'floor') {
+      // (a gentle pull, 20 px for 1 s, as a climb there: the vista comes in; the dive's stick 60 px forward, held through its taps)
+      await H.down(1, 196, 690);
+      for (let i = 1; i <= (h === 'dive' ? 6 : 2); i++) {
+        await wall(25);
+        await H.move(1, 196, 690 + (h === 'dive' ? -10 : 10) * i);
+      }
+      await runFor(page, 1);
+      if (h !== 'dive') {
+        await H.up(1);
+        await runFor(page, 1.5);
+      }
+    }
+    const a = await page.evaluate(() => ({ drops: window.__game.cometFx.stats.drops, vista: +window.__game.rig.vista.toFixed(2) }));
+    const taps = [];
+    for (let i = 0; i < (h === 'dive' ? Math.min(N, 3) : N); i++) {
+      if (i > 0) {
+        await place(false);
+        await runFor(page, 1);
+      }
+      // (the trace from 0.5 s before the tap: what the frame cost with no Comet in the air, for the record)
+      await page.evaluate(() => (window.__coTrace = []));
+      await runFor(page, 0.5);
+      const at = await page.evaluate(() => { const g = window.__game, f = g.flight; return { agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), nose: +((f.nose * 180) / Math.PI).toFixed(1), shots: g.cometFx.stats.fired, t: g.clock() }; });
+      await H.down(2, 300, 300);
+      await wall(60);
+      await H.up(2);
+      await runFor(page, 0.2);
+      const fired = await page.evaluate((n) => window.__game.cometFx.stats.fired > n, at.shots);
+      if (fired) await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel + 0.05 + g.config.shotView.hold', 6);
+      const b = await page.evaluate(() => {
+        const g = window.__game, l = g.lastShot(), c = l?.comet, f = g.flight, tr = window.__coTrace;
+        window.__coTrace = null;
+        const off = c ? Math.abs((c.x - c.x0) * f.fz - (c.z - c.z0) * f.fx) : null;
+        return { t: l?.t ?? null, travel: l?.travel ?? null, kind: c?.kind ?? (c ? 'comet' : 'splat'), far: !!c?.far, loaded: !!c?.loaded, miss: !!l?.miss, reach: c ? Math.round(c.reach) : null, off: off === null ? null : +off.toFixed(1), tr };
+      });
+      const pre = b.tr.filter((q) => q[0] < at.t), tImp = b.t !== null ? b.t + b.travel : Infinity, tr = b.tr.filter((q) => q[0] >= at.t && q[0] <= tImp + 0.6 + 1e-6);
+      const atImp = tr.find((q) => q[0] >= tImp - 1e-6) ?? null;
+      const starFrames = tr.filter((q) => q[6] !== null), starIn = starFrames.filter((q) => Array.isArray(q[6]) && Math.abs(q[6][0]) <= 1 && Math.abs(q[6][1]) <= 1).length;
+      taps.push({
+        at, fired, kind: b.kind, far: b.far, loaded: b.loaded, miss: b.miss, reach: b.reach, off: b.off, frames: tr.length,
+        busOff: tr.filter((q) => !q[4] || Math.abs(q[4][0]) > 1 || q[4][1] < -1 || q[4][1] > 0.35).length, starFrames: starFrames.length, starIn,
+        landAtImp: atImp?.[5] ?? null, liftLeast: tr.length ? Math.min(...tr.map((q) => q[7])) : null,
+        draws: tr.length ? Math.max(...tr.map((q) => q[1])) : null, tris: tr.length ? Math.max(...tr.map((q) => q[2])) : null, worstMs: tr.length > 1 ? Math.max(...tr.slice(1).map((q) => q[3])) : null,
+        drawsBefore: pre.length ? Math.max(...pre.map((q) => q[1])) : null, trisBefore: pre.length ? Math.max(...pre.map((q) => q[2])) : null,
+      });
+      // (at the floor the bus flies on through its pillar, 1.3-1.8 s after the impact, before it's flown from the start again: the full show's drops)
+      if (h === 'floor') await runFor(page, 1.5);
+    }
+    if (h === 'dive') await H.up(1);
+    const drops = (await page.evaluate(() => window.__game.cometFx.stats.drops)) - a.drops;
+    const row = { key, vista: a.vista, drops, taps };
+    R.rows.push(row);
+    console.log('comet:', JSON.stringify({ key, vista: a.vista, drops, taps: taps.map((q) => [q.at.agl, q.kind, q.far, q.reach, q.off, q.landAtImp, q.starIn, q.starFrames, q.liftLeast]) }));
+    const comets = taps.filter((q) => q.kind === 'comet'), low = comets.filter((q) => !q.far), far = comets.filter((q) => q.far);
+    ok(taps.every((q) => q.fired && q.kind === 'comet'), `${key}: a Comet each tap, never the classic shot (${taps.map((q) => (q.fired ? q.kind + (q.far ? ' far' : '') : 'none')).join(', ')})`);
+    if (h === 'floor' || h === 300) console.log(`comet: ${key}: ${low.length} low and ${far.length} far on the page's lens (vista ${a.vista})`);
+    if (h === 'floor') ok(far.length === 0, `${key}: at the floor every Comet a low one (${far.length} far)`);
+    ok(low.every((q) => q.liftLeast >= -0.01), `${key}: a low one never dips the view (least lift ${Math.min(0, ...low.map((q) => q.liftLeast))})`);
+    ok(low.every((q) => q.landAtImp && Math.abs(q.landAtImp[0]) <= 0.5), `${key}: a low one's screen x within 0.25 of the middle at the impact (${low.map((q) => q.landAtImp?.[0]).join(', ')})`);
+    ok(far.every((q) => q.loaded), `${key}: a far one on loaded ground at the tap (${far.filter((q) => !q.loaded).length} not)`);
+    if (rung === 't3') ok(far.filter((q) => q.miss).length <= Math.max(1, Math.floor(far.length / 10)), `${key}: at Turbo 3 at most 1 in 10 far ones a miss on land (${far.filter((q) => q.miss).length} of ${far.length})`);
+    const sf = comets.reduce((n, q) => n + q.starFrames, 0), si = comets.reduce((n, q) => n + q.starIn, 0);
+    ok(sf > 0 && si >= 0.9 * sf, `${key}: the star on screen on 90 % of its frames (${si} of ${sf})`);
+    ok(taps.every((q) => q.busOff === 0), `${key}: the bus on screen and at +0.35 or lower every frame (${taps.map((q) => q.busOff).join(', ')} not)`);
+    if (h === 'floor') ok(drops > 0, `${key}: the full show's drops on the lens (${drops})`);
+    ok(taps.every((q) => q.draws === null || (q.draws <= 200 && q.tris <= 1.5e6)), `${key}: at most 200 draws and 1.5 M triangles (${Math.max(...taps.map((q) => q.draws ?? 0))}, ${(Math.max(...taps.map((q) => q.tris ?? 0)) / 1e6).toFixed(3)} M; in the 0.5 s before the taps ${Math.max(...taps.map((q) => q.drawsBefore ?? 0))}, ${(Math.max(...taps.map((q) => q.trisBefore ?? 0)) / 1e6).toFixed(3)} M)`);
+    ok(taps.every((q) => q.worstMs === null || q.worstMs <= 100), `${key}: no frame over 100 ms (${Math.max(...taps.map((q) => q.worstMs ?? 0))})`);
+  }
+  const made = (await page.evaluate(() => window.__progs)) - progs0;
+  R.programs = { atReady: progs0, madeAfter: made };
+  ok(made === 0, `nothing compiles: ${made} programs made after ready`);
+  ok(errors === 0, `no page error (${errors})`);
+  await page.close();
+  res.comet = R;
+  console.log('comet:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/comet.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('chain')) {
+  // A far shot's dip, chained (BUILT.md, "The Comet dead ahead"; not in the default list): Nonstop level 5 km over the Western Addition heading east, a
+  // real tap each time the belly refills for 20 s of the game's clock; then a far Comet and, while it flies, a look by a touch at the top middle of the
+  // screen; then a far Comet and, while it flies, the steering thumb drawn to a side in the lane under the bus; then a far Comet and a second tap 0.3 s
+  // after it (the belly isn't full again: no shot, as any tap's), and one more as soon as it is. Every frame from the first tap: the bus on screen and at
+  // +0.35 or lower (NDC, the dip's limit); the share of frames dipped is printed. The look's touch is a look (Input's look) and the view's lift is back
+  // within 0.02 of 0 within 1.5 s of it; the steering touch is no look and turns the bus; no program made after ready, no page error. Exits 1 when a
+  // row fails                                                                                                                          -> chain.json
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const page = await open(Q, progInit);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), V = g.camera.position.constructor, v = new V();
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+    // (every frame while __chTrace is set: the clock, the bus's NDC, the view's lift, a look held, a finger flying, the heading (deg), far shots in the air)
+    const ndc = (x, y, z) => (v.set(x, y, z).applyMatrix4(g.camera.matrixWorldInverse).z >= 0 ? null : (v.set(x, y, z).project(g.camera), [+v.x.toFixed(3), +v.y.toFixed(3)]));
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      const tr = window.__chTrace;
+      if (!tr) return;
+      const f = g.flight, t = g.clock(), st = g.input.state;
+      const farUp = g.cometFx.live.filter((q) => q.on && q.far && t >= q.t0 && t <= q.t1).length;
+      tr.push([+t.toFixed(3), ndc(f.x, f.y, f.z), +g.rig.skyLift.toFixed(3), st.look.on, st.dragging, +((f.heading * 180) / Math.PI).toFixed(2), farUp]);
+    };
+  });
+  await runFor(page, 2);
+  await H.down(1, 196, 780);
+  await wall(60);
+  await H.up(1);
+  await runFor(page, 1);
+  const progs0 = await page.evaluate(() => window.__progs);
+  await page.evaluate(() => {
+    const g = window.__game;
+    while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+    for (let i = 0; i < 2; i++) g.controls.turbo.shift(1, g.flight);
+  });
+  // (pinned 5 km over the Western Addition heading east, 2 km short of Alamo Square, while the city streams in; a gentle pull of 1 s, as a climb there: the
+  // vista comes in; then level, flown on from there through the whole row: at Nonstop 20 s is about 4.5 km)
+  // (each part flown from there again: past 20 s at Nonstop the bus is over the bay, where nothing is loaded ahead and a tap is the classic shot)
+  const place = async (qa) => {
+    await page.evaluate((qa) => {
+      const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+      const y = g.city.groundAt(x, z) + 5000;
+      // (pinned while the city streams: run on unpinned, the bus flew 23 s on to the map's east edge while it did)
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, ...(qa ? { mode: 0 } : {}) });
+    }, qa);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+  };
+  await place(true);
+  await page.evaluate(() => window.__game.forceReady());
+  await runFor(page, 0.3);
+  await H.down(1, 196, 690);
+  for (let i = 1; i <= 2; i++) {
+    await wall(25);
+    await H.move(1, 196, 690 + 10 * i);
+  }
+  await runFor(page, 1);
+  await H.up(1);
+  await runFor(page, 1.5);
+  const fired = () => page.evaluate(() => window.__game.cometFx.stats.fired);
+  // (each tap's: the belly before it, and the last shot after it, for the record)
+  const tapLog = [];
+  const tap = async () => {
+    const n = await fired(), pre = await page.evaluate(() => { const g = window.__game, f = g.flight; const c = g.cometState(); return { t: +g.clock().toFixed(2), full: +f.fullness.toFixed(2), barfT: +f.barfT.toFixed(2), agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), look: g.input.state.look.on, gear: c.gear, speed: Math.round(c.speed), plan: c.plan ? { far: !!c.plan.far, x: Math.round(c.plan.x - f.x), z: Math.round(c.plan.z - f.z) } : null, heading: +((f.heading * 180) / Math.PI).toFixed(1), x: Math.round(f.x), z: Math.round(f.z) }; });
+    await H.down(2, 300, 300);
+    await wall(60);
+    await H.up(2);
+    await runFor(page, 0.1);
+    const ok = (await fired()) > n;
+    tapLog.push({ ...pre, fired: ok, shot: await page.evaluate(() => { const l = window.__game.lastShot(); return l ? { t: +l.t.toFixed(2), comet: !!l.comet, far: !!l.comet?.far, kind: l.comet?.kind ?? null } : null; }) });
+    return ok;
+  };
+  const full = () => until(page, 'g.flight.fullness >= 1 && g.flight.barfT < 0', 4);
+  const far = () => page.evaluate(() => !!window.__game.lastShot()?.comet?.far);
+  // 1. a tap each time the belly refills, 20 s
+  await page.evaluate(() => (window.__chTrace = []));
+  const t0 = await page.evaluate(() => window.__game.clock());
+  const chain = [];
+  while ((await page.evaluate(() => window.__game.clock())) - t0 < 20) {
+    await full();
+    if ((await page.evaluate(() => window.__game.clock())) - t0 >= 20) break;
+    const f = await tap();
+    chain.push({ fired: f, far: f && (await far()) });
+  }
+  await runFor(page, 2.5);
+  const tr1 = await page.evaluate(() => { const t = window.__chTrace; window.__chTrace = []; return t; });
+  const dipped = tr1.filter((q) => q[2] < -0.02).length, busOff1 = tr1.filter((q) => !q[1] || Math.abs(q[1][0]) > 1 || q[1][1] < -1 || q[1][1] > 0.35).length;
+  R.rows.push({ key: 'chain', taps: chain.length, fired: chain.filter((q) => q.fired).length, far: chain.filter((q) => q.far).length, frames: tr1.length, dipped, busOff: busOff1, busHi: Math.max(...tr1.map((q) => (q[1] ? q[1][1] : 9))), liftLeast: Math.min(...tr1.map((q) => q[2])) });
+  console.log('chain:', JSON.stringify(R.rows.at(-1)));
+  console.log(`chain: a tap each refill for 20 s at Nonstop from 5 km: ${dipped} of ${tr1.length} frames dipped (${((100 * dipped) / Math.max(1, tr1.length)).toFixed(0)} %)`);
+  ok(chain.length >= 5 && chain.every((q) => q.fired && q.far), `chain: a far Comet each refill (${chain.filter((q) => q.far).length} far of ${chain.filter((q) => q.fired).length} fired, ${chain.length} taps)`);
+  ok(tr1.length > 100 && busOff1 === 0, `chain: the bus on screen and at +0.35 or lower every frame (${busOff1} of ${tr1.length} not, at most ${R.rows.at(-1).busHi})`);
+  await place(false);
+  await runFor(page, 1.5);
+  await page.evaluate(() => (window.__chTrace = []));
+  // 2. a far Comet, and 0.3 s on, while it flies and the view dips, a look: a touch at the top middle, drawn 30 px aside, held 0.4 s
+  await full();
+  const lookShot = await tap();
+  await runFor(page, 0.2);
+  const tl = await page.evaluate(() => window.__game.clock());
+  // (a look is a drag that stays down past Input's lookDelayMs, its steps the moves that come after it: drawn 4 px each 25 ms for 0.4 s)
+  await H.down(3, 196, 70);
+  for (let i = 1; i <= 16; i++) {
+    await wall(25);
+    await H.move(3, 196 + 4 * i, 70);
+  }
+  const tu = await page.evaluate(() => window.__game.clock());
+  await H.up(3);
+  await runFor(page, 2.5);
+  const tr2 = await page.evaluate(() => { const t = window.__chTrace; window.__chTrace = []; return t; });
+  const during = tr2.filter((q) => q[0] >= tl && q[0] <= tu), dipAtLook = during.length ? Math.min(...during.map((q) => q[2])) : null;
+  // (from the first frame Input says it's a look: lookDelayMs, and the moves after it, are the gesture's)
+  const tLook = tr2.find((q) => q[0] >= tl && q[3])?.[0] ?? null, back = tLook === null ? null : tr2.find((q) => q[0] >= tLook && q[2] >= -0.02 && tr2.filter((r) => r[0] >= q[0] && r[0] <= tLook + 1.5).every((r) => r[2] >= -0.02));
+  const busOff2 = tr2.filter((q) => !q[1] || Math.abs(q[1][0]) > 1 || q[1][1] < -1 || q[1][1] > 0.35).length;
+  R.rows.push({ key: 'look', trace: tr2.map((q) => [q[0], q[2], q[3] ? 1 : 0]), fired: lookShot, looked: during.some((q) => q[3]), flew: during.some((q) => q[4]), dipAtLook, backAfter: back ? +(back[0] - tLook).toFixed(2) : null, busOff: busOff2 });
+  console.log('chain:', JSON.stringify({ ...R.rows.at(-1), trace: undefined }));
+  ok(lookShot && dipAtLook !== null && dipAtLook < -0.02, `look: a far Comet dipping the view as the look lands (fired ${lookShot}, the lift ${dipAtLook})`);
+  ok(R.rows.at(-1).looked && !R.rows.at(-1).flew, `look: the touch at the top middle is a look, not a flight (look ${R.rows.at(-1).looked}, flying ${R.rows.at(-1).flew})`);
+  ok(back && back[0] - tLook <= 1.5, `look: the view's lift back within 0.02 of 0 within 1.5 s of the look (${R.rows.at(-1).backAfter} s)`);
+  ok(busOff2 === 0, `look: the bus on screen and at +0.35 or lower every frame (${busOff2} not)`);
+  await place(false);
+  await runFor(page, 1.5);
+  await page.evaluate(() => (window.__chTrace = []));
+  // 3. a far Comet, and 0.3 s on, while the view dips, the steering thumb in the lane under the bus, drawn 80 px right and held 1.2 s
+  await full();
+  const steerShot = await tap();
+  await runFor(page, 0.2);
+  const ts = await page.evaluate(() => window.__game.clock());
+  await H.down(1, 196, 690);
+  for (let i = 1; i <= 8; i++) {
+    await wall(25);
+    await H.move(1, 196 + 10 * i, 690);
+  }
+  await runFor(page, 1.2);
+  const tsu = await page.evaluate(() => window.__game.clock());
+  await H.up(1);
+  await runFor(page, 2.5);
+  const tr3 = await page.evaluate(() => { const t = window.__chTrace; window.__chTrace = []; return t; });
+  const held = tr3.filter((q) => q[0] >= ts && q[0] <= tsu), h0 = held[0]?.[5] ?? 0, turned = held.length ? Math.max(...held.map((q) => Math.abs(((q[5] - h0 + 540) % 360) - 180))) : 0;
+  const busOff3 = tr3.filter((q) => !q[1] || Math.abs(q[1][0]) > 1 || q[1][1] < -1 || q[1][1] > 0.35).length;
+  R.rows.push({ key: 'steer', fired: steerShot, dipped: held.some((q) => q[2] < -0.02), flew: held.some((q) => q[4]), looked: held.some((q) => q[3]), turned: +turned.toFixed(2), busOff: busOff3 });
+  console.log('chain:', JSON.stringify(R.rows.at(-1)));
+  ok(steerShot && R.rows.at(-1).dipped, `steer: a far Comet dipping the view as the thumb lands (fired ${steerShot}, dipped ${R.rows.at(-1).dipped})`);
+  ok(R.rows.at(-1).flew && !R.rows.at(-1).looked && turned >= 2, `steer: the thumb in the lane flies, no look, and turns the bus (flying ${R.rows.at(-1).flew}, look ${R.rows.at(-1).looked}, turned ${R.rows.at(-1).turned} deg)`);
+  ok(busOff3 === 0, `steer: the bus on screen and at +0.35 or lower every frame (${busOff3} not)`);
+  await place(false);
+  await runFor(page, 1.5);
+  await page.evaluate(() => (window.__chTrace = []));
+  // 4. a far Comet and a tap 0.3 s after it (the belly not full: no shot), and one as soon as it is: both far ones' dips, one after the other
+  await full();
+  const a1 = await tap();
+  await runFor(page, 0.2);
+  const a2 = await tap();
+  await full();
+  const a3 = await tap();
+  await runFor(page, 3);
+  const tr4 = await page.evaluate(() => { const t = window.__chTrace; window.__chTrace = null; return t; });
+  const busOff4 = tr4.filter((q) => !q[1] || Math.abs(q[1][0]) > 1 || q[1][1] < -1 || q[1][1] > 0.35).length;
+  R.rows.push({ key: 'two', first: a1, at03: a2, next: a3, together: Math.max(0, ...tr4.map((q) => q[6])), busOff: busOff4, liftLeast: Math.min(...tr4.map((q) => q[2])) });
+  console.log('chain:', JSON.stringify(R.rows.at(-1)));
+  ok(a1 && !a2 && a3, `two: the first fires, the tap 0.3 s on finds the belly not full (no shot), the next fires when it is (${a1}, ${a2}, ${a3})`);
+  ok(busOff4 === 0, `two: the bus on screen and at +0.35 or lower every frame (${busOff4} not; far ones in the air together at most ${R.rows.at(-1).together})`);
+  const made = (await page.evaluate(() => window.__progs)) - progs0;
+  R.programs = { atReady: progs0, madeAfter: made };
+  R.taps = tapLog;
+  console.log('chain: taps', JSON.stringify(tapLog));
+  ok(made === 0, `nothing compiles: ${made} programs made after ready`);
+  ok(errors === 0, `no page error (${errors})`);
+  await page.close();
+  res.chain = R;
+  console.log('chain:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/chain.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('dipcost')) {
+  // What a far shot's dip costs (BUILT.md, "The review, and what it came to"; not in the default list): placed 2, 5 and 14 km over the Western Addition
+  // heading east, at Turbo 3 and Nonstop, the city streamed in and the lens as a climb leaves it (CameraRig.settleAt), then the view held dipped 0 to 30
+  // degrees (the rig's skyDipMost and its lift's target, as main.ts sets them after a far shot): 0.6 s pinned, then 1 s flying on in the gear, the city
+  // streaming. Prints each one's most draws and triangles, and what draws them at its end: the meshes in the frustum by kind. Gates nothing but the
+  // page: exits 1 on a page error                                                                                                        -> dipcost.json
+  const R = { rows: [] };
+  const page = await open(Q);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), rig = g.rig, up = rig.update.bind(rig);
+    g.flight.glideSpeed = 0;
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      if (window.__dcTrace) window.__dcTrace.push([p.calls, p.tris]);
+    };
+    // (the dip held as main.ts holds it after a far shot, set just before the rig steps: main.ts lets it go each frame no far shot is up)
+    rig.update = (...a) => {
+      const d = window.__dcDip;
+      if (d != null) Object.assign(rig, { skyDipMost: d, skyLiftTarget: -d, skyLiftRate: 50 });
+      return up(...a);
+    };
+    // (what draws: each visible mesh whose bounding sphere is in the frustum and on the camera's layers, by kind; one pass's worth)
+    window.__dcWhat = () => {
+      const cam = g.camera, city = g.city, a = cam.projectionMatrix.elements, b = cam.matrixWorldInverse.elements, M = new Array(16);
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) M[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] + a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
+      const row = (r) => [M[r], M[4 + r], M[8 + r], M[12 + r]];
+      const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+      const planes = [[1, r0], [-1, r0], [1, r1], [-1, r1], [1, r2], [-1, r2]].map(([s, r]) => {
+        const q = [r3[0] + s * r[0], r3[1] + s * r[1], r3[2] + s * r[2], r3[3] + s * r[3]], n = Math.hypot(q[0], q[1], q[2]);
+        return q.map((v) => v / n);
+      });
+      const by = {};
+      for (const top of g.scene.children)
+        top.traverseVisible((o) => {
+          if ((!o.isMesh && !o.isLine && !o.isPoints) || !o.geometry || !(o.layers.mask & cam.layers.mask)) return;
+          const gm = o.geometry;
+          if (o.frustumCulled !== false) {
+            if (!gm.boundingSphere) gm.computeBoundingSphere();
+            const c = gm.boundingSphere.center.clone().applyMatrix4(o.matrixWorld), rad = gm.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
+            if (planes.some((p) => p[0] * c.x + p[1] * c.y + p[2] * c.z + p[3] < -rad)) return;
+          }
+          const kind = o.parent === city.farGroup ? 'far' : o.parent === city.root ? (gm.attributes.aBld ? 'buildings' : 'ground') : top.name || top.type;
+          const idx = gm.index ? gm.index.count : gm.attributes.position?.count ?? 0, n = o.isInstancedMesh ? o.count : 1;
+          const e = (by[kind] ??= [0, 0]);
+          e[0]++;
+          e[1] += Math.round((idx / 3) * n);
+        });
+      return by;
+    };
+  });
+  for (const rung of ['t3', 'nonstop'])
+    for (const h of [2000, 5000, 14000]) {
+      await page.evaluate((r) => {
+        const g = window.__game;
+        while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+        for (let i = 0; i < (r === 't3' ? 6 : 2); i++) g.controls.turbo.shift(1, g.flight);
+      }, rung);
+      const dips = [];
+      for (const dip of [0, 10, 15, 20, 25, 30]) {
+        await page.evaluate((h) => {
+          const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+          const y = g.city.groundAt(x, z) + h;
+          window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+          window.__dcDip = null;
+          Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+        }, h);
+        await runFor(page, 0.5);
+        await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+        await page.evaluate(([h, d]) => {
+          window.__game.forceReady();
+          window.__game.rig.settleAt(h);
+          window.__dcDip = d;
+        }, [h, dip]);
+        await runFor(page, 0.4);
+        await page.evaluate(() => (window.__dcTrace = []));
+        await runFor(page, 0.6);
+        const held = await page.evaluate(() => { const tr = window.__dcTrace; return { draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), lift: +window.__game.rig.skyLift.toFixed(2), by: window.__dcWhat() }; });
+        await page.evaluate(() => { window.__dcTrace = []; window.__qa = null; });
+        await runFor(page, 1);
+        const flown = await page.evaluate(() => { const tr = window.__dcTrace; window.__dcTrace = null; return { draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), lift: +window.__game.rig.skyLift.toFixed(2), by: window.__dcWhat() }; });
+        dips.push({ dip, held, flown });
+        const line = (q) => `${q.draws} draws, ${(q.tris / 1e6).toFixed(3)} M (lift ${q.lift}) ${JSON.stringify(q.by)}`;
+        console.log(`dipcost: ${h / 1000}km-${rung} dip ${dip}: held ${line(held)}; flown ${line(flown)}`);
+      }
+      R.rows.push({ key: `${h / 1000}km-${rung}`, dips });
+    }
+  await page.evaluate(() => (window.__qa = window.__dcDip = null));
+  await page.close();
+  R.errors = errors;
+  res.dipcost = R;
+  writeFileSync(`${out}/dipcost.json`, JSON.stringify(R, null, 1));
+  if (errors) process.exitCode = 1;
+}
+
+if (modes.has('citycost')) {
+  // What the city alone costs with no shot up (BUILT.md, "The review, and what it came to"; not in the default list), on any build: Turbo 3 over the
+  // Western Addition heading east, 1, 2 and 5 km up and in a 45 degree dive from 5 km, placed as `comet` places them (the city streamed in, a real gentle
+  // pull for the vista, the dive's stick held forward), then 1.5 s flown with no tap. Prints the most draws and triangles. Gates nothing but the page:
+  // exits 1 on a page error                                                                                                              -> citycost.json
+  const R = { rows: [] };
+  const page = await open(Q);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+    g.flight.glideSpeed = 0;
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      if (window.__ccTrace) window.__ccTrace.push([p.calls, p.tris, +g.rig.skyLift.toFixed(2)]);
+    };
+    while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+    for (let i = 0; i < 6; i++) g.controls.turbo.shift(1, g.flight);
+  });
+  for (const h of [1000, 2000, 5000, 'dive']) {
+    await page.evaluate((h) => {
+      const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+      const y = g.city.groundAt(x, z) + (h === 'dive' ? 5600 : h);
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+    }, h);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+    await H.down(1, 196, 690);
+    for (let i = 1; i <= (h === 'dive' ? 6 : 2); i++) {
+      await wall(25);
+      await H.move(1, 196, 690 + (h === 'dive' ? -10 : 10) * i);
+    }
+    await runFor(page, 1);
+    if (h !== 'dive') {
+      await H.up(1);
+      await runFor(page, 1.5);
+    }
+    await page.evaluate(() => (window.__ccTrace = []));
+    await runFor(page, 1.5);
+    const m = await page.evaluate(() => {
+      const g = window.__game, f = g.flight, tr = window.__ccTrace;
+      window.__ccTrace = null;
+      return { agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), nose: +((f.nose * 180) / Math.PI).toFixed(1), draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), liftLeast: Math.min(...tr.map((q) => q[2])) };
+    });
+    if (h === 'dive') await H.up(1);
+    R.rows.push({ key: `${h === 'dive' ? 'dive' : `${h / 1000}km`}-t3`, ...m });
+    console.log(`citycost: ${h === 'dive' ? 'dive' : `${h / 1000}km`}-t3: ${m.draws} draws, ${(m.tris / 1e6).toFixed(3)} M (agl ${m.agl}, nose ${m.nose}, least lift ${m.liftLeast})`);
+  }
+  await page.close();
+  R.errors = errors;
+  res.citycost = R;
+  writeFileSync(`${out}/citycost.json`, JSON.stringify(R, null, 1));
+  if (errors) process.exitCode = 1;
+}
+
+if (modes.has('moonhigh')) {
+  // No far shot over the Moon (BUILT.md, "The Comet dead ahead"; not in the default list): ?moon at Tycho, 5 km over its ground, a level tap at Turbo 3
+  // and, after a 2 s real pull up, a tap at Cruise. Each: its kind, far or not, and where it landed from the bus at the tap. Written to moonhigh.json; with
+  // SB_AGAINST (another build's moonhigh.json, 4f33648's), each the same kind, never far, and its landing within 10 % or 60 m of that one's. No page error.
+  // Exits 1 when a row fails                                                                                                          -> moonhigh.json
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const page = await open('?moon&site=TYCHO&skipintro&fixeddt=0.05');
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    window.__game.flight.glideSpeed = 0;
+    window.__game.audio.unlock();
+  });
+  await runFor(page, 2);
+  await H.down(1, 196, 780);
+  await wall(60);
+  await H.up(1);
+  await runFor(page, 1);
+  for (const [key, rung] of [['level-t3', 't3'], ['noseup-cruise', 'cruise']]) {
+    await page.evaluate((r) => {
+      const g = window.__game;
+      while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+      for (let i = 0; i < (r === 't3' ? 6 : 0); i++) g.controls.turbo.shift(1, g.flight);
+    }, rung);
+    // (5 km over the ground where the bus is, heading as it was, held while the ground streams in)
+    const at = await page.evaluate(() => {
+      const g = window.__game, f = g.flight, y = g.city.groundAt(f.x, f.z) + 5000;
+      window.__qa = { pin: { x: f.x, z: f.z, heading: f.heading, y } };
+      Object.assign(f, { y, holdY: y, targetY: y, vy: 0, mode: 0 });
+      return { x: f.x, z: f.z };
+    });
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+    if (rung === 'cruise') {
+      await H.down(1, 196, 690);
+      for (let i = 1; i <= 6; i++) {
+        await wall(25);
+        await H.move(1, 196, 690 + i * 10);
+      }
+      await runFor(page, 2);
+      await H.up(1);
+      await runFor(page, 0.1);
+    } else await runFor(page, 1);
+    const tap = await page.evaluate(() => { const g = window.__game, f = g.flight; return { x: f.x, z: f.z, agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), body: +((f.pitch * 180) / Math.PI).toFixed(1), shots: g.cometFx.stats.fired, lobs: g.lobState().lobs }; });
+    await H.down(2, 300, 300);
+    await wall(60);
+    await H.up(2);
+    await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel + 0.1', 6);
+    const b = await page.evaluate((tap) => {
+      const g = window.__game, l = g.lastShot(), c = l?.comet;
+      return { kind: c?.kind ?? (c ? 'comet' : l ? 'splat' : null), far: !!c?.far, from: l ? Math.round(Math.hypot(l.aim[0] - tap.x, l.aim[2] - tap.z)) : null, lobs: g.lobState().lobs - tap.lobs };
+    }, tap);
+    const row = { key, agl: tap.agl, body: tap.body, ...b };
+    R.rows.push(row);
+    console.log('moonhigh:', JSON.stringify(row));
+    ok(!row.far, `${key}: no far shot over the Moon (${row.kind}, far ${row.far}, ${row.from} m out, ${row.agl} m up, the body ${row.body})`);
+  }
+  if (process.env.SB_AGAINST) {
+    const A = JSON.parse((await import('node:fs')).readFileSync(process.env.SB_AGAINST, 'utf8'));
+    for (const row of R.rows) {
+      const a = A.rows.find((q) => q.key === row.key);
+      ok(a && a.kind === row.kind && row.from !== null && a.from !== null && Math.abs(row.from - a.from) <= Math.max(60, 0.1 * a.from), `${row.key}: the same shot as the other build's (${row.kind}, ${row.from} m; then ${a?.kind}, ${a?.from} m)`);
+    }
+  }
+  ok(errors === 0, `no page error (${errors})`);
+  await page.close();
+  res.moonhigh = R;
+  console.log('moonhigh:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/moonhigh.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('stills')) {
+  // The stills for the producer's calls 4 and 5 (BUILT.md, "The Comet dead ahead"; not in the default list), over the Western Addition heading east: at
+  // Nonstop level 5 and 14 km up, a far Comet's hit with the bus held at most 0.3 of the half height over the middle (config.shotView.busMax, the pick),
+  // at 0.78, and with no dip (config.shotView.most 0); at Cruise 14 km up after a 2 s pull, the far Lob's ring and beacon before the tap, the beacon capped
+  // at 2 km (config.lob.beaconMost, the pick) and uncapped; and at Turbo 3 at the floor a low Comet at its flight's middle, from behind. Each with the loop
+  // held. 9 stills; exits 1 when one isn't written or the page errs                                                                -> stills-*.png
+  const page = await open(Q);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    window.__game.flight.glideSpeed = 0;
+    window.__game.audio.unlock();
+  });
+  await runFor(page, 2);
+  await H.down(1, 196, 780);
+  await wall(60);
+  await H.up(1);
+  await runFor(page, 1);
+  const still = async (name) => {
+    await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+    await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
+    await page.screenshot({ path: `${out}/stills-${name}.png` });
+    await page.evaluate(() => (window.__qa = null));
+    return `${out}/stills-${name}.png`;
+  };
+  const gear = (r) => page.evaluate((r) => {
+    const g = window.__game;
+    while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+    for (let i = 0; i < (r === 't3' ? 6 : r === 'nonstop' ? 2 : 0); i++) g.controls.turbo.shift(1, g.flight);
+  }, r);
+  const place = async (h, r) => {
+    await page.evaluate(([h, r]) => {
+      const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+      const y = g.city.groundAt(x, z) + (h === 'floor' ? g.config.turbo.jetAlt : h);
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: h === 'floor' ? -Infinity : y, targetY: y, vy: 0, mode: 0 });
+    }, [h, r]);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+  };
+  const pull = async (s) => {
+    await H.down(1, 196, 690);
+    for (let i = 1; i <= 6; i++) {
+      await wall(25);
+      await H.move(1, 196, 690 + i * 10);
+    }
+    await runFor(page, s);
+  };
+  const tapNow = async () => {
+    await H.down(2, 300, 300);
+    await wall(60);
+    await H.up(2);
+  };
+  const written = [];
+  const V0 = await page.evaluate(() => ({ busMax: window.__game.config.shotView.busMax, most: window.__game.config.shotView.most, beaconMost: window.__game.config.lob.beaconMost }));
+  // calls 5: the far Comet's hit, three ways, from 5 and 14 km
+  await gear('nonstop');
+  for (const h of [5000, 14000]) {
+    for (const [way, busMax, most] of [['pick', V0.busMax, V0.most], ['078', 0.78, V0.most], ['nodip', V0.busMax, 0]]) {
+      await page.evaluate(([b, m]) => Object.assign(window.__game.config.shotView, { busMax: b, most: m }), [busMax, most]);
+      await place(h, 'nonstop');
+      await runFor(page, 1);
+      await tapNow();
+      await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel - 0.02', 6);
+      written.push(await still(`call5-${h / 1000}km-${way}`));
+      await runFor(page, 2);
+    }
+  }
+  await page.evaluate((V) => Object.assign(window.__game.config.shotView, { busMax: V.busMax, most: V.most }), V0);
+  // calls 4: the far Lob's ring and beacon before the tap, 14 km up at Cruise, capped and uncapped
+  await gear('cruise');
+  for (const [way, most] of [['capped', V0.beaconMost], ['uncapped', 20000]]) {
+    await page.evaluate((m) => (window.__game.config.lob.beaconMost = m), most);
+    await place(14000, 'cruise');
+    await pull(2);
+    written.push(await still(`call4-14km-${way}`));
+    await H.up(1);
+    await runFor(page, 1);
+  }
+  await page.evaluate((m) => (window.__game.config.lob.beaconMost = m), V0.beaconMost);
+  // the bow: a low Comet at Turbo 3 at the floor, at its flight's middle, from behind
+  await gear('t3');
+  await place('floor', 't3');
+  await runFor(page, 1);
+  await tapNow();
+  await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > 0.5 * (g.config.splat.inhale + g.lastShot().travel)', 4);
+  written.push(await still('bow-t3-floor'));
+  const kinds = await page.evaluate(() => { const c = window.__game.lastShot()?.comet; return { far: !!c?.far, travel: c?.travel ?? null }; });
+  console.log('stills:', JSON.stringify({ written, bow: kinds }));
+  const { existsSync } = await import('node:fs');
+  const all = written.length === 9 && written.every((p) => existsSync(p));
+  console.log(`stills: ${written.filter((p) => existsSync(p)).length} of 9 written; page errors ${errors}`);
+  await page.close();
+  if (!all || errors > 0) process.exitCode = 1;
 }
 
 if (modes.has('boom') || modes.has('falls')) {

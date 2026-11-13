@@ -4,7 +4,7 @@ import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { BarfOpts, Splatter } from './Splat';
 import { chooseShot, type Comet, type CometPlan } from './Comet';
-import { lobRadius, type Lob } from './Lob';
+import { bodyOf, lobRadius, type Lob } from './Lob';
 import { inputTune } from './Input';
 
 // Dragon-breath aim. One source of truth: the building that glints is the
@@ -81,7 +81,7 @@ export function tapOpts(shot: Shot, busY: number): BarfOpts {
   // (a Comet: no ribbon from the mouth, its streak is the jet, and no hit-stop that far off; its tile not in yet, it's planned just before it lands)
   const c = shot.comet;
   if (c) Object.assign(o, { stream: true, hitStop: 0, comet: c, late: c.loaded ? 0 : config.comet.late });
-  // (a Lob's circle is its fall's from the arc's top, not the bus's height over where it lands)
+  // (a Lob's circle is its fall's from the arc's top, not the bus's height over where it lands; a far one's a tap's from its height: lobRadius)
   if (c?.kind === 'lob') o.radius = lobRadius(c);
   return o;
 }
@@ -169,6 +169,11 @@ export class Aimer {
   /** The Comet or the Lob a tap now fires (planned this frame; a Lob's has kind 'lob'), or null: the classic shot. */
   get planned(): CometPlan | null {
     return this.cometPlan;
+  }
+
+  /** Where the aim's own shot lands (under a Comet or a Lob planned, what it was before they took the aim): s_shots --bomb reads it. */
+  get ownAim(): { x: number; z: number; drop: number } {
+    return this.cometPlan ? this.aimOwnPt : this.aim;
   }
 
   /** The Lob a tap now throws (planned this frame), or null: its ring shows where it lands (main.ts). */
@@ -369,7 +374,8 @@ export class Aimer {
     }
     if (thumb && !this.wasThumb) this.thumbAt = t;
     this.wasThumb = thumb;
-    this.bodyWas = f.pitch;
+    // (at the ceiling, straining, the pull held: Lob.ts's bodyOf)
+    this.bodyWas = bodyOf(f);
     this.noseWas = f.nose;
     // (the Comet's odometer runs every frame: its stretches are counted along the bus's travel)
     this.comet?.track(f);
@@ -397,9 +403,12 @@ export class Aimer {
     // the Comet: a gear at speed lands the tap ahead of the bus, in view, and what glints is where it lands. (The aim's own pick above runs on under
     // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one. Where it applies it takes the place
     // of ?life's mover, as of the building: HOOKS.md, "The Comet")
-    const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
-    // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): the farther of it and the Comet, never weighed
-    // against the aim's own (chooseShot)
+    const c0 = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
+    // (never a far one while a Bomb charges: from 15 km one would land 2.75 km ahead, a new thing nobody asked for, and "the Bomb must not change". So the
+    // glint, the ring, ?life's mover and the shot are all the aim's own, as they were)
+    const c = this.bombing && c0?.far ? null : c0;
+    // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): over the Comet whenever it's planned
+    // (config.lob.wins), never weighed against the aim's own (chooseShot)
     const l = this.lob && this.comet && !this.bombing && this.street === 0 ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;
     this.lobLast = l;
     const p = chooseShot(f, null, c, l);
@@ -591,15 +600,16 @@ export class Aimer {
    *  mover off a floor (a plane glinting): the building, as its ring showed. */
   fire(f: Flight, bomb = false): Shot {
     // (the tap's shot is chosen in one place, Comet.ts's chooseShot, every frame: what this frame planned and glints. A Bomb never lobs: where the Lob won,
-    // its shot is the Comet's, or the aim's own under them)
+    // its shot is the Comet's, or the aim's own under them. Nor does it take a far Comet: from 15 km one would land 2.75 km ahead, a new thing nobody asked
+    // for, and "the Bomb must not change")
     this.cometFired = this.lobFired = false;
     if (this.comet && this.cometPlan) {
-      if (!this.lobbing) {
+      if (!this.lobbing && !(bomb && this.cometPlan.far)) {
         this.cometFired = true;
         return this.comet.shotOf(this.cometPlan);
       }
       if (!bomb) return this.lobShot(this.cometPlan);
-      if (this.cometOnly) {
+      if (this.cometOnly && !this.cometOnly.far) {
         this.cometFired = true;
         return this.comet.shotOf(this.cometOnly);
       }

@@ -27,12 +27,14 @@
 // Where the tap is the classic shot (Turbo 3 from 300 m) so is the Bomb, on the tap's landing, with its hit-stop.
 // --lob flies the Lob's rows instead (src/game/Lob.ts), into shots-lob.json, and gates only them: the nose 30 and 75 degrees up from 300 m and 40 from the
 // roofs, the stick held through the tap (a second thumb's tap, the body read live) and let go 0.3 s after it, at every rung from Cruise to Turbo 3. At Cruise and Express each is a
-// Lob, at Jet and faster never; a Lob lands in frame config.lob.above or more over the bus at the impact, on its flight's time, within 2 m and 0.05 s at 30
-// and 60 fps, a level each and lobRadius (its fall from the arc's top, at most config.lob.radius), with no hit-stop. Where a Comet applies too, the farther wins (chooseShot). Without --lob a row the Lob
+// Lob, at Nonstop and faster a Lob wherever one is planned; a Lob lands in frame config.lob.above or more over the bus at the impact (a far one, from 1 km up, has no such rule), on its flight's time, within 2 m and 0.05 s at 30
+// and 60 fps, a level each and lobRadius (its fall from the arc's top, at most config.lob.radius), with no hit-stop. Where a Comet applies too, the Lob wins whenever it's planned (config.lob.wins, chooseShot). Without --lob a row the Lob
 // throws (kind 'lob') is the Lob's, not the baseline's.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
 import { config } from '@src/config';
-import { CameraRig } from '@src/game/CameraRig';
+import { CameraRig, shotTip } from '@src/game/CameraRig';
+import { shotReach } from '@src/game/Comet';
+import { cometAt } from '@src/fx/CometFx';
 import { EXPRESS, JET, NONSTOP, SCHOOL_ZONE, TurboDrive, driveSpeed } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
 import { lensFov } from '@src/render/PixelPipeline';
@@ -91,7 +93,19 @@ const POSES: Array<{ pose: Pose; rungs: string[] }> = [
   { pose: { key: 'wa-turn', place: 'wa', h: 'floor', turn: 1 }, rungs: ['express', 'nonstop', 'jet', 't3'] },
   { pose: { key: 'glen-floor', place: 'glen', h: 'floor' }, rungs: ['nonstop', 'jet', 't3'] },
   { pose: { key: 'bayview-floor', place: 'bayview', h: 'floor' }, rungs: ['nonstop', 'jet', 't3'] },
+  // (the Comet from high up, DESIGN "the Comet dead ahead": climbed there, the lens as a climb leaves it; level, and in dives tapped as they pass the height)
+  { pose: { key: 'wa-c1000', place: 'wa', h: 1000 }, rungs: COMET_RUNGS },
+  { pose: { key: 'wa-c5000', place: 'wa', h: 5000 }, rungs: COMET_RUNGS },
+  { pose: { key: 'wa-c14000', place: 'wa', h: 14000 }, rungs: COMET_RUNGS },
+  { pose: { key: 'wa-d45-1000', place: 'wa', h: 1000, dive: 45 }, rungs: COMET_RUNGS },
+  { pose: { key: 'wa-d45-5000', place: 'wa', h: 5000, dive: 45 }, rungs: COMET_RUNGS },
+  { pose: { key: 'wa-d60-14000', place: 'wa', h: 14000, dive: 60 }, rungs: COMET_RUNGS },
 ];
+/** 4f33648's Turbo 3 Comet at the floor (its shots.json): how far ahead of the bus it landed at the impact and when the bus passed it, at 60 and 30 fps */
+const T3_FLOOR: Record<string, { ahead: number; pass: number }> = {
+  'wa-floor/t3@60': { ahead: 1107, pass: 1.31 }, 'wa-floor/t3@30': { ahead: 1109, pass: 1.32 },
+  'dt-floor/t3@60': { ahead: 1200, pass: 1.42 }, 'dt-floor/t3@30': { ahead: 1202.1, pass: 1.42 },
+};
 /** the stick for a path at `deg` up (+) or down (-) with a gear in (Flight: the nose wants noseUp x pull^noseCurve past the yoke's dead band) */
 const stickFor = (deg: number) => {
   const F = config.flight, k = Math.pow(Math.abs(deg) / F.noseUp, 1 / F.noseCurve);
@@ -141,7 +155,7 @@ function bombTap(g: ReturnType<typeof makeGame>, tier: 2 | 3) {
   return { fired: !!shot, target: shot ? s.target : null, glint: s.target, shot: s, landing, wall: !!s.exact, bomb: bomb.stats };
 }
 
-async function run(rung: [string, number, number], pose: Pose, dt: number, tier: 0 | 2 | 3 = 0) {
+async function run(rung: [string, number, number], pose: Pose, dt: number, tier: 0 | 2 | 3 = 0, probe: '' | 'tap' | 'bomb' = '') {
   const [rname, gear, level] = rung;
   const P = PLACES[pose.place];
   const [px, pz] = ll(P.lat, P.lon);
@@ -170,6 +184,8 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   if (pose.h === 'floor') f.y = alt > 0 ? city.groundAt(f.x, f.z) + alt : city.obstacleAt(f.x, f.z) + 9;
   else {
     f.y = pose.asl ? pose.h : g0 + pose.h + (pose.dive ? v0 * Math.sin(pose.dive * DEG) * (lead - 0.6) : 0);
+    // (a dive from 14 km starts under the ceiling)
+    if (pose.dive) f.y = Math.min(f.y, config.flight.ceiling - 20);
     f.holdY = f.y;
   }
   if (gear === EXPRESS) drive.rung(1, f);
@@ -178,12 +194,26 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   await pump(city, f.x, f.z, Math.max(0, f.y - g0), fx, fz);
   const rig = new CameraRig(), lens = new TurboLens(), cam = new THREE.PerspectiveCamera(50, SW / SH, 1, 60000), focus = new THREE.Vector3();
   const inner = { x: 1, y: 1 };
+  // (P1: a placed pose at a height has the lens a climb there leaves, its vista and height; the floor's lens put the probe's Turbo 3 at 300 m on no Comet
+  // where a climbed player's lens gives one. The classic aim reads no lens)
+  if (typeof pose.h === 'number') rig.settleAt(Math.max(0, f.y - city.groundAt(f.x, f.z)));
+  let pre: (() => void) | null = null;
   const cometOf = (g.aimer as any).comet;
   if (cometOf) cometOf.lens = cam;
   if (g.aimer.lob) g.aimer.lob.lens = cam;
+  // (--bomb's mover probe: ?life on, one mover 100 m ahead of the bus and under it, always nearer than any roof; a Bomb charging the whole way, or not)
+  let glintKey: string | null = null;
+  if (probe) {
+    g.aimer.life = {
+      aim: (ox, oy, oz) => ({ mover: true, key: 'probe', x: ox + f.fx * 100, y: oy - 50, z: oz + f.fz * 100, arrive: g.t + 1, pickR: 5, onLine: false, miss: 0, half: 2 }),
+      glint: (key) => void (glintKey = key),
+    };
+    g.aimer.bombing = probe === 'bomb';
+  }
   let aimMs = 0, aimN = 0;
   const upd = g.aimer.update.bind(g.aimer);
-  g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return r; };
+  let aimRet: { index: number } | null = null;
+  g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return (aimRet = r); };
   const stick = pose.nose ? stickFor(pose.nose) : pose.dive ? stickFor(-pose.dive) : 0;
   const turn = pose.turn ?? 0;
   const frame = async (k: number, holdStick: boolean) => {
@@ -191,6 +221,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     g.frame(dt, holdStick ? { sx: turn, sy: stick, dragging: true } : { sx: 0, sy: 0, dragging: false });
     lens.update(dt, drive, rig, f);
     rig.zone = drive.below === SCHOOL_ZONE ? 1 : 0;
+    pre?.();
     rig.update(cam, focus, f, dt);
     const lf = lensFov(SW, SH, rig.hfov);
     cam.fov = lf.fov;
@@ -202,22 +233,71 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   };
   // ---- into the pose: the stick held for the nose from 1.5 s before the tap; the dive from the start, tapped as it passes 800 m; the turn for the
   // TURN_S s before the tap, what glints counted each time it changes
-  let k = 0, glints = 0, glintLast: number | undefined = undefined;
+  let k = 0, glints = 0, farFrames = 0, glintLast: number | undefined = undefined;
   const leadFrames = Math.round(lead / dt);
   const held = (k: number) => !!pose.dive || (!!pose.nose && k >= leadFrames - 1.5 / dt) || (!!turn && k >= leadFrames - TURN_S / dt);
-  for (; k < leadFrames || (pose.dive && f.y - city.groundAt(f.x, f.z) > 800 && k < leadFrames + 8 / dt); k++) {
+  const diveTo = typeof pose.h === 'number' ? pose.h : 800;
+  for (; k < leadFrames || (pose.dive && f.y - city.groundAt(f.x, f.z) > diveTo && k < leadFrames + 8 / dt); k++) {
     await frame(k, held(k));
     if (!turn || k < leadFrames - TURN_S / dt) continue;
     const s = g.aimer.shown(), gi = s ? s.index : -1;
+    if (g.aimer.planned?.far) farFrames++;
     if (glintLast !== undefined && gi !== glintLast) glints++;
     glintLast = gi;
   }
+  if (probe) {
+    // (what glints: the building update returned, none while the mover glints)
+    const m = (g.aimer as any).mover as { key: string } | null, r = aimRet as { index: number } | null;
+    return { key: `${pose.key}/${rname}`, fps: Math.round(1 / dt), probe, far: !!g.aimer.planned?.far, mover: m ? m.key : null, glint: glintKey, shown: r ? r.index : -1 };
+  }
   // ---- the tap (between frames, as Input's)
-  const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz, body: f.pitch / DEG };
+  const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz, body: f.pitch / DEG, vista: rig.vista };
   const before = city.paint.data.slice();
   const ev0 = g.events.length;
+  // (--lob: whether this frame planned a Lob, which wins over the Comet whenever it's planned: config.lob.wins)
+  const lobPlanned = !!g.aimer.lobLast;
+  // (the reach and the flight a Comet has by DESIGN C2, C4 and C6, from the tap's own numbers)
+  const vTap = Math.max(1, f.ground), edgeTap = shotReach(city, f, f.fx, f.fz), reachTap = Math.max(config.comet.reach, edgeTap);
+  const lowReach = Math.min(config.comet.flight, Math.max(config.comet.flightMin, cometOf.timeTo(vTap, reachTap) - config.comet.pass - config.splat.inhale));
+  // (where the reach cut it, as long as still lands `pass` s ahead of where its stretch comes down: the stretch held, read before the tap fires it)
+  const heldAlong = cometOf ? (cometOf.heldX - f.x) * f.fx + (cometOf.heldZ - f.z) * f.fz : 0;
+  const low = lowReach < config.comet.flight ? Math.min(lowReach, Math.max(config.comet.flightMin, cometOf.timeTo(vTap, heldAlong) - config.comet.pass - config.splat.inhale)) : lowReach;
+  const gReach = city.groundAt(f.x + f.fx * edgeTap, f.z + f.fz * edgeTap);
+  const highFlight = Math.min(config.comet.flightHigh, lowReach + (config.comet.fallPerKm * Math.max(0, f.y - gReach - 1000)) / 1000);
+  const own = tier ? { ...g.aimer.ownAim } : null;
   const res = tier ? bombTap(g, tier) : g.tap();
   const comet = (res.shot as any).comet ?? null;
+  // (after a far one the view dips as main.ts dips it, shotTip with the lead and the star kept in the frame, until config.shotView.hold after the impact)
+  const upDeg = (x: number, y: number, z: number) => {
+    v3.set(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+    return (Math.atan2(v3.y, -v3.z) * 180) / Math.PI + rig.skyLift;
+  };
+  const ndcY = (x: number, y: number, z: number) => {
+    v3.set(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+    return v3.z >= 0 ? -9 : v3.applyMatrix4(cam.projectionMatrix).y;
+  };
+  const liftAtTap = rig.skyLift, until = comet?.far ? g.t + config.splat.inhale + comet.travel + config.shotView.hold : -1;
+  let boundNow = false;
+  if (comet?.far && comet.kind !== 'lob')
+    pre = () => {
+      if (g.t < until) {
+        const half = cam.fov / 2, ld = config.shotView.lead, landUp = upDeg(comet.x - f.fx * f.ground * ld, comet.y - f.vy * ld, comet.z - f.fz * f.ground * ld);
+        const t0 = tap.t + config.splat.inhale, u = (g.t - t0) / comet.travel, top = comet.arc > 0 ? Math.min(1, Math.max(0, 0.5 + (comet.y - comet.y0) / (8 * comet.arc))) : 0;
+        const arcUp = (w: number) => { const q = cometAt(from0, to0, comet.arc, comet.bow ?? 0, w, v3b); return upDeg(q.x, q.y, q.z); };
+        const fly = u >= 0 && u < 1 ? Math.max(arcUp(u), arcUp(Math.max(u, top))) : NaN;
+        rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap, 0, fly);
+        // (bound: where the bus's limit, the swing or the climbing star holds the view over what the hit wants)
+        boundNow = rig.skyLiftTarget > landUp - Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG + 0.5;
+        rig.skyLiftRate = config.shotView.rate;
+        rig.skyDipMost = config.shotView.most;
+      } else if (rig.skyDipMost > 0) {
+        if (rig.skyLift >= -0.02) rig.skyDipMost = 0;
+        rig.skyLiftTarget = 0;
+        rig.skyLiftRate = config.shotView.rate;
+      }
+    };
+  const from0 = new THREE.Vector3(comet?.x0 ?? 0, comet?.y0 ?? 0, comet?.z0 ?? 0), to0 = new THREE.Vector3(comet?.x ?? 0, comet?.y ?? 0, comet?.z ?? 0), v3b = new THREE.Vector3();
+  let bowPx: number | null = null, busHi = -9, hitNdc: number | null = null, boundImp = false, liftImp = 0, busImp = 0, liftLo = 0;
   const at = new THREE.Vector3(res.landing.x, res.landing.y, res.landing.z);
   const busV = new THREE.Vector3(f.x, f.y, f.z);
   const tapScr = res.fired ? screen(cam, inner, at, busV) : null;
@@ -232,6 +312,17 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     // (--lob's poses let the stick go `release` s after the tap: the base's hold it to the end)
     await frame(k, !!turn || (!!stick && !(pose.release !== undefined && g.t - tap.t > pose.release)));
     if (refund < 0 && f.barfT < 0) refund = f.fullness;
+    if (comet && comet.kind !== 'lob') {
+      // (the bow: at its flight's middle, how far its star stands on the screen from where it would without it, in game px)
+      const u = (g.t - tap.t - config.splat.inhale) / comet.travel;
+      if (bowPx === null && u >= 0.5) {
+        const a = cometAt(from0, to0, comet.arc, comet.bow ?? 0, 0.5, new THREE.Vector3()), b = cometAt(from0, to0, comet.arc, 0, 0.5, new THREE.Vector3());
+        const sa = screen(cam, inner, a, a), sb = screen(cam, inner, b, b);
+        bowPx = r1(Math.hypot((sa.x - sb.x) * SW, (sa.y - sb.y) * SH));
+      }
+      if (!impact || g.t - (impact.t as number) <= config.shotView.hold) busHi = Math.max(busHi, ndcY(f.x, f.y, f.z));
+      liftLo = Math.min(liftLo, rig.skyLift);
+    }
     for (let e = ev0; e < g.events.length && !impact; e++) {
       const ev = g.events[e];
       if (ev.ev !== 'impact' && ev.ev !== 'miss') continue;
@@ -242,6 +333,10 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
       busV.set(f.x, f.y, f.z);
       impactScr = screen(cam, inner, at, busV);
       ahead = along();
+      hitNdc = r3(ndcY(at.x, at.y, at.z));
+      busImp = ndcY(f.x, f.y, f.z);
+      liftImp = rig.skyLift;
+      boundImp = boundNow;
       // (the ground over the lens's line to it, at the impact: a ridge hiding it)
       const cp = cam.position, D = Math.hypot(at.x - cp.x, at.z - cp.z);
       for (let s = 10; s < D - 10; s += 5) {
@@ -255,7 +350,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
       else if (now <= 0) pass = g.t - (impact.t as number) - (dt * -now) / Math.max(1e-3, was - now);
     }
     // (a Bomb: until its last stage is down, its third 2 x stageGap after the wave reaches the rim)
-    if (impact && (pass !== null || g.t - (impact.t as number) > 3) && refund >= 0 && (!tier || g.t - (impact.t as number) > 3.2)) break;
+    if (impact && (pass !== null || g.t - (impact.t as number) > 3) && refund >= 0 && (!tier || g.t - (impact.t as number) > 3.2) && g.t - (impact.t as number) > (comet?.far ? config.shotView.hold : 0)) break;
   }
   // ---- what it painted: every building whose level rose, and any that rose two (a Bomb's: by how much, and any not at min(3, before + jump) or past 3)
   const after = city.paint.data;
@@ -284,7 +379,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   }
   return {
     key: `${pose.key}/${rname}`, rung: rname, pose: pose.key, fps: Math.round(1 / dt),
-    tap: { agl: r1(tap.agl), speed: r1(tap.speed), nose: r1(tap.nose) },
+    tap: { agl: r1(tap.agl), speed: r1(tap.speed), nose: r1(tap.nose), vista: r2(tap.vista) },
     kind: !res.fired ? 'refused' : comet?.kind === 'lob' ? 'lob' : comet ? 'comet' : miss ? 'miss' : 'splat',
     cometMiss: !!comet && miss,
     tImpact: impact ? r3((impact.t as number) - tap.t) : null,
@@ -299,12 +394,15 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     painted, raisedTwo: two, loaded, refund: r2(refund),
     plan: comet ? { reach: r1(comet.reach), ahead: r1(comet.ahead), pass: r2(comet.pass), above: r3(comet.above), arc: r1(comet.arc), arcShare: r3(comet.arc / Math.max(1, Math.hypot(comet.x - comet.x0, comet.z - comet.z0, comet.y - comet.y0))), loaded: comet.loaded } : null,
     off: r1(Math.abs((at.x - tap.x) * tap.fz - (at.z - tap.z) * tap.fx)),
+    far: !!comet?.far, travel: comet ? r3(comet.travel) : null, wantTravel: comet ? r3(comet.far ? highFlight : low) : null, reachTap: r1(reachTap),
+    bowPx, hitNdc, busHi: comet && comet.kind !== 'lob' ? r3(busHi) : null, busImp: r3(busImp), liftImp: r2(liftImp), liftLo: r2(liftLo), boundImp,
+    ...(own ? { own: [r1(own.x), r1(own.z)] } : {}),
     underGround: comet ? r1(underGround) : null,
     hiddenBy: impact ? r1(hiddenBy) : null,
-    glintsPerS: turn ? r2(glints / TURN_S) : null,
+    glintsPerS: turn ? r2(glints / TURN_S) : null, farFrames: turn ? farFrames : null,
     aimMs: r3(aimMs / Math.max(1, aimN)),
     ...(tier ? { bomb: tier, rose: rose.slice(1), wrong, past3, hitStops } : {}),
-    ...(LOB ? { body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null } : {}),
+    ...(LOB ? { lobPlanned, body: r1(tap.body), hitStops, planTravel: comet ? r3(config.splat.inhale + comet.travel) : null, angle: comet?.angle !== undefined ? r1(comet.angle / DEG) : null, ...(comet?.far ? { far: true } : {}) } : {}),
   };
 }
 
@@ -314,8 +412,9 @@ const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
 mkdirSync(OUT, { recursive: true });
 if (BOMB) {
   // ---- the Bomb's rows: each pose's tap, then a Bomb II and III let go at the same moment, and their gates alone
-  for (const key of ['wa-floor', 'wa-300', 'dt-floor'])
-    for (const name of ['nonstop', 'jet', 't3']) {
+  // (and from 5 km at Nonstop and Turbo 3, where the tap is the far Comet: the Bomb never takes it, it's the classic tap's, as before. DESIGN C13)
+  for (const key of ['wa-floor', 'wa-300', 'dt-floor', 'wa-c5000'])
+    for (const name of key === 'wa-c5000' ? ['nonstop', 't3'] : ['nonstop', 'jet', 't3']) {
       const pose = POSES.find((p) => p.pose.key === key)!.pose, rung = RUNGS.find((r) => r[0] === name)!;
       if (ONLY && !`${key}/${name}`.includes(ONLY)) continue;
       for (const dt of [1 / 60, 1 / 30]) for (const tier of [0, 2, 3] as const) rows.push(await run(rung, pose, dt, tier));
@@ -324,6 +423,16 @@ if (BOMB) {
   const fails: string[] = [];
   let checks = 0;
   const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
+  // (a Bomb charging under the far Comet, ?life on: the far plan is dropped before it takes the aim, so the mover is kept and it's what glints, as at 4f33648.
+  // The tap's frame beside it plans the far Comet and drops the mover: the probe sees a far plan, so it would see one taken under the Bomb)
+  if (!ONLY || 'wa-c5000/nonstop'.includes(ONLY))
+    for (const dt of [1 / 60, 1 / 30]) {
+      const pose = POSES.find((p) => p.pose.key === 'wa-c5000')!.pose, rung = RUNGS.find((r) => r[0] === 'nonstop')!;
+      const tap: any = await run(rung, pose, dt, 0, 'tap'), bomb: any = await run(rung, pose, dt, 0, 'bomb');
+      console.log(`mover probe @${tap.fps}: tap ${JSON.stringify(tap)} bomb ${JSON.stringify(bomb)}`);
+      ok(tap.far && tap.mover === null && tap.glint === null, `mover probe @${tap.fps}: the tap plans the far Comet over the mover (${JSON.stringify(tap)})`);
+      ok(!bomb.far && bomb.mover === 'probe' && bomb.glint === 'probe' && bomb.shown === -1, `mover probe @${bomb.fps}: under a Bomb the mover is kept and glints, no far plan (${JSON.stringify(bomb)})`);
+    }
   for (const r of rows) {
     const id = `${r.key}@${r.fps}${r.bomb ? ` Bomb ${r.bomb === 3 ? 'III' : 'II'}` : ''}`;
     const t = rows.find((q) => q.key === r.key && q.fps === r.fps && !q.bomb);
@@ -334,6 +443,15 @@ if (BOMB) {
     const d = t ? Math.hypot(r.landing[0] - t.landing[0], r.landing[1] - t.landing[1], r.landing[2] - t.landing[2]) : Infinity;
     // (where the tap is the classic shot, at Turbo 3 from 300 m (BUILT.md: no Comet in turbo from about 300 m up, the producer's call), so is the Bomb, with
     // its hit-stop; the Comet's own gates are where the tap's a Comet)
+    if (t?.far) {
+      // (the tap a far Comet: the Bomb the aim's own shot, on the landing the aim had under it, its radius a tap's from there, with its hit-stop)
+      const dOwn = r.own ? Math.hypot(r.landing[0] - r.own[0], r.landing[2] - r.own[1]) : Infinity;
+      // (the classic shot lands on the building glinting by the aim's own point, not on the point: within a tap's circle of it)
+      ok(r.kind === 'splat' && dOwn <= r.wantRadius / k, `${id}: never the far Comet, the aim's own shot (${r.kind}, ${r1(dOwn)} m from the aim's own landing)`);
+      ok(r.radius !== null && Math.abs(r.radius - k * r.wantRadius) <= k, `${id}: ${k} times a tap's radius from there (${r.radius} against ${r.wantRadius})`);
+      ok(r.painted > 0 && r.wrong === 0 && r.past3 === 0 && r.hitStops === 1, `${id}: its buildings each at min(3, before + jump), none past 3, the classic shot's hit-stop (${r.painted}, ${r.wrong} not, ${r.past3} past, ${r.hitStops} hit-stops)`);
+      continue;
+    }
     const comet = t?.kind === 'comet';
     ok(r.kind === t?.kind, `${id}: the tap's shot (${r.kind}, tap ${t?.kind})`);
     ok(d <= 2 && Math.abs((r.tImpact ?? 9) - (t?.tImpact ?? 0)) <= 0.05, `${id}: lands within 2 m and 0.05 s of the tap's ${comet ? 'Comet' : 'shot'} (${r1(d)} m, ${r.tImpact} against ${t?.tImpact} s)`);
@@ -365,11 +483,15 @@ if (LOB) {
     const id = `${r.key}@${r.fps}`;
     console.log(`${id.padEnd(30)} ${r.kind.padEnd(6)} body ${String(r.body).padStart(5)} at ${String(r.angle).padStart(5)} t ${String(r.tImpact).padStart(6)} (${r.planTravel}) from ${String(r.from).padStart(7)} up ${String(r.impactScreen?.above ?? '-').padStart(6)} in ${r.impactScreen?.in ? 'y' : 'n'} r ${r.radius} (${r.wantRadius}) painted ${r.painted} two ${r.raisedTwo} on ${r.on} agl ${r.tap.agl}`);
     if (r.rung === 'cruise' || r.rung === 'express') ok(r.body < config.lob.from || r.kind === 'lob', `${id}: the body ${r.body} up at Cruise and Express, a Lob (${r.kind})`);
-    if (r.rung === 'jet' || r.rung === 't3') ok(r.kind !== 'lob', `${id}: at Jet and faster no Lob (${r.kind})`);
+    // (Nonstop and faster: the Lob wherever one is planned, else the Comet's or the tap's: config.lob.wins, chooseShot. Turbo 3 nose 75 from 300 m is 1.4 km
+    // up by the tap, where the near search finds nothing: the far Lob)
+    if (r.rung !== 'cruise' && r.rung !== 'express') ok(config.lob.wins ? r.kind === 'lob' || !r.lobPlanned : r.rung === 'nonstop' || r.kind !== 'lob', `${id}: at Nonstop and faster a Lob where one is planned (${r.kind}, planned ${r.lobPlanned})`);
     if (r.kind !== 'lob') continue;
     ok(Math.abs(r.angle - Math.min(config.lob.most, r.body)) <= 0.15, `${id}: thrown at the body, at most ${config.lob.most} (${r.angle} for ${r.body})`);
     ok(r.tImpact !== null && Math.abs(r.tImpact - r.planTravel) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r.planTravel})`);
-    ok(!!r.impactScreen?.in && r.impactScreen.above >= config.lob.above, `${id}: in frame at the impact, ${config.lob.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)})`);
+    // (a far one has no in-view rule, only from config.lob.highFrom up (highBack once a pull has one); the view dips after it, s_lob --high's to gate)
+    if (r.far) ok(r.tap.agl >= config.lob.highBack, `${id}: a far Lob, from high up (${r.tap.agl} m over the ground)`);
+    else ok(!!r.impactScreen?.in && r.impactScreen.above >= config.lob.above, `${id}: in frame at the impact, ${config.lob.above * 100} % or more over the bus (${JSON.stringify(r.impactScreen)})`);
     ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius its fall's from the arc's top, lobRadius (${r.radius} against ${r.wantRadius})`);
     ok(r.raisedTwo === 0 && r.hitStops === 0, `${id}: a level each and no hit-stop (${r.raisedTwo} raised two, ${r.hitStops} hit-stops)`);
     const s30 = r.fps === 60 ? rows.find((q) => q.key === r.key && q.fps === 30) : null;
@@ -406,43 +528,59 @@ let checks = 0;
 const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
 const by = (key: string, fps: number) => rows.find((r) => r.key === key && r.fps === fps);
 const basePoses = new Set(Object.keys(base ?? {}).map((k) => k.split('/')[0]));
-const pending: string[] = [];
 for (const r of rows) {
   const isComet = COMET_RUNGS.includes(r.rung);
-  // (turbo from 300 m: no stretch within the reach shows config.comet.above over the bus, so the tap is the classic shot, which the baseline's rule
-  // gates. The Comet reaching farther the higher the bus flies is approved and not built: pending, said on its own line, and once a Comet lands there
-  // every gate below is its own again. BUILT.md, "The one-number picks and the first Bomb")
-  const reachPending = r.pose === 'wa-300' && ['t1', 't2', 't3'].includes(r.rung) && r.kind === 'splat';
-  if (reachPending) pending.push(`${r.key}@${r.fps}: the classic shot (no Comet from 300 m in turbo until the reach grows with the height)`);
-  const gated = isComet && (r.pose === 'wa-floor' || r.pose === 'wa-300' || r.pose === 'dt-floor') && !reachPending;
-  const v = r.tap.speed;
+  const id = `${r.key}@${r.fps}`, v = r.tap.speed;
+  // (Nonstop and faster: a Comet in every pose, never the classic shot (DESIGN "the Comet dead ahead": low where something in view takes it, else far, on
+  // the loaded edge). Not over the water (its miss, below), nor a nose-up pose's Lob (s_shots --lob's), nor past 15 km: off the city's map nothing is
+  // loaded on the page, and Node loads every tile, so there it says nothing)
+  const gated = isComet && r.kind !== 'lob' && r.pose !== 'water-floor' && r.pose !== 'wa-16km';
   if (gated) {
-    // (a wall that takes it at the floor, downtown or where Turbo's reach gets there from the Western Addition, at least 0.5 s ahead of the bus at the impact)
-    // (the pass is the margin's, config.comet.above, the producer's pick of 3 %: where the line 1.5 s ahead shows less over the bus the landing moves out
-    // to the first stretch that shows it, at the floor up to Jet's 2.1 s (Nonstop's 1.84), so 1.3 to 2.2 s there. At 300 m the bus may not reach it in
-    // the run's 6 s: what's ahead of it at the impact says how long it has, 1.3 to 3 s. The review of step 3, 7: a Nonstop Comet 1.26 km ahead, about
-    // 5.6 s, passed with no bound; it is 1.26 km at 5 % and at 3 %, so not the pick's, and still fails here)
-    const p300 = r.pass ?? r.ahead / Math.max(1, v);
-    const passOk = r.on === 'wall' ? r.ahead >= 0.5 * v : r.pose === 'wa-300' ? p300 >= 1.3 && p300 <= 3 : r.pass !== null && r.pass >= 1.3 && r.pass <= 2.2;
-    ok(r.kind === 'comet', `${r.key}@${r.fps}: a Comet (${r.kind})`);
-    ok(r.tImpact !== null && r.tImpact >= 0.6 && r.tImpact <= 0.8, `${r.key}@${r.fps}: lands 0.6-0.8 s after the tap (${r.tImpact})`);
-    ok(passOk, `${r.key}@${r.fps}: passed ${r.pose === 'wa-300' ? '1.3-3' : '1.3-2.2'} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
-    // (off the bus's line, inside the drops' reach: never a beam out of the bus, the outside look of step 3. A wall's face is where the arc meets it)
-    if (r.kind === 'comet' && r.on !== 'wall') ok(r.off >= 12 && r.off <= config.comet.lensReach, `${r.key}@${r.fps}: lands 12-${config.comet.lensReach} m off the bus's line (${r.off})`);
-    ok(r.from <= config.city.loadRadiusHigh + 1, `${r.key}@${r.fps}: within ${config.city.loadRadiusHigh} m of the tap (${r.from})`);
-    ok(!!r.impactScreen && r.impactScreen.above >= config.comet.above && r.impactScreen.clear, `${r.key}@${r.fps}: at the impact ${config.comet.above * 100} % or more above the bus, clear of the HUD band (${JSON.stringify(r.impactScreen)})`);
-    // (on a tower's face downtown too: Nonstop's there paints 10 at 5 % and at 3 %, so not the pick's, and still fails here. Fewer on a wall is the
-    // producer's call, not the probe's)
-    ok(r.painted >= 20 && r.raisedTwo === 0, `${r.key}@${r.fps}: 20 or more buildings, none raised two (${r.painted}, ${r.raisedTwo})`);
-    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${r.key}@${r.fps}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
+    ok(r.kind === 'comet', `${id}: a Comet, never the classic shot (${r.kind})`);
+    if (r.kind !== 'comet') continue;
+    // (on the bus's line: "I want this shot to soar essentially directly in front of me", sidePick and a tap's landInset. A wall's face is where the arc meets it)
+    if (r.on !== 'wall' && r.pose !== 'wa-turn') ok(r.off <= config.comet.sidePick + config.splat.landInset + 4, `${id}: on the bus's line, ${config.comet.sidePick + config.splat.landInset + 4} m or less off it (${r.off})`);
+    // (its flight: C2's low, as long as the reach allows, 0.6-1.0 s; C6's far, longer from high up; the impact on its frame)
+    ok(r.travel !== null && Math.abs(r.travel - r.wantTravel) <= 0.02, `${id}: its flight ${r.far ? 'the far one\'s' : 'as long as the reach allows'} (${r.travel} against ${r.wantTravel} s)`);
+    ok(r.tImpact !== null && Math.abs(r.tImpact - (config.splat.inhale + r.travel)) <= 0.05, `${id}: lands on its flight's time (${r.tImpact} against ${r1(config.splat.inhale + r.travel)})`);
+    ok(r.from <= r.reachTap + 1, `${id}: within the reach of the tap, shotReach (${r.from} against ${r.reachTap})`);
+    ok(r.plan && r.plan.arcShare >= config.comet.arcMin - 0.002, `${id}: its arc's top ${config.comet.arcMin} of its chord or more (${r.plan?.arcShare})`);
+    // (the bow, read on the screen at its flight's middle: from behind, an arc in the plane through the lens draws as a straight line)
+    if (!r.far) ok(r.bowPx !== null && r.bowPx >= 6 && r.bowPx <= 20, `${id}: at its flight's middle its star 6-20 game px to the side (${r.bowPx})`);
+    const low = r.pose.endsWith('-floor') || r.pose === 'wa-300' || r.pose === 'wa-turn';
+    if (low && r.pose !== 'wa-turn') {
+      // (the pass, the margin's: where the bus will be 1.5 s after the impact, moved out to show 3 % over the bus; at 300 m the bus may not reach it in the
+      // run's 6 s, and what's ahead of it at the impact says how long it has. A wall that takes it, at least 0.5 s ahead of the bus at the impact)
+      const pr = r.pass ?? r.ahead / Math.max(1, v), [lo, hi] = r.rung === 'nonstop' ? [1.3, 3] : [0.8, 2.2];
+      ok(!r.far, `${id}: near the roofs a low Comet, never the far one`);
+      ok(r.on === 'wall' ? r.ahead >= 0.5 * v : pr >= lo && pr <= hi, `${id}: passed ${lo}-${hi} s after the impact, or a wall 0.5 s ahead (pass ${r.pass}, ahead ${r.ahead}, on ${r.on})`);
+      const b = T3_FLOOR[id];
+      if (b) ok(Math.abs(r.ahead - b.ahead) <= 0.05 * b.ahead && r.pass !== null && Math.abs(r.pass - b.pass) <= 0.05 * b.pass, `${id}: Turbo 3 at the floor lands as far ahead as 4f33648's, within 5 % (ahead ${r.ahead}, pass ${r.pass}; then ${b.ahead}, ${b.pass})`);
+      // (on a tower's face downtown: Nonstop's there paints 10, fewer on a wall is the producer's call, not the probe's: BUILT.md's open call)
+      if (r.pose === 'wa-floor' || r.pose === 'dt-floor' || r.pose === 'wa-300') ok(r.painted >= 20 && r.raisedTwo === 0, `${id}: 20 or more buildings, none raised two (${r.painted}, ${r.raisedTwo})`);
+    }
+    // (steering, the bus turns on through the flight and the line with it: the turn's rows are its glints' alone, as before)
+    if (!r.far && r.pose !== 'wa-turn') {
+      ok(!!r.impactScreen && r.impactScreen.above >= config.comet.above && r.impactScreen.clear, `${id}: at the impact ${config.comet.above * 100} % or more above the bus, clear of the HUD band (${JSON.stringify(r.impactScreen)})`);
+      ok(!!r.impactScreen && Math.abs(r.impactScreen.x - 0.5) <= 0.25, `${id}: straight ahead, its screen x within 0.25 of the middle at the impact (${r.impactScreen?.x})`);
+      ok(r.liftLo >= 0, `${id}: a low one, the view never dips (lift down to ${r.liftLo})`);
+    } else if (r.far) {
+      // (far: the view dips toward the hit, the bus held at config.shotView.busMax; from 5 km and under the hit at -0.25 or higher where no limit binds)
+      // (the dip's target holds the bus at busMax; eased, a steep dive at 30 fps carries it a little past: the page's bound, as controls-lob-high has it)
+      ok(r.busHi !== null && r.busHi <= 0.35, `${id}: the bus at +0.35 or lower every frame to ${config.shotView.hold} s after the hit (${r.busHi}; the dip's target ${config.shotView.busMax})`);
+      const bound = r.boundImp || r.busImp >= config.shotView.busMax - 0.02 || r.liftImp <= -(Math.min(config.shotView.swing, config.shotView.most) - 0.5);
+      if (r.tap.agl <= 5200 && !bound) ok(r.hitNdc !== null && r.hitNdc >= -0.25, `${id}: far, the hit at -0.25 or higher by the dipped view (${r.hitNdc})`);
+      ok(r.loaded, `${id}: far, on loaded ground (${r.loaded})`);
+    }
+    ok(r.radius !== null && Math.abs(r.radius - r.wantRadius) <= 1, `${id}: its radius blastRadiusFor(drop) (${r.radius} against ${r.wantRadius})`);
   }
-  if (isComet && r.pose === 'water-floor') ok(r.kind === 'comet' && r.cometMiss && r.refund >= config.splat.missRefund - 0.02 && r.refund < 0.9, `${r.key}@${r.fps}: over water a Comet's miss, with its refund (${r.kind}, miss ${r.cometMiss}, belly after ${r.refund})`);
-  if (isComet && r.pose === 'wa-dive45') ok(r.kind === 'comet' && r.ahead > 0 && !!r.impactScreen?.in, `${r.key}@${r.fps}: the dive's tap is a Comet, ahead and in frame (${r.kind}, ahead ${r.ahead}, ${JSON.stringify(r.impactScreen)})`);
+  if (isComet && r.pose === 'water-floor') ok(r.kind === 'comet' && r.cometMiss && r.refund >= config.splat.missRefund - 0.02 && r.refund < 0.9, `${id}: over water a Comet's miss, with its refund (${r.kind}, miss ${r.cometMiss}, belly after ${r.refund})`);
+  if (isComet && r.pose === 'wa-dive45') ok(r.kind === 'comet' && r.ahead > 0 && !!r.impactScreen?.in, `${id}: the dive's tap is a Comet, ahead and in frame (${r.kind}, ahead ${r.ahead}, ${JSON.stringify(r.impactScreen)})`);
   // (steering: what glints changes about once a stretch, 1 / (2 x config.comet.hold) a second, and where the margin moves it on as the bus comes up to it
   // a little more: today's aim's rate at these gears, 3.7-10, where the review of step 3, 3, had 16-26)
-  if (isComet && r.pose === 'wa-turn') ok(r.kind === 'comet' && r.glintsPerS !== null && r.glintsPerS <= 7, `${r.key}@${r.fps}: steering, a Comet, what glints changing 7 times a second or less (${r.kind}, ${r.glintsPerS})`);
-  // (the hills: its arc never into the ground, the review of step 3, 5)
-  if (isComet && (r.pose === 'glen-floor' || r.pose === 'bayview-floor')) ok(r.kind === 'comet' && r.underGround !== null && r.underGround <= 2, `${r.key}@${r.fps}: over the hills a Comet, its arc never 2 m or more into the ground (${r.kind}, ${r.underGround})`);
+  if (isComet && r.pose === 'wa-turn') ok(r.kind === 'comet' && r.glintsPerS !== null && r.glintsPerS <= 7, `${id}: steering, a Comet, what glints changing 7 times a second or less (${r.kind}, ${r.glintsPerS})`);
+  // (the hills: its arc never into the ground, the review of step 3, 5; and from high up, its plunge)
+  if (isComet && r.kind === 'comet' && (r.pose === 'glen-floor' || r.pose === 'bayview-floor' || r.far)) ok(r.underGround !== null && r.underGround <= 2, `${id}: its arc never 2 m or more into the ground (${r.underGround})`);
   // (the poses the baseline has: the turn and the hills came after it)
   // (a Lob's row, the body past config.lob.from, is the Lob's: s_shots.ts --lob gates it)
   if (base && r.kind !== 'comet' && r.kind !== 'lob' && basePoses.has(r.pose)) {
@@ -460,6 +598,5 @@ for (const r of rows) {
   }
 }
 if (!base) console.log('no baseline file: nothing gated');
-if (pending.length) console.log(`pending, an approved pick not built (${pending.length}):\n  ${pending.join('\n  ')}`);
 console.log(fails.length ? `FAILED ${fails.length} of ${checks}:\n  ${fails.join('\n  ')}` : `shots checks: all ${checks} passed`);
 process.exit(fails.length ? 1 : 0);

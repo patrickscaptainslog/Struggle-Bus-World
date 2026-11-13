@@ -1,21 +1,28 @@
 import * as THREE from 'three';
 import { config } from '../config';
 import { clamp } from './springs';
-import type { City, BuildingRef } from '../world/City';
+import { LOAD_RADIUS, type City, type BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
 import type { Shot } from './Aim';
 
 // The Comet (docs/specs/shots/SHOTS.md, "The modes"; BUILT.md, step 3): "when in turbo, i want the splats i shoot to go forward through the sky, in front
 // of the bus, and then hit a target thats visible to me as im still in turbo". A tap while a gear drives the bus at config.comet.speed or more (Nonstop
-// engaged, Jet, Turbo 1-3, on the street and on the Moon) flies ahead, config.comet.flight s after the inhale, and lands where the bus will be
-// config.comet.pass s after the impact: along the aim's flat way (the nose, turned by a look), as far as the bus flies by then with the breath's stall in
-// it, at most config.comet.reach (how far the city loads), and config.comet.side m off the bus's line, the side swapping with each Comet. Its arc climbs
-// through the sky, topping config.comet.arc of its chord, less where its top would leave the frame: it leaves, climbs past the skyline and drops beside
-// the bus. On the bus's own line, on a low arc, it read as a beam out of the bus with a mast standing on it (the outside look of step 3).
+// engaged, Jet, Turbo 1-3, on the street and on the Moon) flies ahead and lands where the bus will be config.comet.pass s after the impact: along the
+// aim's flat way (the nose, turned by a look), as far as the bus flies by then with the breath's stall in it, on the bus's own line. "I want this shot to
+// soar essentially directly in front of me, even when I'm traveling very fast" (the producer, 2026-11-12, after flying it land 34 m to a side). It reaches
+// at least config.comet.reach, and up high farther, to where the city is loaded (shotReach). Its flight is as long as the reach allows, config.comet.flightMin
+// to config.comet.flight s after the inhale: a longer one costs nothing where the reach doesn't bind (the landing and the lens moved on both go out by the
+// bus's travel), and keeps the star up ahead of the bus. Its arc climbs through the sky, topping config.comet.arc of its chord, less where its top would
+// leave the frame, and bows config.comet.bow of its chord to one side at its middle, the side swapping with each Comet: on the bus's own line, on a low
+// arc, it read as a beam out of the bus with a mast standing on it (the outside look of step 3), and from behind an arc in the plane through the lens
+// draws as a straight line however high it climbs. The bow is drawn alone (src/fx/CometFx.ts): it leaves the mouth and lands on the line.
 //
 // In view: by this frame's lens moved on by the bus's travel to the impact, it must land at least config.comet.above of the height over the bus. High
-// up, where it doesn't, it moves out along its line; where it never does by the reach, the tap is the classic shot (from a km or so over the ground).
+// up, where it doesn't, it moves out along its line; where it never does by the reach, it's the far Comet: it lands at the reach, on the loaded edge (the
+// highest in the frame any landing can be), in a dive where the nose's line meets the ground, with no in-view rule, and the view dips after it (main.ts,
+// config.shotView). It is never the classic shot just because the bus is fast or high: only where nothing along its line is loaded, and a captain's
+// (no lens), Recess's (its fence) and the Moon's never go far.
 // The ground standing between the lens and it (a ridge) takes it on the ridge, where it's seen, when that's still far enough ahead.
 //
 // What glints holds: the landing is the middle of a stretch of its way 2 x config.comet.hold s of the bus's travel long, counted along the bus's own
@@ -28,8 +35,8 @@ import type { Shot } from './Aim';
 // standing into it (a hillside) is lobbed over too, and where even the highest arc doesn't clear it, it lands on the hillside.
 //
 // Its blast is a tap's (Splatter.barf: blastRadiusFor(drop), life.blast with the whole circle, one level a building), with no ribbon from the mouth
-// (the streak is the jet: src/fx/CometFx.ts) and no hit-stop that far off. This file picks the tap's shot in one place (chooseShot): the Comet's, or the
-// Lob's (src/game/Lob.ts) where that lands farther, every frame and at the tap.
+// (the streak is the jet: src/fx/CometFx.ts) and no hit-stop that far off. This file picks the tap's shot in one place (chooseShot): the Lob's
+// (src/game/Lob.ts) whenever a nose-up tap has one, else the Comet's, every frame and at the tap. And how far a far shot reaches (shotReach).
 //
 // For the second account: Recess sets `clamp` to keep a match's Comet inside its fence (told the kind: a Lob asks it too); a captain's Comet is its own Comet, `track`ed every frame and
 // `plan`ned with its own flight (lens null). HOOKS.md has both, and that a Comet takes the place of the aim's mover.
@@ -69,6 +76,10 @@ export interface CometPlan {
   /** a Lob's (Lob.plan), and the angle it leaves the mouth at (rad); a Comet's has neither */
   kind?: ShotKind;
   angle?: number;
+  /** a far shot's: from high up, where nothing in view could take it, it lands out at shotReach, no in-view rule (the view dips after it: main.ts) */
+  far?: boolean;
+  /** a Comet's bow: how far its star stands to the bus's right at its flight's middle, a share of its chord (-: its left; CometFx.ts's cometAt) */
+  bow?: number;
 }
 
 /** A Comet now: a gear drives the bus at config.comet.speed or more. */
@@ -77,14 +88,41 @@ export function cometOn(f: Flight): boolean {
 }
 
 /**
- * The tap's shot, in one place (Aimer.update every frame, so what glints is what a tap fires): the Lob's when it applies, the Comet's when it does, and when
- * both do the farther landing wins (SHOTS.md, "How they fit together"); else the aim's. The Lob weighs only the Comet: against today's shot, which from about
- * 450 m up lands farther than a Lob would, it always wins.
+ * The tap's shot, in one place (Aimer.update every frame, so what glints is what a tap fires): the Lob's whenever one is planned, in every gear, then the
+ * Comet's, else the aim's: the gesture chooses the shot (config.lob.wins, the producer's call; BUILT.md, "The Lob from any height"). From high up both land
+ * near the loaded edge, and the farther of two landings a player can't tell apart picked between them. With config.lob.wins false, when both apply the
+ * farther wins, as before (SHOTS.md, "How they fit together"). The Lob weighs only the Comet: against today's shot it always wins.
  */
 export function chooseShot<A, T extends { x: number; z: number }>(f: Flight, aim: A, comet: T | null, lob: T | null): A | T {
   if (!lob) return comet ?? aim;
-  if (!comet) return lob;
+  if (!comet || config.lob.wins) return lob;
   return far(f, lob) > far(f, comet) ? lob : comet;
+}
+
+/**
+ * How far a shot may reach along (fx, fz) from the bus (m): config.comet.reach, and up high out to where the city is loaded. City.request loads every
+ * region within LOAD_RADIUS, widening to config.city.loadRadiusHigh with the height, of a point 950 m ahead with the height (main.ts's stream centre):
+ * along the way to that circle's edge, less config.comet.loadMargin, about 1,400 m at the floor, 2,260 m at 300 m, 2,750 m from 450 m up. Then marched
+ * back a stretch (config.lob.stretch) at a time to the last loaded ground: the regions come nearest first, and the leading edge, where far shots land,
+ * last. 0: nothing loaded along the line. On the Moon (its loading isn't this circle) and for a captain's (`captain`: the city loads round the player's
+ * bus), config.comet.reach.
+ */
+export function shotReach(city: City, f: Flight, fx: number, fz: number, captain = false): number {
+  const C = config.comet;
+  if (captain || city.isMoon) return C.reach;
+  const hkS = clamp(f.lift / 450, 0, 1), hkC = clamp((f.lift - 40) / 460, 0, 1);
+  const R = LOAD_RADIUS + (config.city.loadRadiusHigh - LOAD_RADIUS) * hkC;
+  // (the circle round the stream centre, cx cz from the bus, met along the way: s^2 - 2 s (u . c) + |c|^2 - R^2 = 0)
+  const cx = f.fx * 950 * hkS, cz = f.fz * 950 * hkS, uc = fx * cx + fz * cz, q = uc * uc - (cx * cx + cz * cz - R * R);
+  const circle = q > 0 ? uc + Math.sqrt(q) - C.loadMargin : 0;
+  const Ls = config.lob.stretch;
+  for (let d = Math.max(C.reach, circle); d > 0; d -= Ls) if (city.terrainAt(f.x + fx * d, f.z + fz * d) !== null) return d;
+  return 0;
+}
+
+/** The middle of stretch j (m along the way from the bus), stretches of `size` m counted on the odometer `odo`: a function, not a closure made a frame. */
+export function stretchMid(j: number, size: number, odo: number): number {
+  return (j + 0.5) * size - odo;
 }
 
 /** How far a landing is from the bus over the ground (m). */
@@ -94,6 +132,7 @@ function far(f: Flight, s: { x: number; z: number }): number {
 
 const STEP = 1 / 60;
 const SPAN = 4;
+const DEG = Math.PI / 180;
 
 export class Comet {
   /** The lens the player sees (main.ts: the render camera, as last drawn; the probe its own). Null: no in-view rule (a captain's). */
@@ -120,6 +159,8 @@ export class Comet {
   private heldY = 0;
   private heldZ = 0;
   private heldT: BuildingRef | null = null;
+  /** ...and it's the far one's (no in-view rule: plan) */
+  private heldFar = false;
   private latchUntil = -1;
   /** what the last shotOf changed, for unshot: the side, and the held landing it dropped */
   private wasSide = 1;
@@ -179,8 +220,8 @@ export class Comet {
     return this.table[i0] + (this.table[i1] - this.table[i0]) * (i - i0) + (t > SPAN ? (t - SPAN) * v : 0);
   }
 
-  /** The time the bus takes from the tap to fly d m (s), by the same table. */
-  private timeTo(v: number, d: number): number {
+  /** The time the bus takes from the tap to fly d m (s), by the same table (the far Lob's flight is cut by it: Lob.ts). */
+  timeTo(v: number, d: number): number {
     if (Math.abs(v - this.tableV) > 0.5) this.fill(v);
     const tb = this.table, n = tb.length;
     if (d >= tb[n - 1]) return SPAN + (d - tb[n - 1]) / Math.max(1, v);
@@ -236,91 +277,146 @@ export class Comet {
 
   /** No Comet now: nothing held. */
   private none(): null {
-    this.heldOk = false;
+    this.heldOk = this.heldFar = false;
     this.latchUntil = -1;
     return null;
   }
 
   /**
-   * The Comet a tap fires now, or null (not fast enough, or nothing in view within the reach: the classic shot). fx, fz: the flat way it flies (the
-   * aim's: the nose turned by a look). t: game time (the latch's clock).
+   * The Comet a tap fires now, or null (not fast enough, or nothing loaded along its line: the classic shot). fx, fz: the flat way it flies (the aim's: the
+   * nose turned by a look). t: game time (the latch's clock).
    */
   plan(f: Flight, fx: number, fz: number, out: CometPlan, t = 0): CometPlan | null {
     if (!cometOn(f)) return this.none();
     const C = config.comet, S = config.splat, city = this.city;
     const v = Math.max(1, f.ground);
-    const tImp = S.inhale + C.flight;
-    const atImp = this.flown(v, tImp), launch = this.flown(v, S.inhale);
-    // (the lens moved on by the bus's travel to the impact: the same as moving the landing back by it. A climb is in it, a descent isn't: a gear's floor
-    // levels the bus out, and a descent carried on put the landing higher on the screen than it came down. The review of step 3, 6)
-    this.ox = fx * atImp;
-    this.oz = fz * atImp;
-    this.oy = Math.max(0, f.vy) * tImp;
-    this.busY = this.lens ? this.ndcY(f.x, f.y, f.z) : 0;
-    let d = Math.min(this.flown(v, tImp + C.pass), C.reach);
+    // (the reach: at least config.comet.reach, up high to where the city is loaded (shotReach, marched back to loaded ground: `edge`, 0 with none along
+    // the line). A low one keeps config.comet.reach where less is loaded: off Fort Mason the tiles end at the shore, 280 m out, and over the water it's a
+    // miss with its refund, as before; a far one lands only on the loaded edge. A captain's (no lens) and Recess's (its fence) keep config.comet.reach and
+    // never go far: HOOKS.md)
+    const own = !!this.lens && !this.clamp;
+    const edge = shotReach(city, f, fx, fz, !own), reach = Math.max(C.reach, edge);
+    // (its flight: as long as the reach allows, so it still lands `pass` s ahead of the bus, flightMin to flight)
+    let flight = clamp(this.timeTo(v, reach) - C.pass - S.inhale, C.flightMin, C.flight);
+    let tImp = S.inhale + flight;
+    let atImp = this.flown(v, tImp);
+    const launch = this.flown(v, S.inhale);
+    this.lensOn(f, fx, fz, atImp, tImp);
+    // (in a dive it goes where the nose points, "aim with the bus": at least as far as the nose's line meets the ground)
+    const dNose = f.nose < -config.lob.levelSlack * DEG ? (f.y - city.groundAt(f.x, f.z)) / Math.max(1e-3, Math.tan(-f.nose)) : -1;
+    let d = Math.min(this.flown(v, tImp + C.pass), reach);
+    if (dNose > 0) d = Math.min(reach, Math.max(d, dNose));
+    let far = false;
     while (this.showsAlong(f, fx, fz, d) < C.above) {
       d += C.outStep;
-      if (d > C.reach) return this.none();
+      if (d > reach) {
+        far = true;
+        break;
+      }
     }
     // (the stretch: counted along the bus's travel, the nearest middle, short of the reach. Its length is the gear's, not the speed it has now, which a
     // dive, a climb or the breath's stall moves, and with it every middle: 30 and 60 fps landed 39 m apart in a dive)
     const Ls = Math.max(24, 2 * C.hold * f.turbo.speed);
-    let k = Math.round((this.odo + d) / Ls - 0.5);
-    if ((k + 0.5) * Ls - this.odo > C.reach) k--;
     // held while the nearest middle hasn't passed its stretch and it shows; latched, while it's ahead of the bus at the impact and on the screen
     const latched = this.heldOk && t < this.latchUntil;
-    let keep = false;
-    if (this.heldOk && (latched || this.heldK >= k)) {
-      const sh = this.showsAt(this.heldX, this.heldY, this.heldZ);
-      keep = latched ? sh > 0 && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp : sh >= C.above;
-      // (a nearer stretch that shows now is a fresh plan's: a dive or a climb draws the reach in, and the farther one held put 30 and 60 fps a stretch apart)
-      if (keep && !latched) for (let j = k; j < this.heldK; j++) if (this.showsAlong(f, fx, fz, (j + 0.5) * Ls - this.odo) >= C.above) keep = false;
-    }
-    if (!keep) {
-      // (the one held, while it's on the screen over the bus and ahead of it at the impact: where nothing nearer the reach shows, it stays, where the
-      // classic shot under the bus for a frame was a flicker at Turbo 3)
-      const hx = this.heldX, hy = this.heldY, hz = this.heldZ, ht = this.heldT, hk = this.heldK;
-      const had = this.heldOk && this.showsAt(hx, hy, hz) > 0 && (hx - f.x) * fx + (hz - f.z) * fz > atImp;
-      // (the nearest middle whose landing shows, never past the reach: by where it comes down, its side and what it's on, where the line's point the
-      // reach was found by stood on what the far grid has there, 20 m over the water off Fort Mason. The review of step 3, 6)
-      let dc = (k + 0.5) * Ls - this.odo, found = false;
-      for (; dc <= C.reach; dc += Ls, k++) {
-        if (this.showsAlong(f, fx, fz, dc) < C.above) continue;
-        if (!this.land(f, fx, fz, dc, v, tImp)) return this.none();
-        if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= C.above) {
-          found = true;
-          break;
-        }
+    if (!far) {
+      let k = Math.round((this.odo + d) / Ls - 0.5);
+      if ((k + 0.5) * Ls - this.odo > reach) k--;
+      let keep = false;
+      if (this.heldOk && !this.heldFar && (latched || this.heldK >= k)) {
+        const sh = this.showsAt(this.heldX, this.heldY, this.heldZ);
+        keep = latched ? sh > 0 && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp : sh >= C.above;
+        // (a nearer stretch that shows now is a fresh plan's: a dive or a climb draws the reach in, and the farther one held put 30 and 60 fps a stretch apart.
+        // By `aboveNew`: steering, a nearer line's point at the margin and the stretch held took turns frame by frame, what glints changing 8-10 times a
+        // second at Jet)
+        if (keep && !latched) for (let j = k; j < this.heldK; j++) if (this.showsAlong(f, fx, fz, (j + 0.5) * Ls - this.odo) >= C.aboveNew) keep = false;
       }
-      if (found) {
+      if (!keep) {
+        // (the one held, while it's on the screen over the bus and ahead of it at the impact: where nothing nearer the reach shows, it stays, where the
+        // classic shot under the bus for a frame was a flicker at Turbo 3)
+        const hx = this.heldX, hy = this.heldY, hz = this.heldZ, ht = this.heldT, hk = this.heldK;
+        const had = this.heldOk && !this.heldFar && this.showsAt(hx, hy, hz) > 0 && (hx - f.x) * fx + (hz - f.z) * fz > atImp;
+        // (the nearest middle whose landing shows, never past the reach: by where it comes down and what it's on, where the line's point the reach was
+        // found by stood on what the far grid has there, 20 m over the water off Fort Mason. The review of step 3, 6)
+        let dc = (k + 0.5) * Ls - this.odo, found = false;
+        for (; dc <= reach; dc += Ls, k++) {
+          if (this.showsAlong(f, fx, fz, dc) < C.above) continue;
+          if (!this.land(f, fx, fz, dc, v, tImp)) return this.none();
+          if (this.showsAt(this.heldX, this.heldY, this.heldZ) >= C.above) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          this.heldK = k;
+          this.heldFar = false;
+          this.latchUntil = -1;
+        } else if (had) {
+          this.heldOk = true;
+          this.heldX = hx;
+          this.heldY = hy;
+          this.heldZ = hz;
+          this.heldT = ht;
+          this.heldK = hk;
+        } else far = true;
+      }
+    }
+    // the far Comet: nothing in view within the reach takes it (from high up nothing that can take paint shows over the bus). It lands at the reach, on the
+    // loaded edge, the highest in the frame any landing can be (where the nose's line meets the ground, in a dive), and the view dips after it (main.ts)
+    let travel = flight, tHit = tImp, atHit = atImp;
+    if (far) {
+      if (!own || city.isMoon || edge <= 0) return this.none();
+      const gd = city.groundAt(f.x + fx * edge, f.z + fz * edge);
+      travel = Math.min(C.flightHigh, flight + (C.fallPerKm * Math.max(0, f.y - gd - 1000)) / 1000);
+      tHit = S.inhale + travel;
+      atHit = this.flown(v, tHit);
+      this.lensOn(f, fx, fz, atHit, tHit);
+      const dFar = dNose > 0 ? Math.min(edge, dNose) : edge, odo = this.odo;
+      let k = Math.floor((this.odo + dFar) / Ls - 0.5);
+      while (stretchMid(k, Ls, odo) <= atHit) k++;
+      if (stretchMid(k, Ls, odo) > edge) return this.none();
+      // (held for its stretch, or latched while it's still inside the reach and ahead of the bus at the impact)
+      const ha = (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz;
+      const keep = this.heldOk && this.heldFar && (latched || this.heldK === k) && ha > atHit && ha <= edge;
+      if (!keep) {
+        if (!this.land(f, fx, fz, stretchMid(k, Ls, odo), v, tHit)) return this.none();
         this.heldK = k;
+        this.heldFar = true;
         this.latchUntil = -1;
-      } else if (had) {
-        this.heldOk = true;
-        this.heldX = hx;
-        this.heldY = hy;
-        this.heldZ = hz;
-        this.heldT = ht;
-        this.heldK = hk;
-      } else return this.none();
+      }
+    }
+    // (where the reach cut the flight, the stretch's middle sits up to a stretch short of the reach: 216 m at Turbo 3, and downtown's floor, 225 m up, has
+    // a reach of 1,945 m. Its flight is then as long as still lands `pass` s ahead of where it comes down, so at Turbo 3 at the floor it's no nearer the bus
+    // at the impact than flightMin's, as before: it flew 0.69 s there and landed 7 % nearer)
+    if (!far && flight < C.flight) {
+      const cut = clamp(this.timeTo(v, (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz) - C.pass - S.inhale, C.flightMin, flight);
+      if (cut < flight) {
+        travel = flight = cut;
+        tHit = tImp = S.inhale + flight;
+        atHit = atImp = this.flown(v, tImp);
+        this.lensOn(f, fx, fz, atImp, tImp);
+      }
     }
     let x = this.heldX, y = this.heldY, z = this.heldZ;
     let target = this.heldT;
     // the arc from the mouth, its top in frame: a building standing into it takes it on its face, one too near the bus at the impact is lobbed over; the
-    // ground standing into it is lobbed over, and where the top arc doesn't clear it either, it lands on the hillside
+    // ground standing into it is lobbed over, and where the top arc doesn't clear it either, it lands on the hillside. A far one's arc leaves the mouth at
+    // the nose's angle (the Lob's parabola) and takes whatever stands into it, marched finer near the ground: on a plunge from 15 km an 8 m step along
+    // the ground is about 95 m of height
     const x0 = f.x + fx * launch, z0 = f.z + fz * launch, y0 = f.y + f.vy * S.inhale;
     const L = Math.hypot(x - x0, z - z0), chord = Math.hypot(L, y - y0);
     const sMin = this.flown(v, tImp + C.wallAhead) - launch;
-    let kArc = this.arcTop(f, fx, fz, v, x0, y0, z0, x, y, z, chord);
-    let wall: BuildingRef | null = null, hill = false, ws = 0;
+    let kArc = far ? Math.max((L * Math.tan(Math.max(f.nose, -80 * DEG)) + y0 - y) / 4, C.arcMin * chord) / Math.max(1, chord) : this.arcTop(f, fx, fz, v, flight, x0, y0, z0, x, y, z, chord);
+    let wall: BuildingRef | null = null, hill = false, ws = 0, wstep = 8;
     for (let tries = 0; tries < 3 && L > 16; tries++) {
       let need = kArc;
-      const last = tries === 2 || kArc >= C.arcMax;
-      for (let s = 8; s < L - S.wallSkip; s += 8) {
+      const last = far || tries === 2 || kArc >= C.arcMax;
+      for (let s = 8, ds = 8; s < L - S.wallSkip; s += ds) {
         const u = s / L, bump = chord * 4 * u * (1 - u);
         const cy = y0 + (y - y0) * u, ay = cy + kArc * bump;
         const px = x0 + (x - x0) * u, pz = z0 + (z - z0) * u;
-        const gy = city.groundAt(px, pz);
+        const gy = city.groundAt(px, pz), step = ds;
+        if (far) ds = ay - gy > config.lob.marchFine ? 8 : Math.max(0.5, Math.min(8, (8 * L) / Math.max(1e-6, Math.abs(y - y0 + kArc * chord * 4 * (1 - 2 * u)))));
         if (ay < gy + S.wallClear) {
           if (!last) {
             need = Math.max(need, (gy + S.wallClear + 2 - cy) / Math.max(1, bump));
@@ -328,6 +424,7 @@ export class Comet {
           }
           hill = true;
           ws = s;
+          wstep = step;
           break;
         }
         const ref = city.buildingAbove(px, pz, ay + S.wallClear, ay);
@@ -338,6 +435,7 @@ export class Comet {
         }
         wall = ref;
         ws = s;
+        wstep = step;
         break;
       }
       if (wall || hill || need <= kArc + 1e-4) break;
@@ -346,7 +444,7 @@ export class Comet {
     if (wall || hill) {
       // on its face (the wall's, the hillside's), just outside it, where the arc meets it
       const ux = (x - x0) / L, uz = (z - z0) / L;
-      let lo = ws - 8, hi = ws;
+      let lo = ws - wstep, hi = ws;
       for (let i = 0; i < 5; i++) {
         const m = (lo + hi) * 0.5, mx = x0 + ux * m, mz = z0 + uz * m, u = m / L;
         const into = wall ? city.contains(wall, mx, mz) : y0 + (y - y0) * u + kArc * chord * 4 * u * (1 - u) < city.groundAt(mx, mz) + S.wallClear;
@@ -369,20 +467,32 @@ export class Comet {
     out.target = target;
     out.wall = !!wall;
     out.arc = kArc * chord;
-    out.travel = C.flight;
+    out.travel = travel;
     out.drop = Math.max(0, f.y - y);
     out.reach = Math.hypot(x - f.x, z - f.z);
-    out.ahead = along - atImp;
-    out.pass = this.timeTo(v, along) - tImp;
+    out.ahead = along - atHit;
+    out.pass = this.timeTo(v, along) - tHit;
     out.speed = v;
     out.loaded = city.terrainAt(x, z) !== null;
     out.above = this.showsAt(x, y, z);
+    out.bow = C.bow * this.side;
+    out.far = far;
     return out;
   }
 
+  /** This plan's lens moved on by the bus's travel to the impact (atImp m, tImp s on), and the bus on it. A climb is in it, a descent isn't: a gear's floor
+   *  levels the bus out, and a descent carried on put the landing higher on the screen than it came down (the review of step 3, 6). */
+  private lensOn(f: Flight, fx: number, fz: number, atImp: number, tImp: number): void {
+    this.ox = fx * atImp;
+    this.oz = fz * atImp;
+    this.oy = Math.max(0, f.vy) * tImp;
+    this.busY = this.lens ? this.ndcY(f.x, f.y, f.z) : 0;
+  }
+
   /**
-   * The landing for the stretch whose middle is dc m along the way, held: config.comet.side m off the line on this Comet's side, on a building near there
-   * (or the other side's, or the line's); the ground hiding it from the lens takes it on the ridge. False: Recess's clamp says no.
+   * The landing for the stretch whose middle is dc m along the way, held: on the bus's line (config.comet.side m off it, the old way, on this Comet's
+   * side), on the building whose landing is within config.comet.sidePick of there (with none, the ground there); the ground hiding it from the lens takes
+   * it on the ridge. False: Recess's clamp says no.
    */
   private land(f: Flight, fx: number, fz: number, dc: number, v: number, tImp: number): boolean {
     const C = config.comet, city = this.city;
@@ -394,19 +504,18 @@ export class Comet {
       lx = this.pt.x;
       lz = this.pt.z;
     }
-    // (this side's, the other's, the line's own: a building within config.comet.sidePick whose landing, as Splatter.barf lands on it (a house's middle),
-    // is inside the drops' reach of the line; with none, the ground on this side, which glints nothing, as a tap into a park)
-    const sx = -fz * C.side * this.side, sz = fx * C.side * this.side;
-    let target: BuildingRef | null = null, x = lx + sx, z = lz + sz, y = 0;
-    for (let i = 0; i < 3 && !target; i++) {
-      const s = i === 0 ? 1 : i === 1 ? -1 : 0, ax = lx + sx * s, az = lz + sz * s;
-      const r = this.splatter.pick(ax, az, C.sidePick, f.y);
-      if (!r) continue;
-      y = this.on(r, ax, az, f.y);
-      if (Math.abs((this.landPt.x - f.x) * fz - (this.landPt.z - f.z) * fx) > C.lensReach - 4) continue;
-      target = r;
-      x = this.landPt.x;
-      z = this.landPt.z;
+    // (one pick: a building near the point whose landing, as Splatter.barf lands on it (a house's middle), is within sidePick of the line, inset as a tap's
+    // is; with none, the ground on the line, which glints nothing, as a tap into a park)
+    const so = C.side * this.side, x1 = lx - fz * so, z1 = lz + fx * so;
+    let target: BuildingRef | null = null, x = x1, z = z1, y = 0;
+    const r = this.splatter.pick(x1, z1, C.sidePick, f.y);
+    if (r) {
+      y = this.on(r, x1, z1, f.y);
+      if (Math.abs((this.landPt.x - f.x) * fz - (this.landPt.z - f.z) * fx + so) <= C.sidePick + config.splat.landInset) {
+        target = r;
+        x = this.landPt.x;
+        z = this.landPt.z;
+      }
     }
     if (!target) y = this.city.groundAt(x, z);
     // (the ground standing over the lens's line to it by more than config.comet.hide m, a ridge between: it lands on a building on the ridge, where it's
@@ -441,6 +550,8 @@ export class Comet {
     this.heldY = y;
     this.heldZ = z;
     this.heldT = target;
+    // (a low one's, until the far plan says it's its own)
+    this.heldFar = false;
     return true;
   }
 
@@ -452,10 +563,10 @@ export class Comet {
   }
 
   /** Its arc's top over its chord: config.comet.arc, less where the top would leave the frame by the lens moved on to its flight's middle, to config.comet.arcMin. */
-  private arcTop(f: Flight, fx: number, fz: number, v: number, x0: number, y0: number, z0: number, x: number, y: number, z: number, chord: number): number {
+  private arcTop(f: Flight, fx: number, fz: number, v: number, flight: number, x0: number, y0: number, z0: number, x: number, y: number, z: number, chord: number): number {
     const C = config.comet, S = config.splat;
     if (!this.lens) return C.arc;
-    const tm = S.inhale + C.flight * 0.5, at = this.flown(v, tm);
+    const tm = S.inhale + flight * 0.5, at = this.flown(v, tm);
     const mx = (x0 + x) * 0.5 - fx * at, mz = (z0 + z) * 0.5 - fz * at, my = (y0 + y) * 0.5 - Math.max(0, f.vy) * tm;
     let k = C.arc;
     while (k > C.arcMin && this.ndcY(mx, my + k * chord, mz) > C.apexTop) k = Math.max(C.arcMin, k - 0.02);
