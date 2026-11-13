@@ -1210,7 +1210,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (hold to aim, SHOTS.md: the street's; the Moon has no Hose yet, so a still finger off the lane rests there as it always did)
   input.aimOn = !moon;
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
-  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false };
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false, swipeOn: false };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
@@ -1671,8 +1671,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   warm.addSources();
   warm.add(scene);
   exposeQA();
-  /** ?moonland: what the thumb does down here, until it is down here. */
-  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
+  /** ?moonland: what the thumb does down here, until it is down here. (?swerve's long swipe is the low game's: off while the flight has the thumb) */
+  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
   // (and ?earth&resume: the flight has the bus while the street boots behind it)
   if (land || resumed) {
     Object.assign(input, flightHands);
@@ -2428,7 +2428,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     earthBooting = true;
     if (resumed) skyHands = resumed.hands;
     // (the street's own: on ?earth&resume the flight's are on the thumb by now, so they're the ones kept from before it. The first account's review, 2026-11-04: the street took the flight's for good)
-    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
+    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
       // (?life: the movers the flight's loop draws while it has the bus, CONTRACT.md O4)
@@ -2470,6 +2470,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         if (skyHands) Object.assign(input, skyHands);
         // (the flight has no Hose: a still finger off its lane rests there, as it always did)
         input.aimOn = false;
+        // (nor ?swerve's long swipe: a long stroke down there is a look, and its flick a gear, never the street's brake)
+        input.swipeOn = false;
         // (the flight's thumb looks wherever it lands off the bus's lane: the street's gate is the street's)
         input.lookOff = false;
         // (and the street's sky writes no table onto the flight's while it has the frame)
