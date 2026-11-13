@@ -2223,6 +2223,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift, 0, fly);
       rig.skyLiftRate = config.shotView.rate;
       rig.skyDipMost = config.shotView.most;
+      // (?swerve: a landing a quick turn or a hard one has left behind the lens or past the frame's side, as lobUpDeg put it in the lens's space, is looked away
+      // from: the dip eases back from the next frame. It read as far down, and pitched the view 23 degrees down at nothing for 1 to 1.5 s, the far shots'
+      // review F3. Off the handling a plain turn is as it was)
+      if (flight.swerve.on && (shotSeen.z >= 0 || Math.abs(Math.atan2(shotSeen.x, -shotSeen.z)) > THREE.MathUtils.degToRad(rig.hfov / 2 + 5))) farLooked = farN;
     } else if (cometFx.lobFrame(simTime, lobSeen)) {
       const star = lobUpDeg(lobSeen), busUp = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
       // (the live sky's lift is set afresh each frame above; without it the target is this frame's alone, or it held the star's highest until the hit)
