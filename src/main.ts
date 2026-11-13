@@ -17,6 +17,7 @@ import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
+import { clearReturn, flushReturn, noteReturn, notesReturn, OPENING_SEEN_KEY } from './game/Return';
 import { ownerOf } from './game/factions';
 import { arrival, blastRadiusFor, blobFlight, groundDeadline, LAYOUT_BANDS, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
@@ -63,7 +64,7 @@ import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
 import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
-import { hoodStart, liftOn, pickHood } from './world/liftGlsl';
+import { hoodStart, liftedOn, liftOn, pickHood } from './world/liftGlsl';
 import { loadHoods, type HoodsRef, type HoodsTable } from './world/hoods';
 import type { Lift } from './world/Lift';
 
@@ -73,8 +74,6 @@ type Manifest = CityManifest & { regions: Array<[number, number, number]>; regio
 /** What the street sign says when a landmark is hit. */
 const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica', ggb: 'Golden Gate Bridge', baybridge: 'Bay Bridge' };
 
-/** The opening was seen through once on this device: a tap skips it from then on. */
-const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
 /** The opening's low shot holds while the bus is nearer the Golden Gate's gap than this along its heading (m), with nobody steering or near the bridge, and comes back for a bus pointing back there. */
 const OPENING_LOW_ALONG = 180;
 
@@ -858,8 +857,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
   // the hill) may hide any of the blade either: no sign beats half a blade.
   const pendingSigns: Array<{ ref: BuildingRef | null; text: string; from: string; hue: number; cx: number; cz: number; r: number; at: number; tries: number; plain?: boolean }> = [];
-  /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). */
-  const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number) => {
+  /** the bus's pose as it breathed its last shot (breatheNow): a return visit starts from it (game/Return.ts) */
+  const breathPose = { x: 0, y: 0, z: 0, heading: 0 };
+  let breathed = false;
+  /** paint here is the saved city's, so where it lands is kept for the next visit: not the Moon, not a city that saves none, not the Lift's staged paint, not recess or swerve */
+  const keepsReturn = !moon && city.paint.saves && !liftedOn && notesReturn(params);
+  // (the record goes out only after a save of the paint it points at went through: the paint's own debounce, pagehide and a hidden page)
+  if (keepsReturn) city.paint.afterSave = () => void flushReturn();
+  /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). bus: where the shot left from */
+  const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number, bus: { x: number; y: number; z: number; heading: number } | null = breathed ? breathPose : null) => {
+    // (where you last painted: a building's, by the pose the shot left from. A landmark's id isn't a building's, and keeps the record it had)
+    if (ref && bus && keepsReturn && ref.stableId >= 0) noteReturn(manifest.slug, manifest.origin, bus, { x: cx, z: cz }, ref.stableId);
     // (?moon: what names a place is the map of the Moon, and a named crater painted says so)
     const [text, from] = moon ? [moon.paint.signFor(cx, cz), 'place'] : signName(ref, cx, cz, lastBlast.open);
     pendingSigns.push({ ref, text: text.toUpperCase(), from, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
@@ -1159,6 +1167,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (name === 'close') audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
   };
   tuner.onResetPaint = () => {
+    clearReturn(manifest.slug);
     city.paint.resetAll();
     city.ground.resetAll();
     moon?.paint.reset();
@@ -1201,6 +1210,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const tgt = shot.target;
     const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius, comet: shot.comet ? { ...shot.comet, target: tgt ? tgt.index : null } : null };
+    breathPose.x = flight.x;
+    breathPose.y = flight.y;
+    breathPose.z = flight.z;
+    breathPose.heading = flight.heading;
+    breathed = true;
     const hue = splatter.hueNext;
     const landsAt = breathe(shot, mega);
     // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast. A Bomb's at Comet range plays the full show, every time)
@@ -1328,7 +1342,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       flashPos.copy(at).project(camera);
       pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, frames, strength);
     },
-    sign: queueSign,
+    // (the Hose has no breath: its stream is short, the bus near, so the flight's pose as the sign is queued)
+    sign: (ref, hue, cx, cz, r) => queueSign(ref, hue, cx, cz, r, flight),
   });
   holds.add(hose, { last: true });
   input.onAimStart = () => {

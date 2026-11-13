@@ -119,6 +119,19 @@ export class PaintState {
   /** the buildings' localStorage key (null: the id scheme is unknown, no building paint is read or written; landmarks keep theirs) */
   private readonly key: string | null;
   readonly scheme: IdScheme | null;
+  /** after each save that went through (main.ts: the return record waits for it, game/Return.ts) */
+  afterSave: (() => void) | null = null;
+
+  /** this city's building paint is saved (its id scheme is known) */
+  get saves(): boolean {
+    return this.key !== null;
+  }
+
+  /** the store holds paint for this stable id (a landmark's: its 'lm:' key) at a level over 0 */
+  hasSaved(id: number | string): boolean {
+    const s = typeof id === 'string' ? this.savedLm[id] : this.saved[id];
+    return !!s && s[2] > 0;
+  }
 
   /** `city`: city.json (its slug + "ids"), or just the slug; `scheme` overrides (see resolveIdScheme). */
   constructor(buildingCount: number, city: string | CityData = 'sf', scheme?: IdScheme) {
@@ -290,12 +303,16 @@ export class PaintState {
     if (!uploadRect(renderer, this.texture, x0, y0, x1 - x0 + 1, y1 - y0 + 1, gl.RGBA, gl.FLOAT, 4)) this.texture.needsUpdate = true;
   }
 
-  persist() {
+  /** true when every write went through (then afterSave runs) */
+  persist(): boolean {
     try {
       if (this.key) localStorage.setItem(this.key, JSON.stringify(this.saved));
       localStorage.setItem(this.lmStore, JSON.stringify(this.savedLm));
     } catch {
       /* storage full or blocked: paint still works this session */
+      return false;
     }
+    this.afterSave?.();
+    return true;
   }
 }
