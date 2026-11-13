@@ -93,8 +93,10 @@ export interface InputState {
   finger: { x: number; y: number } | null;
   /** Seconds the splat press has been held, while it charges the super splat (from the press; 0 when not charging). */
   chargeHeld: number;
-  /** The look: `on` while a second thumb (or the right mouse) has the view; x, y = its offset from where it landed, CSS px, +x right, +y UP. 0, 0 when off. */
-  look: { on: boolean; x: number; y: number };
+  /** The look: `on` while a second thumb (or the right mouse) has the view; x, y = its offset from where it landed, CSS px, +x right, +y UP. 0, 0 when off.
+   *  swipe: ?swerve's long swipe, the looking stroke may still be one (it landed at the top of the glass and has neither fired nor died): a far shot's dip
+   *  holds through it (main.ts), or the swipe's first frames of look let the dip go and from 5 km up the hit landed under the frame */
+  look: { on: boolean; x: number; y: number; swipe?: boolean };
   /** Hold to aim: `on` while a finger that landed off the lane and held still for inputTune.aimHoldMs is down. x, y = where it is now, x0, y0 = where it
    *  landed (CSS px of the input element); t0 = its landing, at = when it became an aim (ms, the performance clock). Off: all as they were last. */
   aim: { on: boolean; x: number; y: number; x0: number; y0: number; t0: number; at: number };
@@ -1180,6 +1182,7 @@ export class Input {
     }
     this.state.look.x = s.x - s.x0;
     this.state.look.y = s.y0 - s.y;
+    this.state.look.swipe = s.swipe === Swipe.Live;
   }
 
   /**
@@ -1313,6 +1316,7 @@ export class Input {
     const L = this.state.look;
     L.on = false;
     L.x = L.y = 0;
+    L.swipe = false;
   }
 
   private commitDrag() {

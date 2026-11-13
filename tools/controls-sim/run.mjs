@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 const [scn, ...rest] = process.argv.slice(2);
 const path = (rel) => fileURLToPath(new URL(rel, import.meta.url));
 const here = path('.');
-const SRC = path('../../src');
+// (SB_SRC=<src dir>: another source tree, as tools/feel-sim/run.mjs)
+const SRC = process.env.SB_SRC ?? path('../../src');
 const out = `${here}/.out/${scn.replace(/\W/g, '_')}`;
 mkdirSync(out, { recursive: true });
 const bundle = await rolldown({

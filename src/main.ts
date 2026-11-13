@@ -2205,14 +2205,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     rig.skyLiftRate = 0;
     // (a far shot up, a far Lob's or a far Comet's: the view dips toward its landing from the tap, the bus held in the screen's top 35 %, and back
     // config.shotView.hold after the hit: from high up nothing it lands on is in the frame. It wins over a near Lob's tip up. A look takes it back, and
-    // only a new far shot dips it again)
+    // only a new far shot dips it again; ?swerve's long swipe, a look in its first frames, takes it back only once it has died a look: its brake keeps the hit in
+    // the frame, and from 5 km up its few frames of look put the hit under it, the far shots' review F2)
     const farN = cometFx.shotFrame(simTime, shotSeen);
     if (farN !== farWas) {
       // (the lift before the first of a chain: one taken while dipped put a second shot's floor 25 degrees under the first's, 50 from the sky's lift. The review, 7)
       if (farN && farWas === 0 && rig.skyDipMost <= 0) farLift = rig.skyLift;
       farWas = farN;
     }
-    if (farN && st.look.on) farLooked = farN;
+    if (farN && st.look.on && !st.look.swipe) farLooked = farN;
     if (farN && farN !== farLooked) {
       // (its landing as the lens will see it config.shotView.lead s on: the bus's travel taken off it, so the eased view keeps up with a fast gear closing in)
       const ld = config.shotView.lead;
