@@ -1762,10 +1762,11 @@ if (modes.has('chain')) {
 }
 
 if (modes.has('dipcost')) {
-  // What a far shot's dip costs (BUILT.md, "The review, and what it came to"; not in the default list): pinned 2, 5 and 14 km over the Western Addition
-  // heading east, at Turbo 3 and Nonstop, the city streamed in, then the view held dipped 0 to 30 degrees (the rig's skyDipMost and its lift's target, as
-  // main.ts sets them after a far shot), 0.6 s at each. Prints each dip's most draws and triangles, and what draws them: the meshes in the frustum by
-  // the scene's top-level child. Gates nothing but the page: exits 1 on a page error                                                   -> dipcost.json
+  // What a far shot's dip costs (BUILT.md, "The review, and what it came to"; not in the default list): placed 2, 5 and 14 km over the Western Addition
+  // heading east, at Turbo 3 and Nonstop, the city streamed in and the lens as a climb leaves it (CameraRig.settleAt), then the view held dipped 0 to 30
+  // degrees (the rig's skyDipMost and its lift's target, as main.ts sets them after a far shot): 0.6 s pinned, then 1 s flying on in the gear, the city
+  // streaming. Prints each one's most draws and triangles, and what draws them at its end: the meshes in the frustum by kind. Gates nothing but the
+  // page: exits 1 on a page error                                                                                                        -> dipcost.json
   const R = { rows: [] };
   const page = await open(Q);
   let errors = 0;
@@ -1784,6 +1785,34 @@ if (modes.has('dipcost')) {
       if (d != null) Object.assign(rig, { skyDipMost: d, skyLiftTarget: -d, skyLiftRate: 50 });
       return up(...a);
     };
+    // (what draws: each visible mesh whose bounding sphere is in the frustum and on the camera's layers, by kind; one pass's worth)
+    window.__dcWhat = () => {
+      const cam = g.camera, city = g.city, a = cam.projectionMatrix.elements, b = cam.matrixWorldInverse.elements, M = new Array(16);
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) M[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] + a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
+      const row = (r) => [M[r], M[4 + r], M[8 + r], M[12 + r]];
+      const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+      const planes = [[1, r0], [-1, r0], [1, r1], [-1, r1], [1, r2], [-1, r2]].map(([s, r]) => {
+        const q = [r3[0] + s * r[0], r3[1] + s * r[1], r3[2] + s * r[2], r3[3] + s * r[3]], n = Math.hypot(q[0], q[1], q[2]);
+        return q.map((v) => v / n);
+      });
+      const by = {};
+      for (const top of g.scene.children)
+        top.traverseVisible((o) => {
+          if ((!o.isMesh && !o.isLine && !o.isPoints) || !o.geometry || !(o.layers.mask & cam.layers.mask)) return;
+          const gm = o.geometry;
+          if (o.frustumCulled !== false) {
+            if (!gm.boundingSphere) gm.computeBoundingSphere();
+            const c = gm.boundingSphere.center.clone().applyMatrix4(o.matrixWorld), rad = gm.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
+            if (planes.some((p) => p[0] * c.x + p[1] * c.y + p[2] * c.z + p[3] < -rad)) return;
+          }
+          const kind = o.parent === city.farGroup ? 'far' : o.parent === city.root ? (gm.attributes.aBld ? 'buildings' : 'ground') : top.name || top.type;
+          const idx = gm.index ? gm.index.count : gm.attributes.position?.count ?? 0, n = o.isInstancedMesh ? o.count : 1;
+          const e = (by[kind] ??= [0, 0]);
+          e[0]++;
+          e[1] += Math.round((idx / 3) * n);
+        });
+      return by;
+    };
   });
   for (const rung of ['t3', 'nonstop'])
     for (const h of [2000, 5000, 14000]) {
@@ -1792,56 +1821,32 @@ if (modes.has('dipcost')) {
         while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
         for (let i = 0; i < (r === 't3' ? 6 : 2); i++) g.controls.turbo.shift(1, g.flight);
       }, rung);
-      await page.evaluate((h) => {
-        const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
-        const y = g.city.groundAt(x, z) + h;
-        window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
-        Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
-      }, h);
-      await runFor(page, 0.5);
-      await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
-      await page.evaluate(() => window.__game.forceReady());
-      await runFor(page, 1.5);
       const dips = [];
-      for (const dip of [0, 5, 10, 15, 20, 25, 30]) {
-        await page.evaluate((d) => (window.__dcDip = d), dip);
+      for (const dip of [0, 10, 15, 20, 25, 30]) {
+        await page.evaluate((h) => {
+          const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+          const y = g.city.groundAt(x, z) + h;
+          window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+          window.__dcDip = null;
+          Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+        }, h);
+        await runFor(page, 0.5);
+        await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+        await page.evaluate(([h, d]) => {
+          window.__game.forceReady();
+          window.__game.rig.settleAt(h);
+          window.__dcDip = d;
+        }, [h, dip]);
         await runFor(page, 0.4);
         await page.evaluate(() => (window.__dcTrace = []));
         await runFor(page, 0.6);
-        const m = await page.evaluate(() => {
-          const g = window.__game, tr = window.__dcTrace, cam = g.camera;
-          window.__dcTrace = null;
-          // (what draws: each visible mesh whose bounding sphere is in the frustum, by the scene's top-level child it hangs under; one pass's worth)
-          const a = cam.projectionMatrix.elements, b = cam.matrixWorldInverse.elements, M = new Array(16);
-          for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) M[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] + a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
-          const row = (r) => [M[r], M[4 + r], M[8 + r], M[12 + r]];
-          const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
-          const planes = [[1, r0], [-1, r0], [1, r1], [-1, r1], [1, r2], [-1, r2]].map(([s, r]) => {
-            const q = [r3[0] + s * r[0], r3[1] + s * r[1], r3[2] + s * r[2], r3[3] + s * r[3]], n = Math.hypot(q[0], q[1], q[2]);
-            return q.map((v) => v / n);
-          });
-          const by = {};
-          for (const top of g.scene.children) {
-            const name = top.name || top.type;
-            top.traverseVisible((o) => {
-              if (!o.isMesh && !o.isLine && !o.isPoints) return;
-              const gm = o.geometry;
-              if (!gm) return;
-              if (o.frustumCulled !== false) {
-                if (!gm.boundingSphere) gm.computeBoundingSphere();
-                const c = gm.boundingSphere.center.clone().applyMatrix4(o.matrixWorld), rad = gm.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
-                if (planes.some((p) => p[0] * c.x + p[1] * c.y + p[2] * c.z + p[3] < -rad)) return;
-              }
-              const idx = gm.index ? gm.index.count : gm.attributes.position?.count ?? 0, n = o.isInstancedMesh ? o.count : 1;
-              const e = (by[name] ??= [0, 0]);
-              e[0]++;
-              e[1] += Math.round((idx / 3) * n);
-            });
-          }
-          return { draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), lift: +g.rig.skyLift.toFixed(2), by };
-        });
-        console.log(`dipcost: ${h / 1000}km-${rung} dip ${dip}: ${m.draws} draws, ${(m.tris / 1e6).toFixed(3)} M (lift ${m.lift}) ${JSON.stringify(m.by)}`);
-        dips.push({ dip, m });
+        const held = await page.evaluate(() => { const tr = window.__dcTrace; return { draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), lift: +window.__game.rig.skyLift.toFixed(2), by: window.__dcWhat() }; });
+        await page.evaluate(() => { window.__dcTrace = []; window.__qa = null; });
+        await runFor(page, 1);
+        const flown = await page.evaluate(() => { const tr = window.__dcTrace; window.__dcTrace = null; return { draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), lift: +window.__game.rig.skyLift.toFixed(2), by: window.__dcWhat() }; });
+        dips.push({ dip, held, flown });
+        const line = (q) => `${q.draws} draws, ${(q.tris / 1e6).toFixed(3)} M (lift ${q.lift}) ${JSON.stringify(q.by)}`;
+        console.log(`dipcost: ${h / 1000}km-${rung} dip ${dip}: held ${line(held)}; flown ${line(flown)}`);
       }
       R.rows.push({ key: `${h / 1000}km-${rung}`, dips });
     }
@@ -1850,6 +1855,68 @@ if (modes.has('dipcost')) {
   R.errors = errors;
   res.dipcost = R;
   writeFileSync(`${out}/dipcost.json`, JSON.stringify(R, null, 1));
+  if (errors) process.exitCode = 1;
+}
+
+if (modes.has('citycost')) {
+  // What the city alone costs with no shot up (BUILT.md, "The review, and what it came to"; not in the default list), on any build: Turbo 3 over the
+  // Western Addition heading east, 1, 2 and 5 km up and in a 45 degree dive from 5 km, placed as `comet` places them (the city streamed in, a real gentle
+  // pull for the vista, the dive's stick held forward), then 1.5 s flown with no tap. Prints the most draws and triangles. Gates nothing but the page:
+  // exits 1 on a page error                                                                                                              -> citycost.json
+  const R = { rows: [] };
+  const page = await open(Q);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+    g.flight.glideSpeed = 0;
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      if (window.__ccTrace) window.__ccTrace.push([p.calls, p.tris, +g.rig.skyLift.toFixed(2)]);
+    };
+    while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+    for (let i = 0; i < 6; i++) g.controls.turbo.shift(1, g.flight);
+  });
+  for (const h of [1000, 2000, 5000, 'dive']) {
+    await page.evaluate((h) => {
+      const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+      const y = g.city.groundAt(x, z) + (h === 'dive' ? 5600 : h);
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+    }, h);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+    await H.down(1, 196, 690);
+    for (let i = 1; i <= (h === 'dive' ? 6 : 2); i++) {
+      await wall(25);
+      await H.move(1, 196, 690 + (h === 'dive' ? -10 : 10) * i);
+    }
+    await runFor(page, 1);
+    if (h !== 'dive') {
+      await H.up(1);
+      await runFor(page, 1.5);
+    }
+    await page.evaluate(() => (window.__ccTrace = []));
+    await runFor(page, 1.5);
+    const m = await page.evaluate(() => {
+      const g = window.__game, f = g.flight, tr = window.__ccTrace;
+      window.__ccTrace = null;
+      return { agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), nose: +((f.nose * 180) / Math.PI).toFixed(1), draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), liftLeast: Math.min(...tr.map((q) => q[2])) };
+    });
+    if (h === 'dive') await H.up(1);
+    R.rows.push({ key: `${h === 'dive' ? 'dive' : `${h / 1000}km`}-t3`, ...m });
+    console.log(`citycost: ${h === 'dive' ? 'dive' : `${h / 1000}km`}-t3: ${m.draws} draws, ${(m.tris / 1e6).toFixed(3)} M (agl ${m.agl}, nose ${m.nose}, least lift ${m.liftLeast})`);
+  }
+  await page.close();
+  R.errors = errors;
+  res.citycost = R;
+  writeFileSync(`${out}/citycost.json`, JSON.stringify(R, null, 1));
   if (errors) process.exitCode = 1;
 }
 
