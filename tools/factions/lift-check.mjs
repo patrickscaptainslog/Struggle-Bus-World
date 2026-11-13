@@ -834,7 +834,10 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       const s0 = (d - F.deadZonePx) / px, r = 1 - 0.72;
       return Math.sign(dx) * (s0 <= 0.72 ? s0 : 0.72 + r * Math.tanh((s0 - 0.72) / r));
     };
-    function takeRun(mode, side, y0, speed, fps, at = [scx, scz], turn = null) {
+    // (win, --swerve: the take's own window [from, to] (game s from the run's start), from the hit to a second after the last of its houses landed or
+    // its crack's sink has gone; the run with no hit is counted over the take's. A held hard turn circles in the layer for the whole run, the layer's own
+    // known risk (j.), and two circling paths a fall's floor apart drift apart after it: one run "sent" the bus into a house 12 s after the last landing)
+    function takeRun(mode, side, y0, speed, fps, at = [scx, scz], turn = null, win = null) {
       for (const r of lifted) {
         houses.state[r.index] = 2;
         houses.t0[r.index] = -20;
@@ -863,7 +866,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       houses.now = 20;
       const queue = new Map();
       let hit = -1, sinkWait = false, lookUntil = -1, clip = 0, first = null, step = 0, stepAt = null, held = 0, started = 0, landed = 0, prevY = f.y, n = 0;
-      let clipSq = 0, firstSq = null, stepSq = 0, stepSqAt = null;
+      let clipSq = 0, firstSq = null, stepSq = 0, stepSqAt = null, clipWin = 0, winFirst = null, w0 = Infinity, w1 = -Infinity;
       // (--swerve: the thumb's state, the most slip (rad), and at the most slip the angle (rad) of the step's travel off the heading and off the nose)
       let thumb = false, letGo = false, slip = 0, offHead = 0, offNose = 0, h0 = side;
       const secs = (back + 260) / Math.max(30, speed) + 6;
@@ -877,7 +880,10 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
           const nose = f.heading + f.swerve.slip;
           if (thumb && turn.kind === 'skid' && Math.abs(nose - h0) >= Math.PI) [thumb, letGo] = [false, true];
           const px = turn.kind === 'skid' ? 172 : 124;
-          f.step(dt, thumb ? { sx: turn.dir * stickOf(px), sy: 0, dragging: true, hard: Math.min(1, Math.max(0, (px - 78) / 42)), skid: px - 138, side: turn.dir } : { sx: 0, sy: 0, dragging: false }, W);
+          // (in steps of at most 1/120 s, as main.ts steps the flight: the hard part's stiffer bungee in one 1/20 s step ran the heading away, to 10^76
+          // degrees in 8 s, the bus pinned in place, and every row "sent" it into a house it was only spinning in)
+          const sub = Math.max(1, Math.ceil(dt * 120 - 1e-9));
+          for (let q = 0; q < sub; q++) f.step(dt / sub, thumb ? { sx: turn.dir * stickOf(px), sy: 0, dragging: true, hard: Math.min(1, Math.max(0, (px - 78) / 42)), skid: px - 138, side: turn.dir, frame: dt } : { sx: 0, sy: 0, dragging: false, frame: dt }, W);
           const mx = f.x - px0, mz = f.z - pz0, ml = Math.hypot(mx, mz);
           if (ml > 1e-6 && Math.abs(f.swerve.slip) > slip) {
             slip = Math.abs(f.swerve.slip);
@@ -893,6 +899,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
         // middle); none on the same run flown with no hit, the base it is held to
         if (mode !== 'none' && hit < 0 && (at[0] - f.x) * fx + (at[1] - f.z) * fz < 40) {
           hit = now;
+          w0 = now - 20;
           if (mode === 'fall') {
             for (const r of sqRefs) queue.set(r.index, now + Math.hypot(r.cx - scx, r.cz - scz) / L.LIFT_FALL.front + L.LIFT_FALL.jitter * L.liftSeed(r.index, 5));
           } else {
@@ -916,6 +923,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
             sinkWait = false;
             take.crack = now;
             lookUntil = now + 2;
+            w1 = Math.max(w1, now - 20 + 3);
             for (const r of sqRefs) houses.solid[r.index] = L.liftLow(houses.H[r.index] - L.crackSinkOf(houses.H[r.index]), houses.margin[r.index]) ? 1 : 0;
           }
         }
@@ -928,6 +936,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
               field.reach(r.x0, r.z0, r.x1, r.z1);
               queue.delete(i);
               landed++;
+              w1 = Math.max(w1, now - 20 + 1);
             }
             continue;
           }
@@ -952,6 +961,10 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
         if (dyf > step) [step, stepAt] = [dyf, where];
         if (near && dyf > stepSq) [stepSq, stepSqAt] = [dyf, where];
         prevY = f.y;
+        if (c.n && !inSq[c.which.index] && now - 20 >= (win ? win[0] : w0) && now - 20 <= (win ? win[1] : w1)) {
+          clipWin++;
+          winFirst ??= { t: +(now - 20).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), y: +f.y.toFixed(1), house: c.which.index, state: houses.state[c.which.index] };
+        }
         if (c.n) {
           const w = { t: +(now - 20).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), y: +f.y.toFixed(1), house: c.which.index, state: houses.state[c.which.index] };
           clip++;
@@ -962,7 +975,9 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
           }
         }
       }
-      return { clip, first, step, stepAt, clipSq, firstSq, stepSq, stepSqAt, held, started, landed, hit: hit >= 0, sunk: take.crack > 0, steps: n, slip, offHead, offNose, turned: Math.abs(Math.atan2(Math.sin(f.heading - side), Math.cos(f.heading - side))) };
+      // (a crack still sinking at the run's end: its window to the end)
+      if (w0 < Infinity && w1 < w0) w1 = Infinity;
+      return { clip, first, step, stepAt, clipSq, firstSq, stepSq, stepSqAt, clipWin, winFirst, win: [w0, w1], held, started, landed, hit: hit >= 0, sunk: take.crack > 0, steps: n, slip, offHead, offNose, turned: Math.abs(Math.atan2(Math.sin(f.heading - side), Math.cos(f.heading - side))) };
     }
     // (each run is held to the same run flown with no hit: the flight in the layer at a held 60 m has its own known steps, j. above. What
     // counts is what the take adds on its square's houses: a step in one of them the base hasn't, and over the square or within 40 m of it a
@@ -972,14 +987,14 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     // reported: there the layer's own let-downs at a held 60 m pass 1.5 m with no hit at all (j.), and a take that moves the falls by a frame
     // moves them by a metre either way)
     const sum = (mode, at, turn = null) => {
-      const o = { slip: 0, offHead: 0, offNose: 0, turned: Infinity, runs: 0, added: 0, first: null, clip: 0, baseClip: 0, step20: 0, at20: null, base20: 0, over: 0, held: 0, started: 0, landed: 0, nohit: 0, sunk: 0, away: 0, awayFirst: null, awayStep: 0 };
+      const o = { slip: 0, offHead: 0, offNose: 0, turned: Infinity, runs: 0, added: 0, first: null, clip: 0, baseClip: 0, step20: 0, at20: null, base20: 0, over: 0, held: 0, started: 0, landed: 0, nohit: 0, sunk: 0, later: 0, laterFirst: null, away: 0, awayFirst: null, awayStep: 0 };
       for (const side of SIDES)
         for (const y0 of [20, 60])
           for (const [name, speed] of SPEEDS) {
             if (speed > 200 && y0 < 60) continue;
             for (const fps of [20, 60]) {
               const tn = turn && { ...turn, lead: turn.kind === 'skid' ? 60 + speed * 0.4 : 40 + speed * 0.6 };
-              const r = takeRun(mode, side, y0, speed, fps, at, tn), b = takeRun('none', side, y0, speed, fps, at, tn);
+              const r = takeRun(mode, side, y0, speed, fps, at, tn), b = takeRun('none', side, y0, speed, fps, at, tn, tn ? r.win : null);
               if (r.slip > o.slip) [o.slip, o.offHead, o.offNose] = [r.slip, r.offHead, r.offNose];
               o.turned = Math.min(o.turned, r.turned);
               const tag = { side: Math.round((side * 180) / Math.PI), y0, gear: name, fps };
@@ -991,10 +1006,15 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
                 o.first ??= { ...tag, steps: r.clipSq, base: b.clipSq, ...r.firstSq };
               }
               // (a run the take sent into another square's floating house: the take's too, its steps reported apart)
-              const sent = r.clip - r.clipSq > b.clip - b.clipSq;
+              // (--swerve: counted in the take's window, the whole run's reported)
+              const sent = tn ? r.clipWin > b.clipWin : r.clip - r.clipSq > b.clip - b.clipSq;
+              if (tn && r.clip - r.clipSq > b.clip - b.clipSq) {
+                o.later++;
+                o.laterFirst ??= { ...tag, steps: r.clip - r.clipSq, base: b.clip - b.clipSq, ...r.first, win: r.win.map((v) => +v.toFixed(2)) };
+              }
               if (sent) {
                 o.away++;
-                o.awayFirst ??= { ...tag, steps: r.clip - r.clipSq, base: b.clip - b.clipSq, ...r.first, step: +r.step.toFixed(2), baseStep: +b.step.toFixed(2) };
+                o.awayFirst ??= tn ? { ...tag, steps: r.clipWin, base: b.clipWin, ...r.winFirst, win: r.win.map((v) => +v.toFixed(2)) } : { ...tag, steps: r.clip - r.clipSq, base: b.clip - b.clipSq, ...r.first, step: +r.step.toFixed(2), baseStep: +b.step.toFixed(2) };
               }
               if (fps === 20) {
                 if (r.stepSq > 1.5 && r.stepSq > b.stepSq + 0.01) {
@@ -1036,7 +1056,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
           const tag = `${kind} ${dir > 0 ? 'right' : 'left'}`;
           for (const [k, mode, at] of [['t1s', 'fall', undefined], ['t2s', 'crack', [low.cx, low.cz]]]) {
             const o = sum(mode, at, { kind, dir });
-            report(`${k}. ${mode === 'fall' ? 'under the falling square' : 'under its lowest passable house as the crack lands'}, the handling on, a ${tag}`, `${o.runs} runs: ${o.added} where the take adds steps with the body in one of its houses${o.first ? ` first ${JSON.stringify(o.first)}` : ''} (${o.clip}, ${o.baseClip} with no hit); ${o.away} sent into another square's house${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''}; ${o.over} with a larger step by the square over 1.5 m at 20 fps${o.at20 ? ` the most ${f2(o.step20)} m against ${f2(o.base20)} (${JSON.stringify(o.at20)})` : ''}; ${mode === 'fall' ? `${o.started} falls started, ${o.landed} landed` : `${o.sunk} sank`}, ${o.held} frames held; ${o.nohit} never hit; the least turn ${f2((o.turned * 180) / Math.PI)} degrees`,
+            report(`${k}. ${mode === 'fall' ? 'under the falling square' : 'under its lowest passable house as the crack lands'}, the handling on, a ${tag}`, `${o.runs} runs: ${o.added} where the take adds steps with the body in one of its houses${o.first ? ` first ${JSON.stringify(o.first)}` : ''} (${o.clip}, ${o.baseClip} with no hit); ${o.away} sent into another square's house while the take moves${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''} (${o.later} with more such steps over the whole run, reported${o.laterFirst ? ` first ${JSON.stringify(o.laterFirst)}` : ''}); ${o.over} with a larger step by the square over 1.5 m at 20 fps${o.at20 ? ` the most ${f2(o.step20)} m against ${f2(o.base20)} (${JSON.stringify(o.at20)})` : ''}; ${mode === 'fall' ? `${o.started} falls started, ${o.landed} landed` : `${o.sunk} sank`}, ${o.held} frames held; ${o.nohit} never hit; the least turn ${f2((o.turned * 180) / Math.PI)} degrees`,
               'none added, none sent, no larger step; every run hit', o.added === 0 && o.away === 0 && o.over === 0 && o.nohit === 0 && (mode === 'fall' ? o.started > 0 && o.landed === o.started : o.sunk > 0));
             if (kind === 'skid' && k === 't1s')
               report(`t1s. in the ${tag}, the bus goes its way, not its nose's`, `at the most slip, ${f2((o.slip * 180) / Math.PI)} degrees: the step's travel ${f2((o.offHead * 180) / Math.PI)} degrees off the heading (what the hold reads), ${f2((o.offNose * 180) / Math.PI)} off the nose`, 'a slip over 30 degrees; the travel within 2 of the heading, the slip off the nose within 2', o.slip > (30 * Math.PI) / 180 && o.offHead < (2 * Math.PI) / 180 && Math.abs(o.offNose - o.slip) < (2 * Math.PI) / 180);
