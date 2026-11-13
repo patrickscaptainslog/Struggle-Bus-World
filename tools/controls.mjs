@@ -1761,6 +1761,98 @@ if (modes.has('chain')) {
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
 }
 
+if (modes.has('dipcost')) {
+  // What a far shot's dip costs (BUILT.md, "The review, and what it came to"; not in the default list): pinned 2, 5 and 14 km over the Western Addition
+  // heading east, at Turbo 3 and Nonstop, the city streamed in, then the view held dipped 0 to 30 degrees (the rig's skyDipMost and its lift's target, as
+  // main.ts sets them after a far shot), 0.6 s at each. Prints each dip's most draws and triangles, and what draws them: the meshes in the frustum by
+  // the scene's top-level child. Gates nothing but the page: exits 1 on a page error                                                   -> dipcost.json
+  const R = { rows: [] };
+  const page = await open(Q);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), rig = g.rig, up = rig.update.bind(rig);
+    g.flight.glideSpeed = 0;
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      if (window.__dcTrace) window.__dcTrace.push([p.calls, p.tris]);
+    };
+    // (the dip held as main.ts holds it after a far shot, set just before the rig steps: main.ts lets it go each frame no far shot is up)
+    rig.update = (...a) => {
+      const d = window.__dcDip;
+      if (d != null) Object.assign(rig, { skyDipMost: d, skyLiftTarget: -d, skyLiftRate: 50 });
+      return up(...a);
+    };
+  });
+  for (const rung of ['t3', 'nonstop'])
+    for (const h of [2000, 5000, 14000]) {
+      await page.evaluate((r) => {
+        const g = window.__game;
+        while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+        for (let i = 0; i < (r === 't3' ? 6 : 2); i++) g.controls.turbo.shift(1, g.flight);
+      }, rung);
+      await page.evaluate((h) => {
+        const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
+        const y = g.city.groundAt(x, z) + h;
+        window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+        Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
+      }, h);
+      await runFor(page, 0.5);
+      await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+      await page.evaluate(() => window.__game.forceReady());
+      await runFor(page, 1.5);
+      const dips = [];
+      for (const dip of [0, 5, 10, 15, 20, 25, 30]) {
+        await page.evaluate((d) => (window.__dcDip = d), dip);
+        await runFor(page, 0.4);
+        await page.evaluate(() => (window.__dcTrace = []));
+        await runFor(page, 0.6);
+        const m = await page.evaluate(() => {
+          const g = window.__game, tr = window.__dcTrace, cam = g.camera;
+          window.__dcTrace = null;
+          // (what draws: each visible mesh whose bounding sphere is in the frustum, by the scene's top-level child it hangs under; one pass's worth)
+          const a = cam.projectionMatrix.elements, b = cam.matrixWorldInverse.elements, M = new Array(16);
+          for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) M[j * 4 + i] = a[i] * b[j * 4] + a[4 + i] * b[j * 4 + 1] + a[8 + i] * b[j * 4 + 2] + a[12 + i] * b[j * 4 + 3];
+          const row = (r) => [M[r], M[4 + r], M[8 + r], M[12 + r]];
+          const r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+          const planes = [[1, r0], [-1, r0], [1, r1], [-1, r1], [1, r2], [-1, r2]].map(([s, r]) => {
+            const q = [r3[0] + s * r[0], r3[1] + s * r[1], r3[2] + s * r[2], r3[3] + s * r[3]], n = Math.hypot(q[0], q[1], q[2]);
+            return q.map((v) => v / n);
+          });
+          const by = {};
+          for (const top of g.scene.children) {
+            const name = top.name || top.type;
+            top.traverseVisible((o) => {
+              if (!o.isMesh && !o.isLine && !o.isPoints) return;
+              const gm = o.geometry;
+              if (!gm) return;
+              if (o.frustumCulled !== false) {
+                if (!gm.boundingSphere) gm.computeBoundingSphere();
+                const c = gm.boundingSphere.center.clone().applyMatrix4(o.matrixWorld), rad = gm.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
+                if (planes.some((p) => p[0] * c.x + p[1] * c.y + p[2] * c.z + p[3] < -rad)) return;
+              }
+              const idx = gm.index ? gm.index.count : gm.attributes.position?.count ?? 0, n = o.isInstancedMesh ? o.count : 1;
+              const e = (by[name] ??= [0, 0]);
+              e[0]++;
+              e[1] += Math.round((idx / 3) * n);
+            });
+          }
+          return { draws: Math.max(...tr.map((q) => q[0])), tris: Math.max(...tr.map((q) => q[1])), lift: +g.rig.skyLift.toFixed(2), by };
+        });
+        console.log(`dipcost: ${h / 1000}km-${rung} dip ${dip}: ${m.draws} draws, ${(m.tris / 1e6).toFixed(3)} M (lift ${m.lift}) ${JSON.stringify(m.by)}`);
+        dips.push({ dip, m });
+      }
+      R.rows.push({ key: `${h / 1000}km-${rung}`, dips });
+    }
+  await page.evaluate(() => (window.__qa = window.__dcDip = null));
+  await page.close();
+  R.errors = errors;
+  res.dipcost = R;
+  writeFileSync(`${out}/dipcost.json`, JSON.stringify(R, null, 1));
+  if (errors) process.exitCode = 1;
+}
+
 if (modes.has('moonhigh')) {
   // No far shot over the Moon (BUILT.md, "The Comet dead ahead"; not in the default list): ?moon at Tycho, 5 km over its ground, a level tap at Turbo 3
   // and, after a 2 s real pull up, a tap at Cruise. Each: its kind, far or not, and where it landed from the bus at the tap. Written to moonhigh.json; with
