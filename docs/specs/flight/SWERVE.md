@@ -218,3 +218,13 @@ The first account's review of `302e6de..1dfa24f` found five majors and six minor
 - **The let-go of a skid** is a call for the producer, with its numbers (section 6), not a mark loosened quietly.
 - **The camera row of `warm-swerve`** now meets its rivals in one place every run, counts by difference from a baseline, fires at a rival holding its height, and meets the ram at the rival's height. It failed three ways before, none of them the handling's: a rival's own shot counted as the tap's, a shot under a climbing rival, and the bus pushed off its head-on line by the towers it had drifted to.
 - **Not built, still owed:** the Comet's and the Lob's plans along the bus's way in a skid (S2), the turbo poses in `s_city` and `s_throw` (L2), the Splat's puffs (K2), and the browser rows `show-link`, `moon-show`, `show-bytes` and `turn-holes`. No Moon page has stood up with `show` in a browser yet.
+
+## 12. The shots under the handling (2026-11-13)
+
+The far shots' review of the merge with the handling found three faults a player meets under `?swerve`, and one rare one. What changed:
+
+- **A tap in a slide is a shot down the nose.** The Comet and the Lob held a landing while its stretch stayed the same, and a skid swings the nose 140 degrees a second at Jet: the planned landing was up to 59 degrees off the nose, and with the thumb let go at the tap a far shot landed 1.9 km off the bus's path, off the screen. Now, while the bus slides, a held landing more than 8 degrees off the aim's way is let go (`Comet.slidOff`, the near and the far Comet and Lob). `tools/swerve/s_slide.ts` holds it: 7.6 to 8.0 degrees at most, where it was 45.6 to 59.3.
+- **The long swipe doesn't cancel a far shot's dip.** Its first frames are a look (3 frames of a 150 ms stroke, 19 of 450 ms), and any look let the dip go, so from 5 km up the hit landed under the frame. Input's `look.swipe` says the looking stroke may still be the swipe; the dip lets go only once it is a look for good. `tools/swerve/s_swipelook.ts`.
+- **A turn under a far shot's dip.** The dip read only the landing's angle up or down, so a quick or a hard turn pitched the view 23 degrees down toward a landing to the side or behind for a second or more. Under the handling a landing behind the lens or past the frame's side is looked away from, and the dip eases back. Off the handling a plain turn is as it was.
+- **A rival under the nose doesn't take a far shot's tap.** With a far shot planned the tap fires it. From about 4.5 km up the shell couldn't arrive inside its 5 s.
+- Not changed: at the ceiling the stick's hard part thins the far Lob, and past the skid's line it is gone (F4). Whether a far Lob should live through a skid at the ceiling is the producer's call.
