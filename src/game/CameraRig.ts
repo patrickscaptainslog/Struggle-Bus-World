@@ -53,6 +53,23 @@ const lookCurve = () => {
 };
 
 /**
+ * Does this frame's look take the view back from a far shot's dip (main.ts, and tools/swerve/s_swipelook.ts)? A look does; ?swerve's long swipe, a look
+ * in its first frames, only once it has died a look (Input's look.swipe): its brake keeps the hit in the frame, and from 5 km up its few frames of look
+ * put the hit under it (the far shots' review F2).
+ */
+export function looksAway(look: { on: boolean; swipe?: boolean }): boolean {
+  return look.on && !look.swipe;
+}
+
+/**
+ * ?swerve: has a quick or a hard turn left a far shot's landing (`seen`, in the lens's space, as main.ts's lobUpDeg puts it) behind the lens or more than
+ * 5 degrees past the frame's side (hfov, deg)? Then the dip is looked away from (the far shots' review F3).
+ */
+export function turnedAway(seen: THREE.Vector3, hfov: number): boolean {
+  return seen.z >= 0 || Math.abs(Math.atan2(seen.x, -seen.z)) > THREE.MathUtils.degToRad(hfov / 2 + 5);
+}
+
+/**
  * Where the view's lift goes while a shot is up (deg, the rig's skyLiftTarget; main.ts, and the sims as main.ts does): starUp and busUp are how far over the
  * view's axis, the lift turned back, its star (a far shot's: its landing) and the bus show (main.ts's lobUpDeg), half the vertical half field.
  * A near Lob (far false): the view tips up at least config.lob.tip while it climbs (`climbing`) and as far as keeps the star config.lob.tipTop under the

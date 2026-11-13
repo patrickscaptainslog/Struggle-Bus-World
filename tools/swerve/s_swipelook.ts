@@ -1,7 +1,8 @@
 // The long swipe and a far shot's dip (docs/specs/flight/SWERVE.md, "The shots under the handling"), through the REAL Input on a controlled clock, a frame every
 // 16.7 ms: node tools/controls-sim/run.mjs ../swerve/s_swipelook.ts
-// main.ts lets a far shot's dip go for good on a frame with a look (`st.look.on && !st.look.swipe`). Every long swipe from the top of the glass starts as a look
-// before it fires (3 frames of 150 ms, 19 of 450: the far shots' review, F2), and from 5 km up those frames put the hit under the frame.
+// main.ts lets a far shot's dip go for good on a frame with a look (CameraRig's looksAway, which this imports: the game's own line). Every long swipe from
+// the top of the glass starts as a look before it fires (3 frames of 150 ms, 19 of 450: the far shots' review, F2), and from 5 km up those frames put the hit
+// under the frame.
 //   fired    strokes of 150 to 450 ms down 0.4 of the height plus 30 px from three landings at the top: each fires, and no frame before it is a look that lets
 //            the dip go
 //   look     a slow stroke from the top (it dies a look) and one from under the swipe's top: each is a look that lets the dip go
@@ -11,6 +12,7 @@ installDom();
 const { Input, inputTune } = await import('@src/game/Input');
 const { swerveTune } = await import('@src/game/Swerve');
 const { swipeTune } = await import('@src/swerve/swerveBoot');
+const { looksAway } = await import('@src/game/CameraRig');
 
 let bad = 0;
 const row = (ok: boolean, name: string, o: unknown) => {
@@ -19,8 +21,9 @@ const row = (ok: boolean, name: string, o: unknown) => {
 };
 const step = 16.7;
 
-/** One stroke from (x, y) by (dx, dy) px over ms: when it fired (ms from its landing, null never), its frames of look, and those that would let a dip go */
-function stroke(x: number, y: number, dx: number, dy: number, ms: number) {
+/** One stroke from (x, y) by (dx, dy) px over ms, held still `hold` ms before its lift: when it fired (ms from its landing, null never), its frames of look,
+ *  and those that would let a dip go */
+function stroke(x: number, y: number, dx: number, dy: number, ms: number, hold = 200) {
   const el = new Target();
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
@@ -42,8 +45,8 @@ function stroke(x: number, y: number, dx: number, dy: number, ms: number) {
       input.update(step / 1000);
       const L = input.state.look;
       if (L.on) looks++;
-      // (main.ts's test, word for word)
-      if (L.on && !L.swipe) {
+      // (main.ts's test, its own function)
+      if (looksAway(L)) {
         lets++;
         if (firstLet < 0) firstLet = clock.ms - t0;
       }
@@ -58,7 +61,7 @@ function stroke(x: number, y: number, dx: number, dy: number, ms: number) {
     wait(ms / n);
     el.dispatch('pointermove', ptr('pointermove', id, x + (dx * i) / n, y + (dy * i) / n));
   }
-  wait(200);
+  wait(hold);
   el.dispatch('pointerup', ptr('pointerup', id, x + dx, y + dy));
   wait(100);
   input.dispose();
