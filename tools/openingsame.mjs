@@ -8,9 +8,9 @@
 // Each still twice: as drawn, then drawn again with the bus's exhaust puffs taken out (their slots' births to 1e9, src/fx/Particles.ts's K_PUFF, and
 // __game.renderAgain()): the puffs are Math.random's, and they alone moved 400-900 pixels round the bus from one run of one build to the next (r3). The
 // pixels compared are the second's.
-// The ref against itself twice first: traces not equal, exit 3 (the measure isn't stable); a still from 4.2 s on not equal, exit 3 too; one before it
-// not equal (one run in three, the camera 9 cm off at the release, the whole frame resampled: r3, not found why) passes on a leg when the new run equals
-// any of the ref's runs there, up to two more ref runs taken while it equals none.
+// The ref against itself twice first: traces not equal, exit 3 (the measure isn't stable). A still where they differ (before 4.2 s one run in three,
+// the camera 9 cm off at the release, the whole frame resampled; at 30 s a lit spot far off: r3, neither found why) passes on a leg when the new run
+// equals any of the ref's runs there, up to two more ref runs taken while it equals none.
 // Then (i) new &hose against the ref, with the HUD: trace and pixels; (ii) both &nohud: trace and pixels; (iii) both with the HUD: the trace only
 // (with the Hose off, the plain link's first-run hint has three lines where the ref's has four).
 // SB_OPEN_Q=&nohud appends to every run of the new url, to show the pixels bite: (i) must then fail.
@@ -25,7 +25,7 @@ if (!refUrl || !newUrl) {
 }
 mkdirSync(out, { recursive: true });
 const Q = '?t=2026-11-07T00:22:00Z&rate=0&fixeddt=0.0333333';
-const DT = 0.0333333, SHOTS = [0.5, 1, 2, 4.2, 8, 16, 30], STEADY = 4.2;
+const DT = 0.0333333, SHOTS = [0.5, 1, 2, 4.2, 8, 16, 30];
 const NEW_Q = process.env.SB_OPEN_Q ?? '';
 const browser = await chromium.launch(browserOptions([]));
 const errors = [];
@@ -111,19 +111,20 @@ const R1 = await run('ref-a', refUrl, '');
 const R2 = await run('ref-b', refUrl, '');
 const stableTrace = traceDiff(R1, R2), stablePix = pixDiff(R1, R2);
 console.log(`the ref against itself: trace ${stableTrace ?? 'equal'}; pixels ${stablePix.length ? 'differ at ' + stablePix.join(', ') + ' s' : 'equal'}`);
-if (stableTrace || stablePix.some((s) => s >= STEADY)) {
-  console.log(`OPENINGSAME: the measure is not stable (the ref against itself, ${stableTrace ? 'its trace' : `its pixels from ${STEADY} s`}): exit 3`);
+if (stableTrace) {
+  console.log('OPENINGSAME: the measure is not stable (the ref against itself, its trace): exit 3');
   await browser.close();
   process.exit(3);
 }
-// (a still where the ref's own runs differ, before STEADY, is still compared: the new run must equal one of the ref's runs there, and while it equals
-// none another ref run is taken, up to MORE_REFS: left out, the fog's frames, where the first draws act, were never compared, r3's review)
+// (a still where the ref's own runs differ is still compared: the new run must equal one of the ref's runs there, and while it equals none another
+// ref run is taken, up to MORE_REFS. Left out, the fog's frames, where the first draws act, were never compared (r3's review); and at 30 s one lit
+// spot far off in the city, 17 pixels, is on in some of the base's own runs and not others (r3))
 const MORE_REFS = 2;
 if (stablePix.length) console.log(`the ref against itself differs at ${stablePix.join(', ')} s: there each leg passes on any of the ref's runs`);
 const leg = async (name, a, refs, pixels, label, extra) => {
   const t = traceDiff(a, refs[0]);
   let p = pixels ? pixDiffAny(a, refs) : [];
-  for (let k = 0; pixels && p.length && p.every((s) => s < STEADY) && k < MORE_REFS; k++) {
+  for (let k = 0; pixels && p.length && k < MORE_REFS; k++) {
     refs.push(await run(`${label}-${refs.length + 1}`, refUrl, extra));
     p = pixDiffAny(a, refs);
   }
