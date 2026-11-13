@@ -294,7 +294,10 @@ const asked = { wants: 0, aloft: 0, start: 0 };
 const up = new Set<number>();
 const spy: LiftHooks = {
   obstacle: (_x, _z, _y, baked) => baked, overhead: () => Infinity, surface: (_x, _z, _y, baked) => baked, dy: () => 0, dyAt: () => 0, reach: () => 0, over: () => false, noteTop: () => {},
-  wants: () => (asked.wants++, 1), aloft: (ref) => (asked.aloft++, up.has(ref.index)), start: () => { asked.start++; },
+  // (a Bomb asks with no faction, -1, the Lift's houses only: none of those may lift, and none is held here, so 0. Counted are the asks that may lift)
+  wants: (_ref, _level, faction) => (faction < 0 ? 0 : (asked.wants++, 1)), aloft: (ref) => (asked.aloft++, up.has(ref.index)), start: () => { asked.start++; },
+  // (the take's hooks: no house costs more to pick, and the blasts' landing is heard by no rules here)
+  pickCost: () => 0, landed: () => {},
 };
 const liftRows: unknown[] = [];
 for (const [name, lat, lon] of PLACES) {
