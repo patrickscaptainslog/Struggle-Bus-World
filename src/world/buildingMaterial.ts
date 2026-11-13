@@ -9,7 +9,7 @@ import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
-import { GLSL_LIFT, lifted, liftedOr, liftOn, SQUARE } from './liftGlsl';
+import { GLSL_LIFT, lifted, liftedOr, LIFT_TAKE, liftOn, SQUARE, veinsStay } from './liftGlsl';
 import { OUTCOMES } from './liftRules';
 
 /**
@@ -95,6 +95,8 @@ export function setFacadeView(high: number, calm: number) {
 }
 
 const R = (r: number) => r.toFixed(1);
+/** &veins=stay's most of the walls, as the crack's veins times it (vTake.z packs the veins over it) */
+const VEINS_MAX = (LIFT_TAKE.veins[2] / LIFT_TAKE.veins[0]).toFixed(2);
 
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
@@ -195,9 +197,14 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float code = floor(K2.a / 1e5 + 0.001), lt = K2.a - code * 1e5, u = uTime - lt;
           float va = code == ${OUTCOMES.indexOf('crack')}.0 ? smoothstep(0.0, 0.15, u) : (code == ${OUTCOMES.indexOf('heal')}.0 || (code == ${OUTCOMES.indexOf('down')}.0 && K1.r != 0.0)) ? 1.0 - smoothstep(0.0, 0.4, u) : 0.0;
           if (lf.x <= 0.0) va = 0.0;
-          if (va > 0.0 && (code == ${OUTCOMES.indexOf('crack')}.0 || code == ${OUTCOMES.indexOf('down')}.0)) vTake.y = max(vTake.y, 1.0 - smoothstep(0.0, 0.15, u));
+          if (va > 0.0 && (code == ${OUTCOMES.indexOf('crack')}.0 || code == ${OUTCOMES.indexOf('down')}.0)) vTake.y = max(vTake.y, 1.0 - smoothstep(0.0, 0.15, u));${veinsStay ? `
+          // (&veins=stay, call 5: the crack's veins stay on the fallen houses, a band more of the walls at each wilt (tTake's g over 8), until the
+          // flip's front reaches the house; va over 1 is more of the walls)
+          float vb = floor(floor(K1.g) / 8.0);
+          if (vb > 0.0 && code != ${OUTCOMES.indexOf('crack')}.0 && !(code == ${OUTCOMES.indexOf('flip')}.0 && distance(vec2(aBld.y, aBld.w), K2.gb) < u * ${LIFT_TAKE.front}.0))
+            va = max(va, vb < 1.5 ? 1.0 : vb < 2.5 ? ${(LIFT_TAKE.veins[1] / LIFT_TAKE.veins[0]).toFixed(2)} : ${(LIFT_TAKE.veins[2] / LIFT_TAKE.veins[0]).toFixed(2)});` : ''}
           float sh = K1.b > 0.0 ? 1.0 - smoothstep(0.0, 0.3, uTime - K1.b) : 0.0;
-          vTake.z = floor(K1.g) + 0.9 * clamp(va, 0.0, 1.0);
+          vTake.z = ${veinsStay ? `mod(floor(K1.g), 8.0) + 0.9 * clamp(va / ${VEINS_MAX}, 0.0, 1.0)` : 'floor(K1.g) + 0.9 * clamp(va, 0.0, 1.0)'};
           vTake.w = K2.r + 0.9 * clamp(sh, 0.0, 1.0);
         }`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);
@@ -945,7 +952,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         if (tgt && uGlintWait > 0.5 && sweep > 0.3) { ramp = sbFacTrim(sbFac(floor(vTake.w))); light = max(0.25, light - uGlint.x - uGlint.y * sweep - 1.0 / 7.0); glow = 0.3; }
         // (a cracked floating house's veins in the cracker's colours over about a quarter of its walls, throbbing a step at 1.2 Hz: "A siege
         // shows. The first hit cracks a Wonder with veins of the attacker's colour", FACTIONS.md)
-        float va = fract(vTake.z) / 0.9;
+        float va = fract(vTake.z) / 0.9${veinsStay ? ` * ${VEINS_MAX}` : ''};
         if (va > 0.01 && abs(n.y) < 0.5) {
           vec2 vq = vec2(dot(lRest.xz, vec2(0.71, 0.71)) + lRest.x * 0.3, lRest.y) / 3.2;
           vec2 vc = floor(vq), vf = fract(vq);

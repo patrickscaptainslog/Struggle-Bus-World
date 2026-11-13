@@ -23,6 +23,11 @@ export const liftFaction = liftedOn ? (FACTIONS.find((f) => f.key === q!.get('li
 export const liftHoodStart = (p: { has(key: string): boolean }) => p.has('hoodstart') && !p.has('lat');
 /** &slowmo=0 turns the lift-off's slow motion off (decision 13: the producer judges it) */
 export const slowmoOn = liftOn && q!.get('slowmo') !== '0';
+/**
+ * &veins=stay (call 5, the studio's pick, off by default: it brushes the approved "No rival paint sticks"): the crack's veins in the cracker's
+ * colours stay on the fallen houses and spread a band a stage (LIFT_TAKE.veins), until the flip's front floods the rest
+ */
+export const veinsStay = liftedOn && q!.get('veins') === 'stay';
 /** GLSL only ?lift compiles (sky/flag.ts's held()) */
 export const lifted = (glsl: string): string => (liftOn ? glsl : '');
 export const liftedOr = (glsl: string, off: string): string => (liftOn ? glsl : off);
@@ -319,11 +324,20 @@ export const LIFT_FALL = { hitch: 0.14, lurch: 0.8, G: 110, stretch: 0.1, squash
  * `crackT` s (longer for a deep sink: never faster than `crackV` m/s), a damped jolt on top (`jolt` m, `joltW` rad/s, decaying `joltK` a
  * second), and lists `list` (a slope), down toward the impact. The heal rises back over `heal` s by the same bound. The flinch (a wilt's
  * knock-down, the approved inverted jelly squash): `flinch` down and `flinchDy` m, a damped rebound over `flinchT` s, never up. `front`: the
- * flip's front (m/s, TAKE.front).
+ * flip's front (m/s, TAKE.front). `veins`: how much of the walls the veins take, at the crack (and stage 3), at stage 2 and at stage 1, with
+ * &veins=stay (call 5); without it only the first, and gone at the fall.
  */
-export const LIFT_TAKE = { crackSink: 0.12, crackMin: 1.5, crackT: 1.6, crackV: 8, jolt: 0.8, joltK: 3, joltW: 5, list: 0.04, heal: 1.0, flinch: 0.12, flinchDy: 0.25, flinchT: 0.6, front: 120 } as const;
+export const LIFT_TAKE = { crackSink: 0.12, crackMin: 1.5, crackT: 1.6, crackV: 8, jolt: 0.8, joltK: 3, joltW: 5, list: 0.04, heal: 1.0, flinch: 0.12, flinchDy: 0.25, flinchT: 0.6, front: 120, veins: [0.25, 0.4, 0.6] } as const;
 /** The fall's slow motion, from its first landing near the bus or in the frame (call 2) */
 export const SLOW_FALL = [0.35, 0.1, 0.7, 0.35] as const;
+
+/**
+ * &veins=stay's band on a square (0 none; 1, 2, 3: LIFT_TAKE.veins' rows) from its record's stage, once a crack has marked it: the crack's at 4
+ * and 3, a band more at each wilt. It stays through the flip (its front floods the rest, house by house) and goes at the next change.
+ */
+export const veinBand = (stage: number, cracked: boolean) => (!cracked ? 0 : stage >= 3 ? 1 : stage === 2 ? 2 : 3);
+/** tTake's first texel's g: the cracker, &veins=stay's band (times 8: a faction is under 8) and the crack's list's way as a fraction of a turn */
+export const takeCrackG = (cracker: number, band: number, way: number) => cracker + 8 * band + 0.999 * way;
 
 /** A cracked house's sink (m) from its rest H. */
 export const crackSinkOf = (H: number) => Math.min(Math.max(LIFT_TAKE.crackSink * H, LIFT_TAKE.crackMin), Math.max(0, H - LIFT.hMin));

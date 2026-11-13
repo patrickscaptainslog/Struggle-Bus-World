@@ -11,7 +11,7 @@ import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWa
 import { type Beam, makeBeam, makeSkyPiece, registerBeamWarm, registerSkyWarm, type SkyPiece } from './liftSky';
 import { keyAt, OUTCOMES, type Outcome, TAKE, TakeHouses, type TakeHit, TakeRules, type TakeSink } from './liftRules';
 import {
-  crackBlocked, crackSinkOf, fallBlocked, fallEnds, fallLands, takeLead, hoodStart, LIFT_TAKE, SLOW_FALL, LAKE_FLOOD, LIFT_WAKE, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  crackBlocked, crackSinkOf, takeCrackG, veinBand, veinsStay, fallBlocked, fallEnds, fallLands, takeLead, hoodStart, LIFT_TAKE, SLOW_FALL, LAKE_FLOOD, LIFT_WAKE, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
@@ -74,6 +74,8 @@ interface TakeSquare {
   /** the crack's list: its way (rad, down toward the crack's impact), and a crack whose sink waits for the bus or the lens to be clear (crackBlocked) */
   listA: number;
   sinkWait: boolean;
+  /** a crack has marked it since its last flip's next change (&veins=stay's veins stay: veinBand) */
+  veins: boolean;
 }
 
 /** the tuner's Take group (`topHits`: hitsToDrop[4], `wake`: LIFT_WAKE.r), copied into TAKE and LIFT_WAKE each frame. Not the fall's drop: LIFT_FALL.G is the GLSL's too, a constant */
@@ -718,6 +720,7 @@ export class Lift implements LiftHooks, FieldHouses {
         // sink onto the bus or the lens: the crack's hold)
         st.cracks++;
         s.cracker = hitter;
+        s.veins = true;
         s.listA = Math.atan2((squareIz(s.key) + 0.5) * SQUARE - pz, (squareIx(s.key) + 0.5) * SQUARE - px);
         s.crack = 0;
         s.sinkWait = true;
@@ -726,6 +729,7 @@ export class Lift implements LiftHooks, FieldHouses {
         break;
       case 'heal':
         st.heals++;
+        s.veins = false;
         // (a sink still waiting never starts)
         s.crack = s.sinkWait ? 0 : -t;
         if (!s.sinkWait) this.sinkSolid(s, false, t);
@@ -755,6 +759,7 @@ export class Lift implements LiftHooks, FieldHouses {
         break;
       case 'up':
         st.ups++;
+        s.veins = false;
         if (a.stage >= TAKE.top) {
           s.crack = 0;
           this.liftSquare(near, t, hitter);
@@ -1013,7 +1018,7 @@ export class Lift implements LiftHooks, FieldHouses {
       let s = this.takeSq.get(key);
       if (!s) {
         // (its claim line first draws itself round from the point nearest the heart: its impact until a counted change has one)
-        s = { key, heart, houses: [], hoseId: 0, hoseN: 0, crack: 0, cracker: 0, parry: 0, lastAt: 0, lastOut: 'none', ix: this.heart[0], iz: this.heart[1], readyAt: Infinity, listA: 0, sinkWait: false };
+        s = { key, heart, houses: [], hoseId: 0, hoseN: 0, crack: 0, cracker: 0, parry: 0, lastAt: 0, lastOut: 'none', ix: this.heart[0], iz: this.heart[1], readyAt: Infinity, listA: 0, sinkWait: false, veins: false };
         this.takeSq.set(key, s);
         this.rules.seed(key, this.block, TAKE.top, Infinity);
       }
@@ -1039,8 +1044,8 @@ export class Lift implements LiftHooks, FieldHouses {
     const a = this.rules.get(s.key)!;
     const o = (iz * w + ix) * 4, o2 = ((h + iz) * w + ix) * 4, d = this.takeData;
     d[o] = s.crack;
-    // (the cracker, and the crack's list's way as a fraction of a turn: sbLift's)
-    d[o + 1] = s.cracker + 0.999 * ((((s.listA / (2 * Math.PI)) % 1) + 1) % 1);
+    // (the cracker, &veins=stay's band, and the crack's list's way as a fraction of a turn: sbLift's)
+    d[o + 1] = takeCrackG(s.cracker, veinsStay ? veinBand(a.stage, s.veins) : 0, (((s.listA / (2 * Math.PI)) % 1) + 1) % 1);
     d[o + 2] = s.parry;
     d[o + 3] = Math.min(1e9, s.readyAt);
     d[o2] = a.faction;

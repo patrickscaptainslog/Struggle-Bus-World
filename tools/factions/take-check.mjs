@@ -419,5 +419,22 @@ for (const [name, owner, stage, cracks, ready, own, want, st, cr, who] of ROWS) 
   report('the field: a falling one is a wall from the ground to its drawn top, from under and over', `from 5 m ${lowQ.toFixed(1)}, underside ${lowUnder}; from 200 m ${highQ.toFixed(1)}`, '>= 51.5 both, no underside', lowQ >= 51.5 && highQ >= 51.5 && lowUnder === Infinity);
 }
 
+// ------------------------------------------------------------------ 8. &veins=stay (call 5): the band a stage, and tTake's g carrying it
+{
+  const { veinBand, takeCrackG, LIFT_TAKE } = L;
+  const rows = [[4, false], [4, true], [3, true], [2, true], [1, true], [1, false]].map(([s, c]) => veinBand(s, c)).join(' ');
+  report('the veins\' band: none uncracked; the crack\'s at 4 and 3, a band more at 2 and at 1', rows, '0 1 1 2 3 0', rows === '0 1 1 2 3 0');
+  report('the bands\' walls: 25 %, 40 %, 60 % (design C6)', LIFT_TAKE.veins.join(' '), '0.25 0.4 0.6', LIFT_TAKE.veins.join(' ') === '0.25 0.4 0.6');
+  // (as the GPU reads it, a 32-bit float: the cracker mod 8, the band over 8, the way's fraction for sbLift's list)
+  let worst = 0, bad = 0, same = true;
+  for (const cracker of [0, 1, 2, 3, 4, 5]) for (const band of [0, 1, 2, 3]) for (const way of [0, 0.123, 0.5, 0.9999]) {
+    const g = Math.fround(takeCrackG(cracker, band, way));
+    if (Math.floor(g) % 8 !== cracker || Math.floor(Math.floor(g) / 8) !== band) bad++;
+    worst = Math.max(worst, Math.abs((g - Math.floor(g)) / 0.999 - way));
+    if (band === 0 && takeCrackG(cracker, 0, way) !== cracker + 0.999 * way) same = false;
+  }
+  report('tTake\'s g as a 32-bit float: the cracker and the band read back, the list\'s way within 0.0001 of a turn; band 0 the old value bit for bit', `${bad} wrong, way off ${worst.toExponential(1)}, band 0 ${same ? 'the same' : 'differs'}`, '0 wrong, < 1e-4, the same', bad === 0 && worst < 1e-4 && same);
+}
+
 console.log(failed ? `${failed} failed` : 'all passed');
 process.exit(failed ? 1 : 0);
