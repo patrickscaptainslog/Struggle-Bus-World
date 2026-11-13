@@ -7,9 +7,11 @@
 //            the dip go
 //   look     a slow stroke from the top (it dies a look), one from under the swipe's top, and one from the top that pans 60 px in 200 ms and holds still
 //            1.5 s (it dies a look on the clock, by the swipe's window, with no move: the build's review, 5): each is a look that lets the dip go
-//   late     a stroke of 240 ms in 8 moves by its events' own times, each move coming in 90 ms of frames after the last, 720 ms in all on the frame's clock (a page behind slow
-//            frames, as the laptop's warm row at Jet): it fires, as its events say (the frame's clock alone killed it before its length, and the long swipe
-//            never answered)
+//   late     a stroke of 240 ms in 8 moves by its events' own times, each move coming in 90 ms of frames after the last, 720 ms in all on the frame's clock: it
+//            fires, as its events say (the frame's clock alone killed it before its length, and the long swipe never answered). The late moves are the test
+//            tool's: the warm row at Jet sends 8 touches one by one, each waited for, and on the laptop each cost a frame, so the lag grew move by move. A
+//            browser hands a frame's moves over together, so on a phone the lag doesn't grow, and the old rule bit only if one frame came later than the
+//            window less the stroke's own time: rarely
 // Prints a row each, and exits 1 if one fails.
 import { installDom, Target, clock, ptr, newId, runTimers } from '../controls-sim/fakedom';
 installDom();
