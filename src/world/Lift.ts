@@ -11,7 +11,7 @@ import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWa
 import { type Beam, makeBeam, makeSkyPiece, registerBeamWarm, registerSkyWarm, type SkyPiece } from './liftSky';
 import { keyAt, OUTCOMES, type Outcome, TAKE, TakeHouses, type TakeHit, TakeRules, type TakeSink } from './liftRules';
 import {
-  crackBlocked, crackSinkOf, fallBlocked, fallEnds, fallLands, hoodStart, LIFT_TAKE, SLOW_FALL, LAKE_FLOOD, LIFT_WAKE, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  crackBlocked, crackSinkOf, fallBlocked, fallEnds, fallLands, takeLead, hoodStart, LIFT_TAKE, SLOW_FALL, LAKE_FLOOD, LIFT_WAKE, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
@@ -963,7 +963,7 @@ export class Lift implements LiftHooks, FieldHouses {
         continue;
       }
       if (now < at) continue;
-      if (ref && fallBlocked(ref.x0, ref.z0, ref.x1, ref.z1, this.topOf(i, ref), this.margin[i], bus.x, bus.y, bus.z, bus.fx, bus.fz, BUS_HALF, this.busSpeed, cam.x, cam.y, cam.z)) {
+      if (ref && fallBlocked(ref.x0, ref.z0, ref.x1, ref.z1, this.topOf(i, ref), this.margin[i], bus.x, bus.y, bus.z, bus.fx, bus.fz, BUS_HALF, this.busSpeed, cam.x, cam.y, cam.z, takeLead(this.H[i]))) {
         this.stats.fallHeld++;
         continue;
       }

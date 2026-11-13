@@ -344,6 +344,8 @@ export const fallDrop = (H: number) => Math.sqrt((2 * Math.max(H, 0.5)) / LIFT_F
 /** When a falling house lands, and when its fall is over (its lake drained, its texel back on the ground), from its fall's start (s). */
 export const fallLands = (H: number) => LIFT_FALL.hitch + fallDrop(H);
 export const fallEnds = (H: number) => fallLands(H) + Math.max(LIFT_FALL.settle, LIFT_FALL.drain);
+/** The fall's hold's lead (s of the bus's ground speed its footprint grows by): its time to land from rest H and a quarter second, so the bus never reaches a house still on its way down */
+export const takeLead = (H: number) => fallLands(H) + 0.25;
 /** a landing's hop (m) by its heave: a small, light house's to a big building's (liftHeave runs from heaveSmall down to heaveBig) */
 const hopOf = (heave: number) => LIFT_FALL.hopSmall + (LIFT_FALL.hopBig - LIFT_FALL.hopSmall) * Math.min(1, Math.max(0, (LIFT.heaveSmall - heave) / (LIFT.heaveSmall - LIFT.heaveBig)));
 /** The fall `u` s in, over `out` (the motion where the swell has the house now): `out` becomes the falling house's. */
@@ -394,14 +396,14 @@ function flinchAt(t: number, out: number[] | Float64Array | Float32Array) {
 
 /**
  * Would a cracked house's sink bring its belly onto the bus or the lens (LIFT.md, the crack's hold): the bus's segment (as fallBlocked has it)
- * or the lens within its footprint's bounds grown by its reach plus max(2 m, 0.6 s of the bus's ground speed), between its belly less the sink
- * and its reach (the bus's body over its point and 2 m more; the lens 3 m) and its roof.
+ * or the lens within its footprint's bounds grown by its reach plus max(2 m, `lead` s of the bus's ground speed), between its belly less the sink
+ * and its reach (the bus's body over its point and 2 m more; the lens 3 m) and its roof. The Lift's lead is the design's 0.6 s.
  */
-export function crackBlocked(x0: number, z0: number, x1: number, z1: number, belly: number, roof: number, sink: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number): boolean {
+export function crackBlocked(x0: number, z0: number, x1: number, z1: number, belly: number, roof: number, sink: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number, lead = 0.6): boolean {
   const lo = belly - sink - reach;
   // (fallBlocked with the other one far off: its own height test passed by giving it a top over everything)
-  if (cy + 3 > lo && cy < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, 1e9, 0, 1e9, 1, 0, 0, speed, cx, -Infinity, cz)) return true;
-  return by + 7 > lo && by < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, bx, -Infinity, bz, fx, fz, half, speed, 1e9, Infinity, 1e9);
+  if (cy + 3 > lo && cy < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, 1e9, 0, 1e9, 1, 0, 0, speed, cx, -Infinity, cz, lead)) return true;
+  return by + 7 > lo && by < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, bx, -Infinity, bz, fx, fz, half, speed, 1e9, Infinity, 1e9, lead);
 }
 
 const F = (x: number) => (Number.isInteger(x) ? `${x}.0` : `${x}`);
@@ -696,11 +698,13 @@ export function waveSlow(front: number, far: number, db: number, h: number): -1 
 /**
  * Nothing comes down on the bus or the lens (LIFT.md, "Taking the block", the fall's hold): a floating house whose fall would start now stays up
  * while the bus's segment (its middle (bx, bz) along (fx, fz), `half` m each way, nose to tail at its scale plus 2 m) or the lens (cx, cz) is
- * inside its footprint's bounds (x0, z0, x1, z1) grown by its reach plus max(2 m, 0.6 s of the bus's ground speed), anywhere under its drawn top
- * plus 8 m (the lens: plus 3). No time cap: its square parries until it has landed.
+ * inside its footprint's bounds (x0, z0, x1, z1) grown by its reach plus max(2 m, `lead` s of the bus's ground speed), anywhere under its drawn
+ * top plus 8 m (the lens: plus 3). No time cap: its square parries until it has landed. The Lift's lead is the fall's own time to land
+ * (takeLead): the design's 0.6 s let the bus reach a house still coming down, a wall from the ground to its drawn top, and the flight popped
+ * up over it, 6.6 m in a frame at 20 fps (lift-check --take, t1)
  */
-export function fallBlocked(x0: number, z0: number, x1: number, z1: number, top: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number): boolean {
-  const g = reach + Math.max(2, 0.6 * speed);
+export function fallBlocked(x0: number, z0: number, x1: number, z1: number, top: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number, lead = 0.6): boolean {
+  const g = reach + Math.max(2, lead * speed);
   const out = (x: number, z: number) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
   if (cy < top + 3 && out(cx, cz) <= g) return true;
   if (by >= top + 8) return false;

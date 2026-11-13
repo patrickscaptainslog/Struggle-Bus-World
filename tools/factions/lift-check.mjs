@@ -598,7 +598,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       for (let dz = -1; dz <= 1; dz++)
         for (let dx = -1; dx <= 1; dx++)
           for (const r of hgrid.get(`${gx + dx},${gz + dz}`) ?? []) {
-            if (houses.state[r.index] !== 2 || x < r.x0 - 1 || x > r.x1 + 1 || z < r.z0 - 1 || z > r.z1 + 1 || !inFoot(r, x, z, 1)) continue;
+            if ((houses.state[r.index] !== 2 && houses.state[r.index] !== 3) || x < r.x0 - 1 || x > r.x1 + 1 || z < r.z0 - 1 || z > r.z1 + 1 || !inFoot(r, x, z, 1)) continue;
             const dy = houses.dyAt(r.index, x, z);
             if (f.y + 5.1 > r.baseY + dy && f.y < Math.max(r.roofY, houses.extra[r.index]) + dy) {
               n++;
@@ -790,6 +790,204 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
   // and i hold under 3 m. j's are the layer's known risk, reported with it)
   report("the flight's jolts, g h f2 i", `${jolts.runs - jRuns} of ${jolts.of - jOf} runs have a step over 3 m in 1/120 s; the largest ${f2(jolts.worstGHI)} m`, '<= 3 m (it was 7.85, 7 runs)', jolts.worstGHI <= 3);
   report("the flight's jolts, all", `${jolts.runs} of ${jolts.of} runs (g, h, f2, i, j) have a step over 3 m in 1/120 s; the largest ${f2(jolts.worst)} m (${JSON.stringify(jolts.at)}); up at most ${f2(jolts.up)} m, down ${f2(jolts.down)} m`, 'reported: j is a known risk', true);
+
+  // ---------------------------------------------------------------- 4t. --take: the real Flight under a square that falls, and one that cracks
+  // (LIFT.md, "Taking it: the looks"). The square of Alamo Square with the most floating houses; the Lift's own holds (fallBlocked, crackBlocked)
+  // with the bus's real half length (8 m) and a chase lens 14 m behind it and 5 m up; its fall's order out from the square's middle; a crack's
+  // sink with its `solid` and look ahead as the Lift has them. Flown in from four sides at a held 20 and 60 m, at Cruise, Express and Nonstop's
+  // speeds, at 20 and 60 frames a second: never a step with the bus's body in a drawn house, and at 20 fps no step over 1.5 m a frame
+  if (process.argv.includes('--take')) {
+    const bySq = new Map();
+    for (const r of lifted) {
+      const k = L.squareKey(Math.floor(r.cx / L.SQUARE), Math.floor(r.cz / L.SQUARE));
+      if (!bySq.has(k)) bySq.set(k, []);
+      bySq.get(k).push(r);
+    }
+    const [sqKey, sqRefs] = [...bySq].sort((a, b) => b[1].length - a[1].length)[0];
+    const scx = (L.squareIx(sqKey) + 0.5) * L.SQUARE, scz = (L.squareIz(sqKey) + 0.5) * L.SQUARE;
+    const inSq = new Uint8Array(N);
+    const byIndex = new Map(sqRefs.map((r) => [r.index, r]));
+    for (const r of sqRefs) inSq[r.index] = 1;
+    const fallT = new Float64Array(N);
+    const take = { crack: 0, lx: 0, lz: 0 };
+    houses.look = new Float32Array(N);
+    // (the Lift's motion: its square's crack and list, a falling house's seconds into its fall)
+    houses.dyNow = (i) => {
+      const st = houses.state[i];
+      if (!st) return 0;
+      const q = inSq[i];
+      L.liftAt(houses.now - houses.t0[i], houses.now, houses.H[i], houses.seed[i], houses.cx[i], houses.cz[i], houses.heave[i], houses.tmp, st === 3 ? houses.now - fallT[i] : -1, q ? take.crack : 0, q ? take.lx : 0, q ? take.lz : 0);
+      return houses.tmp[0];
+    };
+    const topOf = (r) => Math.max(r.roofY + 6, houses.extra[r.index]) + houses.H[r.index] * 1.14 + houses.margin[r.index];
+    const SPEEDS = [['Cruise', 0], ['Express', L.config.flight.surgeSpeed], ['Nonstop', L.config.turbo.nonstopSpeed]];
+    const SIDES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+    /** one run: in from `side` toward the square's middle (or `at`), held at y0 over the ground; at `hitAt` m from it the square's hit lands */
+    function takeRun(mode, side, y0, speed, fps, at = [scx, scz]) {
+      for (const r of lifted) {
+        houses.state[r.index] = 2;
+        houses.t0[r.index] = -20;
+        houses.solid[r.index] = houses.H[r.index] - houses.margin[r.index] < L.LIFT_PASS ? 1 : 0;
+      }
+      houses.look.fill(0);
+      take.crack = 0;
+      take.lx = take.lz = 0;
+      // (the field's sides, over or under each house, are remembered for 0.4 s of the game clock: every run starts at the same clock, so a run
+      // and its base would inherit the run before's)
+      field.sides = field.sideT = null;
+      const dt = 1 / fps, f = new L.Flight();
+      // (heading h flies along (sin h, -cos h), Flight's)
+      f.heading = side;
+      const back = 120 + speed * 1.2;
+      f.x = at[0] - Math.sin(side) * back;
+      f.z = at[1] + Math.cos(side) * back;
+      f.y = groundAt(f.x, f.z) + y0;
+      f.holdY = f.targetY = f.y;
+      if (speed) {
+        f.speed = speed;
+        f.turbo.speed = speed;
+        f.turbo.rate = 4;
+      }
+      houses.now = 20;
+      const queue = new Map();
+      let hit = -1, sinkWait = false, lookUntil = -1, clip = 0, first = null, step = 0, stepAt = null, held = 0, started = 0, landed = 0, prevY = f.y, n = 0;
+      let clipSq = 0, firstSq = null, stepSq = 0, stepSqAt = null;
+      const secs = (back + 260) / Math.max(30, speed) + 6;
+      for (let s = 0; s * dt < secs; s++) {
+        houses.now = 20 + s * dt;
+        const now = houses.now;
+        f.step(dt, { sx: 0, sy: 0, dragging: false }, W);
+        const fx = Math.sin(f.heading), fz = -Math.cos(f.heading), sp = f.speed;
+        const cam = [f.x - fx * 14, f.y + 5, f.z - fz * 14];
+        // the hit: as the bus comes within 40 m of passing the middle abeam (a crack's impact, or the fall's: the strings cut from the
+        // middle); none on the same run flown with no hit, the base it is held to
+        if (mode !== 'none' && hit < 0 && (at[0] - f.x) * fx + (at[1] - f.z) * fz < 40) {
+          hit = now;
+          if (mode === 'fall') {
+            for (const r of sqRefs) queue.set(r.index, now + Math.hypot(r.cx - scx, r.cz - scz) / L.LIFT_FALL.front + L.LIFT_FALL.jitter * L.liftSeed(r.index, 5));
+          } else {
+            sinkWait = true;
+            const a = Math.atan2(scz - f.z, scx - f.x);
+            take.lx = Math.cos(a);
+            take.lz = Math.sin(a);
+          }
+        }
+        if (sinkWait) {
+          let h = false;
+          for (const r of sqRefs) {
+            if (houses.state[r.index] !== 2) continue;
+            if (L.crackBlocked(r.x0, r.z0, r.x1, r.z1, r.baseY + houses.dyNow(r.index), topOf(r), L.crackSinkOf(houses.H[r.index]), houses.margin[r.index], f.x, f.y, f.z, fx, fz, 8, sp, cam[0], cam[1], cam[2])) {
+              h = true;
+              break;
+            }
+          }
+          if (h) held++;
+          else {
+            sinkWait = false;
+            take.crack = now;
+            lookUntil = now + 2;
+            for (const r of sqRefs) houses.solid[r.index] = L.liftLow(houses.H[r.index] - L.crackSinkOf(houses.H[r.index]), houses.margin[r.index]) ? 1 : 0;
+          }
+        }
+        for (const r of sqRefs) houses.look[r.index] = now < lookUntil ? 10 * dt : 0;
+        for (const [i, t] of queue) {
+          const r = byIndex.get(i);
+          if (houses.state[i] === 3) {
+            if (now - fallT[i] >= L.fallEnds(houses.H[i])) {
+              houses.state[i] = 0;
+              field.reach(r.x0, r.z0, r.x1, r.z1);
+              queue.delete(i);
+              landed++;
+            }
+            continue;
+          }
+          if (now < t) continue;
+          if (L.fallBlocked(r.x0, r.z0, r.x1, r.z1, topOf(r), houses.margin[r.index], f.x, f.y, f.z, fx, fz, 8, sp, cam[0], cam[1], cam[2], L.takeLead(houses.H[r.index]))) {
+            held++;
+            continue;
+          }
+          houses.state[i] = 3;
+          fallT[i] = now;
+          started++;
+        }
+        if (s * dt < 0.5) {
+          prevY = f.y;
+          continue;
+        }
+        n++;
+        const c = clips(f);
+        // (over the square or within 40 m of it, where its houses fall or sink)
+        const near = Math.max(Math.abs(f.x - scx), Math.abs(f.z - scz)) < L.SQUARE / 2 + 40, dyf = Math.abs(f.y - prevY);
+        const where = { t: +(now - 20).toFixed(2), from: +prevY.toFixed(1), to: +f.y.toFixed(1) };
+        if (dyf > step) [step, stepAt] = [dyf, where];
+        if (near && dyf > stepSq) [stepSq, stepSqAt] = [dyf, where];
+        prevY = f.y;
+        if (c.n) {
+          const w = { t: +(now - 20).toFixed(2), x: +f.x.toFixed(1), z: +f.z.toFixed(1), y: +f.y.toFixed(1), house: c.which.index, state: houses.state[c.which.index] };
+          clip++;
+          first ??= w;
+          if (inSq[c.which.index]) {
+            clipSq++;
+            firstSq ??= w;
+          }
+        }
+      }
+      return { clip, first, step, stepAt, clipSq, firstSq, stepSq, stepSqAt, held, started, landed, hit: hit >= 0, sunk: take.crack > 0, steps: n };
+    }
+    // (each run is held to the same run flown with no hit: the flight in the layer at a held 60 m has its own known steps, j. above. What
+    // counts is what the take adds on its square's houses: a step in one of them the base hasn't, and over the square or within 40 m of it a
+    // step at 20 fps over 1.5 m and larger than the base's largest there. A run whose path the take changed can meet another square's
+    // floating house: that run is the layer's known risk's, reported apart with its steps)
+    const sum = (mode, at) => {
+      const o = { runs: 0, added: 0, first: null, clip: 0, baseClip: 0, step20: 0, at20: null, base20: 0, over: 0, held: 0, started: 0, landed: 0, nohit: 0, sunk: 0, away: 0, awayFirst: null, awayStep: 0 };
+      for (const side of SIDES)
+        for (const y0 of [20, 60])
+          for (const [name, speed] of SPEEDS) {
+            if (speed > 200 && y0 < 60) continue;
+            for (const fps of [20, 60]) {
+              const r = takeRun(mode, side, y0, speed, fps, at), b = takeRun('none', side, y0, speed, fps, at);
+              const tag = { side: Math.round((side * 180) / Math.PI), y0, gear: name, fps };
+              o.runs++;
+              o.clip += r.clipSq;
+              o.baseClip += b.clipSq;
+              if (r.clipSq > b.clipSq) {
+                o.added++;
+                o.first ??= { ...tag, steps: r.clipSq, base: b.clipSq, ...r.firstSq };
+              }
+              // (a run the take sent into another square's floating house is the layer's known risk's, its steps reported with it)
+              const sent = r.clip - r.clipSq > b.clip - b.clipSq;
+              if (sent) {
+                o.away++;
+                o.awayFirst ??= { ...tag, steps: r.clip - r.clipSq, base: b.clip - b.clipSq, ...r.first, step: +r.step.toFixed(2), baseStep: +b.step.toFixed(2) };
+              }
+              if (fps === 20) {
+                if (!sent && r.stepSq > 1.5 && r.stepSq > b.stepSq + 0.01) {
+                  o.over++;
+                  if (r.stepSq - b.stepSq > o.step20 - o.base20) [o.step20, o.base20, o.at20] = [r.stepSq, b.stepSq, { ...tag, ...r.stepSqAt }];
+                }
+                if (r.step > 1.5 && r.step > b.step + 0.01) o.awayStep++;
+              }
+              o.held += r.held;
+              o.started += r.started;
+              o.landed += r.landed;
+              if (!r.hit) o.nohit++;
+              if (r.sunk) o.sunk++;
+            }
+          }
+      return o;
+    };
+    const a = sum('fall');
+    report(`t1. under a falling square (${sqRefs.length} houses, its middle ${f2(scx)}, ${f2(scz)})`, `${a.runs} runs: ${a.added} where the fall adds steps with the body in one of its houses${a.first ? ` first ${JSON.stringify(a.first)}` : ''} (${a.clip} such steps, ${a.baseClip} in the same runs with no hit); ${a.started} falls started, ${a.landed} landed, ${a.held} frames held; ${a.nohit} runs never hit`, 'none added; falls started and landed; every run hit', a.added === 0 && a.started > 0 && a.landed === a.started && a.nohit === 0);
+    report('t1. its steps at 20 fps', `${a.over} runs with a step over 1.5 m a frame by the square larger than the same run's with no hit${a.at20 ? `, the most ${f2(a.step20)} m against ${f2(a.base20)} (${JSON.stringify(a.at20)})` : ''}`, 'none', a.over === 0);
+    // (b) under the square's lowest house the flight passes under, as the crack lands
+    const pass = sqRefs.filter((r) => !houses.solid[r.index]), clear = (r) => houses.H[r.index] - houses.margin[r.index];
+    const low = (pass.length ? pass : sqRefs).slice().sort((p, q) => clear(p) - clear(q))[0];
+    const b = sum('crack', [low.cx, low.cz]);
+    report(`t2. under its lowest passable house (${low.index}, rest ${f2(houses.H[low.index])} m) as the crack lands`, `${b.runs} runs: ${b.added} where the crack adds steps with the body in one of its houses${b.first ? ` first ${JSON.stringify(b.first)}` : ''} (${b.clip} such steps, ${b.baseClip} with no hit); ${b.sunk} sank, ${b.held} frames held; ${b.nohit} runs never hit`, 'none added; sinks happen; every run hit', b.added === 0 && b.sunk > 0 && b.nohit === 0);
+    for (const [k, o] of [['t1', a], ['t2', b]])
+      report(`${k}. away from the square, on a path the take changed`, `${o.away} runs with more steps in another square's floating house${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''}; ${o.awayStep} with a larger step over 1.5 m at 20 fps anywhere`, "reported: the layer's known risk (j.)", true);
+    report('t2. its steps at 20 fps', `${b.over} runs with a step over 1.5 m a frame by the square larger than the same run's with no hit${b.at20 ? `, the most ${f2(b.step20)} m against ${f2(b.base20)} (${JSON.stringify(b.at20)})` : ''}`, 'none', b.over === 0);
+  }
 }
 
 // ------------------------------------------------------------------ 5. --gpu: the motion's GLSL on this machine's GPU against the TypeScript
