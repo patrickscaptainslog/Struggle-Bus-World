@@ -335,6 +335,36 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         camera,
       })
     : null;
+  /**
+   * ?lift&lifted's glance (LIFT.md, "Taking the block", call 1): from the Golden Gate the block's light stands about 34 degrees right of the
+   * heading, out of the 24-degree portrait lens. When the opening's gate opens the look turns once toward it (out over 0.6 s, held 0.9 s, back
+   * over 0.6 s, through the rig's own look: CameraRig.glance), stopping 6 degrees short so the light stands beside the bus, and the moment a
+   * thumb touches it is gone. No HUD, no text; it shows the player that looking exists, too
+   */
+  const glance = {
+    t: -1,
+    to: 0,
+    start(heart: [number, number]) {
+      const hx = heart[0] - flight.x, hz = heart[1] - flight.z;
+      // (+right: the heading's right is (-fz, fx))
+      const a = Math.atan2(hx * -flight.fz + hz * flight.fx, hx * flight.fx + hz * flight.fz);
+      const off = Math.min(Math.PI / 2, Math.abs(a) - THREE.MathUtils.degToRad(6));
+      // (in the frame already: nothing to show)
+      if (off < THREE.MathUtils.degToRad(6)) return;
+      this.to = Math.sign(a) * off;
+      this.t = 0;
+    },
+    step(realDt: number, touched: boolean): number | null {
+      if (this.t < 0) return null;
+      this.t += realDt;
+      if (touched || this.t >= 2.1) {
+        this.t = -1;
+        return null;
+      }
+      const k = this.t < 0.6 ? this.t / 0.6 : this.t < 1.5 ? 1 : 1 - (this.t - 1.5) / 0.6;
+      return this.to * k * k * (3 - 2 * k);
+    },
+  };
   /** what the Lift reads of the bus each frame, its heading's forward too (one object: no allocation in the loop) */
   const liftBus = { x: 0, y: 0, z: 0, ground: 0, fx: 0, fz: -1 };
   /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
@@ -1402,6 +1432,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
     const gateShut = !!openingBridge && gateAlong < (gateOpened ? OPENING_LOW_ALONG : config.camera.openingClimbAfter);
+    // (?lift&lifted: as the opening hands over the controls, the camera glances once toward the block's light)
+    if (!gateShut && !gateOpened && openingBridge && lift?.beam) glance.start(lift.heart);
     if (!gateShut) gateOpened = true;
     if (gateShut) {
       if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
@@ -1504,6 +1536,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       rig.openingLow = lift.lowTarget(flight, realDt, rig.lowDist, Math.sin(THREE.MathUtils.degToRad(rig.lowEl)) * rig.lowDist);
     }
     // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
+    rig.glance = glance.step(realDt, st.dragging || st.look.on || !!st.thumb || !!qaStick);
     rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
     aimer.lookYaw = rig.aimYaw;
     // aim glint on the building a tap would hit (picked every frame), only while a breath is loaded
