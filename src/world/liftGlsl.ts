@@ -507,6 +507,23 @@ export function waveSlow(front: number, far: number, db: number, h: number): -1 
   return h < LIFT_WAKE.low && Math.hypot(db - front, h) <= 150 ? 1 : 0;
 }
 
+/**
+ * Nothing comes down on the bus or the lens (LIFT.md, "Taking the block", the fall's hold): a floating house whose fall would start now stays up
+ * while the bus's segment (its middle (bx, bz) along (fx, fz), `half` m each way, nose to tail at its scale plus 2 m) or the lens (cx, cz) is
+ * inside its footprint's bounds (x0, z0, x1, z1) grown by its reach plus max(2 m, 0.6 s of the bus's ground speed), anywhere under its drawn top
+ * plus 8 m (the lens: plus 3). No time cap: its square parries until it has landed.
+ */
+export function fallBlocked(x0: number, z0: number, x1: number, z1: number, top: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number): boolean {
+  const g = reach + Math.max(2, 0.6 * speed);
+  const out = (x: number, z: number) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
+  if (cy < top + 3 && out(cx, cz) <= g) return true;
+  if (by >= top + 8) return false;
+  const l = Math.hypot(fx, fz) || 1;
+  // (nine points along it: 2 m apart at the bus's real length)
+  for (let k = -4; k <= 4; k++) if (out(bx + (fx / l) * half * (k / 4), bz + (fz / l) * half * (k / 4)) <= g) return true;
+  return false;
+}
+
 /** The bake's normalisation of a neighbourhood's name: lower case, accents stripped, only letters and digits. */
 export const hoodKey = (s: string) =>
   s
