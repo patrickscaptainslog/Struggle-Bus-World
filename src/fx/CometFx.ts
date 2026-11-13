@@ -324,20 +324,22 @@ interface Live {
  * about 12 km tall: the producer's call, with a still (BUILT.md, "The Lob from any height").
  */
 export function beaconHeight(lens: THREE.Camera, x: number, y: number, z: number): number {
-  const L = config.lob, v = beaconV;
-  const ndc = (h: number) => {
-    v.set(x, y + h, z).applyMatrix4(lens.matrixWorldInverse);
-    return v.z >= -1 ? -Infinity : v.applyMatrix4(lens.projectionMatrix).y;
-  };
-  if (ndc(L.beacon) >= -0.2) return L.beacon;
-  if (ndc(L.beaconMost) < -0.2) return L.beaconMost;
+  const L = config.lob;
+  if (beaconNdc(lens, x, y + L.beacon, z) >= -0.2) return L.beacon;
+  if (beaconNdc(lens, x, y + L.beaconMost, z) < -0.2) return L.beaconMost;
   let lo = L.beacon, hi = L.beaconMost;
   for (let i = 0; i < 12; i++) {
     const m = (lo + hi) * 0.5;
-    if (ndc(m) >= -0.2) hi = m;
+    if (beaconNdc(lens, x, y + m, z) >= -0.2) hi = m;
     else lo = m;
   }
   return hi;
+}
+
+/** Where (x, y, z) shows on `lens`, its height in NDC (-Infinity behind it): beaconHeight's, a function and not a closure made a frame. */
+function beaconNdc(lens: THREE.Camera, x: number, y: number, z: number): number {
+  const v = beaconV.set(x, y, z).applyMatrix4(lens.matrixWorldInverse);
+  return v.z >= -1 ? -Infinity : v.applyMatrix4(lens.projectionMatrix).y;
 }
 const beaconV = new THREE.Vector3();
 /** the streak's sizes as drawn near (m): the head, the first mote, the rest */
@@ -747,8 +749,8 @@ export class CometFx {
       else if (f === 1) (ox = Math.cos(w * 2 + now * 9) * 3.5), (oy = Math.sin(w * 2 + now * 9) * 3.5);
       else if (f === 2) (ox = (Math.random() - 0.5) * 6), (vy = -6 - 6 * Math.random()), (life += 0.4);
       else if (f === 3) (ox = (Math.abs(((w * 0.8) % 2) - 1) * 2 - 1) * 5), (size = 2.8);
-      if (z) size = Math.max(size, z[2]);
       else (ox = (Math.random() - 0.5) * 4), (oy = (Math.random() - 0.5) * 4), (vy = 6 + 10 * Math.random());
+      if (z) size = Math.max(size, z[2]);
       this.q.addScaledVector(this.side, ox);
       this.q.y += oy;
       this.particles.comet(this.q, (Math.random() - 0.5) * 3, vy + (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, i < 2 ? Ramp.GLOW_WHITE : ramp, i === 0 ? (z ? z[1] : 6.5) : size, life);

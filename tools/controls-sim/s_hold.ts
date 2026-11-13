@@ -312,7 +312,7 @@ if (process.argv.includes('--review')) {
     const said: string[] = [];
     const bomb: InstanceType<typeof Bomb> = new Bomb({
       input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
-      aimer: { fire: () => (said.push('fire'), { x: 0, z: -120, drop: 120, comet: {} }), unfire: () => said.push('unfire'), aim: { x: 0, z: -120, drop: 120 }, ownAim: { x: 0, z: -120, drop: 120 } } as any,
+      aimer: { fire: () => (said.push('fire'), { x: 0, z: -120, drop: 120, comet: {} }), unfire: () => said.push('unfire'), aim: { x: 0, z: -120, drop: 120 } } as any,
       audio: { bombCharge: () => {}, bombTier: () => {}, bombStop: (f: boolean) => said.push(f ? 'let go' : 'fizzle'), bombFade: () => {}, bombBeat: () => {}, superMega: () => {} } as any,
       fx: { motes: () => {}, sparks: () => {}, halo: () => {} } as any,
       breathe: () => (said.push('bomb'), 0), busy: () => false,
@@ -619,7 +619,7 @@ function bombRow(name: string, fn: (h: Hn, b: InstanceType<typeof Bomb>, breaths
   const ms = () => `${Math.round(h.at())}ms`;
   bomb = new Bomb({
     input: h.input, flight: h.flight, rig: { kick: () => {} } as any, busVel: () => new THREE.Vector3(),
-    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), unfire: () => {}, aim: { x: 0, z: -DROP, drop: DROP }, ownAim: { x: 0, z: -DROP, drop: DROP } } as any,
+    aimer: { fire: () => ({ x: 0, z: -DROP, drop: DROP, comet: comet ? {} : null }), unfire: () => {}, aim: { x: 0, z: -DROP, drop: DROP } } as any,
     audio: { bombCharge: () => h.log.push(`riser@${ms()}`), bombTier: (t: number) => h.log.push(`clunk${t}@${ms()}`), bombStop: (fired: boolean) => h.log.push(`${fired ? 'let go' : 'fizzle'}@${ms()}`), bombFade: () => h.log.push(`fade@${ms()}`), bombBeat: () => {}, superMega: () => {} } as any,
     fx: { motes: (n: number) => (fxN.motes += n), sparks: (n: number) => (fxN.sparks += n), halo: (n: number) => (fxN.halo += n) } as any,
     breathe: (shot, b) => { breaths.push({ ...b, tag: { ...b.tag }, x: shot.x, z: shot.z, at: Math.round(h.at()) }); h.log.push(`bomb@${ms()}`); return 0; },

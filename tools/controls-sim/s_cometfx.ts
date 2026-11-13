@@ -17,7 +17,8 @@ import { CameraRig } from '@src/game/CameraRig';
 import { JET, NONSTOP, TurboDrive, driveSpeed } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
 import { lensFov } from '@src/render/PixelPipeline';
-import { beaconHeight, cometAt, streakSizes, tallPillar } from '@src/fx/CometFx';
+import { CometFx, beaconHeight, cometAt, streakSizes, tallPillar } from '@src/fx/CometFx';
+import { FACTIONS } from '@src/game/factions';
 import * as THREE from 'three';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -112,6 +113,38 @@ for (const h of [1500, 5000, 15000]) {
   const left = cometAt(from, to, 90, -b, 0.5, new THREE.Vector3());
   ok(Math.abs(((left.x - line.x) * -dz + (left.z - line.z) * dx) / l + b * chord) < 1e-6, `cometAt's bow: to the left with a negative bow`);
   ok(cometAt(from, to, 90, b, 0, o).distanceTo(from) < 1e-9 && cometAt(from, to, 90, b, 1, o).distanceTo(to) < 1e-9, `cometAt's bow: it leaves the mouth and lands on the line`);
+}
+// the streak's motes, each faction's shape as at 4f33648 (the review, 2: a line put inside the shapes' else-chain gave every near Lob a random scatter, the
+// drips flying up, and the fifth faction's Comet none). CometFx.streak run on a stub: the arc at the origin (the side falls back to +x), Math.random 0.5
+// (no jitter, the scatter 0 across and 11 m/s up), every mote's offset and velocity recorded
+{
+  const rnd = Math.random;
+  Math.random = () => 0.5;
+  const cam = new THREE.PerspectiveCamera(50, SW / SH, 1, 60000);
+  cam.updateProjectionMatrix();
+  const streak = (CometFx.prototype as any).streak as (c: unknown, now: number, dt: number, camera: THREE.PerspectiveCamera) => void;
+  for (const [kind, lob] of [['near Lob', true], ['Comet', false]] as const)
+    for (let slot = 0; slot < FACTIONS.length; slot++) {
+      const motes: number[][] = [];
+      const fake = {
+        particles: { palette: [0, 1, 2, 3, 4, 5], comet: (q: THREE.Vector3, _vx: number, vy: number) => void motes.push([q.x, q.y, vy]) },
+        at: (_c: unknown, _u: number, out: THREE.Vector3) => out.set(0, 0, 0),
+        p: new THREE.Vector3(), q: new THREE.Vector3(), up: new THREE.Vector3(), side: new THREE.Vector3(), sizes: [] as number[], stats: { motes: 0 },
+      };
+      const c = { on: true, t0: 0, t1: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), arc: 0, launched: true, u: 0, faction: FACTIONS[slot].id, hue: 0, full: true, lob, far: false, bow: 0, plan: null, fullAt: 0, prevFull: 0 };
+      streak.call(fake, c, 0.5, 1 / 60, cam);
+      const m = motes.slice(1), near = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+      const shape = [
+        (q: number[], i: number) => near(q[0], ((i % 6) - 2.5) * 1.6) && near(q[1], 0) && near(q[2], 0),
+        (q: number[]) => near(Math.hypot(q[0], q[1]), 3.5) && near(q[2], 0),
+        (q: number[]) => near(q[0], 0) && near(q[1], 0) && near(q[2], -9),
+        (q: number[]) => Math.abs(q[0]) <= 5 + 1e-6 && near(q[1], 0) && near(q[2], 0),
+        (q: number[]) => near(q[0], 0) && near(q[1], 0) && near(q[2], 11),
+      ][Math.min(slot, 4)];
+      const bad = m.filter((q, i) => !shape(q, i)).length;
+      ok(m.length >= 2 && bad === 0, `the streak's motes: a ${kind} of the faction in slot ${slot} in its shape as at 4f33648 (${bad} of ${m.length} not; ${JSON.stringify(m.slice(0, 3).map((q) => q.map(r2)))})`);
+    }
+  Math.random = rnd;
 }
 // the source checks
 const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
