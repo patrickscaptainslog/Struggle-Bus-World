@@ -332,10 +332,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           note: (i, n, hue) => audio.bloomNote(i, n, hue, 3),
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
+        camera,
       })
     : null;
-  /** what the Lift reads of the bus each frame (one object: no allocation in the loop) */
-  const liftBus = { x: 0, y: 0, z: 0, ground: 0 };
+  /** what the Lift reads of the bus each frame, its heading's forward too (one object: no allocation in the loop) */
+  const liftBus = { x: 0, y: 0, z: 0, ground: 0, fx: 0, fz: -1 };
   /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
   let spire: SpireRide | null = null;
   /** 181 Fremont's spire binds to its tower (and the roof under it) once both exist (whichever comes last) */
@@ -1437,6 +1438,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       liftBus.y = flight.y;
       liftBus.z = flight.z;
       liftBus.ground = flight.groundUnder;
+      liftBus.fx = flight.fx;
+      liftBus.fz = flight.fz;
       lift.frame(renderer, simTime, dt, realDt, liftBus, camera.position, clamp(opening / config.fog.openingDuration, 0, 1));
     }
     if (!wasFull && flight.fullness >= 1) {

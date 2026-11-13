@@ -9,7 +9,7 @@ import { LiftField, type FieldHouses } from './LiftField';
 import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWarm, type Centre } from './liftDraw';
 import { makeSkyPiece, registerSkyWarm, type SkyPiece } from './liftSky';
 import {
-  hoodStart, LAKE_FLOOD, liftAt, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
+  hoodStart, LAKE_FLOOD, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
 
 // The Lift, the first slice of the stages (docs/specs/factions/LIFT.md; FACTIONS.md section 2, Team Super Rainbow's "4 · Liftoff"): behind ?lift,
@@ -37,12 +37,15 @@ export interface LiftGame {
   sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void };
   /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
   sun: [number, number];
+  /** the scene's camera: the wake asks whether the heart is in its frame (as last drawn) */
+  camera: THREE.Camera;
 }
 
 const ST_GROUND = 0, ST_PENDING = 1, ST_UP = 2;
 /** a house held back from jumping into the bus or the camera waits at most this long (s) */
 const HOLD_MAX = 3;
 const tmp = [0, 0, 0, 0];
+const heartAt = new THREE.Vector3();
 const petalAt = new Float32Array(16);
 const LENS_RING = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]] as const;
 const OVER_RING = [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]] as const;
@@ -150,6 +153,11 @@ export class Lift implements LiftHooks, FieldHouses {
   private waveSlowDone = false;
   private notes = 0;
   private noteT = 0;
+  /** &lifted, once staged: the squares with a staged house (x0, z0, x1, z1 each, m), the farthest staged house from the heart (m) and the heart's ground (m) */
+  private stagedRects: number[] = [];
+  private readonly stagedSq = new Set<number>();
+  private stagedFar = 0;
+  private heartY = 0;
   /** the hit lifts this frame took off, for one sound and one slow motion */
   private hitJumps = 0;
   private hoseJumps = 0;
@@ -453,6 +461,40 @@ export class Lift implements LiftHooks, FieldHouses {
     return this.stagedHue[i] >= 0 ? 2 : 0;
   }
 
+  /**
+   * &lifted: the lift-off wave from the heart, `now` + 0.6 s, with its boom. It starts once staging is done, as the bus comes to the block (wakes),
+   * or at a knock (landed)
+   */
+  private wave(now: number) {
+    this.waveAt = now + 0.6;
+    // (placed low ones first, out from the heart, then the rest: waveOrder, plan(). The crouches go by distance whatever the order)
+    for (const { ref, d } of this.waveOrder()) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
+    if (this.block === FACTION_HYPERGLOW) this.turns();
+    this.sky?.start(this.waveAt);
+    this.g.sound.wave();
+  }
+
+  /** Does the bus wake the block now (liftWakes): its distance to the nearest staged square, its height over the heart's ground, its heading, the lens's frame. */
+  private wakes(bus: { x: number; y: number; z: number; fx: number; fz: number }): boolean {
+    let dh = Infinity;
+    const r = this.stagedRects;
+    for (let k = 0; k < r.length; k += 4) dh = Math.min(dh, Math.hypot(Math.max(r[k] - bus.x, 0, bus.x - r[k + 2]), Math.max(r[k + 1] - bus.z, 0, bus.z - r[k + 3])));
+    const h = bus.y - this.heartY, d = Math.hypot(dh, Math.max(0, h));
+    const hx = this.heart[0] - bus.x, hz = this.heart[1] - bus.z, hl = Math.hypot(hx, hz);
+    const ahead = hl > 1e-6 ? (hx * bus.fx + hz * bus.fz) / (hl * (Math.hypot(bus.fx, bus.fz) || 1)) : 1;
+    // (the heart's ground in the frame as last drawn)
+    heartAt.set(this.heart[0], this.heartY, this.heart[1]).project(this.g.camera);
+    const seen = heartAt.z < 1 && Math.abs(heartAt.x) <= 1 && Math.abs(heartAt.y) <= 1;
+    return liftWakes(d, dh, h, this.busSpeed, ahead, seen);
+  }
+
+  /** A blast has landed (Splat): one on a staged square before the wave wakes the block to the knock, the wave's own boom with it. Nothing while staging waits on its tiles. */
+  landed(b: { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number }) {
+    if (!liftedOn || !this.staged || this.waveAt >= 0) return;
+    const x = b.primary ? b.primary.cx : b.pos.x, z = b.primary ? b.primary.cz : b.pos.z;
+    if (this.stagedSq.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE))) || this.stagedSq.has(squareKey(Math.floor(b.pos.x / SQUARE), Math.floor(b.pos.z / SQUARE)))) this.wave(b.t);
+  }
+
   /** houses a blast asked to lift (wants) that haven't started yet */
   private asked = 0;
 
@@ -631,6 +673,15 @@ export class Lift implements LiftHooks, FieldHouses {
     if (this.stageN < list.length) return;
     this.staged = true;
     this.waveList = list;
+    // (what the wake measures from: the squares a staged house stands on, the farthest of them, the heart's ground)
+    for (const { ref, d } of list) {
+      const ix = Math.floor(ref.cx / SQUARE), iz = Math.floor(ref.cz / SQUARE), k = squareKey(ix, iz);
+      this.stagedFar = Math.max(this.stagedFar, d);
+      if (this.stagedSq.has(k)) continue;
+      this.stagedSq.add(k);
+      this.stagedRects.push(ix * SQUARE, iz * SQUARE, (ix + 1) * SQUARE, (iz + 1) * SQUARE);
+    }
+    this.heartY = city.groundAt(hx, hz);
     // (the sky piece from the next frame on, a part a frame: not on top of this one's 50 houses, nor the wave's)
     this.buildSky();
   }
@@ -776,7 +827,7 @@ export class Lift implements LiftHooks, FieldHouses {
    * Once a frame, after the flight. `now` the game clock, dt its step, realDt the wall clock's; the bus and the camera, the opening's fog (0..1
    * gone). Schedules &lifted's wave, holds a house that would jump into the bus or the camera, takes houses up, uploads what changed.
    */
-  frame(renderer: THREE.WebGLRenderer, now: number, dt: number, realDt: number, bus: { x: number; y: number; z: number; ground: number }, cam: THREE.Vector3, fogGone: number) {
+  frame(renderer: THREE.WebGLRenderer, now: number, dt: number, realDt: number, bus: { x: number; y: number; z: number; ground: number; fx: number; fz: number }, cam: THREE.Vector3, fogGone: number) {
     this.now = now;
     this.wall += realDt;
     let busy = false;
@@ -788,22 +839,12 @@ export class Lift implements LiftHooks, FieldHouses {
     // (the bus for the sky piece's cut, handed over in lens() once the lens is where the frame is drawn from: after skyStep, so a piece
     // finished this frame, after the wave began, is drawn this frame round the bus already)
     this.busAt = bus;
-    if (!busy && liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5) {
-      this.waveAt = now + 0.6;
-      // (placed low ones first, out from the heart, then the rest: waveOrder, plan(). The crouches go by distance whatever the order)
-      for (const { ref, d } of this.waveOrder()) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
-      if (this.block === FACTION_HYPERGLOW) this.turns();
-      this.sky?.start(this.waveAt);
-      this.g.sound.wave();
-    }
-    // the wave's slow motion, as its front comes within 150 m of the bus
-    if (liftedOn && this.waveAt >= 0 && !this.waveSlowDone) {
-      const front = Math.max(0, (now - this.waveAt) * LIFT.wave);
-      const db = Math.hypot(bus.x - this.heart[0], bus.z - this.heart[1]);
-      if (now >= this.waveAt + LIFT.crouch && front >= db - 150) {
-        this.waveSlowDone = true;
-        this.slow(SLOW_WAVE);
-      }
+    if (!busy && liftedOn && this.staged && this.waveAt < 0 && fogGone >= 0.5 && this.wakes(bus)) this.wave(now);
+    // the wave's slow motion, as its front comes within 150 m of the bus while it still crosses the block (else never: waveSlow)
+    if (liftedOn && this.waveAt >= 0 && !this.waveSlowDone && now >= this.waveAt + LIFT.crouch) {
+      const ws = waveSlow(Math.max(0, (now - this.waveAt) * LIFT.wave), this.stagedFar, Math.hypot(bus.x - this.heart[0], bus.z - this.heart[1]), bus.y - this.heartY);
+      if (ws) this.waveSlowDone = true;
+      if (ws > 0) this.slow(SLOW_WAVE);
     }
     this.hitJumps = 0;
     this.hoseJumps = 0;

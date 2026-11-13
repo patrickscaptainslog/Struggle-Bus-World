@@ -422,6 +422,8 @@ export class Splatter {
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(ringHue(b.spec.hue, faction), S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
       this.fx.impact(b);
+      // (?lift: the Lift hears every blast land; without the flag the City has none)
+      this.city.lift?.landed(b);
       if (p.hitStop > 0) this.fx.hitStop(p.hitStop);
       for (const s of p.plan) this.queue.push(s);
     }

@@ -462,6 +462,51 @@ export const SLOW_WAVE = [0.3, 0.15, 0.6, 0.45] as const;
 /** no slow motion again within this many s of wall clock: a firehose or a chain of taps never stutters */
 export const SLOW_COOLDOWN = 8;
 
+/**
+ * &lifted's wake: the lift-off wave starts as the bus comes to the block, ahead of it, as a vista (the demo's opener), and its squares settle
+ * about as the bus arrives. Under `low` m over the heart's ground the bus wakes it within `r` m of a staged square's edge, or `s` seconds of its
+ * ground speed, at most `max` m (staging needs the block's tiles in, about 1.5 km round the stream's centre: past 1.2 km from the nearest edge its
+ * far houses may not be), with the heart within `cone` degrees of its heading; within `in` m whatever its heading; over `low`, within `max` m
+ * across the ground with the heart in the lens's frame. Cruise wakes it 450 m out (15 s), Express 672 m (6 s), Nonstop and Jet 1,200 m (5.3 s and 2.7 s).
+ */
+export const LIFT_WAKE = { low: 600, r: 450, s: 6, max: 1200, cone: 35, in: 150 };
+
+/**
+ * Does the bus wake the block. `d` its distance to the nearest staged square's edge in three dimensions (m: across the ground and its height over
+ * the heart's ground), `dh` the part across the ground, `h` that height, `speed` its ground speed (m/s), `ahead` the cosine of the angle from its
+ * heading to the heart, `seen` whether the heart is inside the lens's frame.
+ */
+export function liftWakes(d: number, dh: number, h: number, speed: number, ahead: number, seen: boolean): boolean {
+  const W = LIFT_WAKE;
+  if (d <= W.in) return true;
+  if (h < W.low) return d <= Math.min(W.max, Math.max(W.r, W.s * speed)) && ahead >= Math.cos((W.cone * Math.PI) / 180);
+  return dh <= W.max && seen;
+}
+
+/**
+ * &lifted's far sign: a column of the block's faction's light over the heart, seen across the city, from `lo` m over the heart's ground (until the
+ * sky piece is built; then the piece's top plus `over`, eased over its first `ease` s, so it never stands out of a piece as its stalk) to `hi`.
+ * At least `wMin` m wide and `px` game pixels at its distance; its hues in `band` m bands drifting up at `drift` m/s, its top `top` of it fading
+ * by a dither, one pulse up it every `pulse` s; gone by a dither between `fadeFar` and `fadeNear` m from the lens to the heart. It drains from the
+ * top down, or rises from the ground, over `drain` s.
+ */
+export const BEAM = { lo: 350, hi: 1200, over: 30, ease: 5, wMin: 8, px: 3, band: 40, drift: 8, top: 0.3, pulse: 2.4, fadeFar: 1200, fadeNear: 600, drain: 1.2 };
+/** The beam's width (m) `d` m from the lens: the larger of BEAM.wMin and BEAM.px game pixels there (`p00` the projection's 1 / tan of half the horizontal lens, `gameW` the game's width in pixels), as its vertex shader works it. */
+export function beamWidth(d: number, p00: number, gameW: number): number {
+  return Math.max(BEAM.wMin, (BEAM.px * 2 * d) / (p00 * gameW));
+}
+
+/**
+ * The wave's slow motion, once its houses have crouched: 1 play it now, -1 skip it for good, 0 not yet. It plays only while the front is still
+ * crossing the block (out to its farthest staged house's distance from the heart, `far`, plus 150 m), with the bus within 150 m of the front in
+ * three dimensions and under LIFT_WAKE.low. `front` the front's radius (m), `db` the bus's distance from the heart across the ground, `h` its
+ * height over the heart's ground.
+ */
+export function waveSlow(front: number, far: number, db: number, h: number): -1 | 0 | 1 {
+  if (front > far + 150) return -1;
+  return h < LIFT_WAKE.low && Math.hypot(db - front, h) <= 150 ? 1 : 0;
+}
+
 /** The bake's normalisation of a neighbourhood's name: lower case, accents stripped, only letters and digits. */
 export const hoodKey = (s: string) =>
   s
@@ -571,4 +616,9 @@ export interface LiftHooks {
   wants(ref: { index: number }, level: number, faction: number): 0 | 1 | 2;
   /** a hit lifts it: it crouches at `at`, its bloom's arrival (game clock) */
   start(ref: { index: number }, at: number, hose?: boolean): void;
+  /**
+   * A blast has landed (Splat, once, after its impact): the building it hit (its centroid), the impact, the game clock, the hitter, the super
+   * that made it and what its line of fire crossed (`via`). &lifted's knock wakes the block (LIFT.md)
+   */
+  landed(b: { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number }): void;
 }
