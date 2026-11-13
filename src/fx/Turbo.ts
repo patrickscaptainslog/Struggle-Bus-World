@@ -6,6 +6,7 @@ import { clamp } from '../game/springs';
 import type { Flight } from '../game/Flight';
 import type { TurboDrive } from '../game/Turbo';
 import type { CameraRig } from '../game/CameraRig';
+import { swerveTune } from '../game/Swerve';
 import type { Particles } from './Particles';
 import { boomed, boomedOr, boomOn, hoopPose, type BoomPlan, type HoopPose } from '../game/Boom';
 
@@ -138,11 +139,11 @@ export class TurboLens {
     // (a gear's climb is fast too: the vertical lag goes with the climb rate, or the camera ends up under the bus)
     const leadV = Math.max(lead, clamp((Math.abs(f.vy) - 30) / 120, 0, 1));
     // (?swerve's skid: the bus slides across the view the camera now aims down the nose, so the part of its way across the nose is led by all of the springs'
-    // lag, Swerve.skidW of it, or it runs out of the frame's side)
+    // lag, Swerve.skidW of it, or it runs out of the frame's side. Across the way the view faces: the nose's by noseCam, as CameraRig turns it)
     const skidW = f.swerve.skidW;
     let lx = vx * lead, lz = vz * lead;
     if (skidW > 0) {
-      const nh = f.heading + f.swerve.slip, nx = Math.sin(nh), nz = -Math.cos(nh), along = vx * nx + vz * nz;
+      const nh = f.heading + f.swerve.slip * swerveTune.noseCam, nx = Math.sin(nh), nz = -Math.cos(nh), along = vx * nx + vz * nz;
       lx += (vx - along * nx) * (1 - lead) * skidW;
       lz += (vz - along * nz) * (1 - lead) * skidW;
     }
