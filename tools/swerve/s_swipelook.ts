@@ -5,7 +5,8 @@
 // under the frame.
 //   fired    strokes of 150 to 450 ms down 0.4 of the height plus 30 px from three landings at the top: each fires, and no frame before it is a look that lets
 //            the dip go
-//   look     a slow stroke from the top (it dies a look) and one from under the swipe's top: each is a look that lets the dip go
+//   look     a slow stroke from the top (it dies a look), one from under the swipe's top, and one from the top that pans 60 px in 200 ms and holds still
+//            1.5 s (it dies a look on the clock, by the swipe's window, with no move: the build's review, 5): each is a look that lets the dip go
 // Prints a row each, and exits 1 if one fails.
 import { installDom, Target, clock, ptr, newId, runTimers } from '../controls-sim/fakedom';
 installDom();
@@ -78,6 +79,9 @@ const slow = stroke(70, 120, 10, down, 1500);
 row(slow.fired === null && slow.lets > 0, 'look: a slow stroke from the top', slow);
 const under = stroke(70, top + 60, 10, 200, 300);
 row(under.fired === null && under.lets > 0, 'look: a stroke from under the swipe\'s top', under);
+// (the window is swipeTune.ms from the landing: a frame or two past it lets the dip go)
+const still = stroke(70, 120, 0, 60, 200, 1500);
+row(still.fired === null && still.lets > 0 && still.firstLet !== null && still.firstLet <= swipeTune.ms + 2 * step, 'look: a pan from the top held still', { ...still, window: swipeTune.ms });
 
 console.log(bad ? `${bad} FAILED` : 'all pass');
 process.exit(bad ? 1 : 0);

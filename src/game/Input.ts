@@ -638,6 +638,11 @@ export class Input {
     // the look starts on the clock too: a thumb can stop moving inside the delay
     for (let i = 0; i < MAX_POINTERS; i++) {
       const s = this.slots[i];
+      // (and ?swerve's long swipe dies on the clock: a thumb held still past its window is a look, which lets a far shot's dip go)
+      if (s.swipe === Swipe.Live && now - s.t0 > this.swipeRule.ms) {
+        s.swipe = Swipe.Dead;
+        if (this.looker === s) st.look.swipe = false;
+      }
       if (s.role === Role.Second && !s.looking && s.swipe !== Swipe.Fired) this.lookStep(s, now);
       // (armed on the first frame that sees it, started on a later one that still does, aimLagMs past the hold: a lift queued behind a slow frame or two is still a
       // tap, its own time says so)
