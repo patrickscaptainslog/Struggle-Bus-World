@@ -2296,6 +2296,9 @@ if (modes.has('boom') || modes.has('falls')) {
         await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
         for (let k = 0; k < 4 && !poured; k++) {
           const key = `${fk}-tower${k}`;
+          // (an earlier pour's runs all down first: the page's first touch is a tap, and where it lands on a tower it pours; its pool landing after the
+          // baseline below was counted as this tower's, a second pool and its last drops, the table's run of 5480c79)
+          const earlier = await until(page, 'g.falls.runs.length === 0', 12);
           const r = await page.evaluate((k) => {
             const g = window.__game, o = g.city.manifest.origin, rr = Math.PI / 180, cx = (-122.3999 - o[1]) * rr * 6378137 * Math.cos(o[0] * rr), cz = -(37.7946 - o[0]) * rr * 6378137;
             const all = g.city.buildingsWithin(cx, cz, 700, []).map((n) => n.ref).filter((r) => r.stableId >= 0 && r.roofY - r.baseY > 60 && g.city.roofAtPart(r, r.cx, r.cz, Infinity) - r.baseY > 45);
@@ -2339,7 +2342,7 @@ if (modes.has('boom') || modes.has('falls')) {
             }
             return { ...g.falls.stats, wet };
           }, [r, hit.target]);
-          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, ...t };
+          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, earlierDown: earlier, ...t };
           R.rows.push(row);
           console.log('falls:', JSON.stringify(row));
           if (!poured) continue;
