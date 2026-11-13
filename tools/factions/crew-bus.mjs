@@ -8,13 +8,21 @@
 //     and an Inferno one made inside the rivals' frame (a ram's path: from sim.step): the hitter's colours flood the body with no frame showing yellow on
 //     it but the Rainbow hitter's own, and after the drain it is Atlantis's again; then a switch made while the bus isn't framed (as above 15 km, where the
 //     flight's own bus has the frame): its first frame back shows the new crew whole. No program made after the warm-up, no page error.
+//     The gauge (bus/gauge.ts): the held rival buses' gauges each their crew's run; then through Atlantis, the Elderwood, Hyperglow, Inferno, Rainbow and
+//     Atlantis again, the bus pinned with the rivals sent home: the band's and the bar's rows and lifts in the bus's own attributes and the charge's rows,
+//     each the crew's run (Rainbow's: the six hues, no lift, as built), and the colours read from the page's own frame (its resolved picture, at the 24
+//     slices from the close camera on its left side, the 6 cells from the chase camera behind) at empty, half and full: each the stop's row (90 %), lit
+//     back to front (at half the rear lit, the front not).
 //   --look=<dir>: the stills, no verdict. Each crew's bus held over the Mission at 12:30 from the chase camera (the phone's whole screen) and from close; a
 //     rival bus of the bus's crew alongside; two frames in the middle of a switch.
+//   --look=<dir> --gauge: the gauge's stills instead: each crew's bus from the chase camera with the gauge empty, half and full over the grey city, and close
+//     at half; the full wave on Atlantis and Inferno, close; two frames in the middle of a switch at a phone's size; an Inferno rival ahead of the Atlantis
+//     bus; then each crew over its own paint (its shots at the blocks ahead).
 // Prints pass or FAIL a line; writes <out>/crew-bus.json; exit 1 on any failure (the stills: exit 0 once they are written).
 //
 //   node tools/factions/crew-bus.mjs <url> <outDir> [--q=<query>] [--look=<dir>]
 import { chromium } from 'playwright-core';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { browserOptions } from '../browser.mjs';
 
@@ -30,6 +38,23 @@ if (LOOK) mkdirSync(LOOK, { recursive: true });
 const KEY = { 1: 'rainbow', 2: 'atlantis', 3: 'elderwood', 4: 'hyperglow', 5: 'inferno' };
 const BODY = { 1: 14, 2: 26, 3: 28, 4: 24, 5: 30 };
 const YELLOW = 14;
+/** each crew's gauge run, rear to front: [row, lift in steps] (a copy of bus/gauge.ts's table, which the page's reads are held against) */
+const RUNS = {
+  1: [[8, 0], [9, 0], [10, 0], [11, 0], [12, 0], [13, 0]],
+  2: [[27, -1], [27, 0], [27, 1], [27, 2], [26, 2], [26, 3]],
+  3: [[13, -1], [13, 0], [28, 2], [28, 3], [10, 1], [10, 2]],
+  4: [[25, -1], [25, 0], [25, 1], [29, 0], [29, 1], [29, 2]],
+  5: [[31, 2], [8, 0], [9, -1], [9, 0], [10, 0], [10, 2]],
+};
+/** the palette (render/palette.ts, read as text): each colour's rows and steps, to name what a pixel of the page shows */
+const PAL = (() => {
+  const src = readFileSync(resolve('src/render/palette.ts'), 'utf8');
+  const at = src.indexOf('export const Ramp = {'), block = src.slice(at, src.indexOf('};', at));
+  const num = Object.fromEntries([...block.matchAll(/^\s+([A-Z_]+): (\d+),/gm)].map((m) => [m[1], +m[2]]));
+  const by = {};
+  for (const m of src.matchAll(/\[Ramp\.([A-Z_]+)\]: \[([^\]]+)\]/g)) [...m[2].matchAll(/'#([0-9a-f]{6})'/g)].forEach((h, k) => (by[h[1]] ??= []).push([num[m[1]], k]));
+  return by;
+})();
 
 let failed = 0;
 const log = [];
@@ -101,9 +126,12 @@ const pick = async (f) => {
 await page.evaluate(() => {
   const g = window.__game;
   const busRa = () => g.scene.getObjectByName('BusRoot').children[0].geometry.getAttribute('ramp');
+  // (the gauge's parts are left out of the count: they were never yellow, and their rows are the gauge's checks')
+  const ua0 = g.scene.getObjectByName('BusRoot').children[0].geometry.getAttribute('uv');
   window.__cbRead = () => {
     const ra = busRa(), h = {};
     for (let i = 0; i < ra.count; i++) {
+      if (Math.round(ua0.getX(i)) === 9) continue;
       const v = ra.getX(i);
       h[v] = (h[v] ?? 0) + 1;
     }
@@ -122,8 +150,82 @@ await page.evaluate(() => {
     window.__cbChimes = (window.__cbChimes ?? 0) + 1;
     sr();
   };
+  // (a bus's gauge as its attributes hold it: by stop (a part's uv.y x 6; PART.BAND is 9), the row and the lift in steps, and any stop whose parts disagree)
+  window.__cbGaugeOf = (mesh) => {
+    const geo = mesh.geometry, ua = geo.getAttribute('uv'), ra = geo.getAttribute('ramp'), la = geo.getAttribute('lightOffset'), rows = [], lifts = [], mixed = new Set();
+    for (let i = 0; i < ua.count; i++) {
+      if (Math.round(ua.getX(i)) !== 9) continue;
+      const st = Math.min(5, Math.floor(ua.getY(i) * 6)), r = ra.getX(i), l = Math.round(((la.getX(i) + 0.5) / 0.15) * 100) / 100;
+      if (rows[st] === undefined) {
+        rows[st] = r;
+        lifts[st] = l;
+      } else if (rows[st] !== r || lifts[st] !== l) mixed.add(st);
+    }
+    return { rows, lifts, mixed: [...mixed] };
+  };
+  // (the gauge's 30 places on the player's bus, in its mesh's space: each slice's left face and each bar cell's back face, a third down from the top)
+  {
+    const geo = busRa() && g.scene.getObjectByName('BusRoot').children[0].geometry, ua = geo.getAttribute('uv'), pa = geo.getAttribute('position'), box = new Map();
+    for (let i = 0; i < ua.count; i++) {
+      if (Math.round(ua.getX(i)) !== 9) continue;
+      const k = Math.round(ua.getY(i) * 1e4), b = box.get(k) ?? { par: ua.getY(i), lo: [Infinity, Infinity, Infinity], hi: [-Infinity, -Infinity, -Infinity] };
+      for (let c = 0; c < 3; c++) {
+        b.lo[c] = Math.min(b.lo[c], pa.getComponent(i, c));
+        b.hi[c] = Math.max(b.hi[c], pa.getComponent(i, c));
+      }
+      box.set(k, b);
+    }
+    window.__cbPts = [...box.values()].sort((p, q) => p.par - q.par).map((b) => {
+      const bar = b.hi[2] - b.lo[2] < 0.2, y = b.hi[1] - (b.hi[1] - b.lo[1]) / 3;
+      return { bar, par: b.par, stop: Math.min(5, Math.floor(b.par * 6)), p: bar ? [(b.lo[0] + b.hi[0]) / 2, y, b.hi[2] + 0.01] : [b.lo[0] - 0.01, y, (b.lo[2] + b.hi[2]) / 2] };
+    });
+  }
+  // (the colours the page drew there: its resolved frame (the picture before it is scaled to the screen), 3 x 3 game pixels round each place, as hex)
+  window.__cbPixels = () => {
+    const P = g.pipeline, rt = P.resolved, W = rt.width, H = rt.height, px = new Uint8Array(W * H * 4);
+    P.renderer.readRenderTargetPixels(rt, 0, 0, W, H, px);
+    const mesh = g.scene.getObjectByName('BusRoot').children[0], v = new g.camera.position.constructor();
+    return window.__cbPts.map((q) => {
+      v.set(q.p[0], q.p[1], q.p[2]).applyMatrix4(mesh.matrixWorld).project(P.snapCam);
+      const ix = Math.floor((v.x * 0.5 + 0.5) * W), iy = Math.floor((v.y * 0.5 + 0.5) * H), hex = [];
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = ix + dx, y = iy + dy;
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          const o = (y * W + x) * 4;
+          hex.push([px[o], px[o + 1], px[o + 2]].map((c) => c.toString(16).padStart(2, '0')).join(''));
+        }
+      return { bar: q.bar, par: q.par, stop: q.stop, at: [ix, iy], hex };
+    });
+  };
 });
 const read = () => page.evaluate(() => window.__cbRead());
+/** a gauge read from attributes against a crew's run: its rows, its lifts, no stop of mixed parts */
+const gaugeIs = (gq, f) => gq.mixed.length === 0 && RUNS[f].every(([r, l], k) => gq.rows[k] === r && Math.abs(gq.lifts[k] - l) < 0.01);
+const runSays = (rows, lifts) => rows.map((r, k) => `${r}${lifts[k] ? (lifts[k] > 0 ? '+' : '') + lifts[k] : ''}`).join(' ');
+const gaugeSays = (gq, f) => `${runSays(gq.rows, gq.lifts)}${gq.mixed.length ? ` (stops ${gq.mixed} mixed)` : ''} against ${runSays(RUNS[f].map((s) => s[0]), RUNS[f].map((s) => s[1]))}`;
+/** a colour's rows and steps: the palette's own, or (the live sky's table of the hour shifts a colour a little: ORANGE's #dc5235 drawn #dd5043) the nearest
+ *  palette colour within 20 of it, as RGB distance; null past that */
+const PAL_LIST = Object.keys(PAL).map((h) => [h, [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16))]);
+const palOf = (h) => {
+  if (PAL[h]) return PAL[h];
+  const c = [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16));
+  let best = null, bd = 20;
+  for (const [k, p] of PAL_LIST) {
+    const d = Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]);
+    if (d < bd) [best, bd] = [k, d];
+  }
+  return best ? PAL[best] : null;
+};
+/** a place's pixels named: the row most of them are (a colour two rows share counts for both) and their mean step in it; null if none is a palette colour */
+const named = (q) => {
+  const n = {};
+  for (const h of q.hex) for (const r of new Set((palOf(h) ?? []).map((e) => e[0]))) n[r] = (n[r] ?? 0) + 1;
+  const best = Object.entries(n).sort((a, b) => b[1] - a[1])[0];
+  if (!best) return null;
+  const row = +best[0], st = q.hex.flatMap((h) => (palOf(h) ?? []).filter((e) => e[0] === row).map((e) => e[1]));
+  return { row, step: st.reduce((a, b) => a + b, 0) / st.length, of: best[1] };
+};
 /** no rival's flood on the bus, nor a throw: what the body shows is its own */
 const quiet = () => wait(() => {
   const s = window.__cbRead();
@@ -220,11 +322,12 @@ if (!LOOK) {
         if (!root?.visible) continue;
         const r = Rv.sim.list.find((x) => Math.hypot(x.x - root.position.x, x.z - root.position.z) < 1);
         if (!r || r.soaked) continue;
-        out.push({ faction: r.faction, row: root.children[0].geometry.getAttribute('ramp').getX(j) });
+        out.push({ faction: r.faction, row: root.children[0].geometry.getAttribute('ramp').getX(j), gauge: window.__cbGaugeOf(root.children[0]) });
       }
       return out;
     });
     for (const r of riv) (R.rivals ??= []).push(r);
+    report("rival buses wear their crew's gauge", riv.length ? riv.map((r) => `${KEY[r.faction]} ${gaugeSays(r.gauge, r.faction)}`).join('; ') : 'none read', "at least one, each its crew's run", riv.length > 0 && riv.every((r) => gaugeIs(r.gauge, r.faction)));
   }
   // (then the rivals sent home and the bus let go: no stray hit in what follows)
   await page.evaluate(() => {
@@ -234,6 +337,59 @@ if (!LOOK) {
   });
   const rv = R.rivals ?? [];
   report('rival buses wear the same table', rv.length ? `${rv.length} read: ${rv.map((r) => `${KEY[r.faction]} ${r.row}`).join(', ')}` : `none read (${beside} held alongside)`, "at least one, each its crew's row", rv.length > 0 && rv.every((r) => r.row === BODY[r.faction]));
+  await after(1);
+  // ---- the gauge: the bus pinned where it is, the rivals home, the close camera on its left side and back; each crew in turn from the one it's in (Atlantis)
+  R.gauge = [];
+  await page.evaluate(() => {
+    const g = window.__game, f = g.flight;
+    window.__qa = { ...(window.__qa ?? {}), pin: { x: f.x, z: f.z, y: f.y, heading: 0, speed: 0 } };
+    // (no smoke puffs while the gauge is read: the exhaust's cross the bar's left cells from behind, the grey blob the first look saw. The particles
+    // show and hide themselves each frame, so it's the puff that is held, and given back after)
+    window.__cbPuff = g.particles.puff;
+    g.particles.puff = () => {};
+  });
+  for (const [k, f] of [2, 3, 4, 5, 1, 2].entries()) {
+    if (k > 0) await pick(f);
+    // (the first: the chase camera settles behind the bus just pinned, which was flying a moment ago)
+    await after(k === 0 ? 3 : 1);
+    const st = await page.evaluate(() => window.__cbGaugeOf(window.__game.scene.getObjectByName('BusRoot').children[0]));
+    const ch = await page.evaluate(() => window.__game.crewBus?.qa().gauge?.charge ?? null);
+    report(`${KEY[f]}: the gauge's rows and lifts`, gaugeSays(st, f), "the crew's run", gaugeIs(st, f));
+    report(`${KEY[f]}: the charge's rows`, ch ? ch.join(' ') : 'no crew look', RUNS[f].map((s) => s[0]).join(' '), !!ch && RUNS[f].every((s, j) => ch[j] === s[0]));
+    const reads = {};
+    for (const F of [0, 0.5, 1]) {
+      // (the slices from the close camera on the left side, the bar from the chase camera behind, as a player sees it)
+      const view = (F, on) =>
+        page.evaluate(([F, on]) => {
+          const g = window.__game, p = window.__qa.pin;
+          p.fullness = F;
+          window.__qa.camAt = on ? { x: p.x - 13, z: p.z + 20, h: p.y - g.city.groundAt(p.x - 13, p.z + 20) + 6, lookX: p.x, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x, p.z) + 1 } : null;
+        }, [F, on]);
+      // (the chase camera first, given 2 s to come back behind the bus from the close one: 0.8 s left it to the left, the bar's left cells behind the bumper)
+      await view(F, false);
+      await after(2);
+      const back = await page.evaluate(() => window.__cbPixels());
+      await view(F, true);
+      await after(0.8);
+      const side = await page.evaluate(() => window.__cbPixels());
+      reads[F] = side.map((q, j) => (q.bar ? back[j] : q)).map((q) => ({ ...q, n: named(q) }));
+    }
+    // (each place: its row the stop's, at all three; then lit back to front: a lit place is a step or more over its empty self, in the same row)
+    const places = reads[0].length, want = Math.ceil(places * 0.9);
+    const rowOk = [0, 0.5, 1].map((F) => reads[F].filter((q) => q.n && q.n.row === RUNS[f][q.stop][0]).length);
+    const lit = (q, j) => !!(q.n && reads[0][j].n && q.n.row === reads[0][j].n.row && q.n.step >= reads[0][j].n.step + 0.9);
+    const full = reads[1].filter(lit).length;
+    const rearN = reads[0.5].filter((q) => q.par < 0.45).length, rear = reads[0.5].filter((q, j) => q.par < 0.45 && lit(q, j)).length;
+    const frontN = reads[0.5].filter((q) => q.par > 0.55).length, front = reads[0.5].filter((q, j) => q.par > 0.55 && q.n && !lit(q, j)).length;
+    R.gauge.push({ f, st, ch, reads });
+    report(`${KEY[f]}: the page's colours, empty / half / full`, `${rowOk.join(' / ')} of ${places} places the stop's row`, `30 places, each ${want} or more`, places === 30 && rowOk.every((n) => n >= want));
+    report(`${KEY[f]}: it fills back to front`, `full: ${full} of ${places} lit; half: ${rear} of ${rearN} at the rear lit, ${front} of ${frontN} at the front not`, '90 % of each', full >= want && rear >= Math.ceil(rearN * 0.9) && front >= Math.ceil(frontN * 0.9));
+  }
+  await page.evaluate(() => {
+    delete window.__qa.pin;
+    window.__qa.camAt = null;
+    window.__game.particles.puff = window.__cbPuff;
+  });
   await after(1);
   // (every frame CrewBus draws, what the body shows after it; and a hit made inside the rivals' frame, as sim.step's 'ram' makes one)
   const hooked = await page.evaluate(() => {
@@ -359,6 +515,93 @@ if (!LOOK) {
     (R.stills ??= []).push(f);
     console.log('still', f);
   };
+  /** the belly's fullness, held by the pin */
+  const fill = (F) => page.evaluate((F) => (window.__qa.pin.fullness = F), F);
+  /** the middle of a switch to `f`: the game held at a third and two thirds of its half second, each a still `<name>-a`, `-b` */
+  const midSwitch = async (f, name) => {
+    await pick(f);
+    const at = await page.waitForFunction((f) => {
+      const l = window.__game.crewBus?.qa();
+      return l && Number.isFinite(l.at) && l.faction === f ? l.at : false;
+    }, f, { timeout: 5000, polling: 'raf' }).then((h) => h.jsonValue()).catch(() => null);
+    if (at === null) return console.log('no switch began: no middle frames');
+    for (const [k, s] of [[0.17, 'a'], [0.34, 'b']]) {
+      await page.evaluate((t) => Object.assign(window.__qa, { holdAt: t, held: false }), at + k);
+      await wait(() => window.__qa.held === true, null, 10000).catch(() => null);
+      await page.waitForTimeout(300);
+      R[`${name}-${s}`] = await read();
+      await still(`${name}-${s}`);
+    }
+    await page.evaluate(() => {
+      delete window.__qa.holdAt;
+      window.__qa.held = false;
+    });
+  };
+  if (opt.gauge) {
+    // ---- the gauge's stills (look2): the chase camera as a player flies it, over the grey city first, then over the crew's own paint
+    for (const f of [1, 2, 3, 4, 5]) {
+      if (f !== 1) await pick(f);
+      for (const [F, s] of [[0, 'empty'], [0.5, 'half'], [1, 'full']]) {
+        await fill(F);
+        await ready();
+        await still(`${f}-${KEY[f]}-phone-${s}`);
+      }
+      await fill(0.5);
+      await close(true);
+      await after(0.6);
+      await still(`${f}-${KEY[f]}-close-half`);
+      await close(false);
+    }
+    // (the full wave and the sparkle, close, on two crews: two frames a quarter second apart)
+    for (const f of [2, 5]) {
+      await pick(f);
+      await fill(1);
+      await close(true);
+      await after(1);
+      await still(`6-${KEY[f]}-wave-a-close`);
+      await after(0.25);
+      await still(`6-${KEY[f]}-wave-b-close`);
+      await close(false);
+    }
+    // (two frames in the middle of a switch, Inferno to Atlantis, at a phone's size, the gauge half full)
+    await fill(0.5);
+    await after(1);
+    await midSwitch(2, '7-switch-inferno-to-atlantis-phone');
+    // (a rival of another crew, Inferno, ahead of the Atlantis bus: 30 m on and 5 m to the right, a little higher, the same way)
+    await page.evaluate(() => {
+      const Rv = window.__rivals, r = Rv?.sim.list.find((x) => x.faction === 5) ?? Rv?.sim.list[0];
+      if (!r) return;
+      window.__cbBeside = true;
+      const tick = () => {
+        if (!window.__cbBeside) return;
+        const p = window.__qa.pin;
+        Object.assign(r, { live: true, faction: 5, soaked: 0, x: p.x + 5, z: p.z - 30, y: p.y + 3, heading: 0, speed: 0, state: 0, act: 1, tx: p.x + 5, tz: p.z - 1e7, mischiefIn: 1e9, ramIn: 0 });
+        r.px = r.x;
+        r.py = r.y;
+        r.pz = r.z;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await ready();
+    await still('8-atlantis-behind-an-inferno-rival-phone');
+    await page.evaluate(() => {
+      window.__cbBeside = false;
+      for (const o of window.__rivals?.sim.list ?? []) o.live = false;
+    });
+    // (over its own paint: each crew paints the blocks under and ahead of the bus with its own shots, from where it's held, then the still at half)
+    for (const f of [1, 2, 3, 4, 5]) {
+      await pick(f);
+      await after(1);
+      await page.evaluate(() => {
+        const g = window.__game, p = window.__qa.pin;
+        for (let i = 0; i < 16; i++) g.splatter.barf(p.x + ((i % 4) - 1.5) * 22, p.z - 20 - Math.floor(i / 4) * 24, { drop: 90 });
+      });
+      await after(3);
+      await ready();
+      await still(`9-${KEY[f]}-over-its-paint-phone-half`);
+    }
+  } else {
   for (const f of [1, 2, 3, 4, 5]) {
     if (f !== 1) await pick(f);
     await ready();
@@ -421,6 +664,7 @@ if (!LOOK) {
       window.__qa.held = false;
     });
   } else console.log('no switch began: no middle frames');
+  }
 }
 writeFileSync(resolve(out, 'crew-bus.json'), JSON.stringify(R, null, 1));
 await browser.close();
