@@ -194,7 +194,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vec2 tq = floor((vec2(aBld.y, aBld.w) - uTakeRect.xy) / ${SQUARE}.0);
         if (idx >= 0.0 && tq.x >= 0.0 && tq.y >= 0.0 && tq.x < uTakeRect.z && tq.y < uTakeRect.w) {
           vec4 K1 = texelFetch(tTake, ivec2(tq), 0), K2 = texelFetch(tTake, ivec2(tq.x, tq.y + uTakeRect.w), 0);
-          float code = floor(K2.a / 1e5 + 0.001), lt = K2.a - code * 1e5, u = uTime - lt;
+          float code = floor(mod(K2.r, 72.0) / 8.0), lt = K2.a, u = uTime - lt;
           float va = code == ${OUTCOMES.indexOf('crack')}.0 ? smoothstep(0.0, 0.15, u) : (code == ${OUTCOMES.indexOf('heal')}.0 || (code == ${OUTCOMES.indexOf('down')}.0 && K1.r != 0.0)) ? 1.0 - smoothstep(0.0, 0.4, u) : 0.0;
           if (lf.x <= 0.0) va = 0.0;
           if (va > 0.0 && (code == ${OUTCOMES.indexOf('crack')}.0 || code == ${OUTCOMES.indexOf('down')}.0)) vTake.y = max(vTake.y, 1.0 - smoothstep(0.0, 0.15, u));${veinsStay ? `
@@ -205,7 +205,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
             va = max(va, vb < 1.5 ? 1.0 : vb < 2.5 ? ${(LIFT_TAKE.veins[1] / LIFT_TAKE.veins[0]).toFixed(2)} : ${(LIFT_TAKE.veins[2] / LIFT_TAKE.veins[0]).toFixed(2)});` : ''}
           float sh = K1.b > 0.0 ? 1.0 - smoothstep(0.0, 0.3, uTime - K1.b) : 0.0;
           vTake.z = ${veinsStay ? `mod(floor(K1.g), 8.0) + 0.9 * clamp(va / ${VEINS_MAX}, 0.0, 1.0)` : 'floor(K1.g) + 0.9 * clamp(va, 0.0, 1.0)'};
-          vTake.w = K2.r + 0.9 * clamp(sh, 0.0, 1.0);
+          vTake.w = mod(K2.r, 8.0) + 0.9 * clamp(sh, 0.0, 1.0);
         }`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);
         vWorldPos = wp.xyz;

@@ -5,7 +5,7 @@ import { held, heldOr, skyOn } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
 import { GLSL_LAKE, GLSL_LIFT, LIFT_TAKE, lifted, SQUARE } from './liftGlsl';
-import { OUTCOMES, TAKE } from './liftRules';
+import { OUTCOMES } from './liftRules';
 import { liftUniforms, paintUniforms } from './buildingMaterial';
 import { GLSL_FACTION } from '../render/factionLook';
 import { GLSL_LAKE_LOOKS } from './liftLakes';
@@ -78,11 +78,14 @@ const FS = /* glsl */ `
   ${GLSL_LAKE_LOOKS}
   ${GLSL_LAKE}
   // the take (LIFT.md, "Taking the block"): on a square its rules hold the ground shows its owner's paint only (the store keeps all of it;
-  // tTake and uTakeRect are GLSL_LIFT's)
+  // tTake and uTakeRect are GLSL_LIFT's), the owner a flip took it from still ahead of the flip's front (tTake's r: owner + 8 x outcome + 72 x
+  // that one)
   bool sbTakeShows(vec2 p, float fac) {
     vec2 q = floor((p - uTakeRect.xy) / ${SQUARE}.0);
     if (q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w) return true;
-    float own = texelFetch(tTake, ivec2(q.x, q.y + uTakeRect.w), 0).r;
+    vec4 K2 = texelFetch(tTake, ivec2(q.x, q.y + uTakeRect.w), 0);
+    float own = mod(K2.r, 8.0), r = (uTime - K2.a) * ${LIFT_TAKE.front.toFixed(1)};
+    if (floor(mod(K2.r, 72.0) / 8.0) == ${OUTCOMES.indexOf('flip')}.0 && r < 190.0 && length(p - K2.gb) > r) own = floor(K2.r / 72.0);
     return own < 0.5 || abs(own - fac) < 0.5;
   }
   // a point (m, the square's own, 0..128 each way) on its square's border: its nearest edge point's distance round it from the square's corner
@@ -101,27 +104,30 @@ const FS = /* glsl */ `
     vec2 q = floor((wp.xz - uTakeRect.xy) / ${SQUARE}.0);
     if (q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w) return;
     vec4 K1 = texelFetch(tTake, ivec2(q), 0), K2 = texelFetch(tTake, ivec2(q.x, q.y + uTakeRect.w), 0);
-    if (K2.r < 0.5) return;
+    // (r the owner, plus 8 times the last change's outcome, plus 72 times the owner a flip took it from; a its time)
+    float own = mod(K2.r, 8.0), code = floor(mod(K2.r, 72.0) / 8.0), lt = K2.a;
+    if (own < 0.5) return;
     vec2 org = uTakeRect.xy + q * ${SQUARE}.0, l = wp.xz - org;
-    float code = floor(K2.a / 1e5 + 0.001), lt = K2.a - code * 1e5;
     if (code == ${OUTCOMES.indexOf('flip')}.0 || code == ${OUTCOMES.indexOf('up')}.0) {
       float r = (uTime - lt) * ${LIFT_TAKE.front.toFixed(1)}, d = length(wp.xz - K2.gb), edge = code == ${OUTCOMES.indexOf('flip')}.0 ? 3.0 : 1.0;
       if (r < 190.0 && d < r && d > r - edge - 8.0) {
         if (d > r - edge) { ramp = ${Ramp.GLOW_WHITE}.0; light = 6.0 / 7.0; glow = 0.8; }
-        else { ramp = sbFacHue(sbFac(K2.r), int(mod(floor(d / 3.0), 6.0)), true); light = 5.0 / 7.0; glow = 0.5; }
+        else { ramp = sbFacHue(sbFac(own), int(mod(floor(d / 3.0), 6.0)), true); light = 5.0 / 7.0; glow = 0.5; }
       }
     }
     float e = min(min(l.x, ${SQUARE}.0 - l.x), min(l.y, ${SQUARE}.0 - l.y));
     if (e > max(0.5, distance(wp, cameraPosition) * 0.0027)) return;
     float ds = abs(sbPerim(l) - sbPerim(K2.gb - org));
     ds = min(ds, ${4 * SQUARE}.0 - ds);
-    float left = K1.a - uTime, a = 0.0;
-    if (left > 0.0 && left < ${TAKE.cooldown.toFixed(2)} && ds <= ${2 * SQUARE}.0 * (1.0 - left / ${TAKE.cooldown.toFixed(2)})) a = 6.0;
+    // (round from the last counted change to the ready time, from tTake's own times, so the tuner's cooldown reaches the GPU through them (the
+    // review's finding 4); a square's first readying, with no change before it, over the five seconds)
+    float left = K1.a - uTime, span = lt > 0.0 ? K1.a - lt : 5.0, a = 0.0;
+    if (left > 0.0 && left < span && ds <= ${2 * SQUARE}.0 * (1.0 - left / span)) a = 6.0;
     else if (left <= 0.0 && left > -0.4) a = left > -0.034 ? 7.0 : 6.0 - 2.0 * (-left / 0.4);
     // (the parry's pulse, white; an owner's encore's (its time negative), the same pulse in the owner's hues)
     float pr = (uTime - abs(K1.b)) * 160.0;
     bool pulse = K1.b != 0.0 && pr < ${2 * SQUARE + 4}.0 && abs(ds - pr) < 2.0;
-    if (pulse && K1.b < 0.0) { ramp = sbFacHue(sbFac(K2.r), int(mod(floor(ds / 6.0), 6.0)), true); light = 6.0 / 7.0; glow = 0.6; return; }
+    if (pulse && K1.b < 0.0) { ramp = sbFacHue(sbFac(own), int(mod(floor(ds / 6.0), 6.0)), true); light = 6.0 / 7.0; glow = 0.6; return; }
     if (pulse) a = 7.0;
     if (a == 0.0) return;
     ramp = ${Ramp.GLOW_WHITE}.0;

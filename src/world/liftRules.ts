@@ -11,7 +11,7 @@ import { SQUARE, squareKey } from './liftGlsl';
 
 /** What a hit did (areas.ts's Outcome below the god: no god, guard or topple here). */
 export type Outcome = 'claim' | 'up' | 'encore' | 'crack' | 'heal' | 'down' | 'flip' | 'parry' | 'none';
-/** tTake's code for an outcome (its second texel's a: the time plus 1e5 times this) */
+/** tTake's code for an outcome (its second texel's r: the owner, plus 8 times this, plus 72 times the owner a flip took it from; its a the change's time alone) */
 export const OUTCOMES: readonly Outcome[] = ['none', 'claim', 'up', 'encore', 'crack', 'heal', 'down', 'flip', 'parry'];
 
 /** One square's record, as areas.ts's Area (`faction` is the owner). */

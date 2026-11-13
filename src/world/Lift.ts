@@ -76,10 +76,16 @@ interface TakeSquare {
   sinkWait: boolean;
   /** a crack has marked it since its last flip's next change (&veins=stay's veins stay: veinBand) */
   veins: boolean;
+  /** the owner its last flip took it from: the ground shows that one's paint ahead of the flip's front (B4.3, C7) */
+  prev: number;
 }
 
-/** the tuner's Take group (`topHits`: hitsToDrop[4], `wake`: LIFT_WAKE.r), copied into TAKE and LIFT_WAKE each frame. Not the fall's drop: LIFT_FALL.G is the GLSL's too, a constant */
-const takeTune = { cooldown: TAKE.cooldown, topHits: TAKE.hitsToDrop[4], front: TAKE.front, fallFront: TAKE.fallFront, wake: LIFT_WAKE.r };
+/**
+ * the tuner's Take group (`topHits`: hitsToDrop[4], `wake`: LIFT_WAKE.r), copied into TAKE and LIFT_WAKE each frame. Not the fall's drop nor the
+ * flip's front: LIFT_FALL.G and LIFT_TAKE.front are the GLSL's too, constants (tuned, the houses popped off the ground's band: the review's
+ * finding 4). The claim line reads the cooldown from tTake's times, so it follows the tuner
+ */
+const takeTune = { cooldown: TAKE.cooldown, topHits: TAKE.hitsToDrop[4], fallFront: TAKE.fallFront, wake: LIFT_WAKE.r };
 /** the bus's half length for the fall's hold (m): LiftField's HALF, and 2 m */
 const BUS_HALF = 8;
 
@@ -379,7 +385,7 @@ export class Lift implements LiftHooks, FieldHouses {
     u.tTake.value = this.takeTex;
     u.uTakeRect.value.set(x0, z0, tw, th);
     this.rules = new TakeRules(this.tagged);
-    if (liftedOn) registerTunables('Take', takeTune, { cooldown: [1, 10, 0.5], topHits: [1, 3, 1], front: [40, 300, 10], fallFront: [30, 200, 10], wake: [150, 1200, 25] });
+    if (liftedOn) registerTunables('Take', takeTune, { cooldown: [1, 10, 0.5], topHits: [1, 3, 1], fallFront: [30, 200, 10], wake: [150, 1200, 25] });
 
     const c = ts / m.obstN;
     this.field = new LiftField(Math.floor(this.rect[0] / c) * c, Math.floor(this.rect[1] / c) * c, this.rect[2], this.rect[3], c, city, this);
@@ -685,12 +691,13 @@ export class Lift implements LiftHooks, FieldHouses {
    * still rising, falling or held making it wait (B2.3: the next change never writes onto a house still in the air), then what it does to them.
    */
   private hitSquare(s: TakeSquare, x: number, z: number, px: number, pz: number, hitter: number, t: number, superId?: number) {
-    const a = this.rules.get(s.key)!, keep = a.last, was = a.stage;
+    const a = this.rules.get(s.key)!, keep = a.last, was = a.stage, from = a.faction;
     const settle = this.settleOf(s);
     if (settle > t && a.last !== Infinity) a.last = Math.max(a.last, settle - TAKE.cooldown);
     const h = this.rules.hit(x, z, hitter, t, { superId })!;
     // (the wait is the houses', never the record's: a hit it parried leaves the record's last change as it was)
     if (h.outcome === 'parry' || h.outcome === 'encore' || h.outcome === 'none') a.last = keep;
+    if (h.outcome === 'flip') s.prev = from;
     this.took(s, h, was, px, pz, hitter, t);
   }
 
@@ -923,7 +930,6 @@ export class Lift implements LiftHooks, FieldHouses {
   private takeFrame(now: number, bus: { x: number; y: number; z: number; fx: number; fz: number }, cam: THREE.Vector3) {
     TAKE.cooldown = takeTune.cooldown;
     TAKE.hitsToDrop[4] = takeTune.topHits;
-    TAKE.front = takeTune.front;
     TAKE.fallFront = takeTune.fallFront;
     LIFT_WAKE.r = takeTune.wake;
     if (!this.takeSq.size) return;
@@ -1018,7 +1024,7 @@ export class Lift implements LiftHooks, FieldHouses {
       let s = this.takeSq.get(key);
       if (!s) {
         // (its claim line first draws itself round from the point nearest the heart: its impact until a counted change has one)
-        s = { key, heart, houses: [], hoseId: 0, hoseN: 0, crack: 0, cracker: 0, parry: 0, lastAt: 0, lastOut: 'none', ix: this.heart[0], iz: this.heart[1], readyAt: Infinity, listA: 0, sinkWait: false, veins: false };
+        s = { key, heart, houses: [], hoseId: 0, hoseN: 0, crack: 0, cracker: 0, parry: 0, lastAt: 0, lastOut: 'none', ix: this.heart[0], iz: this.heart[1], readyAt: Infinity, listA: 0, sinkWait: false, veins: false, prev: 0 };
         this.takeSq.set(key, s);
         this.rules.seed(key, this.block, TAKE.top, Infinity);
       }
@@ -1048,10 +1054,13 @@ export class Lift implements LiftHooks, FieldHouses {
     d[o + 1] = takeCrackG(s.cracker, veinsStay ? veinBand(a.stage, s.veins) : 0, (((s.listA / (2 * Math.PI)) % 1) + 1) % 1);
     d[o + 2] = s.parry;
     d[o + 3] = Math.min(1e9, s.readyAt);
-    d[o2] = a.faction;
+    // (the owner, the last change's outcome and the owner a flip took it from in r, a faction being under 8 and an outcome under 9; its time
+    // alone in a: as the time plus 1e5 times the code, a 32-bit float lost up to 31 ms of it, the ground's front and the houses' 3.7 m apart at
+    // 120 m/s, the review's finding 6)
+    d[o2] = a.faction + 8 * OUTCOMES.indexOf(s.lastOut) + 72 * s.prev;
     d[o2 + 1] = s.ix;
     d[o2 + 2] = s.iz;
-    d[o2 + 3] = s.lastAt + 1e5 * OUTCOMES.indexOf(s.lastOut);
+    d[o2 + 3] = s.lastAt;
     this.takeDirty = true;
   }
 
@@ -1326,6 +1335,9 @@ export class Lift implements LiftHooks, FieldHouses {
 
   /** Starts the faction's sky piece over the heart, from the neighbourhood's squares, its streets and its houses (liftSky.ts): skyStep builds it. */
   private buildSky() {
+    // (none over a tagged heart: seeded at 3, it never stands at the Lift, and areas' skyMark draws a piece only over a heart at stage 4. The
+    // beam's foot stays at BEAM.lo, as over Rainbow's block)
+    if (this.tagged.has(this.heartKey)) return;
     const city = this.g.city;
     // (the houses up and placed as they are now: roofNear's cells again)
     this.roofCells = null;
