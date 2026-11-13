@@ -44,7 +44,7 @@
 //            swipe, it answers (Cruise) under the thumb 0.3 s or more before the hit, and at the hit there's no look on, the view is still dipped, at
 //            least half of no touch's, and the landing no further under the frame than no touch's, 0.25 of slack (the far shots' review F2). Then at
 //            Nonstop one rival 300 m ahead under the nose, flying the bus's way at its own height over the roofs (the tap's pick by its flat reach, the
-//            shell 5 km short), and a real tap: the far shot fires, no shell (F5). Each place's wait for the city. No program made
+//            shell 5 km short), and a real tap: the far shot fires, no shell (F5). Each place's wait for the city and what held it. No program made
 //            after ready, no page error. Exits 1 when a row fails                                                         -> swervefar.json
 //   moonhigh no far shot over the Moon (not in the default list): ?moon 5 km up, a level tap at Turbo 3 and a nose-up one at Cruise; with SB_AGAINST
 //            (another build's moonhigh.json) the same shots as that build's                                             -> moonhigh.json
@@ -1815,10 +1815,18 @@ if (modes.has('swervefar')) {
       if (window.__rivals) for (const r of window.__rivals.sim.list) r.live = false;
     }, up);
     await runFor(page, 0.5);
-    // (the city in, or said so after 40 s: the row goes on, and its checks say what came of it. On the laptop the third place has waited past 120 s on
-    // City.loading with no tile pending, the far field's own load, a shot's ground not needing it)
+    // (the city in, or said so after 40 s: the row goes on, and its checks say what came of it. The place after the swipe waits its 40 s: the swaps to
+    // finer detail asked for at Cruise wait to be taken while a gear past the surge holds the level of detail (Controls.tearing, City.detailHold), as
+    // they should. Once the city has been in, only the tools read City.loading)
     const t0 = Date.now(), loaded = await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 40000, polling: 100 }).then(() => true, () => false);
-    R.places.push({ loaded, waited: Math.round((Date.now() - t0) / 1000), clock: await page.evaluate(() => +window.__game.clock().toFixed(2)) });
+    // (and what held City.loading: tiles pending, arrivals to adopt by kind, with the level of detail held (a gear that drives the bus: a swap waits for
+    // the hold to end), the far field's blocks)
+    const why = await page.evaluate(() => {
+      const c = window.__game.city, kinds = {};
+      for (const a of c.adopt) kinds[a.kind] = (kinds[a.kind] ?? 0) + 1;
+      return { clock: +window.__game.clock().toFixed(2), pending: c.pending.size, adopt: kinds, hold: c.detailHold, farBusy: c.farBusy, farLanding: c.farLanding.length };
+    });
+    R.places.push({ loaded, waited: Math.round((Date.now() - t0) / 1000), ...why });
     await page.evaluate(() => ((window.__qa = null), window.__game.forceReady()));
     await runFor(page, 1);
     await until(page, 'g.flight.fullness >= 1 && g.flight.barfT < 0', 4);
