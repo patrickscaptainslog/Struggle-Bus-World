@@ -1,6 +1,7 @@
 // Where you last painted, kept (src/game/Return.ts, docs/specs/core/STAGE1.md): the return record and readReturn's rule, in Node, on San Francisco's and
 // Amsterdam's real city.json (bounds, origin, the bridges' points: the scale-to-the-world ruling, so the rule is checked where there's no bridge too).
-// readReturn: a bus pose within 400 m of P starts at that pose, height included; a far one 220 m back from P on its heading; near the map's edges the
+// readReturn: a bus pose within 400 m of P, and P 100 m or more ahead of it, starts at that pose, height included (P nearer, beside or behind: 220 m
+// back); a far one 220 m back from P on its heading; near the map's edges the
 // +180, +90 and -90 turns in that order, each inside the 400 m inset; a start within 250 m of a bridge's line (the Golden Gate's and the Bay Bridge's
 // points) moves on to the next turn; nothing passing is null; a bad record (null for a number, a string, 7 numbers, P outside the bounds), the paint not
 // saved, a city that saves none, the opening never seen, each link that starts elsewhere (recess and swerve too), the page booted elsewhere, and a store
@@ -86,6 +87,13 @@ for (const m of [SF, AMS]) {
   // the bus within 400 m of P: its own pose, height included
   const B = { x: P.x - 150 * Math.sin(H), z: P.z + 150 * Math.cos(H), y: 71.5, h: H };
   row(`${n}: a bus pose 150 m from P starts at that pose, height included`, { m, raw: record(m, B, P) }, (r) => at(r, B.x, B.z, H, 71.5) && r.pose !== null && r.which === 'bus', true);
+  // a tap from the roofs: P 40 m ahead, too near to frame (returnTune.ahead): 220 m back from P on the heading, at the bus's height; and P beside the bus
+  // (60 m off its line, 20 m ahead) or behind it the same
+  const nb = back(P, H);
+  for (const [what, ahead, side] of [['40 m ahead of it', 40, 0], ['beside it', 20, 60], ['behind it', -80, 0]] as const) {
+    const C = { x: P.x - ahead * Math.sin(H) + side * Math.cos(H), z: P.z + ahead * Math.cos(H) + side * Math.sin(H), y: 64, h: H };
+    row(`${n}: P ${what}: not the bus pose but 220 m back from P on its heading`, { m, raw: record(m, C, P) }, (r) => at(r, nb.x, nb.z, H, 64) && r.pose !== null && r.which === 'back');
+  }
   // far: 220 m back from P along the heading, at the bus's height
   const F = { x: P.x - 700 * Math.sin(H), z: P.z + 700 * Math.cos(H), y: 120, h: H };
   const fb = back(P, H);

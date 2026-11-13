@@ -18,12 +18,16 @@ export const returnTune = {
   back: 220,
   /** the bus's own pose is the start when it was within this many m of P */
   near: 400,
+  /** and P at least this many m ahead of it along its heading: nearer, P is under the bus in the chase lens (155 m back, 24-29 degrees up), most of all
+   *  once the hold lifts it over the towers, and the start is `back` m before P instead. 100 m frames P in 25-65 % of the height with up to 57 m of drop
+   *  from the bus to the paint (an ESTIMATE from the lens's numbers; the return visit's checks measure it) */
+  ahead: 100,
   /** a start stays this many m inside the map's bounds */
   inset: 400,
   /** and this many m from every bridge's line (a landmark with points): an ESTIMATE */
   bridgeClear: 250,
 };
-registerTunables('Return', returnTune, { back: [50, 600, 10], near: [50, 1500, 10], inset: [0, 1000, 10], bridgeClear: [0, 800, 10] });
+registerTunables('Return', returnTune, { back: [50, 600, 10], near: [50, 1500, 10], ahead: [0, 400, 10], inset: [0, 1000, 10], bridgeClear: [0, 800, 10] });
 
 /** links that start where they say, or aren't the saved city: none gets a return start, and recess and swerve (their own boots) write none either */
 const NO_START = ['lat', 'lon', 'heading', 'skipintro', 'openingshot', 'noreturn', 'recess', 'swerve'];
@@ -108,7 +112,8 @@ function toSegment(x: number, z: number, a: readonly number[], b: readonly numbe
 }
 
 /**
- * Where a return visit starts: the bus's own pose at its last shot, when that was within `near` of P; else `back` m before P along the shot's heading,
+ * Where a return visit starts: the bus's own pose at its last shot, when that was within `near` of P and P `ahead` m or more in front of it (a tap from
+ * the roofs lands nearer: P would be under the bus on screen); else `back` m before P along the shot's heading,
  * then along it +180, +90 and -90 degrees (facing P each time). A start must lie `inset` inside the map's bounds and `bridgeClear` from every bridge's
  * line (each landmark with points, as the Golden Gate's: data-driven, any city's bridges). The first that passes wins; none, and it's null.
  */
@@ -150,7 +155,8 @@ export function readReturn(o: ReturnInput): ReturnStart {
     return null;
   };
   const tries: Array<[ReturnWhich, Pose]> = [];
-  if (Math.hypot(bx - px, bz - pz) <= T.near) tries.push(['bus', { x: bx, y: bY, z: bz, heading: h }]);
+  const along = (px - bx) * Math.sin(h) - (pz - bz) * Math.cos(h);
+  if (Math.hypot(bx - px, bz - pz) <= T.near && along >= T.ahead) tries.push(['bus', { x: bx, y: bY, z: bz, heading: h }]);
   for (const [which, turn] of [['back', 0], ['back+180', Math.PI], ['back+90', Math.PI / 2], ['back-90', -Math.PI / 2]] as const) {
     const a = h + turn;
     tries.push([which, { x: px - Math.sin(a) * T.back, y: bY, z: pz + Math.cos(a) * T.back, heading: a }]);

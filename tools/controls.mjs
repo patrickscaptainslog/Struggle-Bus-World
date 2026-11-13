@@ -1644,7 +1644,8 @@ if (modes.has('firstrun')) {
   // a first visit: no skipintro, no card, no hold; every cue in order, on the real clock of the game
   mkdirSync(`${out}/firstrun`, { recursive: true });
   const FR = {};
-  const page = await open('?fixeddt=0.05', null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
+  // (&noreturn: the next visit below is the Golden Gate's, not a return start over this visit's splat: src/game/Return.ts)
+  const page = await open('?fixeddt=0.05&noreturn', null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
   const cdp = await page.context().newCDPSession(page);
   const H = hand(page, cdp);
   const ui = () => page.evaluate(() => {

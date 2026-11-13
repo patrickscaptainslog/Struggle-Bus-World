@@ -17,7 +17,7 @@ import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
-import { clearReturn, flushReturn, noteReturn, notesReturn, OPENING_SEEN_KEY } from './game/Return';
+import { clearReturn, flushReturn, noteReturn, notesReturn, OPENING_SEEN_KEY, readReturn, type ReturnInput, type ReturnStart } from './game/Return';
 import { ownerOf } from './game/factions';
 import { arrival, blastRadiusFor, blobFlight, groundDeadline, LAYOUT_BANDS, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
@@ -241,6 +241,18 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   }
   if (!moon && params.has('lat') && params.has('lon')) [flight.x, flight.z] = latLonToLocal(Number(params.get('lat')), Number(params.get('lon')), manifest.origin);
   if (params.has('heading')) flight.heading = THREE.MathUtils.degToRad(Number(params.get('heading')));
+  // a return visit (game/Return.ts): from the bus's pose at its last shot that bloomed a building, the paint ahead, held still under the fog (returnHold)
+  // and lifted over the roofs as they land, with no Golden Gate. Not on a page that boots somewhere of its own, a link that says where, or a first visit
+  const returnStart: ReturnStart = readReturn({ slug: manifest.slug, params, elsewhere: !!moon || !!land || !!resumed || earthFly || liftPlaced, manifest: manifest as unknown as ReturnInput['manifest'], paint: city.paint });
+  const returned = returnStart.pose !== null;
+  if (returnStart.pose) {
+    flight.x = returnStart.pose.x;
+    flight.z = returnStart.pose.z;
+    flight.y = returnStart.pose.y;
+    flight.heading = returnStart.pose.heading;
+  }
+  /** the return start's hold: flight.step waits until the opening's fog is done (or the skip tap's), and the bus stands at its pose */
+  let returnHold = returned;
   if (moon) {
     flight.y = moon.startY + 30;
     if (land) moon.far!.alloc();
@@ -253,7 +265,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
   let gateOpened = false;
   // (not on ?earth&resume: the bus comes home from the Moon, wherever the trip brings it down, and the opening's gate and low shot are the first flight's. Review four, 6)
-  if (!params.has('lat') && !liftPlaced && !resumed && start.opening === 'golden-gate' && ggb?.points) {
+  if (!params.has('lat') && !liftPlaced && !resumed && !returned && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
     const [, t1, t2] = ggb.points;
@@ -1246,6 +1258,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
       openingSkip = true;
       controls.hud.clearToast();
+      // (a return visit at the Golden Gate: the skip opens the gate too (CORE.md 3.6). In the fog it skips, the bus jumps on along its heading to just past
+      // where the gate opens, the lens and its look with it by the same step (the Moon's map slide), clear of the cables; under the deck it would rise through them)
+      if (openingBridge) {
+        const along = (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz;
+        if (along < config.camera.openingClimbAfter) {
+          const d = config.camera.openingClimbAfter + 10 - along, dx = flight.fx * d, dz = flight.fz * d;
+          flight.x += dx;
+          flight.z += dz;
+          rig.slide(-dx, -dz);
+          camera.position.x += dx;
+          camera.position.z += dz;
+        }
+      }
       return;
     }
     // (a lock life or Recess holds takes the tap: its next shot homes, Holds.tap)
@@ -1803,7 +1828,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     curbStick.sy = sy;
     curbStick.dragging = dragging || leaving || sx !== st.stretch.x;
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
-    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
+    // (a return start: held at its pose until the fog is done, and each held frame over the highest roof at the bus and 30 m ahead and to each side, so a
+    // start that was low is above the tiles landing round it while the fog still hides it. Then it flies as any ?lat start does)
+    if (returnHold && opening >= config.fog.openingDuration) returnHold = false;
+    if (returnHold) {
+      const ax = flight.fx * 30, az = flight.fz * 30;
+      const top = Math.max(city.obstacleAt(flight.x, flight.z), city.obstacleAt(flight.x + ax, flight.z + az), city.obstacleAt(flight.x - az, flight.z + ax), city.obstacleAt(flight.x + az, flight.z - ax));
+      flight.y = Math.max(flight.y, top + config.flight.clearance);
+    } else if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
     curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);
     // QA: the bus held at a pose, for a look at something from one place
@@ -2472,6 +2504,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         pipeline.render(scene);
       },
       lastShot: () => lastShot,
+      /** QA: the return start this load chose ({ pose, which, p, id }, or { pose: null, why }), whether its hold still holds, and the opening's gap under the Golden Gate (null: no gate) */
+      returnStart: () => returnStart,
+      returnHold: () => returnHold,
+      openingBridge: () => openingBridge,
       /** QA: the last street sign raised: { text, x, z, from: 'street' | 'hoodAt' | 'building hood' | 'nearest label' | 'landmark', t } */
       lastSign: () => lastSign,
       /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
