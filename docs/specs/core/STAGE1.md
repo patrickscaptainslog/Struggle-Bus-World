@@ -38,6 +38,17 @@ By `git merge-tree`, the base merges cleanly with rc/1 and with feat/handling, a
 | 550b485 | og-shot's paint check could not fail: a grey city at golden hour already passed it | each pose is shot grey first; the painted frame's paint share must rise 15 points over it. `--nopaint` shows it failing. Candidate 1 renamed for what it shows |
 | 9fa289a | controls-firstrun had no pass line | its first-run leg reports the gate on the next visit and takes `SB_Q`; the row needs 3 hint lines on the plain link, 4 with `&hose`, the cues in order, and the next visit at the Golden Gate |
 
+### Round 3: the first whole table's open items
+
+| Commit | Finding | What changed |
+|---|---|---|
+| 410222e | **A game fault.** A finger landing in the look zone (a look, a flick off the lane) 0.5 s after a pull's lift ran the Lob's latch on, nothing gave that back when it lifted, and a tap at 1.2 s threw the lift's 32 degrees with the bus level. M90's fix covered a steering stroke only. flight5's case flicked on the lane's edge to a third of a pixel, and its "no Lob under 25 degrees" read the thrown angle, so it could never fail | Input numbers its presses and fires `onUnpress` when a finger that pressed with nobody flying lifts as no tap; the Lob takes that press out of its latch and replays the rest. The shot log's `bodyDeg` is the live body, `angleDeg` the thrown angle. flight5 flies M90's case in the lane and in the look zone, each flick checked to be a gear; `SB_F5=m90` runs them alone. Three s_lob rows |
+| aaa9da0 | opening-same compared no pixels: the exhaust puffs (Math.random) moved round the bus run to run. The "salmon disc" under the bus is one of them, lit by the low sun, as on BASE: meant | each still is drawn again with the puffs taken out, and those pixels compared |
+| d82285f | the Comet's impact frame: the bloom's arpeggio made up to 40 Web Audio nodes in it | the notes after the first are queued and made when due; every voice starts at the same audio time |
+| 009dd7b | a return start's first frames drew 229-392 times under the fog, each new mesh's first draw unculled; and `__stats` held the fog's peaks for a second after it | ten forced first draws a frame, the rest culled as normal till their turn; `peaksFrom` writes `__stats`. `returnvisit --budget` judges every frame from the first drawn one, downtown and in the Marina |
+| 6d1c787 | the link picture: the bus a speck, no bridge in the Golden Gate's | `tools/ogshot.mjs` places the lens by `__qa.camAt` beside the bus, with a landmark and one bloom, and checks the bus at 150 px wide; `public/og-2.png` replaces `og-1.png` |
+| 8dc786a | controls-boom read 115-205 draws at one pose: the sky ran on the real clock, and the sun pass keeps every caster with the sun just up | the rows that judge draws pin the sky at the worst minute measured and fly each page three times (`SB_REPS`). The repetition found the Waterfall's case making two pools in 4 of 9 runs (controls-falls fails on that, not on its draws): open |
+
 ## How to fly it
 
 On the branch's preview link (`CLAUDE.md`, "Hand-in"). A new link is a new site to Safari, so it starts as a first visit.
