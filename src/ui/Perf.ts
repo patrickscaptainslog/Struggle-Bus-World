@@ -5,7 +5,7 @@ import { config } from '../config';
 //
 //   fps (1 s average) · 1% low (from the 99th-percentile frame time, ~5 s window)
 //   worst: the longest frame of those same ~5 s (ms)
-//   hit: the longest frame in the 600 ms after the last shot's impact (one with a hit-stop: not the Hose's), held until the next (perf.hit())
+//   hit: the longest frame in the 600 ms after the last shot's impact (any shot's, a Comet's too: not the Hose's), held until the next (perf.hit())
 //   resolve: its link + its first draw (ms), as the warm-up timed them (WarmReport.resolveLinkMs: the one program that grows most with the sky)
 //   frame ms · CPU work ms (the GPU side is unknowable on WebGL/iOS)
 //   draw calls · triangles for the WHOLE frame (max: the most in one frame over the last five 1-s windows) · low-res framebuffer size
@@ -52,7 +52,7 @@ export interface PerfSnapshot {
   canvas: string;
   cap30: boolean;
   frames: number;
-  /** the longest frame in the 600 ms after the last impact with a hit-stop (a shot, not the Hose's light ones), held until the next (0: none yet) */
+  /** the longest frame in the 600 ms after the last shot's impact (not the Hose's light ones), held until the next (0: none yet) */
   hitMs: number;
   /** the most draws and triangles in any one frame over the last five 1-s windows */
   callsMax: number;
@@ -201,7 +201,7 @@ export class Perf {
     return this.shown;
   }
 
-  /** An impact with a hit-stop, now (main.ts, the Splatter's hitStop hook): the longest frame of the next HIT_MS is its `hit`, held until the next. */
+  /** A shot's impact, now (main.ts, the Splatter's impact hook): the longest frame of the next HIT_MS is its `hit`, held until the next. */
   hit(): void {
     this.hitAt = performance.now();
     this.hitMs = 0;

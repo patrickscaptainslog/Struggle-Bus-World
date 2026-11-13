@@ -713,6 +713,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // where it came down, for its sign: open ground (a park, a plaza, a street, a canal) when the breath
       // landed on the ground, not on a roof or a wall
       lastBlast.open = b.pos.y < city.groundAt(b.pos.x, b.pos.z) + 1;
+      // (every shot's impact but the Hose's light ones, a Comet's, a Lob's and a far Bomb's with no hit-stop too: ?fps times its worst frame, Perf.hit)
+      if (!b.hose) perf.hit();
       // (&boom's ring: its own landing, src/game/Boom.ts)
       if (b.super?.kind === 'boom') return boomImpact(b);
       // (&falls: a tower struck 40 m up or more runs)
@@ -775,11 +777,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     },
     // the street sign waits until the shockwave has bloomed the whole blast (game clock: hit-stop holds it)
     primary: (ref, hue) => queueSign(ref, hue, lastBlast.x, lastBlast.z, lastBlast.r),
-    // (an impact with a hit-stop is a shot's, not the Hose's light ones: ?fps times its worst frame, Perf.hit)
-    hitStop: (frames) => {
-      hitStop = frames / 60;
-      perf.hit();
-    },
+    hitStop: (frames) => (hitStop = frames / 60),
   });
   // &paintas=atlantis (elderwood, hyperglow, inferno, rainbow: game/factions.ts's keys), FACTIONS.md step 5: the bus paints as that faction, so its
   // colours can be tried on a phone. It is step 1's owner, so whatever it paints is that faction's in every store, through a reload too, until a

@@ -19,7 +19,8 @@
 // (12) the record's building's paint gone from the store: the Golden Gate   (13) localStorage throwing on getItem, then on setItem: the first visit's
 //      path, no page error, nothing stored   (14) ?recess and ?swerve with a good record: no start
 // --budget: (9)'s record, a reload into the return start, 5 s of flight after the fog, then 20 s: __stats.callsMax at most 200, trisMax at most 1.5 M,
-// no page error (the first 5 s's peaks, which hold the fog's and the load's frames, printed apart; and the same downtown from its ?lat start beside it)
+// no page error (the first 5 s's peaks, which hold the fog's and the load's frames, printed apart; and the same downtown from its ?lat start beside it);
+// then a Comet at Nonstop onto a downtown tower on a fresh page: __stats.hitMs over 0 after its impact
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -204,6 +205,23 @@ if (budget) {
     R.budget.lat = lat;
     console.log(`budget, beside it: the same downtown from its ?lat start: peak draws ${lat.calls}, triangles ${lat.tris} (its first 5 s: ${lat.early}); each second ${JSON.stringify(lat.series)}`);
   }
+  // (?fps's hit after a Comet: a fresh page, so nothing before it set hit; at Nonstop facing the towers west of the tap, a tap on what glints is a Comet,
+  // whose plan has no hit-stop. Before the hit moved to the impact hook a Comet never set it, and it read 0 here)
+  await load(page, `?lat=37.7935&lon=-122.4000&heading=270&skipintro&noreturn&fps${T}`, 'ready');
+  await page.evaluate(async () => {
+    const g = window.__game;
+    g.controls.turbo.arrive(2, 0);
+    for (const t1 = g.clock(); g.clock() - t1 < 1; ) await new Promise((r) => requestAnimationFrame(r));
+  });
+  const c = await shoot(page, cdp);
+  const hit = await page.evaluate(async () => {
+    const g = window.__game;
+    for (const t1 = g.clock(); g.clock() - t1 < 1; ) await new Promise((r) => requestAnimationFrame(r));
+    return { hitMs: window.__stats?.hitMs, gear: g.controls.turbo.name };
+  });
+  R.budget = { ...R.budget, comet: { shot: c, ...hit } };
+  ok(!!c?.comet && c.target !== null && !c.miss, `budget: a tap at ${hit.gear} is a Comet onto a building (${c ? `comet ${!!c.comet}, target ${c.target?.index ?? null}, miss ${!!c.miss}` : 'no shot'})`);
+  ok(hit.hitMs > 0, `budget: __stats.hitMs after the Comet's impact over 0 (${hit.hitMs})`);
   ok(errors.length === 0, `budget: no page error (${errors.length}${errors.length ? ': ' + errors[0] : ''})`);
 } else {
   // ---- (1) a first visit through the Golden Gate, a real tap after the gate, the record after the paint's save
