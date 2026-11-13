@@ -160,13 +160,12 @@ export class Aimer {
 
   constructor(private readonly city: City, private readonly splatter: Splatter) {}
 
-  /** The Comet or the Lob a tap now fires (planned this frame; a Lob's has kind 'lob'), or null: the classic shot. While a Bomb charges, never a far one:
-   *  the Bomb takes the aim's own, and its ring shows there (fire). */
+  /** The Comet or the Lob a tap now fires (planned this frame; a Lob's has kind 'lob'), or null: the classic shot. */
   get planned(): CometPlan | null {
-    return this.bombing && this.cometPlan?.far ? null : this.cometPlan;
+    return this.cometPlan;
   }
 
-  /** Where the aim's own shot lands (under a Comet or a Lob planned, what it was before they took the aim): a Bomb's ring on a far plan (Bomb.ts). */
+  /** Where the aim's own shot lands (under a Comet or a Lob planned, what it was before they took the aim): s_shots --bomb reads it. */
   get ownAim(): { x: number; z: number; drop: number } {
     return this.cometPlan ? this.aimOwnPt : this.aim;
   }
@@ -398,7 +397,10 @@ export class Aimer {
     // the Comet: a gear at speed lands the tap ahead of the bus, in view, and what glints is where it lands. (The aim's own pick above runs on under
     // it as it always has, so where the Comet stops applying, high up or slowing, the tap is exactly the classic one. Where it applies it takes the place
     // of ?life's mover, as of the building: HOOKS.md, "The Comet")
-    const c = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
+    const c0 = this.comet ? this.comet.plan(f, this.fx, this.fz, this.cometOut, t) : null;
+    // (never a far one while a Bomb charges: from 15 km one would land 2.75 km ahead, a new thing nobody asked for, and "the Bomb must not change". So the
+    // glint, the ring, ?life's mover and the shot are all the aim's own, as they were)
+    const c = this.bombing && c0?.far ? null : c0;
     // the Lob, nose up (never while a Bomb charges, nor on Curb's street, whose front has returned above): over the Comet whenever it's planned
     // (config.lob.wins), never weighed against the aim's own (chooseShot)
     const l = this.lob && this.comet && !this.bombing && this.street === 0 ? this.lob.plan(f, this.fx, this.fz, this.lobOut, t) : null;

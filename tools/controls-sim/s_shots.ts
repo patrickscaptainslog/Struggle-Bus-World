@@ -155,7 +155,7 @@ function bombTap(g: ReturnType<typeof makeGame>, tier: 2 | 3) {
   return { fired: !!shot, target: shot ? s.target : null, glint: s.target, shot: s, landing, wall: !!s.exact, bomb: bomb.stats };
 }
 
-async function run(rung: [string, number, number], pose: Pose, dt: number, tier: 0 | 2 | 3 = 0) {
+async function run(rung: [string, number, number], pose: Pose, dt: number, tier: 0 | 2 | 3 = 0, probe: '' | 'tap' | 'bomb' = '') {
   const [rname, gear, level] = rung;
   const P = PLACES[pose.place];
   const [px, pz] = ll(P.lat, P.lon);
@@ -201,6 +201,15 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   const cometOf = (g.aimer as any).comet;
   if (cometOf) cometOf.lens = cam;
   if (g.aimer.lob) g.aimer.lob.lens = cam;
+  // (--bomb's mover probe: ?life on, one mover 100 m ahead of the bus and under it, always nearer than any roof; a Bomb charging the whole way, or not)
+  let glintKey: string | null = null;
+  if (probe) {
+    g.aimer.life = {
+      aim: (ox, oy, oz) => ({ mover: true, key: 'probe', x: ox + f.fx * 100, y: oy - 50, z: oz + f.fz * 100, arrive: g.t + 1, pickR: 5, onLine: false, miss: 0, half: 2 }),
+      glint: (key) => void (glintKey = key),
+    };
+    g.aimer.bombing = probe === 'bomb';
+  }
   let aimMs = 0, aimN = 0;
   const upd = g.aimer.update.bind(g.aimer);
   g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return r; };
@@ -234,6 +243,10 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     if (g.aimer.planned?.far) farFrames++;
     if (glintLast !== undefined && gi !== glintLast) glints++;
     glintLast = gi;
+  }
+  if (probe) {
+    const s = g.aimer.shown(), m = (g.aimer as any).mover as { key: string } | null;
+    return { key: `${pose.key}/${rname}`, fps: Math.round(1 / dt), probe, far: !!g.aimer.planned?.far, mover: m ? m.key : null, glint: glintKey, shown: s ? s.index : -1 };
   }
   // ---- the tap (between frames, as Input's)
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz, body: f.pitch / DEG, vista: rig.vista };
@@ -408,6 +421,16 @@ if (BOMB) {
   const fails: string[] = [];
   let checks = 0;
   const ok = (c: boolean, m: string) => { checks++; if (!c) fails.push(m); };
+  // (a Bomb charging under the far Comet, ?life on: the far plan is dropped before it takes the aim, so the mover is kept and it's what glints, as at 4f33648.
+  // The tap's frame beside it plans the far Comet and drops the mover: the probe sees a far plan, so it would see one taken under the Bomb)
+  if (!ONLY || 'wa-c5000/nonstop'.includes(ONLY))
+    for (const dt of [1 / 60, 1 / 30]) {
+      const pose = POSES.find((p) => p.pose.key === 'wa-c5000')!.pose, rung = RUNGS.find((r) => r[0] === 'nonstop')!;
+      const tap: any = await run(rung, pose, dt, 0, 'tap'), bomb: any = await run(rung, pose, dt, 0, 'bomb');
+      console.log(`mover probe @${tap.fps}: tap ${JSON.stringify(tap)} bomb ${JSON.stringify(bomb)}`);
+      ok(tap.far && tap.mover === null && tap.glint === null, `mover probe @${tap.fps}: the tap plans the far Comet over the mover (${JSON.stringify(tap)})`);
+      ok(!bomb.far && bomb.mover === 'probe' && bomb.glint === 'probe' && bomb.shown === -1, `mover probe @${bomb.fps}: under a Bomb the mover is kept and glints, no far plan (${JSON.stringify(bomb)})`);
+    }
   for (const r of rows) {
     const id = `${r.key}@${r.fps}${r.bomb ? ` Bomb ${r.bomb === 3 ? 'III' : 'II'}` : ''}`;
     const t = rows.find((q) => q.key === r.key && q.fps === r.fps && !q.bomb);
