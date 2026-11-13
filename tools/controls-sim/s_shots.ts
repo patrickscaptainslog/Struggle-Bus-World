@@ -243,9 +243,12 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   const lobPlanned = !!g.aimer.lobLast;
   // (the reach and the flight a Comet has by DESIGN C2, C4 and C6, from the tap's own numbers)
   const vTap = Math.max(1, f.ground), edgeTap = shotReach(city, f, f.fx, f.fz), reachTap = Math.max(config.comet.reach, edgeTap);
-  const low = Math.min(config.comet.flight, Math.max(config.comet.flightMin, cometOf.timeTo(vTap, reachTap) - config.comet.pass - config.splat.inhale));
+  const lowReach = Math.min(config.comet.flight, Math.max(config.comet.flightMin, cometOf.timeTo(vTap, reachTap) - config.comet.pass - config.splat.inhale));
+  // (where the reach cut it, as long as still lands `pass` s ahead of where its stretch comes down: the stretch held, read before the tap fires it)
+  const heldAlong = cometOf ? (cometOf.heldX - f.x) * f.fx + (cometOf.heldZ - f.z) * f.fz : 0;
+  const low = lowReach < config.comet.flight ? Math.min(lowReach, Math.max(config.comet.flightMin, cometOf.timeTo(vTap, heldAlong) - config.comet.pass - config.splat.inhale)) : lowReach;
   const gReach = city.groundAt(f.x + f.fx * edgeTap, f.z + f.fz * edgeTap);
-  const highFlight = Math.min(config.comet.flightHigh, low + (config.comet.fallPerKm * Math.max(0, f.y - gReach - 1000)) / 1000);
+  const highFlight = Math.min(config.comet.flightHigh, lowReach + (config.comet.fallPerKm * Math.max(0, f.y - gReach - 1000)) / 1000);
   const own = tier ? { ...g.aimer.ownAim } : null;
   const res = tier ? bombTap(g, tier) : g.tap();
   const comet = (res.shot as any).comet ?? null;

@@ -292,9 +292,10 @@ export class Comet {
     const own = !!this.lens && !this.clamp;
     const edge = shotReach(city, f, fx, fz, !own), reach = Math.max(C.reach, edge);
     // (its flight: as long as the reach allows, so it still lands `pass` s ahead of the bus, flightMin to flight)
-    const flight = clamp(this.timeTo(v, reach) - C.pass - S.inhale, C.flightMin, C.flight);
-    const tImp = S.inhale + flight;
-    const atImp = this.flown(v, tImp), launch = this.flown(v, S.inhale);
+    let flight = clamp(this.timeTo(v, reach) - C.pass - S.inhale, C.flightMin, C.flight);
+    let tImp = S.inhale + flight;
+    let atImp = this.flown(v, tImp);
+    const launch = this.flown(v, S.inhale);
     this.lensOn(f, fx, fz, atImp, tImp);
     // (in a dive it goes where the nose points, "aim with the bus": at least as far as the nose's line meets the ground)
     const dNose = f.nose < -config.lob.levelSlack * DEG ? (f.y - city.groundAt(f.x, f.z)) / Math.max(1e-3, Math.tan(-f.nose)) : -1;
@@ -377,6 +378,18 @@ export class Comet {
         this.heldK = k;
         this.heldFar = true;
         this.latchUntil = -1;
+      }
+    }
+    // (where the reach cut the flight, the stretch's middle sits up to a stretch short of the reach: 216 m at Turbo 3, and downtown's floor, 225 m up, has
+    // a reach of 1,945 m. Its flight is then as long as still lands `pass` s ahead of where it comes down, so at Turbo 3 at the floor it's no nearer the bus
+    // at the impact than flightMin's, as before: it flew 0.69 s there and landed 7 % nearer)
+    if (!far && flight < C.flight) {
+      const cut = clamp(this.timeTo(v, (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz) - C.pass - S.inhale, C.flightMin, flight);
+      if (cut < flight) {
+        travel = flight = cut;
+        tHit = tImp = S.inhale + flight;
+        atHit = atImp = this.flown(v, tImp);
+        this.lensOn(f, fx, fz, atImp, tImp);
       }
     }
     let x = this.heldX, y = this.heldY, z = this.heldZ;
