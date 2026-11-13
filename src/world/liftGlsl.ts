@@ -12,10 +12,15 @@ export const liftOn = !!q && q.has('lift') && !q.has('moon') && !q.has('moonland
 /** &lifted: the neighbourhood staged at level 3, Rainbow, for the session, and lifted as a wave from its heart */
 export const liftedOn = liftOn && q!.has('lifted');
 /**
- * &lifted=<faction>: whose the staged neighbourhood is, and whose paint the Lift lifts (game/factions.ts's keys: atlantis, elderwood, hyperglow,
- * inferno; rainbow, none or one it doesn't know: Rainbow, as &lifted always was). ?lift alone lifts Rainbow on Rainbow.
+ * &lifted=<faction>: whose the staged neighbourhood is (game/factions.ts's keys: atlantis, elderwood, hyperglow, inferno; rainbow, none or one it
+ * doesn't know: Rainbow, as &lifted always was), and nothing else: the bus paints as its own (&paintas). ?lift alone lifts Rainbow on Rainbow.
  */
 export const liftFaction = liftedOn ? (FACTIONS.find((f) => f.key === q!.get('lifted'))?.id ?? FACTION_RAINBOW) : FACTION_RAINBOW;
+/**
+ * Does the bus start at the neighbourhood (&hoodstart, the tools' start: its edge on the sun's side, facing in, no opening) rather than where every page
+ * starts, under the Golden Gate? `?lift` alone never does: "I don't want to start/spawn there" (the producer, 2026-11-12). &lat overrides either.
+ */
+export const liftHoodStart = (p: { has(key: string): boolean }) => p.has('hoodstart') && !p.has('lat');
 /** &slowmo=0 turns the lift-off's slow motion off (decision 13: the producer judges it) */
 export const slowmoOn = liftOn && q!.get('slowmo') !== '0';
 /** GLSL only ?lift compiles (sky/flag.ts's held()) */

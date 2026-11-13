@@ -12,7 +12,7 @@ import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig } from './game/CameraRig';
 import { Splatter, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
-import { FACTIONS } from './game/factions';
+import { paintAsOf } from './game/factions';
 import { Aimer, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { arrival, blastRadiusFor, blobFlight, makeBlastSpec } from './game/blastLayout';
@@ -47,7 +47,7 @@ import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
 import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
-import { hoodStart, liftedOn, liftFaction, liftOn, pickHood } from './world/liftGlsl';
+import { hoodStart, liftHoodStart, liftOn, pickHood } from './world/liftGlsl';
 import { loadHoods, type HoodsRef, type HoodsTable } from './world/hoods';
 import type { Lift } from './world/Lift';
 
@@ -213,9 +213,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   flight.x = manifest.start.x;
   flight.z = manifest.start.z;
   flight.heading = manifest.start.heading;
-  /** ?lift: the bus starts at the neighbourhood's edge on the sun's side, facing in (front-lit houses), and no opening under the Golden Gate */
+  /** ?lift starts where every page starts, under the Golden Gate: "I don't want to start/spawn there" (the producer, 2026-11-12, of the floating
+   *  block). &hoodstart is the tools' start: the neighbourhood's edge on the sun's side, facing in (front-lit houses), and no opening */
   let liftPlaced = false;
-  if (liftHood && !params.has('lat')) {
+  if (liftHood && liftHoodStart(params)) {
     updateSun();
     const s = globals.uSunDir.value, { hoods, n } = liftHood;
     const at = hoodStart(new Set(hoods.squares[n]), hoods.hearts[n], s.x, s.z);
@@ -254,14 +255,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const rig = shared?.rig ?? new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
-  if (liftHood) {
-    // (?lift: the low shot under the houses is longer-lensed and flatter than the opening's, never in the hill, never in a house)
-    rig.floorAt = (x, z) => city.groundAt(x, z);
+  /** ?lift: the low shot under the houses is longer-lensed and flatter than the opening's. From the opening's end (the Golden Gate's own shot,
+   *  150 m and 6.5 degrees, with no look, until then), or at once with no opening */
+  const liftLowShot = () => {
     rig.lowDist = 120;
     rig.lowEl = 3;
-    rig.liftClamp = (x, z, y, low) => lift?.clampLens(x, z, y, low) ?? y;
     // (the look stays on under the houses: the controls' ruling, one landing near the bus flies and one anywhere else looks, holds there)
     rig.lookInLow = true;
+  };
+  if (liftHood) {
+    // (never in the hill, never in a house: harmless under the bridge, where no house is)
+    rig.floorAt = (x, z) => city.groundAt(x, z);
+    rig.liftClamp = (x, z, y, low) => lift?.clampLens(x, z, y, low) ?? y;
+    if (!openingBridge) liftLowShot();
   }
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
@@ -310,10 +316,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         hood: liftHood.n,
         grow: (ref, hue, level, start) => growSprouts(ref, hue, level, start),
         bump: (x, z, amt) => bumpPaint(x, z, amt),
-        petals: (x, y, z, hue, n) => {
+        petals: (x, y, z, hue, n, faction) => {
           const at = new THREE.Vector3(x, y, z);
+          // (in the house's owner's colours, whoever's breath this is: the palette is the particles' one, swapped round the burst and back)
+          const palette0 = particles.palette;
+          particles.palette = lookOf(faction).spray;
           particles.burst(at, hue, 0.6, y);
           particles.sparkles(at, 3, 2, [hue, (hue + 1) % 6, (hue + 5) % 6], Math.max(1, Math.round(n)));
+          particles.palette = palette0;
         },
         sound: {
           wave: () => audio.superMega(0.5),
@@ -682,8 +692,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // colours can be tried on a phone. It is step 1's owner, so whatever it paints is that faction's in every store, through a reload too, until a
   // splat of another's takes it (the tuner's reset clears it all). The street only: the Moon draws no faction yet, so there it does nothing.
   // Without it every splat is Rainbow's, as before.
-  // (?lift&lifted=<faction>: the bus paints as the neighbourhood's faction, so its petals and its breath are that faction's, unless &paintas says)
-  const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas')) ?? (liftedOn && liftFaction !== FACTIONS[0].id ? FACTIONS[liftFaction - 1] : undefined);
+  // (?lift&lifted=<faction> names whose the block is and nothing else: the bus paints as its own, "I started as rainbow team but I am only shooting
+  // inferno paint" (the producer, 2026-11-12))
+  const paintAs = moon ? undefined : paintAsOf(params);
   if (paintAs) {
     splatter.faction = paintAs.id;
     particles.palette = lookOf(paintAs.id).spray;
@@ -1483,6 +1494,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= OPENING_LOW_ALONG || gateDist > 1500)) {
         rig.openingLow = 0;
         openingBridge = null;
+        if (liftHood) liftLowShot();
       }
     } else if (lift) {
       // ?lift: under the floating houses the camera drops to a low shot, as it does under the Golden Gate

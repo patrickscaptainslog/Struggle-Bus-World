@@ -32,8 +32,8 @@ export interface LiftGame {
   grow(ref: BuildingRef, hue: number, level: number, start: number): void;
   /** the fog thins over paint (main's bumpPaint) */
   bump(x: number, z: number, amt: number): void;
-  /** petals at a jump: a burst and sparkles in the house's hue */
-  petals(x: number, y: number, z: number, hue: number, n: number): void;
+  /** petals at a jump: a burst and sparkles in the house's hue, in its owner's colours */
+  petals(x: number, y: number, z: number, hue: number, n: number, faction: number): void;
   sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void };
   /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
   sun: [number, number];
@@ -63,8 +63,8 @@ function nearRef(ref: BuildingRef, x: number, z: number): number {
 
 export class Lift implements LiftHooks, FieldHouses {
   readonly name: string;
-  /** whose the neighbourhood is (&lifted=<faction>; Rainbow without), and whose paint on whose lifts */
-  readonly faction = liftFaction;
+  /** whose the staged block is (&lifted=<faction>; Rainbow without): its staging, its sky piece and its light only. Who hits it is the blast's own faction, never this */
+  readonly block = liftFaction;
   /** the heart square's centre (m) */
   readonly heart: [number, number];
   /** the squares' bounds (m): x0, z0, x1, z1 */
@@ -255,7 +255,7 @@ export class Lift implements LiftHooks, FieldHouses {
     g.scene.add(this.caps);
     this.depthMaterial = makeLiftDepthMaterial();
     registerLiftWarm(this.depthMaterial);
-    registerSkyWarm(this.faction);
+    registerSkyWarm(this.block);
     // (bounds grown past the highest flyer's overshoot and heave: a house 100 m up is never culled)
     city.liftShadow = { rect: this.rect, material: this.depthMaterial, grow: Math.ceil(LIFT.hMax * 1.14 + LIFT.heaveSmall * 1.2 + 2) };
     city.lift = this;
@@ -375,7 +375,7 @@ export class Lift implements LiftHooks, FieldHouses {
       this.refs.set(i, ref);
       this.base[i] = ref.baseY;
       // (the save's record came in with the tile over the staging: a staged house keeps its level, hue and faction in the sky)
-      if (this.stagedHue[i] >= 0) this.g.city.paint.stage(i, { faction: this.faction, color: this.stagedHue[i], level: 3, bloomTime: -1000 });
+      if (this.stagedHue[i] >= 0) this.g.city.paint.stage(i, { faction: this.block, color: this.stagedHue[i], level: 3, bloomTime: -1000 });
       // (its lake and its underside are its footprint's, the same at every arrival: a tile streaming back in, as a climb's level of detail
       // swaps them, rasters and rebuilds nothing. The first warmcheck after the lake flooded wider had frames of 100-134 ms in the climb)
       if (fresh) {
@@ -443,7 +443,7 @@ export class Lift implements LiftHooks, FieldHouses {
     const i = ref.index;
     if (!this.refs.has(i)) return 0;
     if (this.state[i] !== ST_GROUND) return 2;
-    const can = Math.round(level) >= 3 && faction === this.faction && this.g.city.paint.get(i).faction === this.faction && this.nUp + this.nPending + this.asked < LIFT.cap;
+    const can = Math.round(level) >= 3 && faction === this.block && this.g.city.paint.get(i).faction === this.block && this.nUp + this.nPending + this.asked < LIFT.cap;
     if (can) {
       // (one blast asks for each of its houses before any starts: the cap counts them as they're asked)
       this.asked++;
@@ -621,7 +621,7 @@ export class Lift implements LiftHooks, FieldHouses {
         }
       }
       this.stagedHue[ref.index] = pick;
-      city.paint.stage(ref.index, { faction: this.faction, color: pick, level: 3, bloomTime: -1000 });
+      city.paint.stage(ref.index, { faction: this.block, color: pick, level: 3, bloomTime: -1000 });
       // (its garden grows already shed: 400 level-3 gardens in full were 2.06 M triangles in the frame before the wave on this laptop, over the
       // floor's 1.5 M. The dome or spire, bunting and turf stand; the petals still burst at the jump)
       this.g.sprouts.shedSet?.add(ref.index);
@@ -642,7 +642,7 @@ export class Lift implements LiftHooks, FieldHouses {
     this.roofCells = null;
     const [hx, hz] = this.heart;
     const l = Math.hypot(this.g.sun[0], this.g.sun[1]) || 1;
-    this.skyBuild = makeSkyPiece(this.faction, {
+    this.skyBuild = makeSkyPiece(this.block, {
       heart: [hx, hz],
       ground: city.groundAt(hx, hz),
       squares: this.squares,
@@ -792,7 +792,7 @@ export class Lift implements LiftHooks, FieldHouses {
       this.waveAt = now + 0.6;
       // (placed low ones first, out from the heart, then the rest: waveOrder, plan(). The crouches go by distance whatever the order)
       for (const { ref, d } of this.waveOrder()) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
-      if (this.faction === FACTION_HYPERGLOW) this.turns();
+      if (this.block === FACTION_HYPERGLOW) this.turns();
       this.sky?.start(this.waveAt);
       this.g.sound.wave();
     }
@@ -877,7 +877,7 @@ export class Lift implements LiftHooks, FieldHouses {
     this.nUp++;
     if (!ref) return;
     this.field.reach(ref.x0, ref.z0, ref.x1, ref.z1);
-    const hue = Math.round(this.g.city.paint.get(i).color);
+    const rec = this.g.city.paint.get(i), hue = Math.round(rec.color), owner = rec.faction;
     // its small growth goes up as petals: the triangle bound
     const n = this.g.sprouts.shed(i, petalAt);
     const by = this.fromHit[i];
@@ -888,7 +888,7 @@ export class Lift implements LiftHooks, FieldHouses {
     }
     for (let k = 0; k < Math.max(1, n); k++) {
       const x = n ? petalAt[k * 2] : ref.cx, z = n ? petalAt[k * 2 + 1] : ref.cz;
-      this.g.petals(x, ref.roofY + 0.5, z, hue, (by === BY_WAVE ? 8 : by === BY_HOSE ? 12 : 24) / Math.max(1, n));
+      this.g.petals(x, ref.roofY + 0.5, z, hue, (by === BY_WAVE ? 8 : by === BY_HOSE ? 12 : 24) / Math.max(1, n), owner);
     }
     if (by === BY_HIT) {
       this.hitJumps++;

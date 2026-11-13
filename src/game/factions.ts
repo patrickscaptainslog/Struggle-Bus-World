@@ -45,3 +45,11 @@ export const FACTION_ROOM = 7;
 export function ownerOf(f: unknown): number {
   return typeof f === 'number' && Number.isInteger(f) && f >= FACTION_RAINBOW && f <= FACTION_ROOM ? f : FACTION_RAINBOW;
 }
+
+/**
+ * &paintas=<key>: the faction the bus paints as (FACTIONS.md step 5), or undefined for Rainbow's. Only &paintas names it: ?lift&lifted=<faction> names whose
+ * the staged block is, never the bus's ("I started as rainbow team but I am only shooting inferno paint", the producer, 2026-11-12).
+ */
+export function paintAsOf(q: { get(key: string): string | null }): (typeof FACTIONS)[number] | undefined {
+  return FACTIONS.find((f) => f.key === q.get('paintas'));
+}

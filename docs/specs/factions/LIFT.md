@@ -25,16 +25,18 @@ Preview of `feat/factions` (it works once the branch is pushed):
 | `?lift&lifted&slowmo=0` | The same with no slow motion at the lift-off, to compare (decision 13). |
 | `?lift&lifted&hood=Fillmore District` | Another neighbourhood, by its name in `hoods.bin`. |
 | `?lift&lifted=atlantis` (`elderwood`, `hyperglow`, `inferno`) | The same neighbourhood in another faction's stage 4: its lake, its undersides and its sky piece ("Stage 4 in the other factions", below). |
+| `&paintas=atlantis` (any faction's key) | The bus paints as that faction. Without it the bus is Rainbow's, whatever `&lifted` names. |
+| `&hoodstart` | For the tools: the bus starts at the neighbourhood's edge on the sun's side, facing in, with no opening and the Lift's low shot from the first frame (the start every `?lift` page had before 2026-11-12). |
 
 What to try, in order:
 
-1. Open `?lift&lifted` and wait for the fog to clear. The bus starts at the neighbourhood's edge on the sun's side, facing in. Watch the wave go out from the park.
+1. Open `?lift&lifted`. The opening under the Golden Gate plays, as on every page. Fly to Alamo Square: the block lifts off in a wave as you come to it (the wake, "Taking the block", below).
 2. Fly in low, at about the height of a three-storey house, and keep going under the houses. The camera drops to a long, flat shot. Look up: the bellies catch the lake's light in a moving net, paint drips off their edges, and the lake ripples out in rings from under each house. The low ones you go over or round.
 3. Pull up under a house. The bus stays under the layer (as under the Golden Gate's deck). To get on top, fly out from under first, then climb.
 4. Climb to about 250 m and turn back: the whole neighbourhood floats over its lake, the swell running through it from the west.
 5. Open `?lift` alone, breathe on one house four times, and feel the slow motion at the jump. Then the same with `&slowmo=0`. Keep it or let it go is the one question this slice puts to you.
 
-`&lat=&lon=` and `&heading=` still override the start. There's no Golden Gate opening under `?lift`.
+`&lat=&lon=` and `&heading=` still override the start. Since 2026-11-12 `?lift` starts where every page starts, under the Golden Gate, with its opening, its fog, its gate and its own low shot (150 m back, 6.5 degrees, no look); the Lift's low shot (120 m, 3 degrees, the look on) takes over when the opening ends. The producer, after flying `?lift&lifted=inferno`: "Ok the floating city block demo looks cool, bu5 1) I don't want to start/spawn there, and 2) I am unable to overtake this block with my own paint 3) I started as rainbow team but I am only shooting inferno paint." `&hoodstart` keeps the old start for the tools.
 
 ## What it is
 
@@ -188,7 +190,7 @@ FACTIONS.md section 4: "a still of each faction at stage 4 from the street and f
 | `?lift&lifted=inferno` | Inferno: over its lake of fire, the Hellmouth |
 | `?lift&lifted` | Rainbow, as it was, to compare |
 
-`&hood=` still picks another neighbourhood: the pieces are placed from its own squares and streets. The bus paints as the link's faction (its breath and petals too), unless `&paintas` says otherwise. The sky piece forms in the first five seconds after the wave starts, so wait for the wave. After the merge, feat/shots' `?crew` button can drive the same key.
+`&hood=` still picks another neighbourhood: the pieces are placed from its own squares and streets. `&lifted=<faction>` names whose the block is and nothing else: the bus paints as its own faction, Rainbow unless `&paintas` says (the producer's note 3 of 2026-11-12). A jumping house's petals take the house's owner's colours, whoever's breath lifted it (the particles' palette is swapped round the burst and back). The sky piece forms in the first five seconds after the wave starts, so wait for the wave. After the merge, feat/shots' `?crew` button can drive the same key.
 
 ### What each is
 
@@ -322,7 +324,7 @@ Step 6 is "the fantasy proof" (FACTIONS.md sections 4 and 5, 12 agent-days): Rai
 - **The rest of Rainbow's stage 4**: the seven-colour halo snapping off to 250 m at the heart, the park lifting as an island, splash on the bus, lifted roofs that look richer than level 3, and its own sound on the beat clock (step 3).
 - **Stages 1-3 in the same area**, on the areas' squares and their clock (step 4, `feat/recess`): stage 1's mark drawing itself round in five seconds, stage 2's daisies and popcorn trees, stage 3's rivers running downhill with bunting and onion domes, and stage 4 coming from a square reaching 4 instead of per-building hits.
 - **The other four factions at stage 4**: their looks are up for the producer's eye ("Stage 4 in the other factions", above), after the review's and the outside look's fixes. Once judged, each needs what its stand-ins list: Hyperglow's turns in the flight (call 6), the pieces' shadows and paint and whether the bus can touch them (they stand at 300 m out of its way while it can't: call 5), their sounds, Rainbow's own halo, and the houses' own wave colours in Atlantis and the Elderwood (call 8, step 5's table).
-- **Open nits**: the petals' global palette, the squash seams, the one-frame lag, the 9-building cell, the twin during a region swap.
+- **Open nits**: the squash seams, the one-frame lag, the 9-building cell, the twin during a region swap.
 - **The producer's eye**, on the phone, on the slow motion and on the two calls above.
 
 ## Checks
