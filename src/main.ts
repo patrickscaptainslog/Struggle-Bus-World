@@ -2689,5 +2689,7 @@ async function bootEarthResumed() {
 
 (moonLand ? bootLanding() : moonrun ? bootSpace() : earthResume ? bootEarthResumed() : earthFly ? bootEarth() : boot()).catch((e) => {
   console.error(e);
+  // (the loading page goes, or its bus bobs on over the error as if still loading)
+  document.getElementById('sb-load')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
 });
