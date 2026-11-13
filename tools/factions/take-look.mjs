@@ -104,13 +104,20 @@ try {
   const heart = sq.find((s) => s.heart);
   const ready = sq.filter((s) => !s.heart && s.houses.length >= 6 && s.readyAt <= sq[0].readyAt + 1e9).sort((a, b) => Math.hypot(b.x - heart.x, b.z - heart.z) - Math.hypot(a.x - heart.x, a.z - heart.z));
   const A = ready[0];
-  const look = (s, d, h, lookH, hfov = 50) =>
-    page.evaluate(([s, hx, hz, d, h, lookH, hfov]) => {
+  // (the lens d m out from s on the side away from (hx, hz): the heart's, for a square; for the heart itself, square A's, the far side from it)
+  // (`pin`: where the bus is pinned from the lens, [along the view, to its right, down] m; 20 m beside it at the lens's height unless said)
+  const look = (s, d, h, lookH, hfov = 50, from = heart, pin = null) =>
+    page.evaluate(([s, hx, hz, d, h, lookH, hfov, pin]) => {
       const g = window.__game, l = Math.hypot(s.x - hx, s.z - hz) || 1;
       const x = s.x + ((s.x - hx) / l) * d, z = s.z + ((s.z - hz) / l) * d;
+      // (the lens kept under 270 m above the sea: from 285 m the marine layer seen from above fades in, and full it buries the city's tiles,
+      // 11 and 13 of the first runs a frame of fog)
+      h = Math.max(40, Math.min(h, 270 - g.city.groundAt(x, z)));
       window.__qa.camAt = { x, z, h, lookX: s.x, lookZ: s.z, lookH, hfov };
-      window.__qa.pin = { x: x + 20, y: g.city.groundAt(x + 20, z) + h, z, heading: Math.atan2(-(s.x - x), s.z - z) };
-    }, [s, heart.x, heart.z, d, h, lookH, hfov]);
+      const ux = (s.x - x) / (d || 1), uz = (s.z - z) / (d || 1);
+      const [px, pz, py] = pin ? [x + ux * pin[0] - uz * pin[1], z + uz * pin[0] + ux * pin[1], h - pin[2]] : [x + 20, z, h];
+      window.__qa.pin = { x: px, y: g.city.groundAt(px, pz) + py, z: pz, heading: Math.atan2(-(s.x - x), s.z - z) };
+    }, [s, from.x, from.z, d, h, lookH, hfov, pin]);
   await look(A, 260, 190, 10);
   await until((await now()) + 0.5);
   const hit = (s, f = RB, via = 0) => page.evaluate(([x, z, f, via]) => window.__game.lift.qaHit(x, z, f, via), [s.x, s.z, f, via]);
@@ -154,7 +161,7 @@ try {
   // ---- the heart through the piece: its crack, then its fall; the lens out on the heart's own side
   const hasSky = await page.evaluate(() => !!window.__game.lift.sky);
   if (hasSky) {
-    await look(heart, 520, 240, 300, 60);
+    await look(heart, 520, 240, 300, 60, A, [90, -30, 60]);
     await after(0.4);
     await page.evaluate(() => window.__game.lift.forceReady());
     await page.evaluate(() => window.__game.lift.qaHit(-1e9, -1e9, 1, 1));
@@ -178,7 +185,7 @@ try {
     await hit(heart);
     await after(0.3);
   }
-  await look(heart, 3000, 220, 500, 40);
+  await look(heart, 3000, 220, 500, 40, A, [-40, 0, 0]);
   await after(2.2);
   await shot(page, '13-beam-yours');
   const p = await programsAfter(page);
