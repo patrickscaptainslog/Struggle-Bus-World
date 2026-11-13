@@ -1374,7 +1374,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** when the last Lob left the mouth (game s): the bus's dip under its throw */
   let lobDipAt = -1e9;
   /** where the view keeps a Lob in flight, and the bus, in the lens's space (the tip after its star) */
-  const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3(), shotSeen = new THREE.Vector3();
+  const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3(), shotSeen = new THREE.Vector3(), shotFly = new THREE.Vector3(), shotFlyTop = new THREE.Vector3();
   /** the far shot the view dips after (CometFx.shotFrame's count), the lift the view had at its tap, and the far shot a look took the view back from */
   let farWas = 0, farLift = 0, farLooked = 0;
   /** how far over the lens's middle a point shows (degrees, the sky lift's own taken off: where it would be with the view untipped); p is moved into the lens's space */
@@ -1915,7 +1915,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // (its landing as the lens will see it config.shotView.lead s on: the bus's travel taken off it, so the eased view keeps up with a fast gear closing in)
       const ld = config.shotView.lead;
       shotSeen.set(shotSeen.x - flight.fx * flight.ground * ld, shotSeen.y - flight.vy * ld, shotSeen.z - flight.fz * flight.ground * ld);
-      rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift);
+      // (and its star while it climbs kept in the frame: shotTip's flyUp)
+      const fly = cometFx.shotStar(simTime, shotFly, shotFlyTop) ? Math.max(lobUpDeg(shotFly), lobUpDeg(shotFlyTop)) : NaN;
+      rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift, 0, fly);
       rig.skyLiftRate = config.shotView.rate;
       rig.skyDipMost = config.shotView.most;
     } else if (cometFx.lobFrame(simTime, lobSeen)) {

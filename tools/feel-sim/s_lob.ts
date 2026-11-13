@@ -259,6 +259,8 @@ async function run(c: Case, dt: number, slot = true) {
   let k = 0;
   // (--high: the view after a far shot, as main.ts sets it before rig.update, and the bus on the lens after: its highest, and the landing's at the impact)
   let pre: (() => void) | null = null, busHi = -Infinity, tipBound = false;
+  // (--high: the star on the lens after the tap, each frame it's in the air: how many, how many inside the frame)
+  let starOf: (() => THREE.Vector3 | null) | null = null, starN = 0, starIn = 0, starHeld = 0, flyBound = false;
   // (--high: the frame its far stretch was last picked, not kept from a latch: that stretch's middle, L3's want there by the check's own numbers, the
   // odometer then. A latched stretch the bus has closed on to under aheadMin, or that a tile's march back put past the reach, is picked afresh on the frame
   // it fails, between the lift's pose and the tap's)
@@ -291,8 +293,19 @@ async function run(c: Case, dt: number, slot = true) {
     inner.x = SW / (SW + (SH / lf.inner - SH));
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld(true);
-    if (pre) busHi = Math.max(busHi, ndcOf(f.x, f.y, f.z));
-    else if (HIGH) picked();
+    if (pre) {
+      busHi = Math.max(busHi, ndcOf(f.x, f.y, f.z));
+      const sp = starOf?.();
+      if (sp) {
+        const v = sp.applyMatrix4(cam.matrixWorldInverse), front = v.z < 0;
+        v.applyMatrix4(cam.projectionMatrix);
+        starN++;
+        if (front && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1) starIn++;
+        // (out, with the view held from it by its limits: the bus tipBus under the middle as the star climbs (a throw near 70 degrees climbs 2 km over its
+        // chord), or the dip's own as it falls, the bus at busMax or the swing)
+        else if (flyBound) starHeld++;
+      }
+    } else if (HIGH) picked();
   };
   const idle = { sx: 0, sy: 0, dragging: false };
   let pullLob = 0, pullFlips = 0, pullN = 0, pullWas = false, pastAt = -1, hPast = 0, lobAt = -1, kinds = 0, kindWas = '';
@@ -394,10 +407,22 @@ async function run(c: Case, dt: number, slot = true) {
   };
   const liftAtTap = rig.skyLift, until = plan?.far ? g.t + config.splat.inhale + plan.travel + config.shotView.hold : -1;
   if (HIGH && plan?.far)
+    starOf = () => {
+      const u = (g.t - tap.t - config.splat.inhale) / plan.travel;
+      return u >= 0 && u < 1 ? new THREE.Vector3(plan.x0 + (plan.x - plan.x0) * u, plan.y0 + (plan.y - plan.y0) * u + plan.arc * 4 * u * (1 - u), plan.z0 + (plan.z - plan.z0) * u) : null;
+    };
+  if (HIGH && plan?.far)
     pre = () => {
       if (g.t < until) {
         const half = cam.fov / 2, ld = config.shotView.lead, landUp = upDeg(plan.x - f.fx * f.ground * ld, plan.y - f.vy * ld, plan.z - f.fz * f.ground * ld);
-        rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap);
+        // (its star in the air and its arc's top while it climbs to it, CometFx.shotStar's, the higher of the two on the lens; launched at the inhale's end)
+        const t0 = tap.t + config.splat.inhale, u = (g.t - t0) / plan.travel, top = plan.arc > 0 ? Math.min(1, Math.max(0, 0.5 + (plan.y - plan.y0) / (8 * plan.arc))) : 0;
+        const arcUp = (w: number) => upDeg(plan.x0 + (plan.x - plan.x0) * w, plan.y0 + (plan.y - plan.y0) * w + plan.arc * 4 * w * (1 - w), plan.z0 + (plan.z - plan.z0) * w);
+        const fly = u >= 0 && u < 1 ? Math.max(arcUp(u), arcUp(Math.max(u, top))) : NaN;
+        rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap, 0, fly);
+        // (the view's limits, for the star's count: under the climbing star the bus's and the rig's own tip up, at most half the field less 6 degrees
+        // (CameraRig.update); and the dip's own without it, the bus at busMax or the swing)
+        flyBound = (Number.isFinite(fly) && (upDeg(f.x, f.y, f.z) + half * config.lob.tipBus < fly - half + config.lob.tipTop || rig.skyLiftTarget > half - 6)) || shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap) > landUp - (Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG) + 0.5;
         // (the hit's own want: where shotTip's target is over it, the bus's limit or the swing binds)
         tipBound = rig.skyLiftTarget > landUp - (Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG) + 0.5;
         rig.skyLiftRate = config.shotView.rate;
@@ -502,7 +527,7 @@ async function run(c: Case, dt: number, slot = true) {
     ...(HIGH ? {
       l4: l4 === null ? null : r3(config.splat.inhale + l4), mid: plan?.far ? r1(farMid) : null, atImp: impact ? r1(atImpAlong) : null,
       along: r1((at.x - tap.x) * tap.fx + (at.z - tap.z) * tap.fz), loaded: plan ? !!plan.loaded : null, landNdc: landNdc === null ? null : r3(landNdc),
-      busHi: Number.isFinite(busHi) ? r3(busHi) : null, busImp: r3(busImp), liftImp: r2(liftImp), boundImp, pastAt, hPast: r1(hPast), lobAt, kinds,
+      busHi: Number.isFinite(busHi) ? r3(busHi) : null, star: { n: starN, in: starIn, held: starHeld }, busImp: r3(busImp), liftImp: r2(liftImp), boundImp, pastAt, hPast: r1(hPast), lobAt, kinds,
       // (L3's aim: the bus's travel to the impact at the gear's speed over L4's flight, as the design has atImp; the bus's own travel is atImp above)
       atImpPlan: l4 === null ? null : r1(table.flown(vt, config.splat.inhale + l4)),
       // (L3's want where its stretch was picked, and that stretch's middle then and at the tap, on the odometer: the same stretch since)
@@ -596,6 +621,9 @@ for (const r of rows) {
     ok(r.loaded === true && r.on !== 'water', `${id}: on loaded ground (${r.loaded}, on ${r.on})`);
     ok(r.l4 !== null && Math.abs(r.tImpact - r.l4) <= 0.05, `${id}: the tap to the hit by L4 (${r.tImpact} against ${r.l4})`);
     ok(r.radius !== null && Math.abs(r.radius - Math.min(config.lob.radiusHigh, blastRadiusFor(r.drop))) <= 1, `${id}: its radius a tap's from its height (${r.radius}, drop ${r.drop})`);
+    // (the star on the lens on 90 % of its frames in the air, where the view's limits let it: at the ceiling the dip stays within config.shotView.swing of
+    // the sky's lift, about level, and the hit is under the frame, the design's (V5))
+    if (!r.key.includes('/ceil/')) ok(r.star.n > 0 && r.star.in + r.star.held >= 0.9 * r.star.n, `${id}: the star on the lens on 90 % of its frames in the air, but where the view's limits hold it from it (${r.star.in} of ${r.star.n}, ${r.star.held} held out)`);
     ok(r.busHi !== null && r.busHi <= config.shotView.busMax + 0.005, `${id}: the bus at +${config.shotView.busMax} or lower every frame to ${config.shotView.hold} s after the hit (${r.busHi})`);
     // (where the bus's limit allows it: the bus not at busMax at the impact, and the dip not at its swing or its most. Fast and low, the bus has flown to
     // within 300-400 m of the landing by its impact, which shows under it)

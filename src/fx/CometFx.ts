@@ -416,6 +416,19 @@ export class CometFx {
     return F.n;
   }
 
+  /** The newest far shot in the air (main.ts, shotTip's flyUp): what the view mustn't dip under the frame's top. Its star written to out, and to top its
+   *  arc's top while it climbs to it (then the star), as lobFrame's: at Turbo 3 the bus closes on the arc so fast the star nearer it shows the higher of
+   *  the two, so main.ts keeps both. False: none in the air. */
+  shotStar(now: number, out: THREE.Vector3, top: THREE.Vector3): boolean {
+    let last: Live | null = null;
+    for (const c of this.live) if (c.on && c.far && now >= c.t0 && now < c.t1 && (!last || c.t0 > last.t0)) last = c;
+    if (!last) return false;
+    const c = last, u = (now - c.t0) / (c.t1 - c.t0), uTop = c.arc > 0 ? Math.min(1, Math.max(0, 0.5 + (c.to.y - c.from.y) / (8 * c.arc))) : 0;
+    this.at(c, u, out);
+    this.at(c, Math.max(u, uTop), top);
+    return true;
+  }
+
   /** A Lob's landing marked while its ring shows (main.ts): a dim, steady pillar of its paint, config.lob.beacon m (a far one's `h`: beaconHeight), an
    *  instance of the pillars' own (their program and draw, warmed at boot). */
   beacon(on: boolean, x: number, y: number, z: number, faction: number, hue: number, now: number, h: number = config.lob.beacon): void {

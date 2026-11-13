@@ -2,7 +2,7 @@
 // before (4f33648: max(the sky's lift, config.lob.tip while it climbs, min(star - half + tipTop, bus + half x tipBus))), to the last bit, on a grid of
 // star, bus and half angles; with far true, on the same grid with the lift at the tap 0 and 27 (the sky's lift at the ceiling): the hit at
 // config.shotView.low or higher wherever the bus allows it, the bus never over busMax, never more than swing under the lift at the tap, and never a tip up
-// past it. And main.ts calls shotTip for both, with no copy of the old arithmetic left (a source check).
+// past it (with no star in the air: flyUp, the star climbing, is s_lob --high's). And main.ts calls shotTip for both, with no copy of the old arithmetic left (a source check).
 //   node tools/feel-sim/run.mjs s_tip.ts
 // Exit 1 when a check fails.
 import { config } from './lib';
@@ -48,7 +48,7 @@ for (let half = 14; half <= 34; half += 2)
 // (main.ts: shotTip for both, and no copy of the old arithmetic)
 const main = readFileSync('src/main.ts', 'utf8');
 const calls = (main.match(/shotTip\(/g) ?? []).length;
-ok(calls >= 2 && /shotTip\([^;]*, true, farLift\)/.test(main) && /shotTip\([^;]*, false, 0, live \? rig\.skyLiftTarget : 0\)/.test(main), `main.ts calls shotTip for the far dip and the near tip up (${calls} calls)`);
+ok(calls >= 2 && /shotTip\([^;]*, true, farLift, 0, fly\)/.test(main) && /shotTip\([^;]*, false, 0, live \? rig\.skyLiftTarget : 0\)/.test(main), `main.ts calls shotTip for the far dip and the near tip up (${calls} calls)`);
 ok(!/star - half \+ L\.tipTop|half \* L\.tipBus/.test(main), `main.ts keeps no copy of the old tip-up arithmetic`);
 console.log(`${n} cases; far: the bus at most ${worstBus.toFixed(3)} after, the hit at least ${worstHit.toFixed(3)} where the bus allows`);
 console.log(fails.length ? `TIP FAILED ${diffs} of ${checks}:\n  ${fails.join('\n  ')}` : `tip checks: all ${checks} passed`);

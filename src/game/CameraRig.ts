@@ -58,15 +58,18 @@ const lookCurve = () => {
  * frame's top, but the bus never lower than config.lob.tipBus of the half height under the middle, and never under `base` (the live sky's lift).
  * A far shot: it dips so its landing shows no lower than config.shotView.low of the half height, the bus no higher than busMax over the middle (the bus
  * wins), and never more than `swing` under the lift the view had at the tap (liftAtTap): at the ceiling with the sky's lift on it comes down to about level,
- * not 60 degrees. Negative is a dip (CameraRig.skyDipMost lets it).
+ * not 60 degrees. And while its star climbs (flyUp: its arc's top, then the star, CometFx.shotStar) the view never dips so far it leaves the frame: the
+ * near Lob's rule, the star config.lob.tipTop under the top, the bus no lower than tipBus under the middle; thrown up off the nose from 2 km, the star
+ * was over the frame's top for 30-40 % of its flight (controls-lob-high). Negative is a dip (CameraRig.skyDipMost lets it).
  */
-export function shotTip(starUp: number, busUp: number, half: number, climbing: boolean, far: boolean, liftAtTap = 0, base = 0): number {
+export function shotTip(starUp: number, busUp: number, half: number, climbing: boolean, far: boolean, liftAtTap = 0, base = 0, flyUp = NaN): number {
   if (!far) {
     const L = config.lob;
     return Math.max(base, climbing ? L.tip : 0, Math.min(starUp - half + L.tipTop, busUp + half * L.tipBus));
   }
-  const V = config.shotView, t = Math.tan(THREE.MathUtils.degToRad(half)), deg = THREE.MathUtils.radToDeg;
-  return Math.max(busUp - deg(Math.atan(V.busMax * t)), Math.min(0, starUp - deg(Math.atan(V.low * t))), liftAtTap - V.swing);
+  const V = config.shotView, L = config.lob, t = Math.tan(THREE.MathUtils.degToRad(half)), deg = THREE.MathUtils.radToDeg;
+  const T = Math.max(busUp - deg(Math.atan(V.busMax * t)), Math.min(0, starUp - deg(Math.atan(V.low * t))), liftAtTap - V.swing);
+  return Number.isFinite(flyUp) ? Math.max(T, Math.min(flyUp - half + L.tipTop, busUp + half * L.tipBus)) : T;
 }
 
 /** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */

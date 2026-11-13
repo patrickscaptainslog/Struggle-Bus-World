@@ -25,6 +25,10 @@
 //            0.1 s later, at Cruise, Express and Nonstop (where the Comet lands farther, the Comet), with ?life and on ?moon's ground. Each: a Lob at the body
 //            as it was at the lift, every building it raised (?moon: the craters) a level and no more, and from the tap to 1.5 s after it lands the frame's
 //            draws, triangles and particles (at most 200, 1.5 M and 8,000), no program made after ready, and stills of its ring and its landing -> lob.json
+//   lobhigh  the Lob from any height (not in the default list): pinned 2, 5 and 14 km over the Western Addition and at the 15 km ceiling, Cruise and
+//            Turbo 3, a real pull and a tap. Each: a Lob, its ring planned in the pull, on loaded ground; from the tap to the dip's hold after the hit
+//            the bus on screen at +0.35 or lower, the star on screen, the hit at -0.3 or higher from 5 km and under, the frame's draws, triangles
+//            and wall time; no program made after ready, no page error, a still at the hit                              -> lobhigh.json
 //   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 and 300 m over the Western Addition and 150 over
 //            downtown, a real flick into Turbo 3, in Rainbow, Atlantis, Hyperglow and Inferno (&paintas). Each: one crack, the hoop threaded, a ring, every
 //            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
@@ -1232,6 +1236,172 @@ if (modes.has('lob')) {
   res.lob = R;
   console.log('lob:', R.verdicts.join('\n  '));
   writeFileSync(`${out}/lob.json`, JSON.stringify(R, null, 1));
+  if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
+}
+
+if (modes.has('lobhigh')) {
+  // The Lob from any height (BUILT.md, "The Lob from any height"; not in the default list): "I want to shoot lob shots even when I'm high elevation in the
+  // sky" (the producer, 2026-11-12). Pinned 2, 5 and 14 km over the Western Addition heading east while the city streams, at Cruise and Turbo 3: a 2 s real
+  // pull up (the vista comes in), the steering thumb lifted and a tap 0.1 s later; and at the 15 km ceiling with the pull held to a second finger's tap.
+  // Each: a Lob (cometFx.stats.lobs), its ring planned in the pull, on a loaded tile at the tap and not a miss on land; from the tap to config.shotView.hold
+  // after the hit, every frame: the bus on screen and at +0.35 or lower (NDC, the dip's limit), the star on screen on 90 % of its frames in the air, the hit
+  // at -0.3 or higher at the impact from 5 km and under, at most 200 draws and 1.5 M triangles, no frame over 100 ms of wall time; no program made after
+  // ready, no page error; and a still at the hit. Exits 1 when a row fails                                                                -> lobhigh.json
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const progInit = () => {
+    const P = WebGL2RenderingContext.prototype, cp = P.createProgram;
+    window.__progs = 0;
+    P.createProgram = function () { window.__progs++; return cp.call(this); };
+  };
+  const page = await open(Q, progInit);
+  let errors = 0;
+  page.on('pageerror', () => errors++);
+  const cdp = await page.context().newCDPSession(page);
+  const H = hand(page, cdp);
+  await wall(1300);
+  await page.evaluate(() => {
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), V = g.camera.position.constructor, v = new V(), s = new V();
+    g.flight.glideSpeed = 0;
+    g.audio.unlock();
+    // (every frame, from when __hiTrace is set: the clock, draws, triangles, the wall time since the last, the bus's NDC, the landing's, and the star's
+    // while a Lob is in the air (null when none))
+    const ndc = (x, y, z) => (v.set(x, y, z).applyMatrix4(g.camera.matrixWorldInverse).z >= 0 ? null : (v.set(x, y, z).project(g.camera), [+v.x.toFixed(3), +v.y.toFixed(3)]));
+    let last = performance.now();
+    p.frame = (dt, work) => {
+      orig(dt, work);
+      // (the frame after the still's freeze isn't a frame's time: __hiGap marks it)
+      const now = performance.now(), ms = window.__hiGap ? 0 : now - last;
+      last = now;
+      window.__hiGap = false;
+      const tr = window.__hiTrace;
+      if (!tr) return;
+      const f = g.flight, c = g.lastShot()?.comet, t = g.clock();
+      const star = g.cometFx.live.find((q) => q.on && q.lob && t >= q.t0 && t <= q.t1);
+      let st = null;
+      if (star) {
+        g.cometFx.at(star, Math.min(1, Math.max(0, (t - star.t0) / (star.t1 - star.t0))), s);
+        st = ndc(s.x, s.y, s.z) ?? 'behind';
+      }
+      // (and how far the view looks down, its dip taken off: the dip never takes it past config.shotView.pitchMax in all, CameraRig.update)
+      const down = -(Math.asin(Math.max(-1, Math.min(1, g.camera.getWorldDirection(s).y))) * 180) / Math.PI + g.rig.skyLift;
+      // (and whether the dip's target is over where the landing, led as main.ts leads it, would show at config.shotView.low: a limit holds it, the bus's
+      // or the swing, as s_lob --high's boundImp)
+      let held = false;
+      if (c) {
+        const V = g.config.shotView, half = g.camera.fov / 2;
+        s.set(c.x - f.fx * f.ground * V.lead, c.y - f.vy * V.lead, c.z - f.fz * f.ground * V.lead).applyMatrix4(g.camera.matrixWorldInverse);
+        const want = (Math.atan2(s.y, -s.z) * 180) / Math.PI + g.rig.skyLift - (Math.atan(V.low * Math.tan((half * Math.PI) / 180)) * 180) / Math.PI;
+        held = g.rig.skyLiftTarget > want + 0.5;
+      }
+      tr.push([+t.toFixed(3), p.calls, p.tris, +ms.toFixed(1), ndc(f.x, f.y, f.z), c ? ndc(c.x, c.y, c.z) : null, st, +g.rig.skyLift.toFixed(2), +down.toFixed(2), held]);
+    };
+  });
+  await runFor(page, 2);
+  await H.down(1, 196, 780);
+  await wall(60);
+  await H.up(1);
+  await runFor(page, 1);
+  const progs0 = await page.evaluate(() => window.__progs);
+  const poses = [[2000, 'cruise'], [2000, 't3'], [5000, 'cruise'], [5000, 't3'], [14000, 'cruise'], [14000, 't3'], ['ceil', 'cruise'], ['ceil', 't3']];
+  for (const [h, rung] of poses) {
+    const key = h === 'ceil' ? `ceil-${rung}` : `${h / 1000}km-${rung}`;
+    await page.evaluate((r) => {
+      const g = window.__game;
+      while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+      for (let i = 0; i < (r === 't3' ? 6 : 0); i++) g.controls.turbo.shift(1, g.flight);
+    }, rung);
+    // (pinned over the Western Addition heading east, h over the ground there (the ceiling: 100 m under it), held while the city streams in)
+    await page.evaluate((h) => {
+      const g = window.__game, o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4352 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7763 - o[0]) * r * 6378137;
+      const y = h === 'ceil' ? g.config.flight.ceiling - 100 : g.city.groundAt(x, z) + h;
+      window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+      Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+    }, h);
+    await runFor(page, 0.5);
+    await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+    await page.evaluate(() => (window.__qa = null));
+    await page.evaluate(() => window.__game.forceReady());
+    await runFor(page, 0.3);
+    await page.evaluate(() => {
+      const g = window.__game;
+      window.__lv0 = g.city.paint.data.slice();
+      window.__lob0 = g.lobState().lobs;
+    });
+    // the pull: a thumb down in the lane under the bus, drawn 60 px down (most of the stick), held 2 s on the game's clock
+    await H.down(1, 196, 690);
+    for (let i = 1; i <= 6; i++) {
+      await wall(25);
+      await H.move(1, 196, 690 + i * 10);
+    }
+    await runFor(page, 2);
+    const pull = await page.evaluate(() => {
+      const g = window.__game, s = g.lobState(), f = g.flight;
+      return { body: (f.pitch * 180) / Math.PI, strain: +f.strain.toFixed(2), agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), plan: s.plan && { kind: s.plan.kind, far: !!s.plan.far, loaded: !!s.plan.loaded }, ringK: +s.ring.k.toFixed(2) };
+    });
+    await page.evaluate(() => (window.__hiTrace = []));
+    if (h === 'ceil') {
+      // (at the ceiling the pull held to the tap: a second finger's, then the steering thumb lifted)
+      await H.down(2, 300, 300);
+      await wall(60);
+      await H.up(2);
+      await runFor(page, 0.3);
+      await H.up(1);
+    } else {
+      await H.up(1);
+      await runFor(page, 0.1);
+      await H.down(2, 300, 300);
+      await wall(60);
+      await H.up(2);
+    }
+    await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel - 0.05', 8);
+    await page.evaluate(() => (window.__qa = { holdFrames: 0 }));
+    await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
+    await page.screenshot({ path: `${out}/lobhigh-${key}-hit.png` });
+    await page.evaluate(() => ((window.__hiGap = true), (window.__qa = null)));
+    await until(page, 'g.lastShot() && g.clock() - g.lastShot().t > g.lastShot().travel + 0.05 + g.config.shotView.hold', 4);
+    const b = await page.evaluate(() => {
+      const g = window.__game, l = g.lastShot(), c = l?.comet, tr = window.__hiTrace;
+      window.__hiTrace = null;
+      return { t: l?.t ?? null, travel: l?.travel ?? null, kind: c?.kind ?? (c ? 'comet' : 'splat'), far: !!c?.far, loaded: !!c?.loaded, miss: !!l?.miss, lobs: g.lobState().lobs - window.__lob0, hold: g.config.shotView.hold, tr };
+    });
+    // (the frames from the tap to config.shotView.hold after the hit; the impact's frame the first at or past its time)
+    const hold = b.hold, tImp = b.t !== null ? b.t + b.travel : Infinity, tr = b.tr.filter((q) => q[0] <= tImp + hold + 1e-6);
+    const atImp = tr.find((q) => q[0] >= tImp - 1e-6) ?? null;
+    const starFrames = tr.filter((q) => q[6] !== null), starIn = starFrames.filter((q) => Array.isArray(q[6]) && Math.abs(q[6][0]) <= 1 && Math.abs(q[6][1]) <= 1).length;
+    const busOff = tr.filter((q) => !q[4] || Math.abs(q[4][0]) > 1 || q[4][1] < -1 || q[4][1] > 0.35).length;
+    const row = {
+      key, pull, kind: b.kind, far: b.far, loaded: b.loaded, miss: b.miss, lobs: b.lobs, frames: tr.length,
+      busHi: tr.length ? Math.max(...tr.map((q) => (q[4] ? q[4][1] : 9))) : null, busOff, starFrames: starFrames.length, starIn,
+      landAtImp: atImp?.[5] ?? null, liftAtImp: atImp?.[7] ?? null, liftLeast: tr.length ? Math.min(...tr.map((q) => q[7])) : null,
+      draws: tr.length ? Math.max(...tr.map((q) => q[1])) : null, tris: tr.length ? Math.max(...tr.map((q) => q[2])) : null, worstMs: tr.length ? Math.max(...tr.slice(1).map((q) => q[3])) : null,
+      // (its frames, for the record: [clock, draws, triangles, ms, the bus's NDC, the landing's, the star's, the view's lift, how far it looks down undipped])
+      trace: tr,
+    };
+    R.rows.push(row);
+    console.log('lobhigh:', JSON.stringify({ ...row, trace: undefined }));
+    ok(row.kind === 'lob' && row.lobs === 1, `${key}: a Lob (${row.kind}${row.far ? ', far' : ''}, ${row.lobs} thrown, the body ${pull.body.toFixed(1)} and the strain ${pull.strain} in the pull, ${pull.agl} m up)`);
+    ok(pull.plan?.kind === 'lob' && pull.ringK > 0.9, `${key}: its ring planned in the pull (${JSON.stringify(pull.plan)}, ring ${pull.ringK})`);
+    ok(row.loaded && !row.miss, `${key}: on a loaded tile at the tap, the hit on a building or the ground (loaded ${row.loaded}, a miss ${row.miss})`);
+    ok(row.frames > 10 && row.busOff === 0, `${key}: the bus on screen and at +0.35 or lower every frame (${row.busOff} of ${row.frames} not, at most ${row.busHi})`);
+    // (at the ceiling the dip stays within config.shotView.swing of the sky's lift, about level, and the hit is under the frame: the design's, V5)
+    if (h !== 'ceil') ok(row.starFrames > 0 && row.starIn >= 0.9 * row.starFrames, `${key}: the star on screen on 90 % of its frames (${row.starIn} of ${row.starFrames})`);
+    // (where the view's limits let it, as s_lob --high has it: not with the bus at busMax, nor the dip at its swing under the lift at the tap, at its
+    // most, or where it would look past pitchMax down. At Turbo 3 the bus is 300 m short of the landing at the impact, nearly over it)
+    const V = { busMax: 0.3, swing: 25, most: 30, pitchMax: 85 }, liftTap = tr[0]?.[7] ?? 0, busImp = atImp?.[4]?.[1] ?? 0, downImp = atImp?.[8] ?? 0;
+    const bound = atImp?.[9] === true || busImp >= V.busMax - 0.02 || row.liftAtImp <= liftTap - V.swing + 0.5 || row.liftAtImp <= -V.most + 0.5 || row.liftAtImp <= -(V.pitchMax - downImp) + 0.5;
+    if (h !== 'ceil' && h <= 5000) ok(!!row.landAtImp && (row.landAtImp[1] >= -0.3 || bound), `${key}: the hit at -0.3 or higher at the impact where the view's limits let it (${JSON.stringify(row.landAtImp)}, the bus ${busImp}, the lift ${row.liftAtImp} from ${liftTap} at the tap, ${downImp} down undipped, the target held ${atImp?.[9]})`);
+    ok(row.draws <= 200 && row.tris <= 1.5e6, `${key}: at most 200 draws and 1.5 M triangles (${row.draws}, ${(row.tris / 1e6).toFixed(3)} M)`);
+    ok(row.worstMs !== null && row.worstMs <= 100, `${key}: no frame over 100 ms (${row.worstMs})`);
+  }
+  const made = (await page.evaluate(() => window.__progs)) - progs0;
+  R.programs = { atReady: progs0, madeAfter: made };
+  ok(made === 0, `nothing compiles: ${made} programs made after ready`);
+  ok(errors === 0, `no page error (${errors})`);
+  await page.close();
+  res.lobhigh = R;
+  console.log('lobhigh:', R.verdicts.join('\n  '));
+  writeFileSync(`${out}/lobhigh.json`, JSON.stringify(R, null, 1));
   if (R.verdicts.some((v) => v.startsWith('FAIL'))) process.exitCode = 1;
 }
 
