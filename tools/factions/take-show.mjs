@@ -8,8 +8,8 @@
 //             the block, one each 2.6 s from its ready time: the paint is the bus's (Rainbow), and the square parries inside its 5 s, cracks, falls, wilts
 //             and flips by the rules (liftRules' hit, wrapped to log its hitter and outcome); the same on the heart until it flips, and the block's light
 //             relit in the taker's colours; no page error, no program after the warm-up, the draws and triangles all the way (and the sun pass's share)
-//   crew      the faction button with real taps: Atlantis picked, a tap off the block and one on a square are Atlantis's (paint and hitter); Inferno
-//             picked, the hits on Inferno's block are the owner's and nothing cracks
+//   crew      the faction button with real taps: Atlantis picked, the bus is Atlantis's and a tap on a square is Atlantis's hit; Inferno picked, the hits
+//             on Inferno's block are the owner's and nothing cracks, and a tap off the block is Inferno's paint
 //   rivals    four rival buses put painting the block's squares round the bus, 24 s: no square's record changes, nothing lifts (decision (d)); then the
 //             faction button set to one of their crews and the same again
 //   far       the far Lob from 5 km up onto a square (counted once, its ring on the square), the Comet at Turbo 3 through the sky piece (a hit on the heart),
@@ -346,41 +346,7 @@ async function producer() {
   await wait(() => window.__game.lift.takeState().filter((s) => !s.heart && s.houses.length >= 3 && s.readyAt <= window.__game.lift.now).length >= 3, null, 120000);
   await phase('fight');
   // ---- a real tap off the block: the bus's paint
-  {
-    const off = await page.evaluate(() => {
-      const g = window.__game, L = g.lift;
-      for (const [ox, oz] of [[0, 900], [900, 0], [0, -900], [-900, 0]]) {
-        const x = L.heart[0] + ox, z = L.heart[1] + oz;
-        if (!L.refuses(x, z, 0)) return { x, z };
-      }
-      return null;
-    });
-    let shot = null;
-    if (off)
-      for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-        await page.evaluate(([p, a]) => {
-          const g = window.__game;
-          window.__qa = { pin: { x: p.x, z: p.z, y: g.city.groundAt(p.x, p.z) + 40, heading: a, speed: 0 } };
-        }, [off, a]);
-        await after(0.5);
-        const ok = await page.evaluate(() => {
-          const g = window.__game, gl = g.glintNow();
-          return !!gl && !g.lift.refuses(gl.cx, gl.cz, 0);
-        });
-        if (!ok) continue;
-        await page.evaluate(() => window.__game.forceReady());
-        const t = await clock();
-        await tap();
-        await wait((t) => (window.__game.lastShot()?.t ?? -1) >= t, t - 0.001, 5000).catch(() => {});
-        const s = await page.evaluate(() => window.__game.lastShot());
-        if (s?.target) {
-          await until(s.t + s.travel + 0.6);
-          shot = { i: s.target.index, p: await page.evaluate((i) => window.__game.city.paint.get(i), s.target.index) };
-          break;
-        }
-      }
-    report('a real tap off the block paints Rainbow\'s', shot ? `building ${shot.i}: faction ${shot.p.faction} level ${Math.round(shot.p.level)}` : 'no pose with a glint off the block', 'faction 1', shot?.p.faction === RB);
-  }
+  await offTap(RB, 'Rainbow\'s');
   // ---- real taps on a square of the block, one each 2.6 s from its ready time (a breath and its recharge), until it flips
   const C = (await readySquares()).sort((a, b) => b.houses.length - a.houses.length)[0];
   await cadence(C, RB, 'a square');
@@ -395,6 +361,44 @@ async function producer() {
   const fac1 = await page.evaluate(() => window.__game.lift.beam.mesh.material.uniforms.uBeamFac.value);
   report('the block\'s light relit in the taker\'s colours as the heart flips', `the light's faction ${fac0} -> ${fac1}; the heart's owner ${hr?.owner}`, `${INF} -> ${RB}; ${RB}`, fac0 === INF && fac1 === RB && hr?.owner === RB);
   await page.evaluate(() => (window.__qa = null));
+}
+
+/** a real tap off the block, 900 m from the heart, the bus pinned 40 m up and turned until its glint is off the block: the paint is `F`'s */
+async function offTap(F, who) {
+  const off = await page.evaluate(() => {
+    const g = window.__game, L = g.lift;
+    for (const [ox, oz] of [[0, 900], [900, 0], [0, -900], [-900, 0]]) {
+      const x = L.heart[0] + ox, z = L.heart[1] + oz;
+      if (!L.refuses(x, z, 0)) return { x, z };
+    }
+    return null;
+  });
+  let shot = null;
+  if (off)
+    for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      await page.evaluate(([p, a]) => {
+        const g = window.__game;
+        window.__qa = { pin: { x: p.x, z: p.z, y: g.city.groundAt(p.x, p.z) + 40, heading: a, speed: 0 } };
+      }, [off, a]);
+      await after(0.5);
+      // (a glint off the block, on a house not already `F`'s, so the paint after the tap is the tap's)
+      const ok = await page.evaluate((F) => {
+        const g = window.__game, gl = g.glintNow();
+        return !!gl && !g.lift.refuses(gl.cx, gl.cz, 0) && g.city.paint.get(gl.index).faction !== F;
+      }, F);
+      if (!ok) continue;
+      await page.evaluate(() => window.__game.forceReady());
+      const t = await clock();
+      await tap();
+      await wait((t) => (window.__game.lastShot()?.t ?? -1) >= t, t - 0.001, 5000).catch(() => {});
+      const s = await page.evaluate(() => window.__game.lastShot());
+      if (s?.target) {
+        await until(s.t + s.travel + 0.6);
+        shot = { i: s.target.index, p: await page.evaluate((i) => window.__game.city.paint.get(i), s.target.index) };
+        break;
+      }
+    }
+  report(`a real tap off the block paints ${who}`, shot ? `building ${shot.i}: faction ${shot.p.faction} level ${Math.round(shot.p.level)}` : 'no pose with a glint off the block', `faction ${F}`, shot?.p.faction === F);
 }
 
 /** real taps on square `S` each 2.6 s from its ready time until it is `taker`'s (16 at most): each one's outcome by the rules, the hitter, the gaps */
@@ -480,6 +484,7 @@ async function crewLeg() {
   const b1 = await sq(B.key);
   report('Inferno\'s real taps on its own square: the owner\'s hits (encores or parries), nothing cracks', `${outs.join(', ')}; stage ${b0.stage} -> ${b1.stage}, cracks ${b0.cracks} -> ${b1.cracks}, owner ${b1.owner}`, `encore or parry by ${INF}; stage 4, cracks 0`, outs.length > 0 && outs.every((o) => /^(encore|parry) by 5$/.test(o)) && outs.some((o) => o.startsWith('encore')) && b1.cracks === 0 && b1.stage === b0.stage && b1.owner === INF);
   // ---- and a tap off the block is Inferno's paint
+  await offTap(INF, 'Inferno\'s');
   await page.evaluate(() => (window.__qa = null));
 }
 
