@@ -95,7 +95,7 @@ const FS = /* glsl */ `
   // The claim line, the clock on the ground (STAGES.md 1.2's timer): a thread of white on a seeded square's straight edges, half a metre and 1.5
   // game pixels at least, that draws itself round both ways from the point nearest the last counted change's impact (the heart's at first) and
   // closes at the square's ready time, its next hit counted then; it flashes as it closes and is gone 0.4 s after. A parry runs a 4 m pulse round
-  // it at 160 m/s. A flip's white-hot front (an up's quieter: a 1 m edge) sweeps from the impact at LIFT_TAKE.front, the owner's hues behind it:
+  // it at 160 m/s, an owner's encore the same in the owner's hues. A flip's white-hot front (an up's quieter: a 1 m edge) sweeps from the impact at LIFT_TAKE.front, the owner's hues behind it:
   // "A white-hot front sweeps from the impact across the area at 120 m/s. Behind it, every building re-floods in the new theme" (STAGES.md 1.3)
   void sbTakeGround(vec3 wp, inout float ramp, inout float light, inout float glow) {
     vec2 q = floor((wp.xz - uTakeRect.xy) / ${SQUARE}.0);
@@ -118,10 +118,11 @@ const FS = /* glsl */ `
     float left = K1.a - uTime, a = 0.0;
     if (left > 0.0 && left < ${TAKE.cooldown.toFixed(2)} && ds <= ${2 * SQUARE}.0 * (1.0 - left / ${TAKE.cooldown.toFixed(2)})) a = 6.0;
     else if (left <= 0.0 && left > -0.4) a = left > -0.034 ? 7.0 : 6.0 - 2.0 * (-left / 0.4);
-    if (K1.b > 0.0) {
-      float pr = (uTime - K1.b) * 160.0;
-      if (pr < ${2 * SQUARE + 4}.0 && abs(ds - pr) < 2.0) a = 7.0;
-    }
+    // (the parry's pulse, white; an owner's encore's (its time negative), the same pulse in the owner's hues)
+    float pr = (uTime - abs(K1.b)) * 160.0;
+    bool pulse = K1.b != 0.0 && pr < ${2 * SQUARE + 4}.0 && abs(ds - pr) < 2.0;
+    if (pulse && K1.b < 0.0) { ramp = sbFacHue(sbFac(K2.r), int(mod(floor(ds / 6.0), 6.0)), true); light = 6.0 / 7.0; glow = 0.6; return; }
+    if (pulse) a = 7.0;
     if (a == 0.0) return;
     ramp = ${Ramp.GLOW_WHITE}.0;
     light = a / 7.0;

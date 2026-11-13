@@ -239,6 +239,39 @@ for (const [name, owner, stage, cracks, ready, own, want, st, cr, who] of ROWS) 
   report('two changes\' writes due in one frame: each house keeps the later change\'s', got, '1/1 1/1 1/1', got === '1/1 1/1 1/1');
 }
 
+// ------------------------------------------------------------------ 4c. each front's arrival at a house (the sink's arrive: a wilt's petals, a flip's and an up's notes)
+{
+  // (the arrivals one drain takes, in house order: within a frame their order is the queue's)
+  const got = [];
+  const sorted = () => got.slice().sort((a, b) => +a.split(' ')[1] - +b.split(' ')[1]).join('; ');
+  const sink = { stage: () => {}, clear: () => {}, grow: () => {}, arrive: (i, kind, f, h, l) => got.push(`${kind} ${i} ${f}/${h}/${l}`) };
+  const H = new TakeHouses(16);
+  const hs = [2, 4, 6], ds = [0, 60, 120];
+  hs.forEach((i, k) => H.stage(i, INF, k, 3, sink));
+  report('staging arrives nowhere', `${got.length} arrivals`, '0', got.length === 0);
+  H.change('wilt', hs, ds, 10, TAKE.shock, INF, 0);
+  H.drain(10, sink);
+  const at0 = got.length;
+  H.drain(11, sink);
+  report('a wilt\'s front arrives at each house as it reaches it, the owner\'s at the lower level', `${at0} at once, then ${sorted()}`, '1 at once; wilt 2 5/0/2; wilt 4 5/1/2; wilt 6 5/2/2',
+    at0 === 1 && sorted() === 'wilt 2 5/0/2; wilt 4 5/1/2; wilt 6 5/2/2');
+  got.length = 0;
+  H.change('flip', hs, ds, 20, TAKE.front, RB, 1);
+  H.drain(20.6, sink);
+  const at1 = got.length;
+  H.drain(22, sink);
+  report('a flip\'s front arrives at each house as it reaches it, the hitter\'s at level 1', `${at1} by 0.6 s, then ${sorted()}`, '2 by 0.6 s; flip 2 1/0/1; flip 4 1/1/1; flip 6 1/2/1',
+    at1 === 2 && sorted() === 'flip 2 1/0/1; flip 4 1/1/1; flip 6 1/2/1');
+  got.length = 0;
+  H.change('up', hs, ds, 30, TAKE.front, RB, 2);
+  H.drain(32, sink);
+  report('an up arrives at each house it steps', sorted(), 'up 2 1/0/2; up 4 1/1/2; up 6 1/2/2', sorted() === 'up 2 1/0/2; up 4 1/1/2; up 6 1/2/2');
+  got.length = 0;
+  H.change('up', hs, ds, 40, TAKE.front, RB, 2);
+  H.drain(42, sink);
+  report('an up that steps no house arrives nowhere', `${got.length} arrivals`, '0', got.length === 0);
+}
+
 // ------------------------------------------------------------------ 5. the plain fall's hold (fallBlocked)
 {
   const box = { x0: 0, z0: 0, x1: 20, z1: 20, top: 80, reach: 4 };

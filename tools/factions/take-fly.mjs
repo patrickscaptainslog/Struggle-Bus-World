@@ -129,9 +129,13 @@ report('A: every house down', `${r.up} up, ${r.falling} falling of ${r.houses.le
 const land1 = (await stats()).landings;
 report('A: each one landed once', `${land1 - land0} landings for ${nFall} falls`, 'equal', land1 - land0 === nFall);
 await ready5();
+const sW0 = await stats();
 await hit(RB);
 await until((await now()) + 1);
 r = await rec();
+const sW1 = await stats();
+// (part C: each house's going garden covered by the owner's petals as the shockwave reaches it, its tile in)
+report('A: the wilt\'s petals, a burst a house as its front arrives', `${sW1.wiltPetals - sW0.wiltPetals} bursts for ${r.houses.length} houses`, 'some, one a house at most', sW1.wiltPetals > sW0.wiltPetals && sW1.wiltPetals - sW0.wiltPetals <= r.houses.length);
 report('A: the third counted hit wilts it (3 to 2)', `stage ${r.stage}; session levels ${[...new Set(r.paint.map((p) => p[2]))]}; texels ${JSON.stringify([...new Set((await texels(r.houses)).map((x) => x.join('/')))])}`, 'stage 2; 2; Inferno at 2', r.stage === 2 && r.paint.every((p) => p[0] === INF && p[2] === 2) && all(await texels(r.houses), INF, 2));
 await ready5();
 await hit(RB);
@@ -139,9 +143,12 @@ await until((await now()) + 1);
 r = await rec();
 report('A: the fourth wilts it again (2 to 1)', `stage ${r.stage}; texels ${JSON.stringify([...new Set((await texels(r.houses)).map((x) => x.join('/')))])}`, 'stage 1; Inferno at 1', r.stage === 1 && all(await texels(r.houses), INF, 1));
 await ready5();
+const sF0 = await stats();
 await hit(RB);
 await until((await now()) + 1.6);
 r = await rec();
+const sF1 = await stats();
+report('A: the flip\'s front arrives at each house (its note and petals)', `${sF1.fronted - sF0.fronted} arrivals for ${r.houses.length} houses`, 'some, one a house at most', sF1.fronted > sF0.fronted && sF1.fronted - sF0.fronted <= r.houses.length);
 report('A: the fifth flips it to Rainbow, every house Rainbow\'s at level 1 behind the front', `owner ${r.owner} stage ${r.stage}; texels ${JSON.stringify([...new Set((await texels(r.houses)).map((x) => x.join('/')))])}`, 'owner 1 stage 1; 1/1', r.owner === RB && r.stage === 1 && all(await texels(r.houses), RB, 1));
 await ready5();
 await hit(INF);
@@ -170,6 +177,9 @@ await ready5();
 await hit(RB);
 r = await rec();
 report('A: Rainbow\'s hit on its own square at the top is an encore', `stage ${r.stage}, cracks ${r.cracks}`, 'stage 4, cracks 0', r.stage === 4 && r.cracks === 0);
+// (part C: an encore's claim line flares in the owner's hues: tTake's parry time negative, never the parry's white or its walls' shimmer)
+const tEnc = await now();
+report('A: the encore flares the claim line, not the parry\'s', `parry time ${r.parry.toFixed(2)} at ${tEnc.toFixed(2)}`, 'minus the encore\'s time', r.parry < 0 && Math.abs(-r.parry - tEnc) < 2);
 
 // ---- the heart through the sky piece
 {
@@ -181,6 +191,14 @@ report('A: Rainbow\'s hit on its own square at the top is an encore', `stage ${r
     await hv(RB);
     let h = (await state()).find((s) => s.heart);
     report('the heart through the sky piece: a crack', `stage ${h.stage}, cracks ${h.cracks}`, 'stage 4, cracks 1', h.stage === 4 && h.cracks === 1);
+    // (part C: the aim's glint on the piece: a step dimmer while the heart waits, brighter once it takes the hit, nothing when not aimed at)
+    const glint = (on) => page.evaluate((on) => [window.__game.lift.skyGlint(on), window.__game.lift.sky.mesh.material.uniforms.uSkyGlint.value], on);
+    const gWait = await glint(true);
+    await ready5();
+    // (the square's ready time follows its record a frame later)
+    await until((await now()) + 0.2);
+    const gReady = await glint(true), gOff = await glint(false);
+    report('the sky piece\'s glint: waiting, ready, not aimed at', `${gWait.join('/')}, ${gReady.join('/')}, ${gOff.join('/')}`, '-1/-1, 1/1, 0/0', gWait.join() === '-1,-1' && gReady.join() === '1,1' && gOff.join() === '0,0');
     await ready5();
     await hv(RB);
     h = (await state()).find((s) => s.heart);

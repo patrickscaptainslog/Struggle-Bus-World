@@ -36,7 +36,7 @@ export interface LiftGame {
   bump(x: number, z: number, amt: number): void;
   /** petals at a jump: a burst and sparkles in the house's hue, in its owner's colours */
   petals(x: number, y: number, z: number, hue: number, n: number, faction: number): void;
-  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void; skyOut(x: number, y: number, z: number, d: number): void };
+  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void; skyOut(x: number, y: number, z: number, d: number): void; front(hue: number): void };
   /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
   sun: [number, number];
   /** the scene's camera: the wake asks whether the heart is in its frame (as last drawn) */
@@ -216,7 +216,7 @@ export class Lift implements LiftHooks, FieldHouses {
   readonly stats = {
     scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, planMs: 0, turning: 0,
     counted: 0, parried: 0, encores: 0, cracks: 0, heals: 0, falls: 0, fallHeld: 0, landed: 0, wilts: 0, flips: 0, ups: 0, liftedAsTaker: 0,
-    crackHeld: 0, landings: 0, skyOut: 0,
+    crackHeld: 0, landings: 0, skyOut: 0, wiltPetals: 0, fronted: 0,
   };
   /** the game clock's last step (s): the crack's look ahead */
   private lastDt = 1 / 30;
@@ -249,6 +249,20 @@ export class Lift implements LiftHooks, FieldHouses {
       const ref = this.refs.get(i);
       // (a house whose tile is out grows its garden from its paint when the tile comes back: main's onTile)
       if (ref && this.loaded[i]) this.g.grow(ref, hue, level, start);
+    },
+    // (a change's front reaching a house: a wilt's going garden covered by 6 of the owner's petals where it stood (C6); a flip's 4 in the
+    // hitter's colours (C7); a flip's and an up's note up the scale as it passes, main's, at most 12 a second (C7, C8))
+    arrive: (i, kind, faction, hue) => {
+      const ref = this.refs.get(i);
+      if (!ref || !this.loaded[i]) return;
+      if (kind === 'wilt') {
+        this.g.petals(ref.cx, ref.roofY + 0.5, ref.cz, hue, 6, faction);
+        this.stats.wiltPetals++;
+        return;
+      }
+      if (kind === 'flip') this.g.petals(ref.cx, ref.roofY + 0.5, ref.cz, hue, 4, faction);
+      this.g.sound.front(hue);
+      this.stats.fronted++;
     },
   };
   /** the neighbourhood's streets (its tiles' OpenStreetMap centrelines through its squares), for the sky piece; the tiles they came from */
@@ -677,7 +691,11 @@ export class Lift implements LiftHooks, FieldHouses {
     if (o === 'parry') {
       st.parried++;
       s.parry = t;
-    } else if (o === 'encore') st.encores++;
+    } else if (o === 'encore') {
+      // (the claim line flares in the owner's colours, no denied: tTake's parry time, negative)
+      st.encores++;
+      s.parry = -t;
+    }
     else {
       st.counted++;
       s.lastAt = t;
@@ -1037,6 +1055,17 @@ export class Lift implements LiftHooks, FieldHouses {
     return this.now < this.takeSq.get(keyAt(this.cx[index], this.cz[index]))!.readyAt;
   }
 
+  /**
+   * The aim's glint on the sky piece (C5, "the glint tells the thumb first"): while the line of fire crosses it (`aimed`) the piece brightens a
+   * light step if the heart will count the hit, and dims one while the heart waits. Returns what the piece was given (1, -1 or 0)
+   */
+  skyGlint(aimed: boolean): number {
+    const h = this.takeSq.get(this.heartKey);
+    const v = !aimed || !this.sky || this.skyOut !== Infinity || !h ? 0 : this.now < h.readyAt ? -1 : 1;
+    this.sky?.glint(v);
+    return v;
+  }
+
   /** Does the segment from (ox, oy, oz), (dx, dy, dz) long, cross one of the sky piece's parts (its boxes): the aim takes the heart (B3.3). */
   skyHit(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number): boolean {
     const b = this.sky?.boxes;
@@ -1067,6 +1096,7 @@ export class Lift implements LiftHooks, FieldHouses {
         key: s.key, heart: s.heart, x: (squareIx(s.key) + 0.5) * SQUARE, z: (squareIz(s.key) + 0.5) * SQUARE, owner: a.faction, stage: a.stage, cracks: a.cracks, last: a.last, readyAt: s.readyAt,
         houses: s.houses.slice(), up: s.houses.filter((i) => this.state[i] !== ST_GROUND).length, falling: s.houses.filter((i) => this.falls.has(i)).length,
         paint: s.houses.map((i) => [this.session.faction[i], this.session.hue[i], this.session.level[i]]),
+        parry: s.parry,
       };
     });
   }

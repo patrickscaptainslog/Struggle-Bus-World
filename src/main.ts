@@ -307,8 +307,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     city.growTo(ref, level);
   };
   // ?lift: the Lift (world/Lift.ts, its own chunk: without the flag it's never fetched)
-  /** the take's sounds' clocks (wall s): the last landing's note and where down the scale it was, the last landing's kick, the last parry */
-  const takeAudio = { note: -9, down: 11, kick: -9, parry: -9 };
+  /** the take's sounds' clocks (wall s): the last landing's note and where down the scale it was, the last landing's kick, the last parry, the
+   *  last front's note and where up the scale it was */
+  const takeAudio = { note: -9, down: 11, kick: -9, parry: -9, rise: -9, up: 0 };
   const lift: Lift | null = liftHood
     ? new (await import('./world/Lift')).Lift({
         city,
@@ -355,6 +356,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
               takeAudio.kick = now;
               rig.kick(config.splat.kick * (1 - d / 200));
             }
+          },
+          // (a flip's or an up's front reaching a house: a note up the scale, at most 12 a second, from the bottom again after a second's quiet)
+          front: (hue) => {
+            const now = performance.now() / 1000;
+            if (now - takeAudio.rise < 1 / 12) return;
+            takeAudio.up = now - takeAudio.rise > 1 ? 0 : Math.min(11, takeAudio.up + 1);
+            takeAudio.rise = now;
+            audio.bloomNote(takeAudio.up, 12, hue, 3);
           },
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
@@ -1612,6 +1621,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
     // (?lift: the glint on a square that won't take the next hit sweeps in its owner's colour, not white: LIFT.md, "Taking it: the looks")
     if (liftUniforms) liftUniforms.uGlintWait.value = glint && lift?.waiting(glint.index) ? 1 : 0;
+    // (and on the rival's sky piece while the line of fire crosses it: a step brighter if the heart takes the hit, dimmer while it waits)
+    if (lift && liftedOn) lift.skyGlint(aimer.skyAimed);
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;

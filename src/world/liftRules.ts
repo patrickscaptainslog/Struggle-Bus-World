@@ -176,7 +176,12 @@ export interface TakeSink {
   clear(index: number): void;
   /** `start`: the garden's growing start (game s; -100 grown already) */
   grow(index: number, hue: number, level: number, start: number): void;
+  /** a change's front has reached the house (after its write): the looks and sounds of its arrival, a wilt's petals, a flip's or an up's note */
+  arrive?(index: number, kind: TakeKind, faction: number, hue: number, level: number): void;
 }
+
+/** a counted change's kind of write to a square's houses */
+export type TakeKind = 'wilt' | 'flip' | 'up';
 
 /** A queued write: its house, when, and its record; `garden` 1 clears it, 2 clears it and grows it at the level, 3 grows it */
 interface TakeWrite {
@@ -184,6 +189,7 @@ interface TakeWrite {
   at: number;
   /** its change's order: a house takes a later change's write over an earlier one's, whatever the frame they fall due in */
   seq: number;
+  kind: TakeKind;
   faction: number;
   hue: number;
   level: number;
@@ -230,7 +236,7 @@ export class TakeHouses {
    * hitter's at level 1, its hue kept, the garden cleared), an up (the owner's at `level`, the gardens grown at 2 and 3). The session's record
    * is the change's at once; the texel takes it at arrival.
    */
-  change(kind: 'wilt' | 'flip' | 'up', houses: ArrayLike<number>, dist: ArrayLike<number>, t: number, speed: number, faction: number, level: number) {
+  change(kind: TakeKind, houses: ArrayLike<number>, dist: ArrayLike<number>, t: number, speed: number, faction: number, level: number) {
     const seq = ++this.seq;
     for (let k = 0; k < houses.length; k++) {
       const i = houses[k];
@@ -240,7 +246,7 @@ export class TakeHouses {
       if (kind === 'up' && lv === this.level[i] && f === this.faction[i]) continue;
       this.faction[i] = f;
       this.level[i] = lv;
-      this.q.push({ i, seq, at: t + dist[k] / speed, faction: f, hue: this.hue[i], level: lv, garden: kind === 'up' ? (lv >= 2 ? 3 : 0) : kind === 'flip' || lv < 2 ? 1 : 2 });
+      this.q.push({ i, seq, kind, at: t + dist[k] / speed, faction: f, hue: this.hue[i], level: lv, garden: kind === 'up' ? (lv >= 2 ? 3 : 0) : kind === 'flip' || lv < 2 ? 1 : 2 });
     }
   }
 
@@ -261,6 +267,7 @@ export class TakeHouses {
       if (w.garden === 1 || w.garden === 2) sink.clear(w.i);
       // (a wilt's garden stands at its lower level at once; an up's grows as the front reaches it)
       if (w.garden >= 2) sink.grow(w.i, w.hue, w.level, w.garden === 2 ? -100 : now);
+      sink.arrive?.(w.i, w.kind, w.faction, w.hue, w.level);
     }
   }
 

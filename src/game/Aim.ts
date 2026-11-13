@@ -80,6 +80,10 @@ export class Aimer {
   sky: ((ox: number, oy: number, oz: number, dx: number, dy: number, dz: number) => boolean) | null = null;
   /** the line of fire to the aim point crosses the sky piece now (Shot.via) */
   private via = 0;
+  /** a loaded breath's line of fire crosses the sky piece now (main: the piece's glint, Lift.skyGlint) */
+  get skyAimed(): boolean {
+    return this.ready && this.via === 1;
+  }
   /** the mover this frame's aim takes, and one held by a press, as the building latch is */
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;

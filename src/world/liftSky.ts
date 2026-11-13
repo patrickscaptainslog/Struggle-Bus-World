@@ -369,6 +369,12 @@ flat in vec4 vK;
 ${GLSL_OUT}
 float sbH2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float sbLit(vec3 n) { return clamp(uLight.y + uLight.z * (0.5 + 0.5 * n.y) + uLight.x * max(dot(n, uSunDir), 0.0), 0.0, 1.0); }
+uniform float uSkyGlint; // the aim's glint on the piece (Lift.skyGlint): 1 the heart takes the hit, -1 it waits, 0 not aimed at
+// (a light step up, or down, as a 40 m band sweeps up it: the houses' glint, white on a ready square and dimmer on a waiting one)
+float sbGlint(float light) {
+  if (uSkyGlint == 0.0) return light;
+  return clamp(light + uSkyGlint * (fract(vWorldPos.y / 40.0 - uTime * 1.2) < 0.5 ? 1.0 : 0.5) / 7.0, 0.0, 1.0);
+}
 uniform vec4 uSkyBus; // the bus (x, y, z, m) and the cut's reach (w: the tangent of its half angle; 0, none)
 // the bus through the piece: what of it stands between the lens and the bus, in a cone round the line from the lens to the bus, isn't drawn
 // (whole within two thirds of its reach, a checker of game pixels out to it), so a piece over the climb's chase view never hides the bus.
@@ -634,7 +640,7 @@ void main() {
     light = 0.92;
     glow = 0.3;
   }
-  sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, fract(vK.x * 0.13 + vK.y * 0.31 + 0.71), kind > 2.5 ? 0.5 : 1.0);
+  sbWrite(ramp, sbGlint(light), fog, glow, mat3(viewMatrix) * n, fract(vK.x * 0.13 + vK.y * 0.31 + 0.71), kind > 2.5 ? 0.5 : 1.0);
 }
 `;
 
@@ -867,7 +873,7 @@ void main() {
     light = 0.6 + 0.24 * (1.0 - vE.x) + (b < 0.25 ? 0.16 : 0.0);
     glow = 0.45 + (b < 0.25 ? 0.25 : 0.0);
   }
-  sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, fract(vK.y * 0.37 + vK.x * 0.11 + vK.z * 0.07 + 0.2), kind > 3.5 && kind < 4.5 ? 0.5 : 1.0);
+  sbWrite(ramp, sbGlint(light), fog, glow, mat3(viewMatrix) * n, fract(vK.y * 0.37 + vK.x * 0.11 + vK.z * 0.07 + 0.2), kind > 3.5 && kind < 4.5 ? 0.5 : 1.0);
 }
 `;
 
@@ -1005,7 +1011,7 @@ void main() {
     n = normalize(vN);
   }
   if (since >= 0.0 && since < 1.0) { ramp = ${R(Ramp.CHROME)}; light = 0.97; glow = 0.9; }
-  sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, 0.53, 0.5);
+  sbWrite(ramp, sbGlint(light), fog, glow, mat3(viewMatrix) * n, 0.53, 0.5);
 }
 `;
 
@@ -1226,7 +1232,7 @@ void main() {
     if (red > 0.75) { ramp = ${R(Ramp.CRIMSON)}; light = 0.42 + 0.1 * beat; glow = 0.15; }
     else if (red > 0.55) { ramp = ${R(Ramp.CRIMSON)}; light = 0.3; }
   }
-  sbWrite(ramp, light, fog, glow, mat3(viewMatrix) * n, fract(vK.x * 0.19 + vK.y * 0.5 + 0.13), kind > 2.5 && kind < 3.5 ? 0.5 : 1.0);
+  sbWrite(ramp, sbGlint(light), fog, glow, mat3(viewMatrix) * n, fract(vK.x * 0.19 + vK.y * 0.5 + 0.13), kind > 2.5 && kind < 3.5 ? 0.5 : 1.0);
 }
 `;
 
@@ -1275,6 +1281,7 @@ function materials(faction: number): { cut: THREE.ShaderMaterial; plain: THREE.S
     uSkyT0: { value: 1e9 },
     uSkyBus: { value: new THREE.Vector4(0, -1e6, 0, SKY_CUT) },
     uSkyCrack: { value: 1e9 },
+    uSkyGlint: { value: 0 },
     uSkyFall: { value: new THREE.Vector2(1e9, 0) },
   };
   if (faction === FACTION_ELDERWOOD) uniforms.uIsles = { value: Array.from({ length: 7 }, () => new THREE.Vector4()) };
@@ -1330,6 +1337,8 @@ export interface SkyPiece {
   start(t: number): void;
   /** the heart's crack at t (game s): it shudders and stays 4 m lower; a heal (`t` 1e9) puts it back */
   crack(t: number): void;
+  /** the aim's glint on it (Lift.skyGlint): 1, -1 or 0 */
+  glint(v: number): void;
   /** the heart's fall at t, down to `ground` (m): it draws in its cut program from then (its parts leave the boxes the cut was tried on) */
   fall(t: number, ground: number): void;
   /**
@@ -1401,6 +1410,9 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
     },
     crack: (t: number) => {
       cut.uniforms.uSkyCrack.value = t;
+    },
+    glint: (v: number) => {
+      cut.uniforms.uSkyGlint.value = v;
     },
     fall: (t: number, ground: number) => {
       (cut.uniforms.uSkyFall.value as THREE.Vector2).set(t, ground);
