@@ -55,6 +55,8 @@ export interface Blast {
   jump: number;
   /** Curb's drive-by (BarfOpts.side): the side of the lane it blooms, which its flung blobs keep to */
   side?: { x: number; z: number; nx: number; nz: number };
+  /** ?lift: what its line of fire crossed (BarfOpts.via: 1 the sky piece, so the heart's square takes the hit) */
+  via?: number;
 }
 
 export interface SplatFx {
@@ -122,6 +124,8 @@ export interface BarfOpts {
   /** > 0: plan the blast only this long (s) before its impact, with what's loaded then (a Comet whose landing's tile wasn't in at the tap). A miss then
    *  is told through onLateMiss */
   late?: number;
+  /** ?lift: handed back on the Blast (Aim's Shot.via) */
+  via?: number;
   /** ?moon: changes the blast before its ground is drawn. False: it draws no ground */
   shape?: (spec: BlastSpec) => boolean;
   /** ?recess: one hue for all of it, every building and the ground (a rival faction's plain paint, until its stages' looks land) */
@@ -336,7 +340,8 @@ export class Splatter {
    * from fromY, the bus's height: a deck over it is no target.
    */
   pick(x: number, z: number, radius = config.splat.snapRadius, fromY = Infinity): BuildingRef | null {
-    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY);
+    // (?lift: a house on a square that won't take a counted hit now counts farther, so the glint pulls to one that will. Without the flag the City has no Lift)
+    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY, true);
   }
 
   /** Blast radius for a barf from `drop` meters above the impact (m). */
@@ -461,7 +466,9 @@ export class Splatter {
       // (?lift: a floating house is in the sky, and takes no part of a blast unless it was the aim; a Rainbow house at level 3 hit by Rainbow lifts. A Bomb asks
       // only whether it's up: it lifts none, and one up is out of it, the aim too)
       if (jump > 1 && city.lift?.aloft(ref)) continue;
-      const lift = city.lift && jump === 1 ? city.lift.wants(ref, lv, this.faction) : 0;
+      // (and a house the Lift keeps on the ground, a square of the take's or one staged, is the Lift's to paint: asked of every blast, or a Bomb's blooms grew
+      // gardens on a rival's square. A Bomb asks with no faction, so it lifts none)
+      const lift = city.lift ? city.lift.wants(ref, lv, jump === 1 ? this.faction : -1) : 0;
       if (lift === 2 && ref !== primary) continue;
       const was = lv > 0.5;
       // (a Bomb's jump is a stage at a time, each its own pop: the first with the wave, as a tap's level, the rest after it)
@@ -484,7 +491,7 @@ export class Splatter {
     const ground = groundless ? null : city.ground.begin(spec, tImpact, jump > 1 ? groundDeadline(r) : 0);
     this.pending.push({
       at: tImpact, plan, ground, hitStop: hose ? 0 : opts?.hitStop ?? S.hitStopFrames,
-      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null, jump, ...(side ? { side: { ...side } } : {}) },
+      blast: { spec, pos, t: tImpact, count: plan.length, maxLevel, strength: r / S.blastRadius, dots: [], hose, mover: false, afloat, primary, super: opts?.super ?? null, tag: opts?.tag, comet: opts?.comet ?? null, jump, ...(side ? { side: { ...side } } : {}), ...(opts?.via ? { via: opts.via } : {}) },
     });
     if (!stream) this.fx.geyser([pos.clone()], [hue]);
     return tImpact;
@@ -638,6 +645,8 @@ export class Splatter {
       blastUniforms.uBlastRing.value.set(b.spec.x, b.spec.z, b.t, b.spec.r);
       blastUniforms.uBlastRing2.value.set(ringHue(b.spec.hue, faction), S.ringWidth * Math.sqrt(b.strength), S.waveSpeed, waveMax(b.spec.r));
       this.fx.impact(b);
+      // (?lift: the Lift hears every blast land; without the flag the City has none)
+      this.city.lift?.landed(b);
       if (p.hitStop > 0) this.fx.hitStop(p.hitStop);
       for (const s of p.plan) this.queue.push(s);
     }

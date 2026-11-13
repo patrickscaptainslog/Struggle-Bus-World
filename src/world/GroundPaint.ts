@@ -6,6 +6,7 @@ import { Ramp } from '../render/palette';
 import { uploadRect } from '../render/upload';
 import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, LAYOUT_POOL, LAYOUT_RING, POOL_SPREAD, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
+import { lifted } from './liftGlsl';
 import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
 import { FACTION_RAINBOW, FACTION_ROOM, ownerOf } from '../game/factions';
 import { GeoPaint, IdbStore, type GroundGeo, type PicStore } from './GeoPaint';
@@ -131,7 +132,9 @@ float sbgCov(vec4 s, out float age) {
   }
   return s.r;
 }
-// paint on the ground at a world position (uv over the tile 0..1): false = bare ground
+${lifted(`// ?lift: whose paint sbGroundPaint found, as texelOwner reads it (the take's ground shows a held square's owner's only)
+float sbgFac = 0.0;
+`)}// paint on the ground at a world position (uv over the tile 0..1): false = bare ground
 bool sbGroundPaint(vec3 wp, vec2 uv, out float ramp, out float edge, out float wet, out float fresh) {
   if (uGroundOn < 0.5) return false;
   // organic edges: look the mask up through a smooth ~1.5 m warp
@@ -153,7 +156,9 @@ bool sbGroundPaint(vec3 wp, vec2 uv, out float ramp, out float edge, out float w
   if (w.w > m) { s = s11; age = a11; }
   // (whose it is in g's low bits, texelLow's 14 + 2 f: groundMask.ts)
   float gb = floor(s.g * 255.0 + 0.5);
-  ramp = sbFacGround(sbFac(floor((mod(gb, 32.0) - 14.0) * 0.5)), int(clamp(floor(s.g * 255.0 / 32.0), 0.0, 5.0)));
+  ramp = sbFacGround(sbFac(floor((mod(gb, 32.0) - 14.0) * 0.5)), int(clamp(floor(s.g * 255.0 / 32.0), 0.0, 5.0)));${lifted(`
+  sbgFac = floor((mod(gb, 32.0) - 14.0) * 0.5);
+  if (sbgFac < 1.0 || sbgFac > 7.0) sbgFac = 1.0;`)}
   edge = cov - thr;
   // wet blotches: big soft spots a step brighter
   wet = smoothstep(0.62, 0.7, sbgNoise(wp.xz * 0.31 + 7.3));

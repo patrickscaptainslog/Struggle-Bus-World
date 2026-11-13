@@ -2541,14 +2541,17 @@ export class City {
    * The building nearest to (x, z) by true footprint distance (0 inside: the tallest containing one),
    * within r, or null; buildings lower than minHeight (sheds, slivers) are skipped. Sets nearestDist.
    * Uses the area index: big footprints count by their edge, never by a far-away centroid. No allocation.
-   * Seen from fromY: a landmark overhead there (a deck over a bus under it) is skipped.
+   * Seen from fromY: a landmark overhead there (a deck over a bus under it) is skipped. `cost` (the aim's pick, ?lift): a house the Lift's
+   * pickCost names counts that much farther, and one alone in reach is still the answer.
    */
-  nearestBuilding(x: number, z: number, r: number, minHeight = 0, fromY = Infinity): BuildingRef | null {
+  nearestBuilding(x: number, z: number, r: number, minHeight = 0, fromY = Infinity, cost = false): BuildingRef | null {
     const inside = this.buildingAt(x, z, fromY);
-    if (inside && inside.roofY - inside.baseY >= minHeight) {
+    const lift = cost ? this.lift : null;
+    if (inside && inside.roofY - inside.baseY >= minHeight && !(lift && lift.pickCost(inside.index, r) > 0)) {
       this.nearestDist = 0;
       return inside;
     }
+    if (lift) return this.nearestCosted(x, z, r, minHeight, fromY, lift, inside && inside.roofY - inside.baseY >= minHeight ? inside : null);
     const stamp = ++this.qStamp;
     let best: BuildingRef | null = null;
     let bd = r;
@@ -2572,6 +2575,47 @@ export class City {
         }
       }
     this.nearestDist = best ? bd : Infinity;
+    return best;
+  }
+
+  /** nearestBuilding with the Lift's pick cost (B3.5): the cheapest by distance plus cost within r, else the nearest by distance alone. */
+  private nearestCosted(x: number, z: number, r: number, minHeight: number, fromY: number, lift: LiftHooks, inside: BuildingRef | null): BuildingRef | null {
+    const stamp = ++this.qStamp;
+    let best: BuildingRef | null = null, alt: BuildingRef | null = inside;
+    let bd = r, ad = inside ? 0 : r;
+    if (inside) {
+      inside.q = stamp;
+      const c = lift.pickCost(inside.index, r);
+      if (c < bd) {
+        bd = c;
+        best = inside;
+      }
+    }
+    const c0x = Math.floor((x - r) / HASH_CELL), c1x = Math.floor((x + r) / HASH_CELL);
+    const c0z = Math.floor((z - r) / HASH_CELL), c1z = Math.floor((z + r) / HASH_CELL);
+    for (let cz = c0z; cz <= c1z; cz++)
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const list = this.areaHash.get((cx + 4096) * 8192 + (cz + 4096));
+        if (!list) continue;
+        for (const ref of list) {
+          if (ref.q === stamp) continue;
+          ref.q = stamp;
+          const bx = Math.max(ref.x0 - x, 0, x - ref.x1), bz = Math.max(ref.z0 - z, 0, z - ref.z1);
+          if (bx * bx + bz * bz > r * r || ref.roofY - ref.baseY < minHeight || this.lmOverhead(ref, x, z, fromY)) continue;
+          const d = this.edgeDistance(ref, x, z), dc = d + lift.pickCost(ref.index, r);
+          if (dc < bd || (dc === bd && best && ref.roofY > best.roofY)) {
+            bd = dc;
+            best = ref;
+          }
+          if (d < ad) {
+            ad = d;
+            alt = ref;
+          }
+        }
+      }
+    best ??= alt;
+    // (its true distance, the cost left out)
+    this.nearestDist = !best ? Infinity : best === inside ? 0 : this.edgeDistance(best, x, z);
     return best;
   }
 

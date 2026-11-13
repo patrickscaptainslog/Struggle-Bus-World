@@ -214,7 +214,14 @@ export class PaintState {
     return this.data[index * 4 + 1];
   }
 
+  /**
+   * ?lift&lifted (world/Lift.ts): false refuses a write to this building (a house on a square the take's rules hold: only the Lift writes its
+   * paint, through stage()). Null without the flag
+   */
+  guard: ((index: number, faction: number) => boolean) | null = null;
+
   set(index: number, rec: PaintRecord) {
+    if (this.guard && !this.guard(index, rec.faction)) return;
     const o = index * 4;
     const was = this.data[o + 1] > 0.5;
     this.data[o] = rec.color;

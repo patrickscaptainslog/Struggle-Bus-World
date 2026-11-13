@@ -62,6 +62,8 @@ export function makeCapMaterial(): THREE.ShaderMaterial {
         sbOwner(aCap.x, dfac, dhue);
         float dl = aDrip.x * (dfac == ${FACTION_ATLANTIS} ? 1.3 : dfac == ${FACTION_ELDERWOOD} ? 4.5 : dfac == ${FACTION_HYPERGLOW} ? 0.5 : dfac == ${FACTION_INFERNO} ? 1.7 : 1.0);
         if (dfac == ${FACTION_ATLANTIS} || dfac == ${FACTION_ELDERWOOD} || dfac == ${FACTION_HYPERGLOW} || dfac == ${FACTION_INFERNO}) dl = min(dl, 0.35 * lf.x);
+        // (a falling house's drips draw back in as it drops: never more than 35 % of what is left of it to the ground)
+        if (sbLiftTexel(aCap.x).x < -0.5) dl = min(dl, 0.35 * lf.x);
         if (dfac == ${FACTION_ELDERWOOD}) p.xz += aDrip.yz * (aDrip.x > 0.0 ? 0.6 * sin(1.3 * uTime + 6.2832 * k) : 0.0);
         p.y -= dl * smoothstep(0.0, 1.6, uTime - sbLiftTexel(aCap.x).x) * (0.82 + 0.18 * sin(2.1 * uTime + 6.2832 * k));
         p = sbLiftMove(p, position.y, lf, T2);

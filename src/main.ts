@@ -6,7 +6,7 @@ import { HUE_RAMPS, Ramp } from './render/palette';
 import { lookOf } from './render/factionLook';
 import { WarmUp } from './render/warmup';
 import { City, bootFetch, dataQuery, type BuildingRef } from './world/City';
-import { paintUniforms, setFacadeView } from './world/buildingMaterial';
+import { liftUniforms, paintUniforms, setFacadeView } from './world/buildingMaterial';
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
@@ -14,7 +14,7 @@ import { CameraRig, shotTip } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
-import { FACTIONS } from './game/factions';
+import { FACTION_RAINBOW, paintAsOf } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
 import { ownerOf } from './game/factions';
@@ -64,7 +64,7 @@ import { HeldHour } from './sky/HeldHour';
 import { LiveSky } from './sky/LiveSky';
 import { SkyClock } from './sky/SkyClock';
 import { spanTag } from './sky/Lamps';
-import { hoodStart, liftedOn, liftFaction, liftOn, pickHood } from './world/liftGlsl';
+import { hoodStart, liftedOn, liftHoodStart, liftOn, pickHood } from './world/liftGlsl';
 import { loadHoods, type HoodsRef, type HoodsTable } from './world/hoods';
 import type { Lift } from './world/Lift';
 
@@ -250,9 +250,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   flight.x = manifest.start.x;
   flight.z = manifest.start.z;
   flight.heading = manifest.start.heading;
-  /** ?lift: the bus starts at the neighbourhood's edge on the sun's side, facing in (front-lit houses), and no opening under the Golden Gate */
+  /** ?lift starts where every page starts, under the Golden Gate: "I don't want to start/spawn there" (the producer, 2026-11-12, of the floating
+   *  block). &hoodstart is the tools' start: the neighbourhood's edge on the sun's side, facing in (front-lit houses), and no opening */
   let liftPlaced = false;
-  if (liftHood && !params.has('lat')) {
+  if (liftHood && liftHoodStart(params)) {
     updateSun();
     const s = globals.uSunDir.value, { hoods, n } = liftHood;
     const at = hoodStart(new Set(hoods.squares[n]), hoods.hearts[n], s.x, s.z);
@@ -303,14 +304,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const rig = shared?.rig ?? new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
-  if (liftHood) {
-    // (?lift: the low shot under the houses is longer-lensed and flatter than the opening's, never in the hill, never in a house)
-    rig.floorAt = (x, z) => city.groundAt(x, z);
+  /** ?lift: the low shot under the houses is longer-lensed and flatter than the opening's. From the opening's end (the Golden Gate's own shot,
+   *  150 m and 6.5 degrees, with no look, until then), or at once with no opening */
+  const liftLowShot = () => {
     rig.lowDist = 120;
     rig.lowEl = 3;
-    rig.liftClamp = (x, z, y, low) => lift?.clampLens(x, z, y, low) ?? y;
     // (the look stays on under the houses: the controls' ruling, one landing near the bus flies and one anywhere else looks, holds there)
     rig.lookInLow = true;
+  };
+  if (liftHood) {
+    // (never in the hill, never in a house: harmless under the bridge, where no house is)
+    rig.floorAt = (x, z) => city.groundAt(x, z);
+    rig.liftClamp = (x, z, y, low) => lift?.clampLens(x, z, y, low) ?? y;
+    if (!openingBridge) liftLowShot();
   }
   const focus = new THREE.Vector3(flight.x, 60, flight.z);
   // (the first frame streams around the bus: the same want-list, so nothing is asked for twice)
@@ -351,6 +357,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     city.growTo(ref, level);
   };
   // ?lift: the Lift (world/Lift.ts, its own chunk: without the flag it's never fetched)
+  /** the take's sounds' clocks (wall s): the last landing's note and where down the scale it was, the last landing's kick, the last parry, the
+   *  last front's note and where up the scale it was */
+  const takeAudio = { note: -9, down: 11, kick: -9, parry: -9, rise: -9, up: 0 };
   const lift: Lift | null = liftHood
     ? new (await import('./world/Lift')).Lift({
         city,
@@ -360,22 +369,130 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         hood: liftHood.n,
         grow: (ref, hue, level, start) => growSprouts(ref, hue, level, start),
         bump: (x, z, amt) => bumpPaint(x, z, amt),
-        petals: (x, y, z, hue, n) => {
+        petals: (x, y, z, hue, n, faction) => {
           const at = new THREE.Vector3(x, y, z);
+          // (in the house's owner's colours, whoever's breath this is: the palette is the particles' one, swapped round the burst and back)
+          const palette0 = particles.palette;
+          particles.palette = lookOf(faction).spray;
           particles.burst(at, hue, 0.6, y);
           particles.sparkles(at, 3, 2, [hue, (hue + 1) % 6, (hue + 5) % 6], Math.max(1, Math.round(n)));
+          particles.palette = palette0;
+        },
+        corners: (x0, z0, x1, z1, y, hue, n, faction) => {
+          const palette0 = particles.palette;
+          particles.palette = lookOf(faction).spray;
+          for (let k = 0; k < 4; k++) particles.sparkles(new THREE.Vector3(k & 1 ? x1 : x0, y, k & 2 ? z1 : z0), 2, 3, [hue, (hue + 1) % 6, (hue + 5) % 6], Math.round((n * (k + 1)) / 4) - Math.round((n * k) / 4));
+          particles.palette = palette0;
         },
         sound: {
           wave: () => audio.superMega(0.5),
           crouch: () => audio.heave(),
           jump: (n, hue) => audio.bloomBurst(n, hue, 3),
           note: (i, n, hue) => audio.bloomNote(i, n, hue, 3),
+          // (the rival's sky piece reaches the heart's ground and goes out: a burst of the block's colours, the big boom, a kick by the distance)
+          skyOut: (x, y, z, d) => {
+            const palette0 = particles.palette;
+            particles.palette = lookOf(lift ? lift.block : 0).spray;
+            particles.burst(new THREE.Vector3(x, y + 4, z), 0, 1.0, y);
+            particles.sparkles(new THREE.Vector3(x, y + 4, z), 20, 30, [0, 1, 2, 3, 4, 5], 60);
+            particles.palette = palette0;
+            audio.superMega(1.0);
+            rig.kick(config.splat.kick * Math.max(0.3, 1 - d / 600));
+          },
+          // (a fallen house's landing: a note down the scale, the wave's arpeggio backwards, at most 12 a second; a kick within 200 m, at most 4 a
+          // second, the first and the big ones only)
+          land: (d, hue, big) => {
+            const now = performance.now() / 1000;
+            if (now - takeAudio.note > 1 / 12) {
+              takeAudio.note = now;
+              takeAudio.down = now - takeAudio.kick > 2 ? 11 : Math.max(0, takeAudio.down - 1);
+              audio.bloomNote(takeAudio.down, 12, hue, 3);
+            }
+            if (d < 200 && now - takeAudio.kick > 0.25 && (big || now - takeAudio.kick > 2)) {
+              takeAudio.kick = now;
+              rig.kick(config.splat.kick * (1 - d / 200));
+            }
+          },
+          // (a flip's or an up's front reaching a house: a note up the scale, at most 12 a second, from the bottom again after a second's quiet)
+          front: (hue) => {
+            const now = performance.now() / 1000;
+            if (now - takeAudio.rise < 1 / 12) return;
+            takeAudio.up = now - takeAudio.rise > 1 ? 0 : Math.min(11, takeAudio.up + 1);
+            takeAudio.rise = now;
+            audio.bloomNote(takeAudio.up, 12, hue, 3);
+          },
+          // (a flip's or an up's front has reached its last house: the ready chime as it finishes)
+          frontEnd: () => audio.ready(),
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
+        camera,
+        // (the take's hits, LIFT.md "Taking it: the looks": with the existing calls, each faction's own owed, and every one read by eye too, iOS on
+        // silent. A parry the denied buzz, its first in a window, then a soft tick, and the breath bounces off in the hitter's sparkles; the crack
+        // the houses' groan and the scale's top note; the fall the big impact and a kick (its landings: sound.land); a wilt the groan and a quiet
+        // burst; the flip a hit-stop of 6 frames and a rising burst (its chime as its front finishes: sound.frontEnd, as an up's); a heal, or the
+        // up that lifts the square, the chime at the hit)
+        took: (key, outcome, _at, x, z, hitter) => {
+          const now = performance.now() / 1000;
+          if (outcome === 'parry') {
+            if (now - takeAudio.parry > 3) audio.denied();
+            else audio.superHoseHit();
+            takeAudio.parry = now;
+            const at = new THREE.Vector3(x, 0, z);
+            at.y = city.lift ? city.lift.surface(x, z, 1e6, city.groundAt(x, z)) + 1 : city.groundAt(x, z) + 1;
+            const palette0 = particles.palette;
+            particles.palette = lookOf(hitter).spray;
+            particles.sparkles(at, 2, 6, [0, 2, 4], 10);
+            particles.palette = palette0;
+          } else if (outcome === 'crack') {
+            audio.heave();
+            audio.bloomNote(11, 12, 0, 3);
+          } else if (outcome === 'down') {
+            if (lift && lift.rules.get(key)?.stage === 3) {
+              audio.splatImpact(1.4);
+              rig.kick(config.splat.kick);
+            } else {
+              audio.heave();
+              audio.bloomBurst(3, 0, 1);
+            }
+          } else if (outcome === 'flip') {
+            hitStop = Math.max(hitStop, 6 / 60);
+            audio.bloomBurst(6, 0, 1);
+          } else if ((outcome === 'up' && (lift?.rules.get(key)?.stage ?? 0) >= 4) || outcome === 'heal') audio.ready();
+        },
       })
     : null;
-  /** what the Lift reads of the bus each frame (one object: no allocation in the loop) */
-  const liftBus = { x: 0, y: 0, z: 0, ground: 0 };
+  /**
+   * ?lift&lifted's glance (LIFT.md, "Taking the block", call 1): from the Golden Gate the block's light stands about 34 degrees right of the
+   * heading, out of the 24-degree portrait lens. When the opening's gate opens the look turns once toward it (out over 0.6 s, held 0.9 s, back
+   * over 0.6 s, through the rig's own look: CameraRig.glance), stopping 6 degrees short so the light stands beside the bus, and the moment a
+   * thumb touches it is gone. No HUD, no text; it shows the player that looking exists, too
+   */
+  const glance = {
+    t: -1,
+    to: 0,
+    start(heart: [number, number]) {
+      const hx = heart[0] - flight.x, hz = heart[1] - flight.z;
+      // (+right: the heading's right is (-fz, fx))
+      const a = Math.atan2(hx * -flight.fz + hz * flight.fx, hx * flight.fx + hz * flight.fz);
+      const off = Math.min(Math.PI / 2, Math.abs(a) - THREE.MathUtils.degToRad(6));
+      // (in the frame already: nothing to show)
+      if (off < THREE.MathUtils.degToRad(6)) return;
+      this.to = Math.sign(a) * off;
+      this.t = 0;
+    },
+    step(realDt: number, touched: boolean): number | null {
+      if (this.t < 0) return null;
+      this.t += realDt;
+      if (touched || this.t >= 2.1) {
+        this.t = -1;
+        return null;
+      }
+      const k = this.t < 0.6 ? this.t / 0.6 : this.t < 1.5 ? 1 : 1 - (this.t - 1.5) / 0.6;
+      return this.to * k * k * (3 - 2 * k);
+    },
+  };
+  /** what the Lift reads of the bus each frame, its heading's forward too (one object: no allocation in the loop) */
+  const liftBus = { x: 0, y: 0, z: 0, ground: 0, fx: 0, fz: -1 };
   /** 181 Fremont's spire, once its tower streams in: it rides the tower's pop and wobble */
   let spire: SpireRide | null = null;
   /** 181 Fremont's spire binds to its tower (and the roof under it) once both exist (whichever comes last) */
@@ -422,13 +539,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (!tf || !list) return;
     for (let i = 0; i < list.length; i++) {
       const g = city.ground.sample(list[i].x, list[i].z);
-      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0) continue;
+      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0 || lift?.refuses(list[i].x, list[i].z, g.faction)) continue;
       const near = city.nearestBuilding(list[i].x, list[i].z, 25);
       const lv = near ? Math.round(city.paint.level(near.index)) : 0;
       tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
     }
   };
   city.onTileUnload = (tx, tz) => {
+    lift?.tileOut(tx, tz);
     const k = `${tx},${tz}`;
     const tf = treeFields.get(k);
     if (tf) {
@@ -661,6 +779,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           const t = list[i];
           const d = Math.hypot(t.x - x, t.z - z);
           if (d > reach || d < inner || (freshOnly && tf.paintLevel(i) > 0)) continue;
+          // (?lift: a tree on a square the take's rules hold takes its owner's paint only)
+          if (lift?.refuses(t.x, t.z, b.spec.faction ?? FACTION_RAINBOW)) continue;
           const g = city.ground.sample(t.x, t.z);
           if (!g || g.cov < 0.5) {
             if (wide) treesDue.push({ key, tf, i, x: t.x, z: t.z, at: b.t + arrival(d, r), jump: b.jump });
@@ -824,8 +944,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // colours can be tried on a phone. It is step 1's owner, so whatever it paints is that faction's in every store, through a reload too, until a
   // splat of another's takes it (the tuner's reset clears it all). The street only: the Moon draws no faction yet, so there it does nothing.
   // Without it every splat is Rainbow's, as before.
-  // (?lift&lifted=<faction>: the bus paints as the neighbourhood's faction, so its petals and its breath are that faction's, unless &paintas says)
-  const paintAs = moon ? undefined : FACTIONS.find((f) => f.key === params.get('paintas')) ?? (liftedOn && liftFaction !== FACTIONS[0].id ? FACTIONS[liftFaction - 1] : undefined);
+  // (?lift&lifted=<faction> names whose the block is and nothing else: the bus paints as its own, "I started as rainbow team but I am only shooting
+  // inferno paint" (the producer, 2026-11-12). &paintas is the tools')
+  const paintAs = moon ? undefined : paintAsOf(params);
   /** The bus paints as this faction from its next shot: its blasts carry it (the buildings, the ground, the trees, ?moon's craters and open ground), and its
    *  breath's particles take its spray. Paint already down keeps its owner. */
   /** &bomb: the Bomb's look takes the faction's spray too (set once the Bomb is up); &boom's hoop too */
@@ -1673,6 +1794,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       audio.bloomBurst(1, hue, 1);
     };
   }
+  // (?lift&lifted: the line of fire through the rival's sky piece hits the heart)
+  if (lift && liftedOn) aimer.sky = (ox, oy, oz, dx, dy, dz) => lift.skyHit(ox, oy, oz, dx, dy, dz);
   warm.sourcesOpen = true;
   warm.addSources();
   warm.add(scene);
@@ -1910,6 +2033,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const gateAlong = openingBridge ? (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz : 0;
     const gateDist = openingBridge ? Math.hypot(flight.x - openingBridge[0], flight.z - openingBridge[1]) : Infinity;
     const gateShut = !!openingBridge && gateAlong < (gateOpened ? OPENING_LOW_ALONG : config.camera.openingClimbAfter);
+    // (?lift&lifted: as the opening hands over the controls, the camera glances once toward the block's light)
+    if (!gateShut && !gateOpened && openingBridge && lift?.beam) glance.start(lift.heart);
     if (!gateShut) gateOpened = true;
     if (gateShut) {
       if (sy < -0.5 && opening >= config.fog.openingDuration) controls.climbGated();
@@ -1959,6 +2084,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       liftBus.y = flight.y;
       liftBus.z = flight.z;
       liftBus.ground = flight.groundUnder;
+      liftBus.fx = flight.fx;
+      liftBus.fz = flight.fz;
       lift.frame(renderer, simTime, dt, realDt, liftBus, camera.position, clamp(opening / config.fog.openingDuration, 0, 1));
     }
     if (!wasFull && flight.fullness >= 1) {
@@ -2024,12 +2151,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       if (rig.openingLow < 0.01 && want === 0 && (gateAlong >= OPENING_LOW_ALONG || gateDist > 1500)) {
         rig.openingLow = 0;
         openingBridge = null;
+        if (liftHood) liftLowShot();
       }
     } else if (lift) {
       // ?lift: under the floating houses the camera drops to a low shot, as it does under the Golden Gate
       rig.openingLow = lift.lowTarget(flight, realDt, rig.lowDist, Math.sin(THREE.MathUtils.degToRad(rig.lowEl)) * rig.lowDist);
     }
     // the look runs on the wall clock (a hit-stop doesn't stall it), and the aim turns with it
+    rig.glance = glance.step(realDt, st.dragging || st.look.on || !!st.thumb || !!qaStick);
     // (?swerve: in a skid a tap goes where the nose points. A stroke that turned out to be the long swipe has let its look go: Input ended it)
     rig.setLook(st.look.on, st.look.x, st.look.y, realDt);
     aimer.lookYaw = rig.aimYaw + (swerve?.slip ?? 0);
@@ -2050,6 +2179,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     input.lobUp = controls.lobRing;
     if (bomb.on) controls.bombGlint = Aimer.loaded(flight) && (moonPaint ? (moonPaint.target?.rec?.level ?? 0) > 0.5 : glint !== null && city.paint.level(glint.index) > 0.5) && flight.y - flight.groundBroad < 300;
     paintUniforms.uTarget.value = glint ? glint.index : -1;
+    // (?lift: the glint on a square that won't take the next hit sweeps in its owner's colour, not white, your own square at the Lift too, where
+    // every hit is an encore: LIFT.md, "Taking it: the looks")
+    if (liftUniforms) liftUniforms.uGlintWait.value = glint && lift?.waiting(glint.index, splatter.faction) ? 1 : 0;
+    // (and on the rival's sky piece while the line of fire crosses it: a step brighter if the heart takes the hit, dimmer while it waits)
+    if (lift && liftedOn) lift.skyGlint(aimer.skyAimed);
     paintUniforms.uTargetT.value = aimer.shownSince;
     paintUniforms.uGlint.value.set(config.splat.glintLift, config.splat.glintSweep, config.splat.glintRate);
     paintUniforms.uFloodHead.value = config.bloom.floodHead;
@@ -2426,6 +2560,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     // (the gardens drawn as far as this lens sees them: their budget, world/props/sprouts.ts)
     sprouts.update(camera);
+    // (?lift: the sky piece's cut round the bus from the lens as it is now)
+    lift?.lens(camera.position);
     pipeline.render(scene);
     framesDrawn++;
     // (a tap in the grey has skipped it already)

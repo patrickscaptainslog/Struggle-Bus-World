@@ -4,7 +4,8 @@ import { Ramp } from '../render/palette';
 import { held, heldOr, skyOn } from '../sky/flag';
 import { Ground, WATER_Y } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING, GLSL_GROUND_PAINT } from './GroundPaint';
-import { GLSL_LAKE, GLSL_LIFT, lifted } from './liftGlsl';
+import { GLSL_LAKE, GLSL_LIFT, LIFT_TAKE, lifted, SQUARE } from './liftGlsl';
+import { OUTCOMES } from './liftRules';
 import { liftUniforms, paintUniforms } from './buildingMaterial';
 import { GLSL_FACTION } from '../render/factionLook';
 import { GLSL_LAKE_LOOKS } from './liftLakes';
@@ -75,7 +76,64 @@ const FS = /* glsl */ `
   ${GLSL_FACTION}
   ${GLSL_LIFT}
   ${GLSL_LAKE_LOOKS}
-  ${GLSL_LAKE}`)}
+  ${GLSL_LAKE}
+  // the take (LIFT.md, "Taking the block"): on a square its rules hold the ground shows its owner's paint only (the store keeps all of it;
+  // tTake and uTakeRect are GLSL_LIFT's), the owner a flip took it from still ahead of the flip's front (tTake's r: owner + 8 x outcome + 72 x
+  // that one)
+  bool sbTakeShows(vec2 p, float fac) {
+    vec2 q = floor((p - uTakeRect.xy) / ${SQUARE}.0);
+    if (q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w) return true;
+    vec4 K2 = texelFetch(tTake, ivec2(q.x, q.y + uTakeRect.w), 0);
+    float own = mod(K2.r, 8.0), r = (uTime - K2.a) * ${LIFT_TAKE.front.toFixed(1)};
+    if (floor(mod(K2.r, 72.0) / 8.0) == ${OUTCOMES.indexOf('flip')}.0 && r < 190.0 && length(p - K2.gb) > r) own = floor(K2.r / 72.0);
+    return own < 0.5 || abs(own - fac) < 0.5;
+  }
+  // a point (m, the square's own, 0..128 each way) on its square's border: its nearest edge point's distance round it from the square's corner
+  float sbPerim(vec2 l) {
+    vec2 c = clamp(l, 0.0, ${SQUARE}.0);
+    float dB = c.y, dR = ${SQUARE}.0 - c.x, dT = ${SQUARE}.0 - c.y, dL = c.x;
+    float m = min(min(dB, dR), min(dT, dL));
+    return m == dB ? c.x : m == dR ? ${SQUARE}.0 + c.y : m == dT ? ${3 * SQUARE}.0 - c.x : ${4 * SQUARE}.0 - c.y;
+  }
+  // The claim line, the clock on the ground (STAGES.md 1.2's timer): a thread of white on a seeded square's straight edges, half a metre and 1.5
+  // game pixels at least, that draws itself round both ways from the point nearest the last counted change's impact (the heart's at first) and
+  // closes at the square's ready time, its next hit counted then; it flashes as it closes and is gone 0.4 s after. A parry runs a 4 m pulse round
+  // it at 160 m/s, an owner's encore the same in the owner's hues. A flip's white-hot front (an up's quieter: a 1 m edge) sweeps from the impact at LIFT_TAKE.front, the owner's hues behind it:
+  // "A white-hot front sweeps from the impact across the area at 120 m/s. Behind it, every building re-floods in the new theme" (STAGES.md 1.3)
+  void sbTakeGround(vec3 wp, inout float ramp, inout float light, inout float glow) {
+    vec2 q = floor((wp.xz - uTakeRect.xy) / ${SQUARE}.0);
+    if (q.x < 0.0 || q.y < 0.0 || q.x >= uTakeRect.z || q.y >= uTakeRect.w) return;
+    vec4 K1 = texelFetch(tTake, ivec2(q), 0), K2 = texelFetch(tTake, ivec2(q.x, q.y + uTakeRect.w), 0);
+    // (r the owner, plus 8 times the last change's outcome, plus 72 times the owner a flip took it from; a its time)
+    float own = mod(K2.r, 8.0), code = floor(mod(K2.r, 72.0) / 8.0), lt = K2.a;
+    if (own < 0.5) return;
+    vec2 org = uTakeRect.xy + q * ${SQUARE}.0, l = wp.xz - org;
+    if (code == ${OUTCOMES.indexOf('flip')}.0 || code == ${OUTCOMES.indexOf('up')}.0) {
+      float r = (uTime - lt) * ${LIFT_TAKE.front.toFixed(1)}, d = length(wp.xz - K2.gb), edge = code == ${OUTCOMES.indexOf('flip')}.0 ? 3.0 : 1.0;
+      if (r < 190.0 && d < r && d > r - edge - 8.0) {
+        if (d > r - edge) { ramp = ${Ramp.GLOW_WHITE}.0; light = 6.0 / 7.0; glow = 0.8; }
+        else { ramp = sbFacHue(sbFac(own), int(mod(floor(d / 3.0), 6.0)), true); light = 5.0 / 7.0; glow = 0.5; }
+      }
+    }
+    float e = min(min(l.x, ${SQUARE}.0 - l.x), min(l.y, ${SQUARE}.0 - l.y));
+    if (e > max(0.5, distance(wp, cameraPosition) * 0.0027)) return;
+    float ds = abs(sbPerim(l) - sbPerim(K2.gb - org));
+    ds = min(ds, ${4 * SQUARE}.0 - ds);
+    // (round from the last counted change to the ready time, from tTake's own times, so the tuner's cooldown reaches the GPU through them (the
+    // review's finding 4); a square's first readying, with no change before it, over the five seconds)
+    float left = K1.a - uTime, span = lt > 0.0 ? K1.a - lt : 5.0, a = 0.0;
+    if (left > 0.0 && left < span && ds <= ${2 * SQUARE}.0 * (1.0 - left / span)) a = 6.0;
+    else if (left <= 0.0 && left > -0.4) a = left > -0.034 ? 7.0 : 6.0 - 2.0 * (-left / 0.4);
+    // (the parry's pulse, white; an owner's encore's (its time negative), the same pulse in the owner's hues)
+    float pr = (uTime - abs(K1.b)) * 160.0;
+    bool pulse = K1.b != 0.0 && pr < ${2 * SQUARE + 4}.0 && abs(ds - pr) < 2.0;
+    if (pulse && K1.b < 0.0) { ramp = sbFacHue(sbFac(own), int(mod(floor(ds / 6.0), 6.0)), true); light = 6.0 / 7.0; glow = 0.6; return; }
+    if (pulse) a = 7.0;
+    if (a == 0.0) return;
+    ramp = ${Ramp.GLOW_WHITE}.0;
+    light = a / 7.0;
+    glow = 0.6;
+  }`)}
   in vec3 vWorldPos;
   in vec3 vWorldNormal;
   in vec3 vViewNormal;
@@ -162,7 +220,7 @@ const FS = /* glsl */ `
     float glow = 0.0;
     float pr, pEdge, pWet, pFresh;
     // curbs (where two ground classes blend) stay grey through the paint: the street plan still reads
-    if (best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)) {
+    if (best >= uGroundTone.z && sbGroundPaint(vWorldPos, vClassUv, pr, pEdge, pWet, pFresh)${lifted(' && sbTakeShows(vWorldPos.xz, sbgFac)')}) {
       // figure / ground: paint on the ground sits a couple of steps below the
       // painted walls (houses stand out of their splat); sidewalks a step
       // lighter than the street so the blocks still read; warm hues keep their
@@ -181,7 +239,9 @@ const FS = /* glsl */ `
     }${lifted(`
     // ?lift: the lake of paint a floating house leaves under it
     float kr, kl, kg;
-    if (sbLake(vWorldPos, flatL, kr, kl, kg)) { ramp = kr; light = kl; glow = kg; }`)}
+    if (sbLake(vWorldPos, flatL, kr, kl, kg)) { ramp = kr; light = kl; glow = kg; }
+    // (the take's claim line and fronts, over the ground and the lakes)
+    sbTakeGround(vWorldPos, ramp, light, glow);`)}
     float rr, rl, rg;
     if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }
     float fog = sbFog(vWorldPos);

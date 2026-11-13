@@ -177,6 +177,11 @@ export class CameraRig {
   private lookFromPitch = 0;
   /** where a tap goes off the nose (rad): the look, out to config.camera.lookAimMax */
   aimYaw = 0;
+  /**
+   * The game's own glance (rad, +right), or null: with no thumb looking, the look's yaw is exactly this (main.ts drives it: ?lift&lifted's one
+   * glance toward the block's light as the opening hands over). A thumb's look takes over at once; once it's null the look homes as it always does
+   */
+  glance: number | null = null;
   /** The look as it stands (rad, +right and +up, 0 at home): the flight's view lays the same look over its own (src/sky/TripView.ts). */
   get lookYawNow(): number {
     return this.lookYaw.x;
@@ -455,7 +460,10 @@ export class CameraRig {
         yaw.x = angleDelta(0, yaw.x);
         yaw.v = pitch.v = 0;
       }
-      settle(yaw, 0, C.lookHomeHz, realDt);
+      if (this.glance !== null) {
+        yaw.x = this.glance;
+        yaw.v = 0;
+      } else settle(yaw, 0, C.lookHomeHz, realDt);
       settle(pitch, 0, C.lookHomeHz, realDt);
       // (it arrives exactly)
       if (Math.abs(yaw.x) < LOOK_HOME && Math.abs(yaw.v) < LOOK_HOME * 20) yaw.x = yaw.v = 0;

@@ -114,7 +114,8 @@ async function streetCam(page) {
 }
 for (const fac of factions) {
   for (const sky of skies) {
-    const q0 = `?lift&lifted${fac === 'rainbow' ? '' : `=${fac}`}&skipintro&nohud&t=${SKIES[sky]}&rate=0`;
+    // (&hoodstart: the tools' start by the neighbourhood, facing in. ?lift alone starts under the Golden Gate, as every page does)
+    const q0 = `?lift&lifted${fac === 'rainbow' ? '' : `=${fac}`}&hoodstart&skipintro&nohud&t=${SKIES[sky]}&rate=0`;
     for (const v of views) {
       if (v === 'gif' && sky !== skies[0]) continue;
       const name = `${fac}-${sky}-lift-${v}`;
@@ -186,6 +187,8 @@ for (const fac of factions) {
           }, out0);
           await probe.close();
           const page = await open(q0);
+          // (the block wakes to a bus near it, LIFT.md's wake: the wave and the sky piece first, by the neighbourhood, then out. Rainbow builds none)
+          await page.waitForFunction(() => window.__game.lift.waveAt > 0 && !window.__game.lift.skyBuild, null, { timeout: 240000, polling: 100 });
           await page.evaluate((s) => {
             const f = window.__game.flight;
             f.x = s.x;
@@ -199,12 +202,15 @@ for (const fac of factions) {
             delete window.__qa.sy;
           });
           await at(page, (await clock(page)) + 2);
+          if (!((await page.evaluate(() => window.__game.lift.waveAt)) > 0)) throw new Error('the wave never started');
           await shot(page, name);
           await page.close();
         }
       } catch (e) {
         failed++;
         console.log(name, 'failed:', String(e).slice(0, 300));
+        // (a failed view's pages closed, or they go on drawing and starve the views after it)
+        for (const c of browser.contexts()) await c.close().catch(() => {});
       }
     }
   }

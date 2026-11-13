@@ -73,6 +73,8 @@ export interface Shot {
   crater?: unknown;
   /** a Comet's flight (src/game/Comet.ts): a gear at speed flies it ahead, in view */
   comet?: CometPlan | null;
+  /** ?lift: what its line of fire crosses (1: the rival's sky piece, and the heart's square takes the hit; 0 nothing) */
+  via?: number;
 }
 
 /** The barf a tap's shot fires (main.ts's breathe, and tools/feel-sim/loop.ts's tap, so a Node tap is the page's): timed to its flight, at what glints, seen from the bus's height. */
@@ -83,6 +85,8 @@ export function tapOpts(shot: Shot, busY: number): BarfOpts {
   if (c) Object.assign(o, { stream: true, hitStop: 0, comet: c, late: c.loaded ? 0 : config.comet.late });
   // (a Lob's circle is its fall's from the arc's top, not the bus's height over where it lands; a far one's a tap's from its height: lobRadius)
   if (c?.kind === 'lob') o.radius = lobRadius(c);
+  // (?lift: the heart takes the hit when the line of fire crossed the sky piece: handed on to the blast, Blast.via)
+  if (shot.via) o.via = shot.via;
   return o;
 }
 
@@ -126,6 +130,15 @@ export class Aimer {
   private noseWas = 0;
   /** when the steering thumb went down (game s): a stroke lifted within inputTune.quickTapMs may be a slid tap, and keeps the Lob's latch it found */
   private thumbAt = 0;
+  /** ?lift&lifted: does the line from the mouth along (dx, dy, dz) cross the rival's sky piece (main.ts sets it to Lift.skyHit) */
+  sky: ((ox: number, oy: number, oz: number, dx: number, dy: number, dz: number) => boolean) | null = null;
+  /** the line of fire to the aim point crosses the sky piece now (Shot.via); and the Comet's to its landing, this frame's plan's (a Lob's arc is no line: 0) */
+  private via = 0;
+  private viaPlan = 0;
+  /** a loaded breath's line of fire crosses the sky piece now, the shot a tap would fire's (main: the piece's glint, Lift.skyGlint) */
+  get skyAimed(): boolean {
+    return this.ready && (this.cometPlan ? this.viaPlan : this.via) === 1;
+  }
   /** the mover this frame's aim takes, and one held by a press, as the building latch is */
   private mover: MoverTarget | null = null;
   private moverLatch: MoverTarget | null = null;
@@ -425,6 +438,8 @@ export class Aimer {
     aim.drop = p.drop;
     aim.travel = p.travel;
     aim.dist = Math.hypot(p.x - f.x, p.z - f.z, f.y - p.y);
+    // (?lift: the Comet's streak is its line of fire, so the sky piece counts on it as on the aim's own; a Lob's arc doesn't, and crosses none)
+    this.viaPlan = this.lobbing ? 0 : this.viaOf(f);
     if (this.life) {
       this.mover = null;
       this.life.glint(null);
@@ -443,6 +458,7 @@ export class Aimer {
     // from altitude is wider than the pick radius: the bungee settles a few degrees after the thumb lifts)
     if (this.latchRef && (t >= this.latchUntil || !this.holds(this.latchRef, Math.max(r, S.aimLatchCone * this.horiz), S.aimHoldAlong))) this.latchRef = null;
     this.occlude(this.latchRef ?? this.target);
+    this.viaNow(f);
     if (this.life) return this.pickMover(f, t, r);
     return this.shown();
   }
@@ -606,7 +622,9 @@ export class Aimer {
     if (this.comet && this.cometPlan) {
       if (!this.lobbing && !(bomb && this.cometPlan.far)) {
         this.cometFired = true;
-        return this.comet.shotOf(this.cometPlan);
+        const s = this.comet.shotOf(this.cometPlan);
+        if (this.viaPlan) s.via = this.viaPlan;
+        return s;
       }
       if (!bomb) return this.lobShot(this.cometPlan);
       if (this.cometOnly && !this.cometOnly.far) {
@@ -664,7 +682,21 @@ export class Aimer {
     const aim = this.aim;
     const pick = this.splatter.pick(aim.x, aim.z, this.splatter.pickRadius(aim.drop), f.y);
     this.occlude(pick);
+    this.viaNow(f);
     return this.shotAt(f, this.wallRef ?? pick);
+  }
+
+  /**
+   * ?lift&lifted: the sky piece takes the heart's hits (LIFT.md, "Taking the block"): the line of fire from the bus to where the breath lands
+   * crossing one of its parts is nearer than the building it lands on, so the shot's hit is the heart's. The breath still flies on and lands.
+   */
+  private viaNow(f: Flight) {
+    this.via = this.viaOf(f);
+  }
+
+  private viaOf(f: Flight): number {
+    const a = this.aim;
+    return this.sky && this.sky(f.x, f.y, f.z, a.x - f.x, a.y - f.y, a.z - f.z) ? 1 : 0;
   }
 
   private shotAt(f: Flight, target: BuildingRef | null): Shot {
@@ -680,6 +712,6 @@ export class Aimer {
     const iy = y ?? (target ? this.city.roofAtPart(target, x, z, f.y) + 0.5 : this.city.groundAt(x, z));
     const dist = Math.hypot(x - f.x, z - f.z, f.y - iy);
     this.latchRef = null;
-    return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.ground) };
+    return { target, x, z, y, exact: wall, drop: Math.max(0, f.y - iy), travel: this.travelFor(dist, f.ground), via: this.via };
   }
 }

@@ -9,7 +9,8 @@ import { Arch } from './tiles';
 import { blastUniforms, GLSL_BLAST_RING } from './GroundPaint';
 import { PAINT_KEPT } from './PaintState';
 import { Fam, Crown, Variant } from './towerStyles';
-import { GLSL_LIFT, lifted, liftedOr, liftOn } from './liftGlsl';
+import { GLSL_LIFT, lifted, liftedOr, LIFT_TAKE, liftOn, SQUARE, veinsStay } from './liftGlsl';
+import { OUTCOMES } from './liftRules';
 import { GLSL_POGO, pogoed, pogoedOr, pogoUniforms } from './pogo';
 import { FALLS, fallsed, fallsUniforms, GLSL_FALLS_F, GLSL_FALLS_V } from './falls';
 
@@ -25,6 +26,11 @@ export const liftUniforms = liftOn
       uLiftRows: { value: 0 },
       tLake: { value: null as THREE.Texture | null },
       uLakeRect: { value: new THREE.Vector4(1e9, 1e9, 0.5, 0) },
+      /** the take's state, two texels a square over the neighbourhood's squares (Lift.writeTake), and its grid: x0, z0 (m), its width and height in squares */
+      tTake: { value: null as THREE.Texture | null },
+      uTakeRect: { value: new THREE.Vector4(0, 0, 0, 0) },
+      /** 1: the aim's glint is on a house of a seeded square that won't take the next hit (main's, each frame: Lift.waiting) */
+      uGlintWait: { value: 0 },
     }
   : null;
 
@@ -91,6 +97,8 @@ export function setFacadeView(high: number, calm: number) {
 }
 
 const R = (r: number) => r.toFixed(1);
+/** &veins=stay's most of the walls, as the crack's veins times it (vTake.z packs the veins over it) */
+const VEINS_MAX = (LIFT_TAKE.veins[2] / LIFT_TAKE.veins[0]).toFixed(2);
 
 export function makeBuildingMaterial(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
@@ -120,8 +128,9 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       out vec3 vViewNormal;
       out float vYRest;${lifted(`
       ${GLSL_LIFT}
-      flat out float vLift;
-      flat out float vSnap;
+      // (x its lift, y its walls' white flash (a Hyperglow snap, a crack, a fall's hit), z the cracker and the veins (+ 0.9 x 0..1), w its
+      // square's owner and the parry's shimmer (+ 0.9 x 0..1): one flat vector, the program's 15 outputs kept)
+      flat out vec4 vTake;
       out vec3 vLiftD;`)}
 
       void main() {
@@ -183,9 +192,26 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         p = sbLiftMove(p, baseY, lf, lT2);
         // (a turning house's walls face where it turned, and flash as it snaps: Hyperglow's)
         n = sbYaw(n);
-        vSnap = sbSnapNow;
         vLiftD = p - lp;
-        vLift = lf.x;`)}
+        vTake = vec4(lf.x, sbSnapNow, 0.0, 0.0);
+        // (its square's take, tTake (LIFT.md, "Taking it: the looks"): the crack's veins in the cracker's colours from its counted change, gone over
+        // 0.4 s at the heal or the fall; the walls' flash at the crack and the fall's hit; the parry's shimmer in the owner's colours, 0.3 s)
+        vec2 tq = floor((vec2(aBld.y, aBld.w) - uTakeRect.xy) / ${SQUARE}.0);
+        if (idx >= 0.0 && tq.x >= 0.0 && tq.y >= 0.0 && tq.x < uTakeRect.z && tq.y < uTakeRect.w) {
+          vec4 K1 = texelFetch(tTake, ivec2(tq), 0), K2 = texelFetch(tTake, ivec2(tq.x, tq.y + uTakeRect.w), 0);
+          float code = floor(mod(K2.r, 72.0) / 8.0), lt = K2.a, u = uTime - lt;
+          float va = code == ${OUTCOMES.indexOf('crack')}.0 ? smoothstep(0.0, 0.15, u) : (code == ${OUTCOMES.indexOf('heal')}.0 || (code == ${OUTCOMES.indexOf('down')}.0 && K1.r != 0.0)) ? 1.0 - smoothstep(0.0, 0.4, u) : 0.0;
+          if (lf.x <= 0.0) va = 0.0;
+          if (va > 0.0 && (code == ${OUTCOMES.indexOf('crack')}.0 || code == ${OUTCOMES.indexOf('down')}.0)) vTake.y = max(vTake.y, 1.0 - smoothstep(0.0, 0.15, u));${veinsStay ? `
+          // (&veins=stay, call 5: the crack's veins stay on the fallen houses, a band more of the walls at each wilt (tTake's g over 8), until the
+          // flip's front reaches the house; va over 1 is more of the walls)
+          float vb = floor(floor(K1.g) / 8.0);
+          if (vb > 0.0 && code != ${OUTCOMES.indexOf('crack')}.0 && !(code == ${OUTCOMES.indexOf('flip')}.0 && distance(vec2(aBld.y, aBld.w), K2.gb) < u * ${LIFT_TAKE.front}.0))
+            va = max(va, vb < 1.5 ? 1.0 : vb < 2.5 ? ${(LIFT_TAKE.veins[1] / LIFT_TAKE.veins[0]).toFixed(2)} : ${(LIFT_TAKE.veins[2] / LIFT_TAKE.veins[0]).toFixed(2)});` : ''}
+          float sh = K1.b > 0.0 ? 1.0 - smoothstep(0.0, 0.3, uTime - K1.b) : 0.0;
+          vTake.z = ${veinsStay ? `mod(floor(K1.g), 8.0) + 0.9 * clamp(va / ${VEINS_MAX}, 0.0, 1.0)` : 'floor(K1.g) + 0.9 * clamp(va, 0.0, 1.0)'};
+          vTake.w = mod(K2.r, 8.0) + 0.9 * clamp(sh, 0.0, 1.0);
+        }`)}
         vec4 wp = modelMatrix * vec4(p, 1.0);
         vWorldPos = wp.xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * n);
@@ -198,7 +224,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         vFall = sbFallSlot(idx);`)}
         // size of a game pixel at this building (m), from the nearest point of its vertical axis; the
         // facade LOD is decided per building with it (jittered per building, so no ring shows)
-        vec3 axis = (modelMatrix * vec4(aBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, baseY, roofY) + vLift', 'clamp(cameraPosition.y, baseY, roofY)')}, aBld.w, 1.0)).xyz;
+        vec3 axis = (modelMatrix * vec4(aBld.y, ${liftedOr('clamp(cameraPosition.y - vTake.x, baseY, roofY) + vTake.x', 'clamp(cameraPosition.y, baseY, roofY)')}, aBld.w, 1.0)).xyz;
         float jit = 1.0 + uLodJitter * (fract(sin(aBld.x * 12.9898) * 43758.5453) - 0.5);
         vLodPx = length(axis - cameraPosition) * uPixelAngle * jit;
         gl_Position = projectionMatrix * viewMatrix * wp;
@@ -234,8 +260,8 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
       in vec3 vWorldNormal;
       in vec3 vViewNormal;
       in float vYRest;${lifted(`
-      flat in float vLift;
-      flat in float vSnap;
+      flat in vec4 vTake;
+      uniform float uGlintWait;
       in vec3 vLiftD;`)}${fallsed(GLSL_FALLS_F)}
       ${GLSL_OUT}
 
@@ -769,7 +795,7 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
           float bTop = roofY;
           float bH = max(bTop - vBld.z, 1.0);
           // the building's view direction (one per building, so each face is one decision)
-          vec3 vB = normalize(cameraPosition - vec3(vBld.y, ${liftedOr('clamp(cameraPosition.y - vLift, vBld.z, bTop) + vLift', 'clamp(cameraPosition.y, vBld.z, bTop)')}, vBld.w));
+          vec3 vB = normalize(cameraPosition - vec3(vBld.y, ${liftedOr('clamp(cameraPosition.y - vTake.x, vBld.z, bTop) + vTake.x', 'clamp(cameraPosition.y, vBld.z, bTop)')}, vBld.w));
           vec3 tU = normalize(vec3(-n.z, 0.0, n.x) + vec3(1e-5));
           float tv = dot(tU, vB);
           float fu = sqrt(max(1.0 - tv * tv, 0.0));
@@ -937,8 +963,33 @@ export function makeBuildingMaterial(): THREE.ShaderMaterial {
         // the blast's shockwave ring races across the roofs
         float rr, rl, rg;
         if (sbRing(vWorldPos, n, rr, rl, rg)) { ramp = rr; light = rl; glow = rg; }${lifted(`
-        // (a Hyperglow house's snap on the beat: its walls flash white-hot and fade over a quarter second)
-        if (vSnap > 0.0) { light = mix(light, 1.0, 0.6 * vSnap); glow = max(glow, 0.7 * vSnap); }`)}
+        // (the take's (LIFT.md, "Taking it: the looks"). The aim's glint on a house of a square that won't take the next hit sweeps in its owner's
+        // colour a step dimmer, never white: wait, not nothing)
+        if (tgt && uGlintWait > 0.5 && sweep > 0.3) { ramp = sbFacTrim(sbFac(floor(vTake.w))); light = max(0.25, light - uGlint.x - uGlint.y * sweep - 1.0 / 7.0); glow = 0.3; }
+        // (a cracked floating house's veins in the cracker's colours over about a quarter of its walls, throbbing a step at 1.2 Hz: "A siege
+        // shows. The first hit cracks a Wonder with veins of the attacker's colour", FACTIONS.md)
+        float va = fract(vTake.z) / 0.9${veinsStay ? ` * ${VEINS_MAX}` : ''};
+        if (va > 0.01 && abs(n.y) < 0.5) {
+          vec2 vq = vec2(dot(lRest.xz, vec2(0.71, 0.71)) + lRest.x * 0.3, lRest.y) / 3.2;
+          vec2 vc = floor(vq), vf = fract(vq);
+          float vh = h21(vc + vec2(bIdx * 0.37, 7.0));
+          // (a jagged crack across each lit cell: a line through it at its own slope, broken by a second hash)
+          float line = abs(vf.y - (0.2 + 0.6 * h21(vc + 3.1)) - (vf.x - 0.5) * (vh * 2.0 - 1.0) * 0.9);
+          if (vh < 0.25 * va * 1.6 && line < 0.07 + 0.03 * h21(floor(vq * 4.0))) {
+            int cf = sbFac(floor(vTake.z));
+            ramp = sbFacHue(cf, int(mod(floor(vh * 24.0), 6.0)), true);
+            light = (4.0 + 0.5 + 0.5 * sin(6.2832 * 1.2 * uTime)) / 7.0;
+            glow = 0.5;
+          }
+        }
+        // (a parried breath: the square's walls shimmer in the owner's colours, a rim, never white)
+        float sh = fract(vTake.w) / 0.9;
+        if (sh > 0.01) {
+          float rim = 1.0 - abs(dot(n, normalize(cameraPosition - vWorldPos)));
+          if (rim > 1.0 - 0.6 * sh) { ramp = sbFacTrim(sbFac(floor(vTake.w))); light = max(light, 5.0 / 7.0); glow = max(glow, 0.5 * sh); }
+        }
+        // (a Hyperglow house's snap on the beat, a crack's or a fall's hit: its walls flash white-hot and fade)
+        if (vTake.y > 0.0) { light = mix(light, 1.0, 0.6 * vTake.y); glow = max(glow, 0.7 * vTake.y); }`)}
         float sid = fract(bIdx * 0.6180339 + 0.1);
         sbWrite(ramp, light, fog, glow, vViewNormal, sid, 1.0);
       }
