@@ -16,6 +16,30 @@ The producer asked on 2026-11-12: "Before we expand, let's really try and perfec
 - **For the second account:** nothing to do yet. Stage 2 would read the squares and the areas in `src/factions` from the open world. Once the producer has answered call 1, the ask goes here with the exact calls it needs.
 - **Not checked:** whether any of it is fun (nobody ran the game for this), every agent-day figure, how long a neighbourhood takes (3 to 5 minutes is an estimate), and Safari's storage limits on today's iPhones.
 
+## The core, stage 1: the loading page, the link's picture, the return visit (2026-11-13, the first account)
+
+`feat/core` is pushed at c2a00c4: 17 commits on `feat/shots` 4f33648 (eight of the plan's nine, eight fixes after its review and outside look, and `docs/specs/core/STAGE1.md`, the branch's own doc). Not live, not reviewed by the second account.
+
+- **Why:** the producer on 2026-11-12: "Before we expand, let's really try and perfect the fundamental gameplay mechanics. Are we missing anything? Is this a fun game that has the chance to be a success?" Stage 1 of `specs/core/CORE.md` is what a new and a returning player meet before any goal.
+- **The base** is 4f33648, not the shots' head 98fca30: that head has a row red on the frame budget and calls open. The far shots merge in later.
+- **To fly:** https://struggle-bus-world-git-feat-core-patricks-projects-9ff6e721.vercel.app/ (`?fps` for the frame counter).
+- **What it does.** A loading page (the title, a pixel bus) until the first frame, the canvas hidden until it has drawn. The link-preview tags and an icon, the picture made from the build by a tool. A record of where the bus last painted; a return visit starts over that paint, still under the fog, above the roofs, never at a bridge; the skip tap jumps past the Golden Gate. `?fps` shows the worst frame at a shot's impact, the peaks, the first frame, reloads. A log of every shot for the checks. The Hose off unless `?hose`, hold to aim with it.
+- **Two changes to the plan's return rule.** `returnTune.ahead`: the bus's own pose is the start only with the paint 100 m or more ahead, else 220 m back on the shot's heading (a tap from the roofs lands too near to frame). From high up the start is held at most 60 m over its paint: from 400 m the paint sat at 115 % of the frame's height, now 53.3 %.
+- **Its review** found 12 (no blocker, 2 majors). Fixed: `hit` now measures a Comet, Lob and far Bomb (major), and eight minors. The other major, the full table on the final build, is the run below. The Golden Gate picture is only relabelled; a tap on the loading page doesn't skip the fog, on purpose.
+- **One outside look** found 9 (3 majors, all on the link pictures: the bus a speck at chat size, the one called the Golden Gate shows no bridge, too much paint). Not built; the studio will make a closer picture.
+- **What ran.** The whole table at c2a00c4, 49 rows, to its end; 47 exit 0. `controls-boom` failed one case at 201 draws against 200 (`rainbow-western-addition-150`: 82 frames, 1.319 M triangles), passed alone (162); it has read 119 and 162 on other builds, so the count varies run to run: open. `flight5` failed in the table and alone on "M90's case: a plain splat, not a Lob" (and the intent check, same shot). The shot is a Lob at 31.7 degrees; the body at that tap is about 30 on the base too (31.1), so by the rules a Lob is right and the case's premise (the nose down again 1.2 s after the lift) doesn't hold. "No Lob from a body under 25 degrees (0)" and "no Hose pour in five minutes" pass. Case or game: open. Files: `gates/SUMMARY-table-c2a00c4.tsv`, `gates/flight5.log`, `gates/controls-boom.log`.
+- **New for the next round:** a return start's first 5 s after the fog peaked at 229 and 328 draws; the Comet's impact frame 74 to 76 ms on the laptop; a salmon disc under the bus, not identified.
+- **Not done:** the measuring pass on an older iPhone, any phone, the picture in a chat (once live).
+- **For the second account:**
+  1. Review `feat/shots` fa91865..4f33648 (the Lob's latch fix for your M90).
+  2. Review `feat/core` 4f33648..c2a00c4.
+  3. Life's and Recess's holds need `input.aimOn = !moon && (hoseOn || lifeOn || recessOn)`.
+  4. The `?recess` and `?swerve` boots conflict with the return block in `main.ts`: put them before it, or name one flag for "not the saved city".
+  5. Did main 34d55cf..058217c, `feat/factions` to e0f1dde and `feat/gardens` a1138f3 have your review?
+  6. Tools opening a plain link twice after painting get a return start: add `&noreturn`.
+- **Open calls for the producer** (the studio's pick). Call 4, the Hose off: yes. m92, the Lob's hint: keep. Call 5, live before the first test round: yes. Call 6, the iPhone 13: yes. The link picture: Alamo Square now, a closer camera next. The loading page's words: keep. The skip onto open bay: keep. 220 m back and the 60 m cap: the phone's.
+- **Next:** a third round on the branch (flight5's case, the varying count, the return's peaks, a closer picture, the salmon disc, the impact frame), then the table again.
+
 ## The floating block: the game's own start, the bus's own paint, and taking it (2026-11-13, the first account)
 
 `feat/factions` is pushed at b540848 (f3baf46..b540848, 27 commits). Still behind `?lift`. Not live, and not reviewed by the second account.
