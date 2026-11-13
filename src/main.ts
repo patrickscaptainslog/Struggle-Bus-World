@@ -78,6 +78,9 @@ const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamer
 const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
 /** The opening's low shot holds while the bus is nearer the Golden Gate's gap than this along its heading (m), with nobody steering or near the bridge, and comes back for a bus pointing back there. */
 const OPENING_LOW_ALONG = 180;
+/** ?swerve: the tag a computer bus's blast carries when its module barfs it with none (a soaked rival's landing, a ram's half: the player's paint, a tap's
+ *  show). Its quiet ones carry QUIET_RIVAL. The floating block hears neither (Lift.LIFT_HITS): it tells a blast by where it came from, not its faction */
+const RIVAL_LOUD = { rivals: 'loud' } as const;
 
 const params = new URLSearchParams(location.search);
 if (params.has('fog')) config.fog.enabled = true;
@@ -426,8 +429,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
         camera,
-        // (the bus's one faction, the paint's: the faction button's pick, Rainbow without it, or &paintas. The block hears its blasts alone: Lift.LIFT_HITS)
+        // (the bus's one faction, the paint's: the faction button's pick, Rainbow without it, or &paintas. The block hears its blasts alone, a computer bus's
+        // none whatever its crew: Lift.LIFT_HITS)
         faction: () => splatter.faction,
+        fromRivals: (tag) => tag === RIVAL_LOUD || (!!rivalsMod && tag === rivalsMod.QUIET_RIVAL),
         // (the take's hits, LIFT.md "Taking it: the looks": with the existing calls, each faction's own owed, and every one read by eye too, iOS on
         // silent. A parry the denied buzz, its first in a window, then a soft tick, and the breath bounces off in the hitter's sparkles; the crack
         // the houses' groan and the scale's top note; the fall the big impact and a kick (its landings: sound.land); a wilt the groan and a quiet
@@ -1702,7 +1707,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     ? rivalsMod.bootRivals({
         scene, camera, flight, bus, holds, slip: () => swerve.slip,
         world: { groundAt: (x, z) => city.groundAt(x, z), obstacleAt: (x, z, y) => city.obstacleAt(x, z, y), bounds: manifest.bounds, land: (x, z) => city.groundAt(x, z) >= config.splat.missWaterY },
-        barf: (x, z, o) => void splatter.barf(x, z, o), faction: () => splatter.faction, hue: () => splatter.hueNext, particles,
+        barf: (x, z, o) => void splatter.barf(x, z, o.tag === undefined ? { ...o, tag: RIVAL_LOUD } : o), faction: () => splatter.faction, hue: () => splatter.hueNext, particles,
         kick: (k) => rig.kick(k), flash: () => pipeline.flash(0.5, 0.5, 5, 1, 1.6), pull: (m) => (rig.matchPull = m), kit: () => audio.voiceKit(), toast: (l, t) => controls.hud.toast(l, t),
         heroScale: () => rig.heroScale, arm: (t) => swerve.arm(t),
       })

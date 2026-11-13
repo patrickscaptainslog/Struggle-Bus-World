@@ -48,20 +48,23 @@ export interface LiftGame {
    * the impact (m) and the hitter. Part C's looks and sounds hang here
    */
   took(key: number, outcome: Outcome, at: number, x: number, z: number, hitter: number): void;
-  /** the bus's own faction, the paint's (main: the Splatter's, from the faction button, Rainbow without it, or &paintas): whose blasts the block hears */
+  /** the bus's own faction, the paint's (main: the Splatter's, from the faction button, Rainbow without it, or &paintas): the owner a hit is an encore by */
   faction(): number;
+  /** a blast's tag (Splat's Blast.tag) says a computer bus barfed it (src/rivals, ?swerve): its shots, rams, rings and landings, whatever their faction */
+  fromRivals(tag: unknown): boolean;
 }
 
 /**
  * Whose blasts the block hears (its knock, its hits, a house lifted by a breath): the bus's own. A computer bus's (src/rivals, ?swerve) paint nothing on
  * the block either way (PaintState.guard), and with `rivals` off its shots don't crack, fell, heal or wake it: a first-time player must not find the block
- * taken or healed by something they never saw. Whether a computer bus may take squares is open (the second account's and the producer's to rule):
- * until then, off.
+ * taken or healed by something they never saw. Told by where the blast came from (LiftGame.fromRivals), never by its faction: a pick on the faction
+ * button puts a quarter of the city's buses in the player's crew (the one link's flight, ?show). Whether a computer bus may take squares is open (the
+ * second account's and the producer's to rule): until then, off.
  */
 export const LIFT_HITS = { rivals: false };
 
 /** What landed() reads of a blast (Splat's Blast) */
-type LandedBlast = { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number };
+type LandedBlast = { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number; tag?: unknown };
 
 /**
  * One seeded square (LIFT.md, "Taking the block"): its houses (the staged ones on it), whether it is the heart, the firehose's impacts on it
@@ -615,9 +618,9 @@ export class Lift implements LiftHooks, FieldHouses {
 
   // ------------------------------------------------------------ lifting
 
-  /** a blast of `faction`'s counts on the block: the bus's own, or any with LIFT_HITS.rivals */
-  private counts(faction: number): boolean {
-    return LIFT_HITS.rivals || faction === this.g.faction();
+  /** a blast with this tag counts on the block: the bus's own, as the faction it was fired as, or a computer bus's too with LIFT_HITS.rivals (Splat asks it before wants()) */
+  hears(tag: unknown): boolean {
+    return LIFT_HITS.rivals || !this.g.fromRivals(tag);
   }
 
   /**
@@ -630,7 +633,7 @@ export class Lift implements LiftHooks, FieldHouses {
     if (!this.refs.has(i)) return 0;
     if (this.takes(i)) return 2;
     if (this.state[i] !== ST_GROUND) return 2;
-    const can = Math.round(level) >= 3 && faction === this.block && this.counts(faction) && this.g.city.paint.get(i).faction === this.block && this.nUp + this.nPending + this.asked < LIFT.cap;
+    const can = Math.round(level) >= 3 && faction === this.block && this.g.city.paint.get(i).faction === this.block && this.nUp + this.nPending + this.asked < LIFT.cap;
     if (can) {
       // (one blast asks for each of its houses before any starts: the cap counts them as they're asked)
       this.asked++;
@@ -686,10 +689,11 @@ export class Lift implements LiftHooks, FieldHouses {
    * nothing). Nothing while staging waits on its tiles. After the wave, a blast on a seeded square is a hit by its faction (B3): its aim square is
    * the heart if its line of fire crossed the sky piece (`via` 1), else the building it hit's, else the impact's (STAGES.md 1.2); a tap and a
    * MEGA's release are aimed hits, the firehose's impacts count on a square to one hit at the TAKE.dwell-th, a super counts once a square. The bus's
-   * own blasts only, the knock's too (LIFT_HITS).
+   * own blasts only, the knock's too (LIFT_HITS), each by the faction it was fired as: a breath in the air across a pick on the faction button is
+   * its old crew's hit.
    */
   landed(b: LandedBlast) {
-    if (this.counts(b.spec.faction ?? FACTION_RAINBOW)) this.heard(b);
+    if (this.hears(b.tag)) this.heard(b);
   }
 
   /** landed(), whoever's blast it is (and QA's scripted hits, qaHit, any faction's) */

@@ -865,6 +865,8 @@ export interface LiftHooks {
   noteTop(index: number, top: number): void;
   /** Splat's question for a building a blast reaches: 0 no, 1 it lifts now (Rainbow on Rainbow at level 3), 2 it's lifting or up already */
   wants(ref: { index: number }, level: number, faction: number): 0 | 1 | 2;
+  /** whether the block hears a blast with this tag (Splat's Blast.tag): not a computer bus's (Lift.LIFT_HITS). Asked before wants(), which a blast it doesn't hear asks as faction -1 */
+  hears(tag: unknown): boolean;
   /** a Bomb's question: is it lifting, up or staged already (wants' 2), with nothing asked to lift and nothing counted */
   aloft(ref: { index: number }): boolean;
   /** a hit lifts it: it crouches at `at`, its bloom's arrival (game clock) */
@@ -875,5 +877,5 @@ export interface LiftHooks {
    */
   /** the aim's pick's cost for a house (m added to its distance): a house on a seeded square that isn't ready counts half the pick radius r farther */
   pickCost(index: number, r: number): number;
-  landed(b: { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number }): void;
+  landed(b: { primary: { index: number; cx: number; cz: number } | null; pos: { x: number; z: number }; t: number; spec: { faction?: number }; super: { kind: string; id: number } | null; via?: number; tag?: unknown }): void;
 }

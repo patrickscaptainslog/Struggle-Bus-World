@@ -455,6 +455,7 @@ export class Splatter {
     const busy = hose ? this.hoseBusy(paint.data.length >> 2) : null;
     const pour = opts?.pour ?? 0;
     const poured = pour > 0 ? this.pourBusy(paint.data.length >> 2) : null;
+    const liftHears = !city.lift || city.lift.hears(opts?.tag);
     for (const n of reach) {
       if (plan.length >= cap) break;
       const ref = n.ref;
@@ -467,8 +468,8 @@ export class Splatter {
       // only whether it's up: it lifts none, and one up is out of it, the aim too)
       if (jump > 1 && city.lift?.aloft(ref)) continue;
       // (and a house the Lift keeps on the ground, a square of the take's or one staged, is the Lift's to paint: asked of every blast, or a Bomb's blooms grew
-      // gardens on a rival's square. Asked as the blast's own faction (a computer bus's lifts none: Lift.LIFT_HITS); a Bomb asks with none, so it lifts none)
-      const lift = city.lift ? city.lift.wants(ref, lv, jump === 1 ? spec.faction ?? this.faction : -1) : 0;
+      // gardens on a rival's square. Asked as the blast's own faction; a computer bus's (Lift.LIFT_HITS, by its tag) and a Bomb ask with none, so they lift none)
+      const lift = city.lift ? city.lift.wants(ref, lv, jump === 1 && liftHears ? spec.faction ?? this.faction : -1) : 0;
       if (lift === 2 && ref !== primary) continue;
       const was = lv > 0.5;
       // (a Bomb's jump is a stage at a time, each its own pop: the first with the wave, as a tap's level, the rest after it)
