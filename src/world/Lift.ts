@@ -687,7 +687,8 @@ export class Lift implements LiftHooks, FieldHouses {
   /**
    * A blast has landed (Splat): one on a staged square before the wave wakes the block to the knock, the wave's own boom with it (and counts for
    * nothing). Nothing while staging waits on its tiles. After the wave, a blast on a seeded square is a hit by its faction (B3): its aim square is
-   * the heart if its line of fire crossed the sky piece (`via` 1), else the building it hit's, else the impact's (STAGES.md 1.2); a tap and a
+   * the heart if its line of fire crossed the sky piece (`via` 1), else a park heart's if the impact is on its ground (a departure from STAGES.md 1.2,
+   * LIFT.md), else the building it hit's, else the impact's (STAGES.md 1.2); a tap and a
    * MEGA's release are aimed hits, the firehose's impacts count on a square to one hit at the TAKE.dwell-th, a super counts once a square. The bus's
    * own blasts only, the knock's too (LIFT_HITS), each by the faction it was fired as: a breath in the air across a pick on the faction button is
    * its old crew's hit. A Sonic Boom's ring knocks but takes no square (the producer's fifth call, HOOKS.md: "the ring and the pool paint but take
