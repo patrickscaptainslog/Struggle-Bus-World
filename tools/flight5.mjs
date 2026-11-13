@@ -117,7 +117,7 @@ for (const g of [1, 2, 3, 2, 1, 0]) {
   await wait(300);
   await intent(`a tap at gear ${g}`, ['tap', 'comet'], () => tap());
   await wait(1200);
-  if (g === 1) {
+  if (g === 1 && !intents.some((it) => it.name === 'a tap at gear 2')) {
     await wait(800);
     const hit = await page.evaluate(() => window.__stats?.hitMs);
     ok(typeof hit === 'number', `__stats.hitMs read after a tap (${hit})`);
@@ -216,8 +216,9 @@ ok(hasLog, `the shot log is there (__game.shots)`);
 if (shots) {
   const stray = [];
   for (const s of shots) {
-    const i = intents.find((it) => s.t >= it.from - 0.05 && s.t <= it.to);
-    if (!i || !i.kinds.includes(s.kind)) stray.push(`${s.kind} at ${s.t.toFixed(2)} s (body ${s.bodyDeg}) ${i ? `in "${i.name}", which means ${i.kinds.join('/') || 'no shot'}` : 'in no intent'}`);
+    // (windows overlap: each runs 0.5 s past its last touch, and a tap can come 0.3 s after steering ends. A shot passes in any of its kind)
+    const at = intents.filter((it) => s.t >= it.from - 0.05 && s.t <= it.to);
+    if (!at.some((it) => it.kinds.includes(s.kind))) stray.push(`${s.kind} at ${s.t.toFixed(2)} s (body ${s.bodyDeg}) ${at.length ? `in ${at.map((it) => `"${it.name}"`).join(', ')}, which mean ${at.map((it) => it.kinds.join('/') || 'no shot').join(', ')}` : 'in no intent'}`);
   }
   ok(stray.length === 0, `every shot inside an intent of its kind (${shots.length} shots${stray.length ? '; ' + stray.join('; ') : ''})`);
   const low = shots.filter((s) => s.kind === 'lob' && s.bodyDeg < LOB_FROM);

@@ -19,6 +19,7 @@
 //   (the first) and one with the lighter (the next), its pillar flown through; with --crew in each of the five factions, switched on the crest.
 // --hose: after the blasts, the shots' step 2 by real touches (CDP) over the Western Addition: a tap off the lane, a hold to aim that pours the Hose,
 //   a sweep, the tank run dry, its refill, a second hold taken through the hook (window.__game.holds.add) that fires a homing shot at a point ahead.
+//   The Hose waits for ?hose on the link (src/game/Hose.ts, hoseOn): --hose adds it when the url hasn't it.
 // --bomb: the url has &bomb: after the blasts (and --crew's factions, --comet's Comets), the Bomb (src/game/Bomb.ts) by real touches (CDP) held still on the
 //   bus itself (Input.busBox): at Cruise over the Western Addition a Bomb II and a Bomb III, at Jet a Bomb III where the Comet lands (its full show), and a
 //   gift (holds.bomb.gift(3)) let go at III; with --crew in each of the five factions, switched on the crest.
@@ -38,7 +39,8 @@ import { flick, flickTo } from './flick.mjs';
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
 const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) => [a.slice(2).split('=')[0], a.split('=').slice(1).join('=') || '1']));
-const [url = 'http://127.0.0.1:4173/', out = 'warmcheck.json'] = pos;
+const [url0 = 'http://127.0.0.1:4173/', out = 'warmcheck.json'] = pos;
+const url = opt.hose && !new URL(url0).searchParams.has('hose') ? url0 + (url0.includes('?') ? '&' : '?') + 'hose' : url0;
 
 const browser = await chromium.launch(browserOptions([]));
 const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });

@@ -44,7 +44,7 @@ import { clamp } from './game/springs';
 import { tunableGroups } from './ui/tunables';
 import { SuperSplat } from './game/SuperSplat';
 import { Holds } from './game/Hold';
-import { Hose } from './game/Hose';
+import { Hose, hoseOn } from './game/Hose';
 import { Bomb } from './game/Bomb';
 import { Boom, boomOn, boomTune } from './game/Boom';
 import { Falls } from './fx/Falls';
@@ -1180,8 +1180,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- input
   const input = shared?.input ?? new Input(canvas);
-  // (hold to aim, SHOTS.md: the street's; the Moon has no Hose yet, so a still finger off the lane rests there as it always did)
-  input.aimOn = !moon;
+  // (hold to aim, SHOTS.md: the street's, with ?hose (game/Hose.ts, hoseOn): the Hose is the only thing on the plain link that takes a hold, so without it
+  // a still finger off the lane rests there as it always did, and the first run's hint has no HOLD HIGH UP TO AIM. The Moon has no Hose yet)
+  input.aimOn = !moon && hoseOn;
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
   const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false };
   const tuner = new Tuner();
