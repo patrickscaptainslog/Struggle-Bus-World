@@ -5,9 +5,14 @@
 // runs, the city streams, game time and the opening's clock stand) until city.loadedRegionCount() > 0 and !city.loading, then stepped 30 s of game time
 // with no touch (__qa.holdFrames), the canvas taken at 0.5, 1, 2, 4.2, 8, 16 and 30 s. The trace: each game frame's x, y, z, heading, the opening's
 // clock as the lens's pull (rig.openingPull, 140 (1 - k)^2: the clock itself isn't on BASE's __game), controls.opening and gearsLocked, to the last bit.
-// The ref against itself twice first: traces not equal, exit 3 (the measure isn't stable); pixels not equal, the legs compare traces only, and say so.
+// Each still twice: as drawn, then drawn again with the bus's exhaust puffs taken out (their slots' births to 1e9, src/fx/Particles.ts's K_PUFF, and
+// __game.renderAgain()): the puffs are Math.random's, and they alone moved 400-900 pixels round the bus from one run of one build to the next (r3). The
+// pixels compared are the second's.
+// The ref against itself twice first: traces not equal, exit 3 (the measure isn't stable); a still from 4.2 s on not equal, exit 3 too; one before it
+// not equal (one run in three, the camera 9 cm off at the release, the whole frame resampled: r3, not found why), the legs leave that still out, and say so.
 // Then (i) new &hose against the ref, with the HUD: trace and pixels; (ii) both &nohud: trace and pixels; (iii) both with the HUD: the trace only
 // (with the Hose off, the plain link's first-run hint has three lines where the ref's has four).
+// SB_OPEN_Q=&nohud appends to every run of the new url, to show the pixels bite: (i) must then fail.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -19,7 +24,8 @@ if (!refUrl || !newUrl) {
 }
 mkdirSync(out, { recursive: true });
 const Q = '?t=2026-11-07T00:22:00Z&rate=0&fixeddt=0.0333333';
-const DT = 0.0333333, SHOTS = [0.5, 1, 2, 4.2, 8, 16, 30];
+const DT = 0.0333333, SHOTS = [0.5, 1, 2, 4.2, 8, 16, 30], STEADY = 4.2;
+const NEW_Q = process.env.SB_OPEN_Q ?? '';
 const browser = await chromium.launch(browserOptions([]));
 const errors = [];
 
@@ -60,17 +66,29 @@ async function run(label, base, extra) {
   });
   await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 60000 });
   const pix = [];
-  let frames = 0;
+  let frames = 0, puffs = 0;
   for (const s of SHOTS) {
     const n = Math.round(s / DT) - frames;
     frames += n;
     await page.evaluate((n) => (window.__qa = { holdFrames: n, held: false }), n);
     await page.waitForFunction(() => window.__qa.held === true, null, { timeout: 300000, polling: 50 });
-    pix.push(await page.screenshot({ path: `${out}/${label}-${String(s).replace('.', '_')}.png` }));
+    await page.screenshot({ path: `${out}/${label}-${String(s).replace('.', '_')}.png` });
+    puffs += await page.evaluate(() => {
+      // (Particles.ts: STRIDE 24 floats a slot, its birth at 3, its kind at 15, K_PUFF 4)
+      const P = window.__game.particles, d = P.data;
+      let k = 0;
+      for (let i = 0; i < P.cap; i++) if (d[i * 24 + 15] === 4 && d[i * 24 + 3] < 1e8) (d[i * 24 + 3] = 1e9), k++;
+      P.buf.updateRanges.length = 0;
+      P.buf.needsUpdate = true;
+      window.__game.renderAgain();
+      return k;
+    });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    pix.push(await page.screenshot({ path: `${out}/${label}-${String(s).replace('.', '_')}-nopuff.png` }));
   }
   const tr = await page.evaluate(() => window.__tr);
   await ctx.close();
-  console.log(`${label}: ${tr.length} frames traced, the clock to ${tr.at(-1)?.[0]?.toFixed(3)}`);
+  console.log(`${label}: ${tr.length} frames traced, the clock to ${tr.at(-1)?.[0]?.toFixed(3)}; ${puffs} puffs taken out at the stills`);
   return { tr, pix };
 }
 /** the first frame where two traces differ in any field, or null */
@@ -83,35 +101,36 @@ const traceDiff = (a, b) => {
   }
   return null;
 };
-const pixDiff = (a, b) => SHOTS.filter((_, i) => !a.pix[i].equals(b.pix[i]));
+const pixDiff = (a, b, at = SHOTS) => SHOTS.filter((s, i) => at.includes(s) && !a.pix[i].equals(b.pix[i]));
 
 const fails = [];
 const R1 = await run('ref-a', refUrl, '');
 const R2 = await run('ref-b', refUrl, '');
 const stableTrace = traceDiff(R1, R2), stablePix = pixDiff(R1, R2);
 console.log(`the ref against itself: trace ${stableTrace ?? 'equal'}; pixels ${stablePix.length ? 'differ at ' + stablePix.join(', ') + ' s' : 'equal'}`);
-if (stableTrace) {
-  console.log('OPENINGSAME: the measure is not stable (the ref against itself): exit 3');
+if (stableTrace || stablePix.some((s) => s >= STEADY)) {
+  console.log(`OPENINGSAME: the measure is not stable (the ref against itself, ${stableTrace ? 'its trace' : `its pixels from ${STEADY} s`}): exit 3`);
   await browser.close();
   process.exit(3);
 }
-const withPix = stablePix.length === 0;
-if (!withPix) console.log('the ref against itself differs in its pixels: every leg compares the trace only');
+const at = SHOTS.filter((s) => !stablePix.includes(s));
+const withPix = at.length === SHOTS.length;
+if (!withPix) console.log(`the ref against itself differs at ${stablePix.join(', ')} s: every leg compares pixels at ${at.join(', ')} s only`);
 const leg = (name, a, b, pixels) => {
-  const t = traceDiff(a, b), p = pixels && withPix ? pixDiff(a, b) : [];
+  const t = traceDiff(a, b), p = pixels ? pixDiff(a, b, at) : [];
   if (t) fails.push(`${name}: trace ${t}`);
   if (p.length) fails.push(`${name}: pixels differ at ${p.join(', ')} s`);
-  console.log(`${name}: trace ${t ?? 'equal'}${pixels ? (withPix ? `; pixels ${p.length ? 'differ at ' + p.join(', ') + ' s' : 'equal at ' + SHOTS.join(', ') + ' s'}` : '; pixels not compared') : ''}`);
+  console.log(`${name}: trace ${t ?? 'equal'}${pixels ? `; pixels (the puffs out) ${p.length ? 'differ at ' + p.join(', ') + ' s' : 'equal at ' + at.join(', ') + ' s'}` : ''}`);
 };
-const Bh = await run('new-hose', newUrl, '&hose');
+const Bh = await run('new-hose', newUrl, '&hose' + NEW_Q);
 leg('(i) new &hose against the ref, with the HUD', Bh, R1, true);
 const Rn = await run('ref-nohud', refUrl, '&nohud');
-const Bn = await run('new-nohud', newUrl, '&nohud');
+const Bn = await run('new-nohud', newUrl, '&nohud' + NEW_Q);
 leg('(ii) both &nohud', Bn, Rn, true);
-const B = await run('new-plain', newUrl, '');
+const B = await run('new-plain', newUrl, NEW_Q);
 leg('(iii) both with the HUD', B, R1, false);
 if (errors.length) fails.push(`page errors: ${errors[0]}`);
 await browser.close();
-writeFileSync(`${out}/openingsame.json`, JSON.stringify({ fails, stablePix, withPix }, null, 1));
+writeFileSync(`${out}/openingsame.json`, JSON.stringify({ fails, stablePix, comparedAt: at, withPix }, null, 1));
 console.log(fails.length ? `OPENINGSAME FAILED ${fails.length}:\n  ${fails.join('\n  ')}` : 'openingsame: all legs equal');
 process.exit(fails.length ? 1 : 0);
