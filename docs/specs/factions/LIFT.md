@@ -327,7 +327,49 @@ Step 6 is "the fantasy proof" (FACTIONS.md sections 4 and 5, 12 agent-days): Rai
 - **Open nits**: the squash seams, the one-frame lag, the 9-building cell, the twin during a region swap.
 - **The producer's eye**, on the phone, on the slow motion and on the two calls above.
 
+## Taking the block (2026-11-12)
+
+The producer, after flying `?lift&lifted=inferno`: "Ok the floating city block demo looks cool, bu5 1) I don't want to start/spawn there, and 2) I am unable to overtake this block with my own paint 3) I started as rainbow team but I am only shooting inferno paint." All three were true in the code: `?lift` put the bus at the neighbourhood's edge and skipped the opening; `Lift.wants` left every floating or staged house out of every blast; and `&lifted=<faction>` set the bus's own faction. This section is the fix as built, part by part. Part A is the start, the player's own paint, the wake and the far sign; the rules that let the player take the block (FACTIONS.md section 3, STAGES.md 1.2 and 1.3) come in part B.
+
+### The start
+
+- **`?lift` starts where every page starts.** With or without `&lifted`, the opening under the Golden Gate plays: its fog, its gate and its own low shot (150 m back, 6.5 degrees, no look). The Lift's low shot (120 m, 3 degrees, the look on under the houses) takes over when the opening ends, or at once with no opening. `rig.floorAt` and `rig.liftClamp` stay set from the start: under the bridge no house is near.
+- **`&hoodstart` is the tools' start** (`liftHoodStart`): the neighbourhood's edge on the sun's side, facing in, no opening, the Lift's low shot from the first frame. It is the start every `?lift` page had before. Every tool and gate that relied on it takes it (`lift-stills.mjs`'s `q0` here). `&lat=&lon=` still overrides either.
+
+### Your own paint
+
+- **`&lifted=<faction>` names whose the block is, and nothing else.** The bus paints as `&paintas` says (`paintAsOf`), Rainbow without it. `Lift.faction` is now `Lift.block`: its staging, its sky piece and its light only; who hits it is the blast's own faction.
+- **A jumping house's petals take its owner's colours**, whoever's breath lifted it: the particles' palette is swapped to the owner's look round the burst and back.
+
+### The wake: the block lifts off as you come to it
+
+From the Golden Gate the block is about 6 km off, so the wave can't start at the opening any more: nobody would see it. It starts once staging is done, the sky piece isn't mid-build and the opening's fog is half gone (as before), **and the bus wakes it** (`liftWakes`, `LIFT_WAKE` in `liftGlsl.ts`):
+
+| | Wakes it |
+|---|---|
+| Under 600 m over the heart's ground | within max(450 m, 6 s of its ground speed) of a staged square's edge in three dimensions, at most 1,200 m, with the heart within 35 degrees of its heading |
+| Anywhere | within 150 m, whatever its heading |
+| Over 600 m | within 1,200 m across the ground, with the heart in the lens's frame |
+
+So the block lifts off 450 m ahead at Cruise (15 s out), 672 m at Express (6 s), 1,200 m at Nonstop (5.3 s) and at Jet (2.7 s: still close, said). Past 1.2 km the block's far tiles may not be in. A breath that lands on a staged square before the wave starts it there and then, with the wave's own boom (`LiftHooks.landed`, which `Splat` calls once a blast has landed; without `?lift` the City has no Lift and the call is never made). Nothing happens while staging still waits on its tiles. The wave's slow motion now plays only while the front is still crossing the block (its farthest staged house plus 150 m), with the bus within 150 m of the front in three dimensions and under 600 m; otherwise it's skipped for good (`waveSlow`).
+
+### The far sign: the block's light over the heart
+
+On a `&lifted` page a column of the block's faction's light stands over the heart from the Lift's construction (hoods.bin alone, no tile), so there is something to fly to from the Golden Gate. Call 1, the studio's pick: yes.
+
+- From 350 m over the heart's ground to 1,200 m. Once the sky piece forms, its foot eases up to the piece's highest point plus 30 m over the piece's first 5 s (`SkyPiece.top`, its parts' and risers' boxes, Inferno's smoke and corona included): a beam from 350 m would stand out of the black sun (about 410 m) and its smoke (530 m) and read as a stalk holding it up.
+- At least 8 m wide and 3 game pixels at its distance (`beamWidth`, from the projection in its vertex shader and the game's width, `config.render.pixelWidth`). From the start, about 6 km off, that is 3 pixels by about 120: geometry only, the height fog and the opening's fog bank thin it.
+- A core of the brightest step, its edges a step lower, its hues in 40 m bands drifting up: its faction's breath colours (`FACTION_LOOKS`' spray, Inferno's black glass as its trim, Rainbow's six hues), a dither over its top 30 %, one pulse of a step running up it every 2.4 s. It writes the G-buffer like the pieces, with no blending and no outline (a line three pixels wide would be all ink).
+- It fades out by a dither between 1,200 and 600 m from the lens to the heart.
+- One draw, one program for all five factions (the faction is a uniform), two triangles, warmed on every `?lift&lifted` page (`registerBeamWarm`). Not built on `?lift` alone. `drain(t)` (the heart's fall) and `relight(faction, t)` (the heart's flip, in the taker's colours) are there for part B and C: nothing compiles for either.
+
+### The glance
+
+From the Golden Gate the light stands about 34 degrees right of the heading, out of the 24-degree portrait lens. When the opening's gate opens (the moment the player gets the controls) the camera's look turns once toward it: out over 0.6 s, held 0.9 s, back over 0.6 s, stopping 6 degrees short so the light stands beside the bus (`CameraRig.glance`, through the rig's own look). The moment a thumb touches it is gone. No HUD, no text, no gesture; it also shows the player that looking exists. Call 1 with the light: the studio's pick is yes. Not with `&hoodstart`, nor on `?lift` alone.
+
 ## Checks
 
 - `node tools/factions/lift-check.mjs [--gpu]`: the motion and the swell, the heights on real data in three cities (the bands, touching neighbours apart, the 30 m share), the pick, the field's identity, and the real `Flight` at 120 Hz on Alamo Square with every house up and riding the swell: under the Painted Ladies at the floor and at a held 20 m, over the layer, in from the edge, a pull up under the layer, a low floating house from four sides, four dives and four pull ups through the layer, and 40 straight runs in from outside the neighbourhood, none with the bus's body in a drawn house and none with a step over 3 m; and 192 weaves beside 24 houses at their walls' height (`j.`), reported, the known risk above. With `--gpu`, the motion's GLSL on the GPU against the TypeScript. `LIFT_TRACE=<a run's tag>` prints one run's trace.
 - `node tools/factions/lift-stills.mjs <url> <out> [--factions=rainbow,atlantis,elderwood,hyperglow,inferno] [--views=under,low,mid,street,250,1k,gif] [--skies=noon,golden]`: the stills (`<faction>-<sky>-lift-<view>.png`) with their draws, triangles and frame times, and `gif` a faction's motion (`<faction>-motion.gif`, from half a second into the wave to 12 s, a frame each 0.25 s of game time, Hyperglow's each 0.125 s, at one pixel a game pixel, played in real time). Exit 1 on a failed view or a shader error.
+- `node tools/factions/wake-check.mjs`: taking the block's part A under Node: where `?lift` starts (`liftHoodStart`), whose paint the bus breathes (`paintAsOf`), the wake's rule at every gear and its cone, height and frame, the wave's slow motion's rule, and on Alamo Square's real squares the tools' start waking the block from each of eight suns while the Golden Gate's start never does; the beam's width.
+- `node tools/factions/take-opening.mjs <url> <out>`: the producer's link in the browser at a fixed step: `?lift&lifted=inferno` starts at the opening, its bus and camera poses are the plain page's (within 0.5 m and 0.2 degrees) until the glance, the glance reaches 25 degrees toward the heart and comes home, and `?lift` alone starts at the bridge with no far sign.
