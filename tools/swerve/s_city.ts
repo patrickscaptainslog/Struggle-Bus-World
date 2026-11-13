@@ -122,6 +122,8 @@ for (const full of [true, false]) {
   };
   const n0 = G.g.events.length;
   for (let k = 0; k < 0.8 / dt; k++) G.frame(dt, 172);
+  // (eased back inside, three frames, then let go: since stage 2 a lift alone is a quiet grip, the belly kept for the tap down the nose, SWERVE.md section 4)
+  for (let k = 0; k < 3; k++) G.frame(dt, 110);
   for (let k = 0; k < 1.5 / dt; k++) {
     G.frame(dt, null);
     await pump(city, f.x, f.z);
