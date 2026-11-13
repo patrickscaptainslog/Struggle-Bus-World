@@ -348,10 +348,9 @@ const STREAK_M = [9, 6.5, 3.4] as const;
  * right of the chord by `bow` of it at its middle (-: to the left), the same 4u(1-u): it leaves the mouth and lands on the line (config.comet.bow).
  */
 export function cometAt(from: THREE.Vector3, to: THREE.Vector3, arc: number, bow: number, u: number, out: THREE.Vector3): THREE.Vector3 {
-  const b = 4 * u * (1 - u);
-  out.lerpVectors(from, to, u).setY(from.y + (to.y - from.y) * u + arc * b);
+  out.lerpVectors(from, to, u).setY(from.y + (to.y - from.y) * u + arc * 4 * u * (1 - u));
   if (bow !== 0) {
-    const dx = to.x - from.x, dz = to.z - from.z, k = (bow * b * Math.hypot(dx, to.y - from.y, dz)) / Math.max(1e-6, Math.hypot(dx, dz));
+    const dx = to.x - from.x, dz = to.z - from.z, k = (bow * 4 * u * (1 - u) * Math.hypot(dx, to.y - from.y, dz)) / Math.max(1e-6, Math.hypot(dx, dz));
     out.x -= dz * k;
     out.z += dx * k;
   }
