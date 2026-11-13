@@ -43,6 +43,8 @@ export const swerveTune = {
    *  where today's stick takes 2.2 times longer (the "really long turns" in turbo). Solved gear by gear on the real flight (tools/swerve/s_turns.ts holds it). */
   hardAt: [30, 112, 225, 450, 585, 720, 900],
   hardGain: [1.5, 2.15, 2.75, 3.51, 3.83, 4.12, 4.45],
+  /** ...the whole table times this, for the phone's tuner (which shows no arrays: src/ui/Tuner.ts). 1: the table as it is. */
+  hardGainK: 1,
   /** ...and the steering spring at full hard (Hz; config.flight.bungeeHz out of it), and the camera's yaw spring times this, so it keeps up (CameraRig). */
   hardHz: 5,
   hardCam: 1.8,
@@ -75,6 +77,8 @@ export const swerveTune = {
    *  turn in every gear ("when I'm in turbo mode I want a way to quickly turn"); and what the slip grows by at the least (rad/s: the nose always leads). */
   noseAt: [112, 225, 450, 900],
   noseRate: [3.1416, 2.7925, 2.4435, 2.0944],
+  /** ...the whole table times this, for the tuner, as hardGainK. */
+  noseRateK: 1,
   slipMin: 0.5,
   /** ...over the last this many degrees before slipMax the slip's growth eases off (0: a hard stop at the cap), so the nose never drops from its swing to the
    *  way's in one frame and the view behind it never lurches. The square root of a smoothstep: it starts gently and still arrives (within a degree of the
@@ -124,9 +128,9 @@ function byLog(at: readonly number[], v: readonly number[], speed: number): numb
 }
 
 /** How many times today's most the hard turn is at this speed. */
-export const hardGainAt = (speed: number) => byLog(swerveTune.hardAt, swerveTune.hardGain, speed);
+export const hardGainAt = (speed: number) => byLog(swerveTune.hardAt, swerveTune.hardGain, speed) * swerveTune.hardGainK;
 /** The nose's swing in a skid at this speed (rad/s). */
-export const noseRateAt = (speed: number) => byLog(swerveTune.noseAt, swerveTune.noseRate, speed);
+export const noseRateAt = (speed: number) => byLog(swerveTune.noseAt, swerveTune.noseRate, speed) * swerveTune.noseRateK;
 
 export type SwerveEvent =
   /** a skid began (Swerve.dir: +1 right, -1 left) */
