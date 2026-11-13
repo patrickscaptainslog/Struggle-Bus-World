@@ -83,6 +83,9 @@ export class SoundGraph {
   private readonly qT = new Float64Array(QUEUE);
   private readonly qNote = new Int16Array(QUEUE * 6);
   private queued = 0;
+  /** ...the last `fresh` of them queued since the last update: the frame that bloomed, left to the next (the 5 ms past the lead was less than the
+   *  impact hook's own script before update, so a second note could still be made in the impact frame, r3's review) */
+  private fresh = 0;
   // smoothed frame
   private speedN = 0;
   private surge = 0;
@@ -257,6 +260,7 @@ export class SoundGraph {
 
     const now = this.ctx.currentTime;
     if (this.queued) this.ringDue(now);
+    this.fresh = 0;
     if (now - this.lastNow > 0.5) {
       // resumed after a stall / background: don't burst everything that came due
       this.nextBreath = Math.max(this.nextBreath, now + 0.2);
@@ -399,6 +403,7 @@ export class SoundGraph {
       if (i === 0 || this.queued >= QUEUE) this.bloomNote(t + i * step, i, n, h, level);
       else {
         const q = this.queued++, o = q * 6;
+        this.fresh++;
         this.qT[q] = t + i * step;
         this.qNote[o] = i;
         this.qNote[o + 1] = n;
@@ -414,9 +419,10 @@ export class SoundGraph {
    *  behind a stall of more than half a second is dropped, as the schedulers below drop theirs. */
   private ringDue(now: number): void {
     let k = 0;
+    const old = this.queued - this.fresh;
     for (let q = 0; q < this.queued; q++) {
       const t = this.qT[q], o = q * 6;
-      if (t > now + LOOKAHEAD + NOTE_LEAD) {
+      if (q >= old || t > now + LOOKAHEAD + NOTE_LEAD) {
         if (k !== q) {
           this.qT[k] = t;
           for (let j = 0; j < 6; j++) this.qNote[k * 6 + j] = this.qNote[o + j];
