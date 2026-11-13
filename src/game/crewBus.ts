@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { BusModel } from '../bus/BusModel';
+import { type GaugeRun, gaugeOf } from '../bus/gauge';
 import { Ramp } from '../render/palette';
 import { FACTION_RAINBOW, FACTIONS } from './factions';
 
@@ -8,13 +9,18 @@ import { FACTION_RAINBOW, FACTIONS } from './factions';
 // crews' buses' rows), and nothing else changes: the stripes, the glass, the wheels, the lights, the stop arm. Rainbow's is the yellow it always had.
 //
 // A switch floods the new colours in from the nose to the tail in half a second, in 30 steps, as a hit floods the bus in its hitter's (rivalsBoot's flood);
-// a switch in the middle of one floods over what each part shows then. Only the values of the model's own `ramp` attribute change, as the rivals' flood and
-// their buses' bodies do: no material, uniform or program is new, so nothing compiles in flight.
+// a switch in the middle of one floods over what each part shows then. Only the values of the model's own attributes change (`ramp`, and the gauge's
+// `lightOffset`), as the rivals' flood and their buses' bodies do, and the gauge's uniform: no material, uniform or program is new, so nothing compiles in
+// flight.
 //
 // A rival's hit floods the bus in the hitter's colours and drains back to the literal yellow (rivalsBoot's hitFx). This follows that flood from what the
 // rivals show anyone (counts.flung, out, rivalScreen's times): inside its front nothing is written, so the hitter's colours show, Rainbow's yellow too; outside
 // it a part reading yellow, or what was last written here, takes the crew's row again in the same frame, before the render. A part holding anything else is
 // the flood's.
+//
+// The gauge (the belly band and the rear bar: bus/gauge.ts) wears the crew with the body: the same flood takes its parts as its front passes them, and a
+// super's charge races through the new run once the flood is done. A rival's flood never reaches it (it floods what was yellow), so it's the crew's
+// through a hit. Rainbow's is the rainbow, as built: nothing is written for it.
 //
 // The page makes one only where the button is (crew.on): without it nothing here runs and nothing is written. frame() runs after the rivals' frame.
 
@@ -47,6 +53,8 @@ export class CrewBus {
   private readonly zMin: number;
   private readonly zMax: number;
   private to: number = Ramp.BUS_YELLOW;
+  private readonly bus: BusModel;
+  private run: GaugeRun = gaugeOf(FACTION_RAINBOW);
   /** the switch's start (game s): -Infinity for none, NaN for one starting on the next frame */
   private at = -Infinity;
   private now = 0;
@@ -64,6 +72,8 @@ export class CrewBus {
   writes = 0;
 
   constructor(bus: BusModel) {
+    this.bus = bus;
+    bus.ownGauge = true;
     const geo = bus.mesh.geometry;
     this.ra = geo.getAttribute('ramp') as THREE.BufferAttribute;
     const pa = geo.getAttribute('position') as THREE.BufferAttribute;
@@ -88,6 +98,7 @@ export class CrewBus {
   set(faction: number, now = false): void {
     this.faction = faction;
     this.to = busBodyOf(faction);
+    this.run = gaugeOf(faction);
     this.from.set(this.mine);
     this.at = now || performance.now() - this.framedAt > UNSEEN_MS ? -Infinity : NaN;
     this.shown = -1;
@@ -147,6 +158,8 @@ export class CrewBus {
         wrote = true;
       }
     }
+    // (the gauge: its parts the front has passed)
+    if (this.bus.paintGauge(this.run, step >= STEPS ? Infinity : front)) wrote = true;
     if (wrote) {
       ra.needsUpdate = true;
       this.writes++;
@@ -154,9 +167,9 @@ export class CrewBus {
     this.version = ra.version;
   }
 
-  /** QA: the crew, the row it floods to, how far the switch is (0-1), whether a rival's flood is on, and how many parts are the body's */
-  qa(): { faction: number; ramp: number; sweep: number; at: number; flood: boolean; parts: number; writes: number } {
+  /** QA: the crew, the row it floods to, how far the switch is (0-1), whether a rival's flood is on, how many parts are the body's, and the gauge's rows */
+  qa(): { faction: number; ramp: number; sweep: number; at: number; flood: boolean; parts: number; writes: number; gauge: ReturnType<BusModel['gaugeQa']> } {
     const k = Number.isNaN(this.at) ? 0 : Math.min(1, (this.now - this.at) / SWEEP);
-    return { faction: this.faction, ramp: this.to, sweep: k, at: this.at, flood: this.flood !== null, parts: this.idx.length, writes: this.writes };
+    return { faction: this.faction, ramp: this.to, sweep: k, at: this.at, flood: this.flood !== null, parts: this.idx.length, writes: this.writes, gauge: this.bus.gaugeQa() };
   }
 }

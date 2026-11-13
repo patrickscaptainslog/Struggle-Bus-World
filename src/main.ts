@@ -1000,8 +1000,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   crew.listen(paintAsFaction);
   // (and the bus wears its crew where the button is: what was yellow on it takes the crew's row, game/crewBus.ts, flooding in from the nose with the super's
   // chime on a switch. &paintas is the paint's alone. Not in a Recess match, whose player is Rainbow's side. Without the button nothing is made or written)
+  // (its gauge too, the belly band and the rear bar, bus/gauge.ts; and every other bus's gauge wears the crew its body does: the rival crews')
   const crewBus = crew.on && !recessMod ? new CrewBus(bus) : null;
   if (crewBus) {
+    BusModel.crewGauges = true;
     crewBus.set(crew.faction, true);
     crew.listen((f) => {
       crewBus.set(f);

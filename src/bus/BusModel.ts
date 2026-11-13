@@ -3,6 +3,7 @@ import { makeRampMaterial } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { registerTunables } from '../ui/tunables';
 import { ANCHOR, buildBusGeometry, D, designToObjectY as Y, PART } from './busShape';
+import { type GaugeRun, gaugeOfBody, RAINBOW_GAUGE } from './gauge';
 
 // The Struggle Bus: the hero. One merged geometry, one ramp material, ONE
 // draw call. Everything that moves (squash, gag heave, wheeze, wheels, door
@@ -13,6 +14,8 @@ import { ANCHOR, buildBusGeometry, D, designToObjectY as Y, PART } from './busSh
 // The belly band is the game's only UI: 24 full-width rainbow slices (red at
 // the rear -> violet at the front) that light up back to front as `fullness`
 // rises, plus a six-hue progress bar across the rear for the chase camera.
+// (On a bus that wears another crew, the band and the bar run through that
+// crew's paint instead, everything else the same: gauge.ts, paintGauge.)
 // When full, a rainbow wave chases toward the mouth, the band sparkles, the
 // roof hatch pops and bobs over a glowing hole (pot about to boil over), and
 // the amber flashers wig-wag. While barfing, the red flashers wig-wag and the
@@ -256,21 +259,23 @@ const VERTEX_CHUNK = /* glsl */ `
     float h = ${f(0.5 / D.bandSlices)};
     float lit = smoothstep(bPar - h, bPar + h, bFull);
     float wave = 0.5 + 0.5 * sin(bPar * 25.0 - bT * 8.0);
-    float g = uBand.x * (1.0 + uFx2.w * bReady * (wave - 0.35));
+    // (the crew's run: the slice's row is its stop's, and the stop's lift rides on its lit glow, in the lightOffset the band never read: 0 on Rainbow's)
+    float bLift = lightOffset + 0.5;
+    float g = uBand.x * (1.0 + uFx2.w * bReady * (wave - 0.35)) + bLift;
     float fr = (bFull - bPar) * ${f(D.bandSlices)};
     g += 0.3 * exp(-fr * fr) * (1.0 - bReady);
     float sp = sbHash11(bPar * 131.0 + floor(bT * 9.0) * 7.31);
     if (sp > 1.0 - uFx3.x * bReady) g = 1.0;
     bGlow = g * lit;
-    bLo = mix(uBand.y, uBand.z, lit);
-    // super splat charge: every slice races through the rainbow, faster and brighter, then white-hot
+    bLo = mix(uBand.y, uBand.z + bLift, lit);
+    // super splat charge: every slice races through the crew's run (uGauge: Rainbow's is the rainbow), faster and brighter, then white-hot
     float bCh = uFx5.y;
     if (bCh > 0.001) {
       float spd = 1.5 + 26.0 * bCh * bCh;
       float hue = mod(floor(bPar * 6.0 - bT * spd), 6.0);
       float hot = smoothstep(0.62, 0.9, bCh);
       bool white = sbHash11(floor(bT * 18.0) * 3.7 + bPar * 41.0) < hot;
-      bRamp = white ? ${f(Ramp.GLOW_WHITE)} : ${f(Ramp.RED)} + hue;
+      bRamp = white ? ${f(Ramp.GLOW_WHITE)} : uGauge[int(hue)];
       bGlow = mix(max(bGlow, 0.55), 1.0, smoothstep(0.0, 0.6, bCh));
       bLo = mix(bLo, 0.42, smoothstep(0.0, 0.5, bCh));
     }
@@ -413,6 +418,21 @@ export class BusModel {
   private readonly uFx3 = new THREE.Vector4(); // sparkle, sun soften, gulp, light trim
   private readonly uFx4 = new THREE.Vector4(); // light snap, shadow mul, inhale, exhale
   private readonly uFx5 = new THREE.Vector4(); // hero light, super charge, spent, heartbeat pulse
+  /** the gauge's six rows, rear to front, which a super's charge races through (Rainbow's: its hues) */
+  private readonly uGauge = Float32Array.from(RAINBOW_GAUGE, (s) => s.ramp);
+
+  /**
+   * Set where the faction button is (main.ts): every bus whose gauge nobody else drives (`ownGauge`), the rival crews' buses among them, wears the run
+   * of the crew its body wears (gauge.ts). Off, no gauge is ever written: the band is the rainbow it always was.
+   */
+  static crewGauges = false;
+  /** true where the game drives this bus's gauge itself (the player's: game/crewBus.ts), so a hit's flood on its body never changes it */
+  ownGauge = false;
+  /** the gauge's parts: the band's slices' and the rear bar's vertices, each one's stop (0-5, rear to front: the bar's left to right) and z (the nose is -z) */
+  readonly gauge: { readonly idx: Uint32Array; readonly stop: Uint8Array; readonly z: Float32Array };
+  /** a vertex built school-bus yellow (the body's), and the row it last showed, for crewGauges */
+  private readonly bodyAt: number;
+  private bodySeen: number = Ramp.BUS_YELLOW;
 
   private wheelAngle = 0;
   private lastSpeed = NaN;
@@ -457,10 +477,11 @@ export class BusModel {
         uFx3: { value: this.uFx3 },
         uFx4: { value: this.uFx4 },
         uFx5: { value: this.uFx5 },
+        uGauge: { value: this.uGauge },
       },
     });
     // declare the custom uniforms in the vertex stage
-    this.mat.vertexShader = 'uniform vec4 uPose, uPose2, uAnim, uBand, uShape, uFx, uFx2, uFx3, uFx4, uFx5;\n' + this.mat.vertexShader;
+    this.mat.vertexShader = 'uniform vec4 uPose, uPose2, uAnim, uBand, uShape, uFx, uFx2, uFx3, uFx4, uFx5;\nuniform float uGauge[6];\n' + this.mat.vertexShader;
     this.mesh = new THREE.Mesh(geo, this.mat);
     this.mesh.scale.setScalar(scale);
     this.mesh.name = 'StruggleBus';
@@ -476,6 +497,59 @@ export class BusModel {
     this.exhaustLocal = new THREE.Vector3(...ANCHOR.exhaust).multiplyScalar(s);
     this.length = (D.zRear - D.zFront) * s;
     this.applyTunables();
+
+    const ua = geo.getAttribute('uv') as THREE.BufferAttribute, ra = geo.getAttribute('ramp') as THREE.BufferAttribute, pa = geo.getAttribute('position') as THREE.BufferAttribute;
+    const idx: number[] = [];
+    let body = -1;
+    for (let i = 0; i < ua.count; i++) {
+      if (Math.round(ua.getX(i)) === PART.BAND) idx.push(i);
+      if (body < 0 && ra.getX(i) === Ramp.BUS_YELLOW) body = i;
+    }
+    this.gauge = {
+      idx: Uint32Array.from(idx),
+      stop: Uint8Array.from(idx, (i) => Math.min(5, Math.floor(ua.getY(i) * 6))),
+      z: Float32Array.from(idx, (i) => pa.getZ(i)),
+    };
+    this.bodyAt = body;
+  }
+
+  /**
+   * The gauge wears a crew's run (gauge.ts): its parts at z <= `zTo` (all of them by default) take their stop's row and lift, and a super's charge races
+   * through its rows from now on. Only the values of the model's own attributes and a uniform change: nothing compiles. True if a part changed.
+   */
+  paintGauge(run: GaugeRun, zTo = Infinity): boolean {
+    const geo = this.mesh.geometry;
+    const ra = geo.getAttribute('ramp') as THREE.BufferAttribute, la = geo.getAttribute('lightOffset') as THREE.BufferAttribute;
+    const { idx, stop, z } = this.gauge;
+    let wrote = false;
+    for (let j = 0; j < idx.length; j++) {
+      if (z[j] > zTo) continue;
+      const i = idx[j], s = run[stop[j]], lo = s.lift - 0.5;
+      if (ra.getX(i) === s.ramp && la.getX(i) === Math.fround(lo)) continue;
+      ra.setX(i, s.ramp);
+      la.setX(i, lo);
+      wrote = true;
+    }
+    if (wrote) {
+      ra.needsUpdate = true;
+      la.needsUpdate = true;
+    }
+    if (zTo === Infinity) for (let k = 0; k < 6; k++) this.uGauge[k] = run[k].ramp;
+    return wrote;
+  }
+
+  /** QA: the gauge's rows and lifts as its parts hold them, by stop (the first part of each), and the charge's rows */
+  gaugeQa(): { rows: number[]; lifts: number[]; charge: number[] } {
+    const geo = this.mesh.geometry;
+    const ra = geo.getAttribute('ramp') as THREE.BufferAttribute, la = geo.getAttribute('lightOffset') as THREE.BufferAttribute;
+    const rows: number[] = [], lifts: number[] = [];
+    for (let j = 0; j < this.gauge.idx.length; j++) {
+      const s = this.gauge.stop[j];
+      if (rows[s] !== undefined) continue;
+      rows[s] = ra.getX(this.gauge.idx[j]);
+      lifts[s] = +(la.getX(this.gauge.idx[j]) + 0.5).toFixed(3);
+    }
+    return { rows, lifts, charge: Array.from(this.uGauge) };
   }
 
   private rand(): number {
@@ -502,6 +576,16 @@ export class BusModel {
     const T = busTune;
     if (!(dt > 0) || dt > 0.25) dt = Number.isFinite(this.lastT) && t > this.lastT ? Math.min(t - this.lastT, 0.05) : 0;
     this.lastT = t;
+    // (where the faction button is, a bus nobody drives the gauge of wears the run of the crew its body wears: a rival crew's bus, whose body its own
+    // code paints. One read a frame; a write only when the body's row changes to another crew's)
+    if (BusModel.crewGauges && !this.ownGauge && this.bodyAt >= 0) {
+      const row = (this.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute).getX(this.bodyAt);
+      if (row !== this.bodySeen) {
+        this.bodySeen = row;
+        const run = gaugeOfBody(row);
+        if (run) this.paintGauge(run);
+      }
+    }
 
     const squash = Number.isFinite(pose.squash) ? pose.squash : 1;
     const full = clamp01(pose.fullness);
