@@ -212,6 +212,19 @@ if (!LOOK) {
   report('no page error', errors, '0', errors === 0);
 } else {
   // ---- the stills: the rivals sent home but one, the bus held over the Mission, heading north, 90 m over the ground
+  // (city-local metres from lat/lon: warmcheck's in-page helper, which mirrors src/game/geo.ts)
+  await page.evaluate(() => {
+    const A = 6378137, F = 1 / 298.257223563, E2 = F * (2 - F), EP2 = E2 / (1 - E2), E4 = E2 * E2, E6 = E4 * E2;
+    const mer = (p) => A * ((1 - E2 / 4 - (3 * E4) / 64 - (5 * E6) / 256) * p - ((3 * E2) / 8 + (3 * E4) / 32 + (45 * E6) / 1024) * Math.sin(2 * p) + ((15 * E4) / 256 + (45 * E6) / 1024) * Math.sin(4 * p) - ((35 * E6) / 3072) * Math.sin(6 * p));
+    window.__ll = (lat, lon) => {
+      const o = window.__game.city.manifest.origin;
+      const r = Math.PI / 180, phi = lat * r, s = Math.sin(phi), c = Math.cos(phi), t = Math.tan(phi);
+      const N = A / Math.sqrt(1 - E2 * s * s), T = t * t, C = EP2 * c * c, a = (lon - o[1]) * r * c, a2 = a * a;
+      const x = N * (a + ((1 - T + C) * a2 * a) / 6 + ((5 - 18 * T + T * T + 72 * C - 58 * EP2) * a2 * a2 * a) / 120);
+      const y = mer(phi) - mer(o[0] * r) + N * t * (a2 / 2 + ((5 - T + 9 * C + 4 * C * C) * a2 * a2) / 24 + ((61 - 58 * T + T * T + 600 * C - 330 * EP2) * a2 * a2 * a2) / 720);
+      return [x, -y];
+    };
+  });
   await page.evaluate(() => {
     for (const o of window.__rivals?.sim.list ?? []) o.live = false;
     const g = window.__game, [x, z] = window.__ll(37.7599, -122.4148);
@@ -225,7 +238,7 @@ if (!LOOK) {
   const close = (on) =>
     page.evaluate((on) => {
       const g = window.__game, p = window.__qa.pin;
-      window.__qa.camAt = on ? { x: p.x - 9, z: p.z + 15, h: p.y - g.city.groundAt(p.x - 9, p.z + 15) + 4, lookX: p.x, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x, p.z) + 1 } : null;
+      window.__qa.camAt = on ? { x: p.x - 13, z: p.z + 20, h: p.y - g.city.groundAt(p.x - 13, p.z + 20) + 6, lookX: p.x, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x, p.z) + 1 } : null;
     }, on);
   const still = async (name) => {
     const f = resolve(LOOK, `${name}.png`);
@@ -263,10 +276,16 @@ if (!LOOK) {
   await still('6-inferno-beside-a-rival-phone');
   await page.evaluate(() => {
     const g = window.__game, p = window.__qa.pin;
-    window.__qa.camAt = { x: p.x + 12, z: p.z + 30, h: p.y - g.city.groundAt(p.x + 12, p.z + 30) + 5, lookX: p.x + 12, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x + 12, p.z) + 1 };
+    window.__qa.camAt = { x: p.x + 12, z: p.z + 95, h: p.y - g.city.groundAt(p.x + 12, p.z + 95) + 14, lookX: p.x + 12, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x + 12, p.z) + 1 };
   });
   await after(0.4);
   await still('6-inferno-beside-a-rival-close');
+  // (where the two buses and the lens were for that still)
+  R.beside = await page.evaluate(() => {
+    const g = window.__game, b = g.scene.getObjectByName('BusRoot'), v = (o) => (o ? [o.position.x, o.position.y, o.position.z, o.visible].map((n) => (typeof n === 'number' ? +n.toFixed(1) : n)) : null);
+    return { bus: v(b), rivals: [0, 1, 2, 3].map((k) => v(g.scene.getObjectByName(`Rival${k}`))), camera: v(g.camera), pin: window.__qa.pin, camAt: window.__qa.camAt };
+  });
+  console.log('beside:', JSON.stringify(R.beside));
   await page.evaluate(() => (window.__cbBeside = false));
   await close(true);
   await after(0.5);
