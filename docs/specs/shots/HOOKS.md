@@ -100,6 +100,7 @@ holds.add({
 | `speed` | m/s along its path. A boat at 1.5 km: about 500. A plane 12 km out: 3,000 or more to arrive in under 4 s |
 | `turn` | the most it turns, rad/s. The lower, the easier to beat before the white |
 | `white` | its last seconds (time to go = distance / speed): it goes white-hot and stops steering. SHOTS.md: 0.7, 0.45 at a full charge |
+| `pitchInWhite` | default false. In the white it keeps its pitch on the target, its way across as it was: a turn across still dodges it, a climb or a dive doesn't. The player's shell at a rival has it (`src/rivals/shell.ts`, `shellAt`: the one hook line, the first account's), since a rival climbs to its roofs + 12 m as the shot flies and went over a straight one (the trace of warm-swerve, stage 2 of the handling) |
 | `hitRadius` | metres, default 6. The hit test is the frame's target against the shot's path that frame, so a target moving fast misses by up to a frame of its travel: give at least its speed / 30, the floor's frame at 30 fps (a plane at 250 m/s: 9) |
 | `maxTime` | seconds before it ends as a miss, default 8 |
 | `from`, `dir` | where it leaves from (default the bus's mouth) and its first heading (default at the target: where it meets it with `vel`, where it is without) |
