@@ -592,8 +592,10 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
   };
   const clips = (f) => {
     let n = 0, which = null;
+    // (the body lies along the nose: under ?swerve a skid's slip turns it off the way the bus goes, Flight.heading)
+    const nose = f.heading + (f.swerve?.on ? f.swerve.slip : 0);
     for (const o of [0, -6, 6]) {
-      const x = f.x + Math.sin(f.heading) * o, z = f.z - Math.cos(f.heading) * o;
+      const x = f.x + Math.sin(nose) * o, z = f.z - Math.cos(nose) * o;
       const gx = Math.floor(x / 64), gz = Math.floor(z / 64);
       for (let dz = -1; dz <= 1; dz++)
         for (let dx = -1; dx <= 1; dx++)
@@ -823,7 +825,16 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     const SPEEDS = [['Cruise', 0], ['Express', L.config.flight.surgeSpeed], ['Nonstop', L.config.turbo.nonstopSpeed]];
     const SIDES = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
     /** one run: in from `side` toward the square's middle (or `at`), held at y0 over the ground; at `hitAt` m from it the square's hit lands */
-    function takeRun(mode, side, y0, speed, fps, at = [scx, scz]) {
+    // (turn, --swerve: the handling on (Flight.swerve.on) and a thumb out to one side from `lead` m before the hit's line: { kind: 'hard' (124 px, held),
+    // 'skid' (172 px, held till the nose is half round, then lifted), dir +1 right or -1 left }. Input's own parts with the glass's room to spare:
+    // hard (px - 78) / 42, skid px - 138; the stick's sx as Input.applyStretch gives it, tools/swerve/s_turns.ts's stickOf)
+    const stickOf = (dx) => {
+      const F = L.config.flight, px = F.stretchPx, d = Math.min(Math.abs(dx), 2.2 * px);
+      if (d <= F.deadZonePx) return 0;
+      const s0 = (d - F.deadZonePx) / px, r = 1 - 0.72;
+      return Math.sign(dx) * (s0 <= 0.72 ? s0 : 0.72 + r * Math.tanh((s0 - 0.72) / r));
+    };
+    function takeRun(mode, side, y0, speed, fps, at = [scx, scz], turn = null) {
       for (const r of lifted) {
         houses.state[r.index] = 2;
         houses.t0[r.index] = -20;
@@ -836,6 +847,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       // and its base would inherit the run before's)
       field.sides = field.sideT = null;
       const dt = 1 / fps, f = new L.Flight();
+      f.swerve.on = !!turn;
       // (heading h flies along (sin h, -cos h), Flight's)
       f.heading = side;
       const back = 120 + speed * 1.2;
@@ -852,11 +864,29 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
       const queue = new Map();
       let hit = -1, sinkWait = false, lookUntil = -1, clip = 0, first = null, step = 0, stepAt = null, held = 0, started = 0, landed = 0, prevY = f.y, n = 0;
       let clipSq = 0, firstSq = null, stepSq = 0, stepSqAt = null;
+      // (--swerve: the thumb's state, the most slip (rad), and at the most slip the angle (rad) of the step's travel off the heading and off the nose)
+      let thumb = false, letGo = false, slip = 0, offHead = 0, offNose = 0, h0 = side;
       const secs = (back + 260) / Math.max(30, speed) + 6;
       for (let s = 0; s * dt < secs; s++) {
         houses.now = 20 + s * dt;
         const now = houses.now;
-        f.step(dt, { sx: 0, sy: 0, dragging: false }, W);
+        if (!turn) f.step(dt, { sx: 0, sy: 0, dragging: false }, W);
+        else {
+          const px0 = f.x, pz0 = f.z;
+          if (!thumb && !letGo && (at[0] - f.x) * Math.sin(f.heading) + (at[1] - f.z) * -Math.cos(f.heading) < 40 + turn.lead) [thumb, h0] = [true, f.heading];
+          const nose = f.heading + f.swerve.slip;
+          if (thumb && turn.kind === 'skid' && Math.abs(nose - h0) >= Math.PI) [thumb, letGo] = [false, true];
+          const px = turn.kind === 'skid' ? 172 : 124;
+          f.step(dt, thumb ? { sx: turn.dir * stickOf(px), sy: 0, dragging: true, hard: Math.min(1, Math.max(0, (px - 78) / 42)), skid: px - 138, side: turn.dir } : { sx: 0, sy: 0, dragging: false }, W);
+          const mx = f.x - px0, mz = f.z - pz0, ml = Math.hypot(mx, mz);
+          if (ml > 1e-6 && Math.abs(f.swerve.slip) > slip) {
+            slip = Math.abs(f.swerve.slip);
+            const tr = Math.atan2(mx, -mz), w = (a) => Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
+            offHead = w(tr - f.heading);
+            offNose = w(tr - f.heading - f.swerve.slip);
+          }
+        }
+        // (the Lift's hold reads the bus's way and its ground speed, as main.ts hands them over (liftBus.fx, lift.busSpeed): the way it goes, not its nose)
         const fx = Math.sin(f.heading), fz = -Math.cos(f.heading), sp = f.speed;
         const cam = [f.x - fx * 14, f.y + 5, f.z - fz * 14];
         // the hit: as the bus comes within 40 m of passing the middle abeam (a crack's impact, or the fall's: the strings cut from the
@@ -932,7 +962,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
           }
         }
       }
-      return { clip, first, step, stepAt, clipSq, firstSq, stepSq, stepSqAt, held, started, landed, hit: hit >= 0, sunk: take.crack > 0, steps: n };
+      return { clip, first, step, stepAt, clipSq, firstSq, stepSq, stepSqAt, held, started, landed, hit: hit >= 0, sunk: take.crack > 0, steps: n, slip, offHead, offNose, turned: Math.abs(Math.atan2(Math.sin(f.heading - side), Math.cos(f.heading - side))) };
     }
     // (each run is held to the same run flown with no hit: the flight in the layer at a held 60 m has its own known steps, j. above. What
     // counts is what the take adds on its square's houses: a step in one of them the base hasn't, and over the square or within 40 m of it a
@@ -941,14 +971,17 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     // the same run with no hit 0 and 2.46 m), and design C12 asks for none. A larger step away from the square with the body in no house is
     // reported: there the layer's own let-downs at a held 60 m pass 1.5 m with no hit at all (j.), and a take that moves the falls by a frame
     // moves them by a metre either way)
-    const sum = (mode, at) => {
-      const o = { runs: 0, added: 0, first: null, clip: 0, baseClip: 0, step20: 0, at20: null, base20: 0, over: 0, held: 0, started: 0, landed: 0, nohit: 0, sunk: 0, away: 0, awayFirst: null, awayStep: 0 };
+    const sum = (mode, at, turn = null) => {
+      const o = { slip: 0, offHead: 0, offNose: 0, turned: Infinity, runs: 0, added: 0, first: null, clip: 0, baseClip: 0, step20: 0, at20: null, base20: 0, over: 0, held: 0, started: 0, landed: 0, nohit: 0, sunk: 0, away: 0, awayFirst: null, awayStep: 0 };
       for (const side of SIDES)
         for (const y0 of [20, 60])
           for (const [name, speed] of SPEEDS) {
             if (speed > 200 && y0 < 60) continue;
             for (const fps of [20, 60]) {
-              const r = takeRun(mode, side, y0, speed, fps, at), b = takeRun('none', side, y0, speed, fps, at);
+              const tn = turn && { ...turn, lead: turn.kind === 'skid' ? 60 + speed * 0.4 : 40 + speed * 0.6 };
+              const r = takeRun(mode, side, y0, speed, fps, at, tn), b = takeRun('none', side, y0, speed, fps, at, tn);
+              if (r.slip > o.slip) [o.slip, o.offHead, o.offNose] = [r.slip, r.offHead, r.offNose];
+              o.turned = Math.min(o.turned, r.turned);
               const tag = { side: Math.round((side * 180) / Math.PI), y0, gear: name, fps };
               o.runs++;
               o.clip += r.clipSq;
@@ -993,6 +1026,22 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     for (const [k, o] of [['t1', a], ['t2', b]])
       report(`${k}. away from the square, on a path the take changed`, `${o.away} runs with more steps in another square's floating house${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''}; ${o.awayStep} with a larger step over 1.5 m at 20 fps anywhere${o.awayStepAt ? ` first ${JSON.stringify(o.awayStepAt)}` : ''}`, "none in a house; the steps reported (the layer's known risk, j.)", o.away === 0);
     report('t2. its steps at 20 fps', `${b.over} runs with a step over 1.5 m a frame by the square larger than the same run's with no hit${b.at20 ? `, the most ${f2(b.step20)} m against ${f2(b.base20)} (${JSON.stringify(b.at20)})` : ''}`, 'none', b.over === 0);
+    // ---- --swerve: the same runs with the handling on (?swerve, the one link's), the thumb out to a side as the bus comes to the hit's line: a skid's
+    // half turn (the nose round 180 degrees, then let go) and a hard turn held, right and left. The Lift's holds read the bus's way and its ground speed
+    // (main.ts), and in a skid the bus goes its way, not its nose's: the step's travel along the heading, off the nose by the slip. Never a step with the
+    // body (along the nose) in a drawn house the same run with no hit hasn't
+    if (process.argv.includes('--swerve'))
+      for (const kind of ['skid', 'hard'])
+        for (const dir of [1, -1]) {
+          const tag = `${kind} ${dir > 0 ? 'right' : 'left'}`;
+          for (const [k, mode, at] of [['t1s', 'fall', undefined], ['t2s', 'crack', [low.cx, low.cz]]]) {
+            const o = sum(mode, at, { kind, dir });
+            report(`${k}. ${mode === 'fall' ? 'under the falling square' : 'under its lowest passable house as the crack lands'}, the handling on, a ${tag}`, `${o.runs} runs: ${o.added} where the take adds steps with the body in one of its houses${o.first ? ` first ${JSON.stringify(o.first)}` : ''} (${o.clip}, ${o.baseClip} with no hit); ${o.away} sent into another square's house${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''}; ${o.over} with a larger step by the square over 1.5 m at 20 fps${o.at20 ? ` the most ${f2(o.step20)} m against ${f2(o.base20)} (${JSON.stringify(o.at20)})` : ''}; ${mode === 'fall' ? `${o.started} falls started, ${o.landed} landed` : `${o.sunk} sank`}, ${o.held} frames held; ${o.nohit} never hit; the least turn ${f2((o.turned * 180) / Math.PI)} degrees`,
+              'none added, none sent, no larger step; every run hit', o.added === 0 && o.away === 0 && o.over === 0 && o.nohit === 0 && (mode === 'fall' ? o.started > 0 && o.landed === o.started : o.sunk > 0));
+            if (kind === 'skid' && k === 't1s')
+              report(`t1s. in the ${tag}, the bus goes its way, not its nose's`, `at the most slip, ${f2((o.slip * 180) / Math.PI)} degrees: the step's travel ${f2((o.offHead * 180) / Math.PI)} degrees off the heading (what the hold reads), ${f2((o.offNose * 180) / Math.PI)} off the nose`, 'a slip over 30 degrees; the travel within 2 of the heading, the slip off the nose within 2', o.slip > (30 * Math.PI) / 180 && o.offHead < (2 * Math.PI) / 180 && Math.abs(o.offNose - o.slip) < (2 * Math.PI) / 180);
+          }
+        }
   }
 }
 
