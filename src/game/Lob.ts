@@ -4,7 +4,7 @@ import { clamp } from './springs';
 import type { City, BuildingRef } from '../world/City';
 import type { Flight } from './Flight';
 import type { Splatter } from './Splat';
-import { Comet, shotReach, stretchMid, type CometPlan } from './Comet';
+import { Comet, shotReach, slidOff, stretchMid, type CometPlan } from './Comet';
 import { inputTune } from './Input';
 import { blastRadiusFor } from './blastLayout';
 
@@ -317,7 +317,8 @@ export class Lob {
     const odo = this.comet.odometer, Ls = L.stretch;
     const d0 = launch + L.range * Math.sin(2 * a);
     let k = Math.round((odo + d0) / Ls - 0.5);
-    const hold = this.heldOk && !this.heldFar && Math.abs(this.heldAngle - a) < 1e-6;
+    // (?swerve: and not a near landing held from before a slide's swing: slidOff)
+    const hold = this.heldOk && !this.heldFar && Math.abs(this.heldAngle - a) < 1e-6 && !slidOff(f, this.heldX, this.heldZ, fx, fz);
     let frozen = false, far = false;
     // (the far one latched: as it was, while it's still inside the reach and aheadMin past the bus at the impact. Its own flight's numbers, below)
     const farHeld = this.heldFar && latched && Math.abs(this.heldAngle - a) < 1e-6 ? this.farPlan(f, fx, fz, a, vt, launch, true) : NaN;
@@ -328,7 +329,7 @@ export class Lob {
     } else if (hold && latched && (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz > atImp && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
       // (latched: the landing as it was, while it's ahead of the bus at the impact and shows over it, its march's too)
       frozen = this.lastOk;
-    } else if (this.heldOk && !this.heldFar && this.heldK0 === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above) {
+    } else if (this.heldOk && !this.heldFar && this.heldK0 === k && this.showsAt(this.heldX, this.heldY, this.heldZ) >= L.above && !slidOff(f, this.heldX, this.heldZ, fx, fz)) {
       // (the throw's own stretch the same: the same landing, nothing picked again, while it shows `above`, a pull's body changing or not. One moved out a
       // stretch or more to show is held by the stretch its search began from. Held by where it ended, and only for the same body to 1e-6, every frame of a
       // pull searched afresh against aboveNew)
@@ -501,7 +502,9 @@ export class Lob {
     q.reach = reach;
     q.travel = travel;
     q.latched = latched;
-    if (latched) {
+    // (?swerve: the far landing held from before a slide's swing is let go, as the Comet's: slidOff)
+    const off = this.farOk && slidOff(f, this.farX, this.farZ, fx, fz);
+    if (latched && !off) {
       const m = stretchMid(this.farK, Ls, odo);
       if (!this.farOk || m < lo || m > reach) return NaN;
       q.mid = m;
@@ -512,7 +515,7 @@ export class Lob {
     while (stretchMid(k, Ls, odo) > reach) k--;
     while (stretchMid(k, Ls, odo) < lo) k++;
     q.mid = stretchMid(k, Ls, odo);
-    if (this.farOk && this.farK === k) this.useFar();
+    if (this.farOk && this.farK === k && !off) this.useFar();
     else {
       if (!this.land(f, fx, fz, q.mid)) return NaN;
       this.farK = k;

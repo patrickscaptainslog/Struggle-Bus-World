@@ -125,6 +125,17 @@ export function stretchMid(j: number, size: number, odo: number): number {
   return (j + 0.5) * size - odo;
 }
 
+/** ?swerve: in a slide the nose, and the aim with it, swings off a landing held from before (140 degrees a second at Jet), and the tap fired that landing, up
+ *  to 59 degrees off the nose and from 1 km up off the screen (the far shots' review, F1: "a tap in the slide is a shot down the nose", Swerve.ts). A held
+ *  landing more than 8 degrees off the aim's way (fx, fz) while the bus slides is let go. Off the handling the slip is 0, and nothing is. */
+export function slidOff(f: Flight, x: number, z: number, fx: number, fz: number): boolean {
+  if (f.swerve.slip === 0) return false;
+  const dx = x - f.x, dz = z - f.z;
+  return dx * fx + dz * fz < SLIDE_COS * Math.hypot(dx, dz);
+}
+/** (8 degrees: well inside the view's half width of 21) */
+const SLIDE_COS = Math.cos((8 * Math.PI) / 180);
+
 /** How far a landing is from the bus over the ground (m). */
 function far(f: Flight, s: { x: number; z: number }): number {
   return Math.hypot(s.x - f.x, s.z - f.z);
@@ -330,12 +341,13 @@ export class Comet {
         // By `aboveNew`: steering, a nearer line's point at the margin and the stretch held took turns frame by frame, what glints changing 8-10 times a
         // second at Jet)
         if (keep && !latched) for (let j = k; j < this.heldK; j++) if (this.showsAlong(f, fx, fz, (j + 0.5) * Ls - this.odo) >= C.aboveNew) keep = false;
+        if (keep && slidOff(f, this.heldX, this.heldZ, fx, fz)) keep = false;
       }
       if (!keep) {
         // (the one held, while it's on the screen over the bus and ahead of it at the impact: where nothing nearer the reach shows, it stays, where the
         // classic shot under the bus for a frame was a flicker at Turbo 3)
         const hx = this.heldX, hy = this.heldY, hz = this.heldZ, ht = this.heldT, hk = this.heldK;
-        const had = this.heldOk && !this.heldFar && this.showsAt(hx, hy, hz) > 0 && (hx - f.x) * fx + (hz - f.z) * fz > atImp;
+        const had = this.heldOk && !this.heldFar && this.showsAt(hx, hy, hz) > 0 && (hx - f.x) * fx + (hz - f.z) * fz > atImp && !slidOff(f, hx, hz, fx, fz);
         // (the nearest middle whose landing shows, never past the reach: by where it comes down and what it's on, where the line's point the reach was
         // found by stood on what the far grid has there, 20 m over the water off Fort Mason. The review of step 3, 6)
         let dc = (k + 0.5) * Ls - this.odo, found = false;
@@ -377,7 +389,7 @@ export class Comet {
       if (stretchMid(k, Ls, odo) > edge) return this.none();
       // (held for its stretch, or latched while it's still inside the reach and ahead of the bus at the impact)
       const ha = (this.heldX - f.x) * fx + (this.heldZ - f.z) * fz;
-      const keep = this.heldOk && this.heldFar && (latched || this.heldK === k) && ha > atHit && ha <= edge;
+      const keep = this.heldOk && this.heldFar && (latched || this.heldK === k) && ha > atHit && ha <= edge && !slidOff(f, this.heldX, this.heldZ, fx, fz);
       if (!keep) {
         if (!this.land(f, fx, fz, stretchMid(k, Ls, odo), v, tHit)) return this.none();
         this.heldK = k;
