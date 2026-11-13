@@ -36,12 +36,16 @@
 //   chain    a far shot's dip chained (not in the default list): Nonstop level 5 km up, a tap each refill for 20 s, then a far Comet with a look during
 //            it, one with the steering thumb during it, and a tap 0.3 s after one. The bus on screen at +0.35 or lower every frame, the share dipped
 //            printed; the look a look and the view back within 1.5 s; the thumb flies and turns the bus; no program made after ready -> chain.json
-//   swervefar ?swerve's handling under a far shot (not in the default list; docs/specs/flight/SWERVE.md, "The shots under the handling"): Nonstop level
-//            5 km over the Western Addition. A far Comet with no touch after it, for the record; then one, and 0.4 s on, while it flies, the long swipe by
-//            real touches from the top of the glass (8 moves of 50 px, stamped 240 ms): it answers (Cruise) under the thumb, the view still dipped at the hit,
-//            under -0.5 (a let-go dip is back over -0.02 by then), and the landing in the frame (the far shots' review F2). Then
-//            one rival 300 m ahead under the nose, flying the bus's way at its own height over the roofs (the tap's pick by its flat reach, the shell 5 km
-//            short), and a real tap: the far shot fires, no shell (F5). No program made after ready, no page error. Exits 1 when a row fails -> swervefar.json
+//   swervefar ?swerve's handling under a far shot (not in the default list; docs/specs/flight/SWERVE.md, "The shots under the handling"): level 5 km over
+//            the Western Addition. A far Comet with no touch after it at Nonstop, for the record, and at Jet: the view dipped at its hit. From 5 km its hit
+//            lands under the frame at both (the bus held 35 % down the screen wins, config.shotView.busMax), so this row holds the swipe's mechanism and
+//            the landing's place against no touch's, not the hit in the frame. Then at Jet a far Comet and, as soon as the tap is up, the long swipe by
+//            real touches from the top of the glass (5 moves of 80 px stamped 150 ms, a frame each): a look for a frame or more while it may still be the
+//            swipe, it answers (Cruise) under the thumb 0.3 s or more before the hit, and at the hit there's no look on, the view is still dipped, at
+//            least half of no touch's, and the landing no further under the frame than no touch's, 0.25 of slack (the far shots' review F2). Then at
+//            Nonstop one rival 300 m ahead under the nose, flying the bus's way at its own height over the roofs (the tap's pick by its flat reach, the
+//            shell 5 km short), and a real tap: the far shot fires, no shell (F5). Each place's wait for the city. No program made
+//            after ready, no page error. Exits 1 when a row fails                                                         -> swervefar.json
 //   moonhigh no far shot over the Moon (not in the default list): ?moon 5 km up, a level tap at Turbo 3 and a nose-up one at Cruise; with SB_AGAINST
 //            (another build's moonhigh.json) the same shots as that build's                                             -> moonhigh.json
 //   stills   the stills for the producer's calls 4 and 5 (not in the default list): a far Comet's hit from 5 and 14 km three ways, the far Lob's ring
@@ -1799,17 +1803,17 @@ if (modes.has('swervefar')) {
   await runFor(page, 2);
   const progs0 = await page.evaluate(() => window.__progs);
   const hasRivals = await page.evaluate(() => !!window.__rivals);
-  // (5 km over the Western Addition heading east, pinned while the city streams in, at Nonstop, no rival out: chain's place)
-  const place = async () => {
-    await page.evaluate(() => {
+  // (5 km over the Western Addition heading east, pinned while the city streams in, `up` gears over Cruise (2 Nonstop, 3 Jet), no rival out: chain's place)
+  const place = async (up = 2) => {
+    await page.evaluate((up) => {
       const g = window.__game, o = g.city.manifest.origin, k = Math.PI / 180, x = (-122.4352 - o[1]) * k * 6378137 * Math.cos(o[0] * k) - 2000, z = -(37.7763 - o[0]) * k * 6378137;
       const y = g.city.groundAt(x, z) + 5000;
       window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
       Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: y, targetY: y, vy: 0, mode: 0 });
       while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
-      for (let i = 0; i < 2; i++) g.controls.turbo.shift(1, g.flight);
+      for (let i = 0; i < up; i++) g.controls.turbo.shift(1, g.flight);
       if (window.__rivals) for (const r of window.__rivals.sim.list) r.live = false;
-    });
+    }, up);
     await runFor(page, 0.5);
     // (the city in, or said so after 40 s: the row goes on, and its checks say what came of it. On the laptop the third place has waited past 120 s on
     // City.loading with no tile pending, the far field's own load, a shot's ground not needing it)
@@ -1826,57 +1830,66 @@ if (modes.has('swervefar')) {
     await wall(60);
     await touch('touchEnd', [], t0 + 0.06);
   };
-  /** the lift and the landing's NDC in the frame of the last shot's hit (the trace from its tap) */
-  const atHit = async (shot, tr) => {
-    const f = shot ? tr.find((q) => q[0] >= shot.t + shot.travel) ?? null : null;
-    return f ? { lift: f[1], ndc: f[5] } : null;
-  };
   const lastFar = () => page.evaluate(() => { const l = window.__game.lastShot(); return l ? { t: +l.t.toFixed(3), travel: +l.travel.toFixed(3), far: !!l.comet?.far } : null; });
-  // ---- A0. a far Comet and no touch after it, for the record: the lift at its hit, the swipe's to set beside it
-  await place();
-  await page.evaluate(() => (window.__sfTrace = []));
-  await tap();
-  await runFor(page, 0.4);
-  const shot0 = await lastFar();
-  if (shot0) await until(page, `g.clock() > ${shot0.t + shot0.travel + 0.3}`, 8);
-  const hit0 = await atHit(shot0, await page.evaluate(() => { const t = window.__sfTrace; window.__sfTrace = null; return t; }));
-  R.rows.push({ key: 'alone', shot: shot0, hit: hit0 });
-  console.log('swervefar:', JSON.stringify(R.rows.at(-1)));
-  // ---- A. a far Comet, and 0.4 s on, the long swipe
-  await place();
+  const inFrame = (n) => !!n && Math.abs(n[0]) < 1 && n[1] > -1 && n[1] < 1;
+  // ---- A0 and A1. a far Comet and no touch after it, at Nonstop for the record and at Jet as the swipe's measure: the lift and the landing's NDC at its hit.
+  // (from 5 km the hit lands under the frame at both, the view dipped about 10 degrees: the bus held no higher than 35 % down the screen,
+  // config.shotView.busMax, wins over the landing. So the swipe's row can't ask for the hit in the frame: it asks for the dip, and the landing as near it)
+  const alone = async (up) => {
+    await place(up);
+    await page.evaluate(() => (window.__sfTrace = []));
+    await tap();
+    await runFor(page, 0.4);
+    const shot = await lastFar();
+    if (shot) await until(page, `g.clock() > ${shot.t + shot.travel + 0.3}`, 8);
+    const tr = await page.evaluate(() => { const t = window.__sfTrace; window.__sfTrace = null; return t; });
+    const f = shot ? tr.find((q) => q[0] >= shot.t + shot.travel) ?? null : null;
+    R.rows.push({ key: up === 3 ? 'alone-jet' : 'alone', shot, hit: f ? { lift: f[1], ndc: f[5], gear: f[4] } : null });
+    console.log('swervefar:', JSON.stringify(R.rows.at(-1)));
+    return R.rows.at(-1);
+  };
+  await alone(2);
+  const a1 = await alone(3);
+  ok(!!a1.shot?.far && a1.hit?.gear === 3 && a1.hit.lift < -1 && !!a1.hit.ndc, `alone: at Jet with no touch the view dipped at the far Comet's hit (far ${a1.shot?.far ?? null}, gear ${a1.hit?.gear ?? null}, the lift ${a1.hit?.lift ?? null}, NDC ${JSON.stringify(a1.hit?.ndc ?? null)}${inFrame(a1.hit?.ndc) ? ', in the frame' : ', under the frame'})`);
+  // ---- A. a far Comet at Jet, and as soon as the tap is up, the long swipe: it answers well before the hit, as a thumb's does (F2's sim: the swipe at
+  // 0.6 s, the hit at 1.5 s), so the hit is seen with no look on
+  await place(3);
   const planA = await page.evaluate(() => !!window.__game.cometState().plan?.far);
   await page.evaluate(() => (window.__sfTrace = []));
   const n0 = await fired();
   await tap();
-  await runFor(page, 0.4);
-  const shotA = await lastFar();
-  const firedA = (await fired()) > n0;
   const tSwipe = await page.evaluate(() => window.__game.clock());
   {
-    // (as the warm row's: stamped from now, 8 moves of 50 px 30 ms apart from 110 px down the glass, off the lane)
+    // (a quick stroke from 110 px down the glass, off the lane: 5 moves of 80 px stamped 30 ms apart, each sent once the last is taken, with no wait between,
+    // so each comes in its own frame and the stroke is a look for its first frames, the frames a let-go dip goes on. The warm row's 8 awaited moves 25 ms
+    // apart took 1.45 s of the laptop's frames here, and the swipe answered after the hit)
     const t0 = Date.now() / 1000 - 0.05, x = 330, ya = 110;
     await touch('touchStart', [[x, ya, 5]], t0);
-    for (let i = 1; i <= 8; i++) {
-      await wall(25);
-      await touch('touchMove', [[x, ya + i * 50, 5]], t0 + i * 0.03);
-    }
-    await wall(40);
-    await touch('touchEnd', [], t0 + 0.27);
+    for (let i = 1; i <= 5; i++) await touch('touchMove', [[x, ya + i * 80, 5]], t0 + i * 0.03);
+    await touch('touchEnd', [], t0 + 0.18);
   }
   const tLift = await page.evaluate(() => window.__game.clock());
+  const shotA = await lastFar();
+  const firedA = (await fired()) > n0;
   if (shotA) await until(page, `g.clock() > ${shotA.t + shotA.travel + 0.3}`, 8);
   const trA = await page.evaluate(() => { const t = window.__sfTrace; window.__sfTrace = null; return t; });
   const hitAt = shotA ? shotA.t + shotA.travel : Infinity, hitF = trA.find((q) => q[0] >= hitAt) ?? null;
-  // (the dip as the swipe lands: the last frame before it; Cruise from its landing to its lift; its frames of look while it may still be a swipe)
-  const before = [...trA].reverse().find((q) => q[0] < tSwipe) ?? null, stroke = trA.filter((q) => q[0] >= tSwipe && q[0] <= tLift);
-  const cruise = trA.find((q) => q[0] >= tSwipe && q[4] === 0) ?? null;
-  R.rows.push({ key: 'swipe', plan: planA, fired: firedA, shot: shotA, tSwipe: +tSwipe.toFixed(3), tLift: +tLift.toFixed(3), cruiseAt: cruise?.[0] ?? null, liftBefore: before?.[1] ?? null, liftAtHit: hitF?.[1] ?? null, hitNdc: hitF?.[5] ?? null, looks: stroke.filter((q) => q[2]).length, swipeLooks: stroke.filter((q) => q[3]).length, trace: trA });
+  // (the dip under the stroke: its deepest from the landing to the lift, the swipe made with the tap; Cruise from its landing to its lift; its frames of look
+  // while it may still be a swipe)
+  const stroke = trA.filter((q) => q[0] >= tSwipe && q[0] <= tLift), before = stroke.length ? stroke.reduce((a, q) => (q[1] < a[1] ? q : a)) : null;
+  const cruise = trA.find((q) => q[0] >= tSwipe && q[4] === 0) ?? null, gearA = stroke[0]?.[4] ?? null;
+  R.rows.push({ key: 'swipe', plan: planA, fired: firedA, shot: shotA, gear: gearA, tSwipe: +tSwipe.toFixed(3), tLift: +tLift.toFixed(3), cruiseAt: cruise?.[0] ?? null, hitAt: +hitAt.toFixed(3), liftUnder: before?.[1] ?? null, liftAtHit: hitF?.[1] ?? null, lookAtHit: hitF?.[2] ?? null, hitNdc: hitF?.[5] ?? null, looks: stroke.filter((q) => q[2]).length, swipeLooks: stroke.filter((q) => q[2] && q[3]).length, trace: trA });
   console.log('swervefar:', JSON.stringify({ ...R.rows.at(-1), trace: undefined }));
-  ok(planA && firedA && shotA?.far, `swipe: a far Comet from 5 km by a real tap (planned far ${planA}, fired ${firedA}, far ${shotA?.far})`);
-  ok(!!cruise && cruise[0] <= tLift, `swipe: the long swipe answered under the thumb, Cruise (at ${cruise?.[0] ?? null}, its landing at ${+tSwipe.toFixed(2)}, its lift at ${+tLift.toFixed(2)})`);
-  // (let go, the lift is back over -0.02 by the hit, as a look's: chain's look row; held, it is still dipped, as with no touch: the row alone's)
-  ok(!!before && before[1] < -0.02 && !!hitF && hitF[1] < -0.5, `swipe: the dip held through it to the hit (the lift ${before?.[1] ?? null} as it landed, ${hitF?.[1] ?? null} at the hit; with no touch ${hit0?.lift ?? null})`);
-  ok(!!hitF?.[5] && hitF[5][1] > -1 && hitF[5][1] < 1 && Math.abs(hitF[5][0]) < 1, `swipe: the hit in the frame (its landing's NDC ${JSON.stringify(hitF?.[5] ?? null)})`);
+  const sw = R.rows.at(-1);
+  ok(planA && firedA && shotA?.far && gearA === 3, `swipe: a far Comet from 5 km at Jet by a real tap (planned far ${planA}, fired ${firedA}, far ${shotA?.far}, gear ${gearA})`);
+  ok(sw.swipeLooks >= 1, `swipe: the stroke was a look while it might still be the swipe, the frames a let-go dip goes on (${sw.swipeLooks} frames)`);
+  ok(!!cruise && cruise[0] <= tLift && cruise[0] <= hitAt - 0.3, `swipe: the long swipe answered under the thumb, Cruise, 0.3 s or more before the hit (at ${cruise?.[0] ?? null}, its landing at ${+tSwipe.toFixed(2)}, its lift at ${+tLift.toFixed(2)}, the hit at ${+hitAt.toFixed(2)})`);
+  // (held, the lift at the hit is as deep as with no touch: F2's sim had the brake alone at 108 % of it, the dip let go at 1 %. Half of it is the line)
+  ok(!!before && before[1] < -0.5 && !!hitF && a1.hit?.lift < -1 && hitF[1] <= 0.5 * a1.hit.lift, `swipe: the dip held through it to the hit, at least half of no touch's (the lift ${before?.[1] ?? null} at its deepest under the stroke, ${hitF?.[1] ?? null} at the hit; with no touch ${a1.hit?.lift ?? null})`);
+  // (and the landing as near the frame as with no touch: in it if no touch's was, else no more than 0.25 of the half height lower. Ten degrees of dip let
+  // go put it about 0.6 lower from 5 km, the portrait lens about 25 degrees over and under its middle)
+  const nearAlone = !!hitF?.[5] && !!a1.hit?.ndc && (inFrame(a1.hit.ndc) ? inFrame(hitF[5]) : Math.abs(hitF[5][0]) < 1 && hitF[5][1] >= a1.hit.ndc[1] - 0.25);
+  ok(!!hitF && hitF[2] === false && nearAlone, `swipe: at the hit no look on, and the landing no further under the frame than with no touch (look ${hitF?.[2] ?? null}, its landing's NDC ${JSON.stringify(hitF?.[5] ?? null)}, with no touch ${JSON.stringify(a1.hit?.ndc ?? null)}${inFrame(hitF?.[5]) ? ', in the frame' : ', under the frame'})`);
   // ---- B. a rival under the nose, out of the shell's reach, and a real tap
   if (hasRivals) {
     await place();
