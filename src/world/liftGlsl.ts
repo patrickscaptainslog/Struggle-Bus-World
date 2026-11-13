@@ -409,14 +409,14 @@ function flinchAt(t: number, out: number[] | Float64Array | Float32Array) {
 }
 
 /**
- * Would a cracked house's sink bring its belly onto the bus or the lens (LIFT.md, the crack's hold): the bus's segment (as fallBlocked has it)
- * or the lens within its footprint's bounds grown by its reach plus max(2 m, `lead` s of the bus's ground speed), between its belly less the sink
- * and its reach (the bus's body over its point and 2 m more; the lens 3 m) and its roof. The Lift's lead is the design's 0.6 s.
+ * Would a cracked house's sink bring its belly onto the bus or the lens (LIFT.md, the crack's hold): the bus's or the lens's swept path (as
+ * fallBlocked has them, `lead` s of the bus's ground speed ahead) near its footprint, between its belly less the sink and its reach (the bus's
+ * body over its point and 2 m more; the lens 3 m) and its roof. The Lift's lead is the design's 0.6 s.
  */
 export function crackBlocked(x0: number, z0: number, x1: number, z1: number, belly: number, roof: number, sink: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number, lead = 0.6): boolean {
   const lo = belly - sink - reach;
   // (fallBlocked with the other one far off: its own height test passed by giving it a top over everything)
-  if (cy + 3 > lo && cy < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, 1e9, 0, 1e9, 1, 0, 0, speed, cx, -Infinity, cz, lead)) return true;
+  if (cy + 3 > lo && cy < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, 1e9, 0, 1e9, fx, fz, 0, speed, cx, -Infinity, cz, lead)) return true;
   return by + 7 > lo && by < roof && fallBlocked(x0, z0, x1, z1, Infinity, reach, bx, -Infinity, bz, fx, fz, half, speed, 1e9, Infinity, 1e9, lead);
 }
 
@@ -711,21 +711,53 @@ export function waveSlow(front: number, far: number, db: number, h: number): -1 
 
 /**
  * Nothing comes down on the bus or the lens (LIFT.md, "Taking the block", the fall's hold): a floating house whose fall would start now stays up
- * while the bus's segment (its middle (bx, bz) along (fx, fz), `half` m each way, nose to tail at its scale plus 2 m) or the lens (cx, cz) is
- * inside its footprint's bounds (x0, z0, x1, z1) grown by its reach plus max(2 m, `lead` s of the bus's ground speed), anywhere under its drawn
- * top plus 8 m (the lens: plus 3). No time cap: its square parries until it has landed. The Lift's lead is the fall's own time to land
- * (takeLead): the design's 0.6 s let the bus reach a house still coming down, a wall from the ground to its drawn top, and the flight popped
- * up over it, 6.6 m in a frame at 20 fps (lift-check --take, t1)
+ * while its footprint's bounds (x0, z0, x1, z1) come near the bus's swept path, anywhere under its drawn top plus 8 m, or the lens's, under its
+ * top plus 3. The bus's path runs from its tail to where `lead` s of its ground speed takes its middle (bx, bz) along (fx, fz) (`half`: nose to
+ * tail at its scale plus 2 m), and near is within its reach plus `half` plus 8 m (the flight's floor looks 6 m to each side of its path, and a
+ * falling house is a wall from the ground there: at plus 2 one beside it lifted the bus over its wall and the next belly let it down 2.2 m in a
+ * frame at 20 fps, lift-check --take, t1). The lens's path runs from (cx, cz) the same way (it follows the bus), near within its reach plus 2.
+ * Houses behind the bus and beside its path come down round it: the review of the take found a hold the same distance on every side freezing
+ * whole squares and their neighbours while the bus was anywhere near, under them most of all, the Lift's own invitation, and every tap there
+ * parried. No time cap: its square parries until it has landed. The Lift's lead is the fall's own time to land (takeLead): the design's 0.6 s
+ * let the bus reach a house still coming down, and the flight popped up over its wall, 6.6 m in a frame at 20 fps (lift-check --take, t1)
  */
 export function fallBlocked(x0: number, z0: number, x1: number, z1: number, top: number, reach: number, bx: number, by: number, bz: number, fx: number, fz: number, half: number, speed: number, cx: number, cy: number, cz: number, lead = 0.6): boolean {
-  const g = reach + Math.max(2, lead * speed);
-  const out = (x: number, z: number) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
-  if (cy < top + 3 && out(cx, cz) <= g) return true;
+  const l = Math.hypot(fx, fz) || 1, ahead = lead * speed, ux = (fx / l) * ahead, uz = (fz / l) * ahead;
+  if (cy < top + 3 && rectToSegment(x0, z0, x1, z1, cx, cz, ux, uz) <= reach + 2) return true;
   if (by >= top + 8) return false;
-  const l = Math.hypot(fx, fz) || 1;
-  // (nine points along it: 2 m apart at the bus's real length)
-  for (let k = -4; k <= 4; k++) if (out(bx + (fx / l) * half * (k / 4), bz + (fz / l) * half * (k / 4)) <= g) return true;
-  return false;
+  const hx = (fx / l) * half, hz = (fz / l) * half;
+  return rectToSegment(x0, z0, x1, z1, bx - hx, bz - hz, ux + hx, uz + hz) <= half + reach + 8;
+}
+
+/** The distance (m) across the ground from the bounds (x0, z0, x1, z1) to the segment from (px, pz), (ux, uz) long: 0 where they meet. */
+function rectToSegment(x0: number, z0: number, x1: number, z1: number, px: number, pz: number, ux: number, uz: number): number {
+  // (the segment's slabs through the bounds: they meet)
+  let t0 = 0, t1 = 1;
+  if (Math.abs(ux) < 1e-9) {
+    if (px < x0 || px > x1) t0 = 2;
+  } else {
+    const a = (x0 - px) / ux, b = (x1 - px) / ux;
+    t0 = Math.max(t0, Math.min(a, b));
+    t1 = Math.min(t1, Math.max(a, b));
+  }
+  if (Math.abs(uz) < 1e-9) {
+    if (pz < z0 || pz > z1) t0 = 2;
+  } else {
+    const a = (z0 - pz) / uz, b = (z1 - pz) / uz;
+    t0 = Math.max(t0, Math.min(a, b));
+    t1 = Math.min(t1, Math.max(a, b));
+  }
+  if (t0 <= t1) return 0;
+  // (apart, the nearest pair is an end of the segment and the bounds, or a corner of the bounds and the segment)
+  const out = (x: number, z: number) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1));
+  let d = Math.min(out(px, pz), out(px + ux, pz + uz));
+  const l2 = ux * ux + uz * uz;
+  for (let k = 0; k < 4; k++) {
+    const qx = k & 1 ? x1 : x0, qz = k & 2 ? z1 : z0;
+    const t = l2 > 0 ? Math.min(1, Math.max(0, ((qx - px) * ux + (qz - pz) * uz) / l2)) : 0;
+    d = Math.min(d, Math.hypot(qx - px - ux * t, qz - pz - uz * t));
+  }
+  return d;
 }
 
 /** The bake's normalisation of a neighbourhood's name: lower case, accents stripped, only letters and digits. */

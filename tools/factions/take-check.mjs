@@ -301,10 +301,15 @@ for (const [name, owner, stage, cracks, ready, own, want, st, cr, who] of ROWS) 
 // ------------------------------------------------------------------ 5. the plain fall's hold (fallBlocked)
 {
   const box = { x0: 0, z0: 0, x1: 20, z1: 20, top: 80, reach: 4 };
-  const fb = (bx, by, bz, speed = 0, cx = 500, cy = 30, cz = 500) => L.fallBlocked(box.x0, box.z0, box.x1, box.z1, box.top, box.reach, bx, by, bz, 1, 0, 8, speed, cx, cy, cz);
+  const fb = (bx, by, bz, speed = 0, cx = 500, cy = 30, cz = 500, fx = 1, lead = 0.6) => L.fallBlocked(box.x0, box.z0, box.x1, box.z1, box.top, box.reach, bx, by, bz, fx, 0, 8, speed, cx, cy, cz, lead);
   report('the bus under a floating house: held', String(fb(10, 20, 10)), 'true', fb(10, 20, 10) === true);
-  report('the bus 30 m beside it, still: falls', String(fb(54, 20, 10)), 'false', fb(54, 20, 10) === false);
-  report('the bus 30 m beside it at 60 m/s (36 m of margin): held', String(fb(54, 20, 10, 60)), 'true', fb(54, 20, 10, 60) === true);
+  report('the bus 34 m beside it, still: falls', String(fb(54, 20, 10)), 'false', fb(54, 20, 10) === false);
+  // (the swept path: only where the bus is going holds, the review's finding 1)
+  report('the bus 34 m out flying at it at 60 m/s (36 m ahead in 0.6 s): held', String(fb(54, 20, 10, 60, 500, 30, 500, -1)), 'true', fb(54, 20, 10, 60, 500, 30, 500, -1) === true);
+  report('the bus 34 m out flying away at 60 m/s: falls', String(fb(54, 20, 10, 60)), 'false', fb(54, 20, 10, 60) === false);
+  report('the bus 100 m out flying away at Express with a 2 s lead: falls', String(fb(120, 30, 10, 112, 500, 30, 500, 1, 2)), 'false', fb(120, 30, 10, 112, 500, 30, 500, 1, 2) === false);
+  report('the bus 100 m out flying at it at Express with a 2 s lead: held', String(fb(120, 30, 10, 112, 500, 30, 500, -1, 2)), 'true', fb(120, 30, 10, 112, 500, 30, 500, -1, 2) === true);
+  report('the bus 30 m to the side of it flying past at Express with a 2 s lead: falls', String(fb(-100, 30, 50, 112, 500, 30, 500, 1, 2)), 'false', fb(-100, 30, 50, 112, 500, 30, 500, 1, 2) === false);
   report('the bus over its top plus 8: falls', String(fb(10, 89, 10)), 'false', fb(10, 89, 10) === false);
   report('the lens under it: held', String(fb(200, 20, 200, 0, 10, 60, 10)), 'true', fb(200, 20, 200, 0, 10, 60, 10) === true);
   report('the bus\'s tail under its edge, its middle 13 m out: held', String(fb(-13 + 0.5, 20, 10)), 'true', fb(-13 + 0.5, 20, 10) === true);

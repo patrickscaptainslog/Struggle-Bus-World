@@ -936,8 +936,11 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     }
     // (each run is held to the same run flown with no hit: the flight in the layer at a held 60 m has its own known steps, j. above. What
     // counts is what the take adds on its square's houses: a step in one of them the base hasn't, and over the square or within 40 m of it a
-    // step at 20 fps over 1.5 m and larger than the base's largest there. A run whose path the take changed can meet another square's
-    // floating house: that run is the layer's known risk's, reported apart with its steps)
+    // step at 20 fps over 1.5 m and larger than the base's largest there. A run whose path the take changed into another square's floating
+    // house fails too, its steps reported apart: the review of the take found one passed (5 steps in a neighbour's house and a 6.43 m step,
+    // the same run with no hit 0 and 2.46 m), and design C12 asks for none. A larger step away from the square with the body in no house is
+    // reported: there the layer's own let-downs at a held 60 m pass 1.5 m with no hit at all (j.), and a take that moves the falls by a frame
+    // moves them by a metre either way)
     const sum = (mode, at) => {
       const o = { runs: 0, added: 0, first: null, clip: 0, baseClip: 0, step20: 0, at20: null, base20: 0, over: 0, held: 0, started: 0, landed: 0, nohit: 0, sunk: 0, away: 0, awayFirst: null, awayStep: 0 };
       for (const side of SIDES)
@@ -954,18 +957,21 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
                 o.added++;
                 o.first ??= { ...tag, steps: r.clipSq, base: b.clipSq, ...r.firstSq };
               }
-              // (a run the take sent into another square's floating house is the layer's known risk's, its steps reported with it)
+              // (a run the take sent into another square's floating house: the take's too, its steps reported apart)
               const sent = r.clip - r.clipSq > b.clip - b.clipSq;
               if (sent) {
                 o.away++;
                 o.awayFirst ??= { ...tag, steps: r.clip - r.clipSq, base: b.clip - b.clipSq, ...r.first, step: +r.step.toFixed(2), baseStep: +b.step.toFixed(2) };
               }
               if (fps === 20) {
-                if (!sent && r.stepSq > 1.5 && r.stepSq > b.stepSq + 0.01) {
+                if (r.stepSq > 1.5 && r.stepSq > b.stepSq + 0.01) {
                   o.over++;
                   if (r.stepSq - b.stepSq > o.step20 - o.base20) [o.step20, o.base20, o.at20] = [r.stepSq, b.stepSq, { ...tag, ...r.stepSqAt }];
                 }
-                if (r.step > 1.5 && r.step > b.step + 0.01) o.awayStep++;
+                if (r.step > 1.5 && r.step > b.step + 0.01) {
+                  o.awayStep++;
+                  o.awayStepAt ??= { ...tag, step: +r.step.toFixed(2), baseStep: +b.step.toFixed(2), ...r.stepAt };
+                }
               }
               o.held += r.held;
               o.started += r.started;
@@ -985,7 +991,7 @@ for (const slug of ['sf', 'amsterdam', 'london']) {
     const b = sum('crack', [low.cx, low.cz]);
     report(`t2. under its lowest passable house (${low.index}, rest ${f2(houses.H[low.index])} m) as the crack lands`, `${b.runs} runs: ${b.added} where the crack adds steps with the body in one of its houses${b.first ? ` first ${JSON.stringify(b.first)}` : ''} (${b.clip} such steps, ${b.baseClip} with no hit); ${b.sunk} sank, ${b.held} frames held; ${b.nohit} runs never hit`, 'none added; sinks happen; every run hit', b.added === 0 && b.sunk > 0 && b.nohit === 0);
     for (const [k, o] of [['t1', a], ['t2', b]])
-      report(`${k}. away from the square, on a path the take changed`, `${o.away} runs with more steps in another square's floating house${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''}; ${o.awayStep} with a larger step over 1.5 m at 20 fps anywhere`, "reported: the layer's known risk (j.)", true);
+      report(`${k}. away from the square, on a path the take changed`, `${o.away} runs with more steps in another square's floating house${o.awayFirst ? ` first ${JSON.stringify(o.awayFirst)}` : ''}; ${o.awayStep} with a larger step over 1.5 m at 20 fps anywhere${o.awayStepAt ? ` first ${JSON.stringify(o.awayStepAt)}` : ''}`, "none in a house; the steps reported (the layer's known risk, j.)", o.away === 0);
     report('t2. its steps at 20 fps', `${b.over} runs with a step over 1.5 m a frame by the square larger than the same run's with no hit${b.at20 ? `, the most ${f2(b.step20)} m against ${f2(b.base20)} (${JSON.stringify(b.at20)})` : ''}`, 'none', b.over === 0);
   }
 }
