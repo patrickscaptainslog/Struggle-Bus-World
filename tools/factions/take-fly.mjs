@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Taking the block in the browser (docs/specs/factions/LIFT.md, "Taking the block"). Part B's legs: the rules on the real page, Rainbow's bus on
-// Inferno's block (?lift&lifted=inferno, the bus by the block: &hoodstart&skipintro).
+// Taking the block in the browser (docs/specs/factions/LIFT.md, "Taking the block"). First the producer's own link, ?lift&lifted=inferno (not
+// with --q): the start far off, a real tap's paint Rainbow's, the block waking ahead of the bus flown to it at Nonstop by a real flick, a real
+// tap through the sky piece counted on the heart. Then part B's legs: the rules on the real page, Rainbow's bus on Inferno's block (the bus by
+// the block: &hoodstart&skipintro).
 //   - the bus paints as Rainbow; the wave starts; the squares are seeded, the block's at the Lift, and become ready once their houses settle;
 //   - a real breath (Splatter.barf) on a ready square of the block: the blast's hook counts it (a crack), and the house it hit keeps the block's paint;
 //   - the scripted leg on a square (Lift.qaHit, forceReady between): a crack, a parry, the fall (every house down), two wilts (the houses' levels
@@ -11,12 +13,10 @@
 // Part C's: the crack's sink (or its hold) and the waiting glint, the houses falling through the air and each landing once, the sky piece
 // coming down in its cut program and then out; the flip's chime once, as its front ends; a landing's corner bursts. And:
 //   - the real cadence on a third square: a real breath every 2.6 s from its ready time until it flips, each counted or parried, logged;
-//   - the hold: the bus pinned under a floating house of a fourth square as it loses the Lift: that house stays up past its fall's time (with
-//     every house the hold's grown footprint covers: at Cruise most of the square), a hit on the square is parried meanwhile, and they come
-//     down once the bus has gone;
+//   - the hold: the bus pinned under a floating house of a fourth square as it loses the Lift: that house stays up past its fall's time, houses
+//     off the bus's path come down round it, a hit on the square is parried meanwhile, and the rest come down once the bus has gone;
 //   - with &veins=stay in --q (call 5), the veins' band on the square as each change leaves it (1 after the fall, 2, 3, 0 after an up).
-// Still to add: the flight from the producer's link, the stream and the tile. Writes <out>/take-fly.json; prints pass or FAIL a line; exit 1 on
-// any failure.
+// Still to add: the stream and the tile (design B1). Writes <out>/take-fly.json; prints pass or FAIL a line; exit 1 on any failure.
 //
 //   node tools/factions/take-fly.mjs <url> <outDir> [--q=<query>]
 import { chromium } from 'playwright-core';
@@ -43,31 +43,144 @@ function report(name, value, limit, ok) {
 }
 
 const browser = await chromium.launch({ ...browserOptions([]) });
-const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
-page.on('pageerror', (e) => {
-  failed++;
-  console.log('[pageerror]', e.message);
-});
-page.on('console', (m) => {
-  if (m.type() !== 'error' || m.text().startsWith('Failed to load resource')) return;
-  failed++;
-  console.log('[console error]', m.text().slice(0, 1500));
-});
-await page.addInitScript(() => {
-  const W = (window.__tk = { programs: [] });
-  const cp = WebGL2RenderingContext.prototype.createProgram;
-  WebGL2RenderingContext.prototype.createProgram = function () {
-    W.programs.push(Math.round(performance.now()));
-    return cp.call(this);
-  };
-});
-await page.goto(base + Q, { waitUntil: 'load' });
+/** a page on `q`, warmed up: its page and console errors fail the run, its programs counted (__tk) */
+async function open(q) {
+  const page = await browser.newPage({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+  page.on('pageerror', (e) => {
+    failed++;
+    console.log('[pageerror]', e.message);
+  });
+  page.on('console', (m) => {
+    if (m.type() !== 'error' || m.text().startsWith('Failed to load resource')) return;
+    failed++;
+    console.log('[console error]', m.text().slice(0, 1500));
+  });
+  await page.addInitScript(() => {
+    const W = (window.__tk = { programs: [] });
+    const cp = WebGL2RenderingContext.prototype.createProgram;
+    WebGL2RenderingContext.prototype.createProgram = function () {
+      W.programs.push(Math.round(performance.now()));
+      return cp.call(this);
+    };
+  });
+  await page.goto(base + q, { waitUntil: 'load' });
+  await page.waitForFunction(() => {
+    const g = window.__game, w = g?.warm;
+    return !!g && !!w?.report && !w.running && w.report.programs >= g.pipeline.renderer.info.programs.length;
+  }, null, { timeout: 240000, polling: 100 });
+  page.warmDoneAt = await page.evaluate(() => Math.round(window.__game.warm?.doneAt ?? performance.now()));
+  return page;
+}
+
+// ---- the producer's own link (?lift&lifted=inferno: the opening under the Golden Gate, no &hoodstart, no &skipintro) and their notes of
+// 2026-11-12 on it: the start far from the block, the bus's own paint by a real tap, the block waking ahead of a bus flown to it at Nonstop by
+// a real flick (the distance, height and bearing at the wave logged; a fail if the bus is in the block already), and a real tap whose line of
+// fire crosses the sky piece counted on the heart (Aim's sky test, Shot.via, the blast's via: the review's finding 2). Not with --q.
+if (!opt.q && !opt.noflight) {
+  const pp = await open(Q.replace('&hoodstart&skipintro', ''));
+  const pw = (fn, arg, timeout = 240000) => pp.waitForFunction(fn, arg, { timeout, polling: 100 });
+  const pnow = () => pp.evaluate(() => window.__game.lift.now);
+  const after = async (dt) => pw((t) => window.__game.lift.now >= t, (await pnow()) + dt);
+  // (the bus's distance across the ground to the nearest staged square, as the wake measures it (null before staging), to the heart, its
+  // height over the heart's ground, how far the heart is off its heading (degrees, + to the right), its ground speed)
+  const where = () => pp.evaluate(() => {
+    const g = window.__game, L = g.lift, f = g.flight, r = L.stagedRects;
+    let dh = Infinity;
+    for (let k = 0; k < r.length; k += 4) dh = Math.min(dh, Math.hypot(Math.max(r[k] - f.x, 0, f.x - r[k + 2]), Math.max(r[k + 1] - f.z, 0, f.z - r[k + 3])));
+    const hx = L.heart[0] - f.x, hz = L.heart[1] - f.z;
+    let off = Math.atan2(hx, -hz) - f.heading;
+    off = Math.atan2(Math.sin(off), Math.cos(off));
+    return { t: +L.now.toFixed(2), dh: dh === Infinity ? null : +dh.toFixed(0), heart: +Math.hypot(hx, hz).toFixed(0), h: +(f.y - (L.heartY || g.city.groundAt(L.heart[0], L.heart[1]))).toFixed(0), off: +((off * 180) / Math.PI).toFixed(0), speed: +f.ground.toFixed(0), staged: L.staged, waveAt: +L.waveAt.toFixed(2) };
+  });
+  const w0 = await where();
+  report("the producer's link: the bus starts far from the block, its wave not begun", `${w0.heart} m from the heart, the wave at ${w0.waveAt}`, 'over 3 km; not begun (-1)', w0.heart > 3000 && w0.waveAt < 0);
+  const fac = await pp.evaluate(() => window.__game.splatter.faction);
+  report("the producer's link: the bus paints as Rainbow", String(fac), String(RB), fac === RB);
+  // (the opening hands over at about 18 s: then a real flick takes Nonstop and the QA stick steers at the heart)
+  await pw(() => window.__game.lift.now >= 19);
+  const cdp = await pp.context().newCDPSession(pp);
+  const { flickTo } = await import('../flick.mjs');
+  await flickTo(pp, cdp, 2);
+  // (the stick's way round: a half stick for half a second, and which way the heading went)
+  const h0 = await pp.evaluate(() => ((window.__qa = window.__qa ?? {}), (window.__qa.sx = 0.5), (window.__qa.sy = 0), window.__game.flight.heading));
+  await after(0.5);
+  const turn = Math.sign((await pp.evaluate(() => window.__game.flight.heading)) - h0) || 1;
+  const steer = () => pp.evaluate((turn) => {
+    const g = window.__game, L = g.lift, f = g.flight;
+    let e = Math.atan2(L.heart[0] - f.x, -(L.heart[1] - f.z)) - f.heading;
+    e = Math.atan2(Math.sin(e), Math.cos(e));
+    window.__qa.sx = Math.max(-1, Math.min(1, 2 * e * turn));
+    return L.waveAt;
+  }, turn);
+  // (on the way, a real tap on the city once the bus is 1.6 to 2.4 km out: the paint it leaves is Rainbow's)
+  let painted = null, wave = null, tries = 0;
+  const t0 = await pnow();
+  while (wave === null && (await pnow()) < t0 + 75) {
+    const wa = await steer();
+    const w = await where();
+    if (wa > 0) wave = w;
+    if (!painted && tries < 20 && w.heart < 2400 && w.heart > 1600) {
+      tries++;
+      painted = await pp.evaluate(() => {
+        const g = window.__game;
+        g.forceReady();
+        g.tap();
+        const s = g.lastShot();
+        return s && s.target && !g.lift.refuses(s.target.cx, s.target.cz, 0) ? { i: s.target.index, at: s.t + s.travel } : null;
+      });
+    }
+    await pp.waitForTimeout(40);
+  }
+  await pp.evaluate(() => (window.__qa.sx = 0));
+  if (painted) {
+    await pw((t) => window.__game.lift.now >= t, painted.at + 0.6);
+    const p = await pp.evaluate((i) => window.__game.city.paint.get(i), painted.i);
+    report("the producer's link: a real tap on the city on the way paints Rainbow's", `building ${painted.i}: faction ${p.faction} level ${Math.round(p.level)}`, 'faction 1', p.faction === RB);
+  } else report("the producer's link: a real tap on the city on the way paints Rainbow's", `no tap of ${tries} hit a building 1.6-2.4 km out`, 'one', false);
+  report("the producer's link: the block wakes ahead of the bus flown to it at Nonstop", wave ? `at ${wave.t} s: ${wave.dh} m from the block, ${wave.h} m over the heart's ground, the heart ${wave.off} degrees off the heading and ${wave.heart} m off, ${wave.speed} m/s` : 'no wave in 75 s',
+    'a wave, the bus not in the block yet (over 0 m from it)', !!wave && wave.dh !== null && wave.dh > 0);
+  // ---- the real aim through the sky piece: the bus held where a loaded breath's line of fire crosses the piece, then a real tap
+  await pw(() => !!window.__game.lift.sky && window.__game.lift.takeState().find((s) => s.heart).readyAt <= window.__game.lift.now, null, 60000).catch(() => {});
+  const pose = await pp.evaluate(() => {
+    const L = window.__game.lift, b = L.sky?.boxes;
+    if (!b) return null;
+    let y1 = -Infinity;
+    for (let k = 0; k + 5 < b.length; k += 6) y1 = Math.max(y1, b[k + 4]);
+    return { hx: L.heart[0], hz: L.heart[1], y1 };
+  });
+  let aimed = null;
+  if (pose)
+    for (const d of [150, 250, 350, 500])
+      for (const up of [20, 60, 120, 200]) {
+        if (aimed) break;
+        // (south of the heart, heading north at it: Flight's heading 0 flies along -z)
+        const pin = { x: pose.hx, y: pose.y1 + up, z: pose.hz + d, heading: 0 };
+        await pp.evaluate((p) => ((window.__qa.pin = p), window.__game.forceReady()), pin);
+        await after(0.3);
+        if (await pp.evaluate(() => (window.__game.forceReady(), window.__game.aimer.skyAimed))) aimed = pin;
+      }
+  if (aimed) {
+    const c0 = await pp.evaluate(() => window.__game.lift.takeState().find((s) => s.heart).cracks);
+    const at = await pp.evaluate(() => {
+      const g = window.__game;
+      g.forceReady();
+      g.tap();
+      const s = g.lastShot();
+      return s ? s.t + s.travel : null;
+    });
+    if (at !== null) await pw((t) => window.__game.lift.now >= t, at + 0.6);
+    const hrt = await pp.evaluate(() => window.__game.lift.takeState().find((s) => s.heart));
+    report("the producer's link: a real tap through the sky piece counts on the heart", `held ${aimed.y - pose.y1} m over the piece's top, ${aimed.z - pose.hz} m out; the heart's cracks ${c0} -> ${hrt.cracks}, stage ${hrt.stage}`, 'a crack, stage 4', hrt.cracks === c0 + 1 && hrt.stage === 4);
+  } else report("the producer's link: a real tap through the sky piece counts on the heart", pose ? 'no pose put the line of fire through the piece' : 'no piece', 'a pose and a crack', false);
+  await pp.evaluate(() => (window.__qa.pin = null));
+  const pg = await pp.evaluate((t) => window.__tk.programs.filter((p) => p > t).length, pp.warmDoneAt);
+  report("the producer's link: programs made after the warm-up", String(pg), '0', pg === 0);
+  await pp.close();
+}
+
+const page = await open(Q);
 const wait = (fn, arg, timeout = 240000) => page.waitForFunction(fn, arg, { timeout, polling: 100 });
-await wait(() => {
-  const g = window.__game, w = g?.warm;
-  return !!g && !!w?.report && !w.running && w.report.programs >= g.pipeline.renderer.info.programs.length;
-});
-const warmDoneAt = await page.evaluate(() => Math.round(window.__game.warm?.doneAt ?? performance.now()));
+const warmDoneAt = page.warmDoneAt;
 const now = () => page.evaluate(() => window.__game.lift.now);
 const until = async (t) => wait((t) => window.__game.lift.now >= t, t);
 const state = () => page.evaluate(() => window.__game.lift.takeState());
@@ -246,12 +359,12 @@ report('A: the encore flares the claim line, not the parry\'s', `parry time ${r.
     const h0 = (await stats()).fallHeld;
     await hitD(RB);
     let d = (await state()).find((s) => s.key === D.key);
-    // (the one over the bus stays up, and so does every house whose footprint, grown by its reach and its own time to land at the bus's ground
-    // speed (takeLead), the bus's segment or the lens is in: a bus at Cruise under a square holds most of it. The whole of its fall's time and more)
+    // (the one over the bus stays up, and so does every house near the bus's swept path, its own time to land at the bus's ground speed ahead
+    // (fallBlocked, takeLead), or the lens's; houses off it come down round the bus. The whole of its fall's time and more)
     await until((await now()) + 6);
     const mid = await page.evaluate(([k, i]) => ({ st: window.__game.lift.state[i], falling: window.__game.lift.takeState().find((s) => s.key === k).falling, down: window.__game.lift.takeState().find((s) => s.key === k).houses.filter((j) => window.__game.lift.state[j] === 0).length }), [D.key, pick.i]);
     const held = (await stats()).fallHeld - h0;
-    report('the hold: the house over the bus stays up, held, past its fall\'s time', `stage ${d.stage}; the house's state ${mid.st} 6 s on; ${mid.falling} of ${d.houses.length} still queued, ${mid.down} down; held ${held} house-frames (its rest ${pick.H.toFixed(1)} m, the bus 6 m up)`, 'stage 3; up (2), queued, held > 0', d.stage === 3 && mid.st === 2 && mid.falling >= 1 && held > 0);
+    report('the hold: the house over the bus stays up, held, past its fall\'s time, and houses off its path come down', `stage ${d.stage}; the house's state ${mid.st} 6 s on; ${mid.falling} of ${d.houses.length} still queued, ${mid.down} down; held ${held} house-frames (its rest ${pick.H.toFixed(1)} m, the bus 6 m up)`, 'stage 3; up (2), queued, held > 0, some down', d.stage === 3 && mid.st === 2 && mid.falling >= 1 && held > 0 && mid.down >= 1);
     await ready5();
     const p0 = (await stats()).parried;
     await hitD(RB);
