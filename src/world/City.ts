@@ -412,11 +412,13 @@ const ADOPT_MS = 2.5;
 const ADOPT_BYTES = 3 << 20;
 /** Tiles split out of their region's merged ground a frame (a mesh, a map and a material each, ~0.2-0.4 ms on a laptop): a MEGA's 49 in about half a second of its 2.8 s flight. Review four, 4 */
 const SPLITS = 3;
-/** The far boxes' chunks, in tiles a side (?farblocks; ?farchunk= overrides it): a region's 4, one draw each, none where the region is in. */
-const FAR_CHUNK_TILES = 4;
+/** The far boxes' chunks, in tiles a side (?farblocks; ?farchunk= overrides it, ?farchunk=4 is how it was): two regions a side, one draw each,
+ *  none where every tile it has boxes on is in. A box's look doesn't depend on it (farBlocks.ts seeds by a 4-tile grid). Release A, 1c */
+const FAR_CHUNK_TILES = 8;
 /** A far box's roof in steps of this (m): equal tops merge. */
 const FAR_TOP_STEP = 4;
-const FAR_CHUNKS_A_FRAME = 8;
+/** Far chunks landed a frame, for chunks of `c` tiles: about as many boxes a frame whatever the chunk (8 of 4 tiles' chunks, 2 of 8's) */
+const farChunksAFrame = (c: number, eager: boolean) => Math.max(1, Math.round(((eager ? 32 : 8) * 16) / (c * c)));
 // (while the opening's fog is up everything lands at once, up to this much per frame: a deep link into
 // downtown is ~100 MB of first uploads)
 const ADOPT_BYTES_EAGER = 16 << 20;
@@ -742,7 +744,7 @@ export class City {
   private farBlocksFrame() {
     const fb = this.farBlocks;
     if (!fb) return;
-    for (let n = this.eager ? 32 : FAR_CHUNKS_A_FRAME; n > 0 && this.farLanding.length; n--) {
+    for (let n = farChunksAFrame(this.farChunkM / this.manifest.tileSize, this.eager); n > 0 && this.farLanding.length; n--) {
       const s = this.farLanding.pop()!;
       const mesh = farBlockMesh(s, this.farBlockMat!);
       this.farGroup.add(mesh);

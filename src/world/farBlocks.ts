@@ -189,8 +189,11 @@ export function mergeFarBlocks(r: FarBlocksRequest): FarBlocksResult {
     slots.push(ch1);
     chunks.push(ch1);
   }
-  const seeds = new Uint32Array(cw * ch);
-  for (let q = 0; q < cw * ch; q++) seeds[q] = hash32(q + 1 + Math.imul(r.seed, 0x9e3779b1));
+  // (each box's own grey and lit walls are seeded by its place on a grid of 4-tile chunks, whatever the chunks drawn are: so a bigger chunk
+  // changes the draws, never a box's look)
+  const c4 = tc * 4;
+  const i4 = Math.floor(ox / c4), j4 = Math.floor(oz / c4), w4 = Math.floor((ox + W - 1) / c4) - i4 + 1;
+  const seedOf = (i: number, j: number) => hash32((Math.floor((oz + j) / c4) - j4) * w4 + Math.floor((ox + i) / c4) - i4 + 1 + Math.imul(r.seed, 0x9e3779b1));
   const y0 = new Float32Array(cw * ch).fill(Infinity), y1 = new Float32Array(cw * ch).fill(-Infinity);
   for (let b = 0; b < boxes; b++) {
     const i = outCell[b * 4], j = outCell[b * 4 + 1];
@@ -202,7 +205,7 @@ export function mergeFarBlocks(r: FarBlocksRequest): FarBlocksResult {
     s.y[k * 2 + 1] = outY[b * 2 + 1];
     // at night: which of its four walls light up (each one in two), and when (the wave's byte); and its own grey, as each near house has one.
     // A hash of where it stands: stable across bakes
-    const h = hash32((i | (j << 16)) ^ seeds[q]);
+    const h = hash32((i | (j << 16)) ^ seedOf(i, j));
     s.tone[k * 4] = outTone[b * 4];
     s.tone[k * 4 + 1] = outTone[b * 4 + 1];
     s.tone[k * 4 + 2] = h & 255;
