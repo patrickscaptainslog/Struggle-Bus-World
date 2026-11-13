@@ -2318,6 +2318,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const ready = !covered && cityIn && (opening >= config.fog.openingDuration || params.has('openingshot'));
     if (ready && !everReady) {
       audio.prepare();
+      // (?fps's max from here, past the fog: the fog's frames are not flight's)
+      perf.peaksFrom();
       if (!params.has('skipintro') && !params.has('lat')) {
         try {
           localStorage.setItem(OPENING_SEEN_KEY, '1');

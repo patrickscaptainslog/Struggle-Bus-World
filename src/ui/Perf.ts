@@ -54,7 +54,7 @@ export interface PerfSnapshot {
   frames: number;
   /** the longest frame in the 600 ms after the last shot's impact (not the Hose's light ones), held until the next (0: none yet) */
   hitMs: number;
-  /** the most draws and triangles in any one frame over the last five 1-s windows */
+  /** the most draws and triangles in any one frame over the last five 1-s windows since the first ready frame (past the fog) */
   callsMax: number;
   trisMax: number;
   /** performance.now() at the page's first frame: the tap on the link to the first frame (ms) */
@@ -212,6 +212,14 @@ export class Perf {
   hit(): void {
     this.hitAt = performance.now();
     this.hitMs = 0;
+  }
+
+  /** The draws' and triangles' peaks from now (main.ts: the first ready frame, past the fog), so `max` holds none of the fog's frames. The city
+   *  still streams for a few seconds after it, and those frames count: they are flight. */
+  peaksFrom(): void {
+    this.peakCalls.fill(0);
+    this.peakTris.fill(0);
+    this.winCalls = this.winTris = this.callsMax = this.trisMax = 0;
   }
 
   /** The resolve's link and first draw (ms) as the warm-up timed them, and the hour the frame is under. */
