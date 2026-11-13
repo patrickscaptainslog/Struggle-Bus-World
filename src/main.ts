@@ -775,7 +775,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     },
     // the street sign waits until the shockwave has bloomed the whole blast (game clock: hit-stop holds it)
     primary: (ref, hue) => queueSign(ref, hue, lastBlast.x, lastBlast.z, lastBlast.r),
-    hitStop: (frames) => (hitStop = frames / 60),
+    // (an impact with a hit-stop is a shot's, not the Hose's light ones: ?fps times its worst frame, Perf.hit)
+    hitStop: (frames) => {
+      hitStop = frames / 60;
+      perf.hit();
+    },
   });
   // &paintas=atlantis (elderwood, hyperglow, inferno, rainbow: game/factions.ts's keys), FACTIONS.md step 5: the bus paints as that faction, so its
   // colours can be tried on a phone. It is step 1's owner, so whatever it paints is that faction's in every store, through a reload too, until a

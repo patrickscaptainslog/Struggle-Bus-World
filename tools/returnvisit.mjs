@@ -18,7 +18,8 @@
 //      frame, the gears free within 1 s; the regions in over the next 2 s are printed (not a pass line)
 // (12) the record's building's paint gone from the store: the Golden Gate   (13) localStorage throwing on getItem, then on setItem: the first visit's
 //      path, no page error, nothing stored   (14) ?recess and ?swerve with a good record: no start
-// --budget: (9)'s record, a reload into the return start, 20 s of flight after the fog: __stats.callsMax at most 200, trisMax at most 1.5 M, no page error
+// --budget: (9)'s record, a reload into the return start, 5 s of flight after the fog, then 20 s: __stats.callsMax at most 200, trisMax at most 1.5 M,
+// no page error (the first 5 s's peaks, which hold the fog's and the load's frames, printed apart; and the same downtown from its ?lat start beside it)
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -147,6 +148,34 @@ const { ctx, page, cdp } = await context();
 const Q = `?${T.slice(1)}`;
 let good = null;
 
+/** 5 s flown on (the peaks' ring of five 1-s windows rolls past the fog and the load: their frames are the warm-up's and the streaming's, and their
+ *  peaks are reported apart, not passed on), then 20 s of game time: the highest callsMax and trisMax __stats showed, and each second's draws of the
+ *  frame then and its peaks. In-page */
+const FLY20 = async () => {
+  const g = window.__game;
+  let early = 0;
+  for (const t1 = g.clock(); g.clock() - t1 < 5; ) {
+    await new Promise((r) => requestAnimationFrame(r));
+    early = Math.max(early, window.__stats?.callsMax ?? 0);
+  }
+  const t0 = g.clock();
+  let calls = 0, tris = 0, last = -1;
+  const series = [];
+  while (g.clock() - t0 < 20) {
+    await new Promise((r) => requestAnimationFrame(r));
+    const s = window.__stats;
+    if (s) {
+      calls = Math.max(calls, s.callsMax ?? 0);
+      tris = Math.max(tris, s.trisMax ?? 0);
+      if (Math.floor(g.clock() - t0) !== last) {
+        last = Math.floor(g.clock() - t0);
+        series.push([last, s.calls, s.callsMax, Math.round((s.trisMax ?? 0) / 1000)]);
+      }
+    }
+  }
+  return { calls, tris, early, has: !!window.__stats && 'callsMax' in window.__stats, series };
+};
+
 if (budget) {
   // ---- --budget: (9)'s downtown record, the return start, 20 s of flight after the fog
   await load(page, `?lat=37.7935&lon=-122.4000&heading=90&skipintro&noreturn${T}`, 'ready');
@@ -163,23 +192,17 @@ if (budget) {
     R.budget = { start: L.start };
     ok(!!L.start?.pose, `budget: the reload is a return start (${L.start?.which ?? L.start?.why})`);
     await afterFog(page);
-    const st = await page.evaluate(async () => {
-      const g = window.__game, t0 = g.clock();
-      let calls = 0, tris = 0;
-      while (g.clock() - t0 < 20) {
-        await new Promise((r) => requestAnimationFrame(r));
-        const s = window.__stats;
-        if (s) {
-          calls = Math.max(calls, s.callsMax ?? 0);
-          tris = Math.max(tris, s.trisMax ?? 0);
-        }
-      }
-      return { calls, tris, has: !!window.__stats && 'callsMax' in window.__stats };
-    });
+    const st = await page.evaluate(FLY20);
     R.budget.stats = st;
     ok(st.has, `budget: __stats carries callsMax and trisMax`);
     ok(st.calls > 0 && st.calls <= 200, `budget: the peak draws over 20 s of flight at most 200 (${st.calls})`);
     ok(st.tris > 0 && st.tris <= 1.5e6, `budget: the peak triangles at most 1.5 M (${st.tris})`);
+    console.log(`budget: the first 5 s after the fog, the peak draws in the ring (the fog's and the load's frames in it): ${st.early} (not a pass line); then each second (s, the frame's draws, callsMax, trisMax k): ${JSON.stringify(st.series)}`);
+    // (beside it, not a pass line: the same downtown flown from the tap's own ?lat start, no return start, for what the return adds)
+    await load(page, `?lat=37.7935&lon=-122.4000&heading=90&skipintro&noreturn&fps${T}`, 'ready');
+    const lat = await page.evaluate(FLY20);
+    R.budget.lat = lat;
+    console.log(`budget, beside it: the same downtown from its ?lat start: peak draws ${lat.calls}, triangles ${lat.tris} (its first 5 s: ${lat.early}); each second ${JSON.stringify(lat.series)}`);
   }
   ok(errors.length === 0, `budget: no page error (${errors.length}${errors.length ? ': ' + errors[0] : ''})`);
 } else {
