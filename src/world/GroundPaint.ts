@@ -3,7 +3,7 @@ import { config } from '../config';
 import { GLSL_FACTION, lookOf } from '../render/factionLook';
 import { globals } from '../render/materials';
 import { Ramp } from '../render/palette';
-import { uploadRect } from '../render/upload';
+import { uploadRect, uploadRectFrom } from '../render/upload';
 import { arrival, bandHue, blastDots, blastEdge, LAYOUT_BANDS, LAYOUT_POOL, LAYOUT_RING, POOL_SPREAD, SHAPE_LUT, specFromArray, specToArray, waveAt, type BlastDot, type BlastSpec } from '../game/blastLayout';
 import { resolveIdScheme, type CityData, type IdScheme } from './PaintState';
 import { decodeMask, encodeMask, GROUND_N, TEXELS, texelLow, texelOwner, type Prepared } from './groundMask';
@@ -162,12 +162,48 @@ bool sbGroundPaint(vec3 wp, vec2 uv, out float ramp, out float edge, out float w
 }
 `;
 
+/**
+ * Release A, 1a: a coarse region's paint mask, its tiles' masks side by side (tile (i, j) of the region at texel (GROUND_N i, GROUND_N j), as
+ * its class texture lays them out), on the GPU only: the tile masks are the truth, and each dirty rect goes up to its slot as to its own
+ * texture. Its uniforms go on every ground that draws the region (its merged ground; the gear's twin), and uGroundSq says which tiles take
+ * their tile path there (terrainMaterial.ts): one with a mask, or one the city marks (flagRegionTile).
+ */
+interface RegionMask {
+  rx: number;
+  rz: number;
+  /** tiles a side */
+  n: number;
+  /** made with the first mask shown in it, freed with the region */
+  tex: THREE.DataTexture | null;
+  uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform; uGroundSq: THREE.IUniform<THREE.Matrix4> };
+  /** grounds drawing it (regionUniforms / releaseRegion) */
+  grounds: number;
+  /** tiles shown in it (attachRegion / detachRegion) */
+  tiles: Set<string>;
+}
+
+/** A loaded tile: its own ground's uniforms (the own view) and its slot in its coarse region's mask (the region view), either or both. */
+interface LoadedTileView {
+  ox: number;
+  oz: number;
+  uniforms: TileMask['uniforms'];
+  reg: RegionMask | null;
+  ri: number;
+  rj: number;
+}
+
 interface TileMask {
   /** world origin of the tile (its class texture's corner) */
   ox: number;
   oz: number;
   data: Uint8Array;
-  tex: THREE.DataTexture;
+  /** its own texture, while it has an own view (a tile ground's uniforms) */
+  tex: THREE.DataTexture | null;
+  /** its region's mask while it has a region view, its slot there, and its whole slot to go up at the next flush */
+  reg: RegionMask | null;
+  ri: number;
+  rj: number;
+  regAll: boolean;
   /** dirty rect in texels (x0 > x1 = clean); queued in GroundPaint.dirty */
   dirty: boolean;
   /** its tile streamed out (texture disposed) */
@@ -282,8 +318,14 @@ export class GroundPaint {
   private readonly tileSize: number;
   private readonly cell: number;
   private readonly masks = new Map<string, TileMask>();
-  /** loaded terrain tiles: key -> origin + material uniforms (masks are created lazily) */
-  private readonly loaded = new Map<string, { ox: number; oz: number; uniforms: TileMask['uniforms'] }>();
+  /** loaded terrain tiles: key -> origin + its views (masks are created lazily) */
+  private readonly loaded = new Map<string, LoadedTileView>();
+  /** Release A, 1a: coarse regions' paint masks, by region key */
+  private readonly regions = new Map<string, RegionMask>();
+  /** QA: ?rmask=nofill, region masks made and never filled (a row's proof that it can fail) */
+  regionNoFill = false;
+  /** QA: paint uploads in the last flush, to tiles' own textures and to region masks: calls and bytes */
+  readonly uploadQa = { calls: 0, bytes: 0, regionCalls: 0, regionBytes: 0 };
   /** what storage holds, by tile key (mirrored in memory so a tile decodes with no storage read) */
   private readonly store = new Map<string, SavedTile>();
   private storageOk = false;
@@ -559,7 +601,146 @@ export class GroundPaint {
    */
   attach(tx: number, tz: number, ox: number, oz: number, uniforms: { tGround: THREE.IUniform; uGroundOn: THREE.IUniform }) {
     const key = `${tx},${tz}`;
-    this.loaded.set(key, { ox, oz, uniforms });
+    const was = this.loaded.get(key);
+    if (was?.reg && !was.uniforms) {
+      // (its region shows it already: a second view onto a live mask, which touches nothing of its paint, its jobs or what's saved. Release A, 1a)
+      was.uniforms = uniforms;
+      const m = this.masks.get(key);
+      if (m) {
+        m.uniforms = uniforms;
+        m.tex = this.ownTexture(m.data);
+        uniforms.tGround.value = m.tex;
+        uniforms.uGroundOn.value = 1;
+      }
+      return;
+    }
+    this.loaded.set(key, { ox, oz, uniforms, reg: was?.reg ?? null, ri: was?.ri ?? 0, rj: was?.rj ?? 0 });
+    this.startShown(key, ox, oz);
+  }
+
+  /**
+   * Release A, 1a: tile (tx, tz) shown in its coarse region (rx, rz)'s mask (regionUniforms first). The first view in starts its mask's life as attach does;
+   * a second, with its own ground there too (a gear's twin), only links the mask to its slot.
+   */
+  attachRegion(tx: number, tz: number, ox: number, oz: number, rx: number, rz: number) {
+    const key = `${tx},${tz}`;
+    const r = this.regions.get(`${rx},${rz}`);
+    if (!r) return;
+    const ri = tx - rx * r.n, rj = tz - rz * r.n;
+    r.tiles.add(key);
+    const was = this.loaded.get(key);
+    if (was) {
+      if (was.reg === r) return;
+      Object.assign(was, { reg: r, ri, rj });
+      const m = this.masks.get(key);
+      if (m) this.linkRegion(m, was);
+      return;
+    }
+    this.loaded.set(key, { ox, oz, uniforms: null, reg: r, ri, rj });
+    this.startShown(key, ox, oz);
+  }
+
+  /** Release A, 1a: tile (tx, tz) is no longer shown in its region's mask. With no own ground either, its mask's life ends as at detach. */
+  detachRegion(tx: number, tz: number) {
+    const key = `${tx},${tz}`;
+    const t = this.loaded.get(key);
+    if (!t?.reg) return;
+    const r = t.reg;
+    r.tiles.delete(key);
+    t.reg = null;
+    const m = this.masks.get(key);
+    if (m) {
+      m.reg = null;
+      m.regAll = false;
+    }
+    if (!t.uniforms) this.endShown(key);
+    this.freeRegion(r);
+  }
+
+  /** Release A, 1a: the uniforms of coarse region (rx, rz)'s paint mask, `n` tiles a side, for a ground that draws it; releaseRegion when that ground goes. */
+  regionUniforms(rx: number, rz: number, n: number): RegionMask['uniforms'] {
+    const key = `${rx},${rz}`;
+    let r = this.regions.get(key);
+    if (!r) {
+      r = { rx, rz, n, tex: null, uniforms: { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundSq: { value: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) } }, grounds: 0, tiles: new Set() };
+      this.regions.set(key, r);
+    }
+    r.grounds++;
+    return r.uniforms;
+  }
+
+  releaseRegion(rx: number, rz: number) {
+    const r = this.regions.get(`${rx},${rz}`);
+    if (!r) return;
+    r.grounds--;
+    this.freeRegion(r);
+  }
+
+  /** Release A, 1a: tile (tx, tz) takes its tile path on its region's ground (City's tiles of their own: a touched tile draws its classes as its split self did). */
+  flagRegionTile(tx: number, tz: number) {
+    const t = this.loaded.get(`${tx},${tz}`);
+    if (t?.reg) t.reg.uniforms.uGroundSq.value.elements[t.ri * 4 + t.rj] = 1;
+  }
+
+  /** QA, Release A 1a: the region masks, and what they cost on the GPU (bytes: RGBA8, GROUND_N a tile). */
+  regionStats(): { regions: number; textures: number; bytes: number; tiles: number; owns: number } {
+    let textures = 0, bytes = 0, tiles = 0, owns = 0;
+    for (const r of this.regions.values()) {
+      tiles += r.tiles.size;
+      if (r.tex) (textures++, (bytes += (GROUND_N * r.n) ** 2 * 4));
+    }
+    for (const m of this.masks.values()) if (m.tex) owns++;
+    return { regions: this.regions.size, textures, bytes, tiles, owns };
+  }
+
+  /** QA, Release A 1a: tile (tx, tz)'s mask array, its slot in its region's mask, and whether its region shows it (uGroundSq). */
+  regionSlot(tx: number, tz: number): { data: Uint8Array | null; rx: number; rz: number; n: number; ri: number; rj: number; flag: boolean; tex: THREE.DataTexture | null } | null {
+    const t = this.loaded.get(`${tx},${tz}`);
+    if (!t?.reg) return null;
+    const r = t.reg;
+    return { data: this.masks.get(`${tx},${tz}`)?.data ?? null, rx: r.rx, rz: r.rz, n: r.n, ri: t.ri, rj: t.rj, flag: r.uniforms.uGroundSq.value.elements[t.ri * 4 + t.rj] > 0.5, tex: r.tex };
+  }
+
+  private freeRegion(r: RegionMask) {
+    if (r.grounds > 0 || r.tiles.size) return;
+    r.tex?.dispose();
+    r.tex = null;
+    this.regions.delete(`${r.rx},${r.rz}`);
+  }
+
+  /** A mask shown in its region: its slot flagged, the region's texture made (no data: WebGL makes it zeros), its whole slot up at the next flush. */
+  private linkRegion(m: TileMask, t: LoadedTileView) {
+    const r = t.reg!;
+    m.reg = r;
+    m.ri = t.ri;
+    m.rj = t.rj;
+    r.uniforms.uGroundSq.value.elements[t.ri * 4 + t.rj] = 1;
+    if (!r.tex) {
+      const N = GROUND_N * r.n;
+      const tex = new THREE.DataTexture(null, N, N, THREE.RGBAFormat, THREE.UnsignedByteType);
+      tex.minFilter = tex.magFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      // (allocated by texStorage2D alone, never sent a byte of zeros: three 0.186's dataReady)
+      tex.source.dataReady = false;
+      tex.needsUpdate = true;
+      r.tex = tex;
+      r.uniforms.tGround.value = tex;
+      r.uniforms.uGroundOn.value = 1;
+    }
+    m.regAll = true;
+    this.queueDirty(m);
+  }
+
+  private ownTexture(data: Uint8Array): THREE.DataTexture {
+    const tex = new THREE.DataTexture(data, GROUND_N, GROUND_N, THREE.RGBAFormat, THREE.UnsignedByteType);
+    tex.minFilter = tex.magFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  /** The first view in: what's saved for the tile comes onto its mask, and it joins what's in flight. */
+  private startShown(key: string, ox: number, oz: number) {
     if (this.pics) {
       this.attachGeo(key, ox, oz);
       this.joinLive(key, ox, oz);
@@ -608,6 +789,23 @@ export class GroundPaint {
 
   detach(tx: number, tz: number) {
     const key = `${tx},${tz}`;
+    const t = this.loaded.get(key);
+    if (t?.reg) {
+      // (its region still shows it: only the own view goes, its texture; the mask, its jobs and what's saved stay. Release A, 1a)
+      const m = this.masks.get(key);
+      if (m?.tex) m.tex.dispose();
+      if (m) {
+        m.tex = null;
+        m.uniforms = null;
+      }
+      t.uniforms = null;
+      return;
+    }
+    this.endShown(key);
+  }
+
+  /** The last view out: unsaved paint saved, the mask dropped, and what's queued for it. */
+  private endShown(key: string) {
     // unsaved paint goes to storage before the mask is dropped
     if (this.saveSet.has(key)) {
       this.saveTile(key, true);
@@ -621,7 +819,7 @@ export class GroundPaint {
       // (?moon: what it shows, settled, kept for it coming back, as a region's change of detail makes its tiles' ground again; not while its copy's on its way, which comes then)
       if (this.pics && !this.pics.copyingTile(key)) this.keepShown(key, m.data);
       m.gone = true;
-      m.tex.dispose();
+      m.tex?.dispose();
       this.masks.delete(key);
     }
     // (and a copy on its way for a tile that's gone is dropped, mask or none: they were never, and read their pictures and made 64 KB for nothing. Review four, 15;
@@ -892,13 +1090,32 @@ export class GroundPaint {
       this.queueDirty(m);
     }
     this.bands.length = 0;
+    const qa = this.uploadQa;
+    qa.calls = qa.bytes = qa.regionCalls = qa.regionBytes = 0;
     if (!this.dirty.length) return;
     const gl = renderer.getContext() as WebGL2RenderingContext;
     for (let k = 0; k < this.dirty.length; k++) {
       const m = this.dirty[k];
       m.dirty = false;
-      if (m.x0 > m.x1 || m.gone) continue;
-      if (!uploadRect(renderer, m.tex, m.x0, m.z0, m.x1 - m.x0 + 1, m.z1 - m.z0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, 4)) m.tex.needsUpdate = true;
+      if (m.gone) continue;
+      // (Release A, 1a: and to its slot in its region's mask, one call of its own: a dirty tile slot a frame, today's calls and bytes. Its whole slot as it's
+      // linked, the region's texture made by then)
+      if (m.reg && (m.regAll || m.x0 <= m.x1) && !this.regionNoFill) {
+        const r = m.reg, all = m.regAll;
+        const x0 = all ? 0 : m.x0, z0 = all ? 0 : m.z0, w = all ? GROUND_N : m.x1 - m.x0 + 1, h = all ? GROUND_N : m.z1 - m.z0 + 1;
+        const props = renderer.properties.get(r.tex!) as { __webglTexture?: WebGLTexture };
+        if (!props.__webglTexture) renderer.initTexture(r.tex!);
+        uploadRectFrom(renderer, r.tex!, m.ri * GROUND_N + x0, m.rj * GROUND_N + z0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 4, m.data, GROUND_N, x0, z0);
+        qa.regionCalls++;
+        qa.regionBytes += w * h * 4;
+      }
+      m.regAll = false;
+      if (m.x0 > m.x1) continue;
+      if (m.tex) {
+        if (!uploadRect(renderer, m.tex, m.x0, m.z0, m.x1 - m.x0 + 1, m.z1 - m.z0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, 4)) m.tex.needsUpdate = true;
+        qa.calls++;
+        qa.bytes += (m.x1 - m.x0 + 1) * (m.z1 - m.z0 + 1) * 4;
+      }
       m.x0 = GROUND_N;
       m.z0 = GROUND_N;
       m.x1 = -1;
@@ -1364,16 +1581,15 @@ export class GroundPaint {
     const t = this.loaded.get(key);
     if (!t) return null;
     const data = new Uint8Array(TEXELS * 4);
-    const tex = new THREE.DataTexture(data, GROUND_N, GROUND_N, THREE.RGBAFormat, THREE.UnsignedByteType);
-    tex.minFilter = tex.magFilter = THREE.NearestFilter;
-    tex.generateMipmaps = false;
-    tex.needsUpdate = true;
-    m = { ox: t.ox, oz: t.oz, data, tex, dirty: false, gone: false, x0: GROUND_N, z0: GROUND_N, x1: -1, z1: -1, uniforms: t.uniforms };
+    // (a texture of its own only while it has ground of its own: in a coarse region it shows in the region's mask. Release A, 1a)
+    const tex = t.uniforms ? this.ownTexture(data) : null;
+    m = { ox: t.ox, oz: t.oz, data, tex, reg: null, ri: 0, rj: 0, regAll: false, dirty: false, gone: false, x0: GROUND_N, z0: GROUND_N, x1: -1, z1: -1, uniforms: t.uniforms };
     this.masks.set(key, m);
-    if (t.uniforms) {
+    if (t.uniforms && tex) {
       t.uniforms.tGround.value = tex;
       t.uniforms.uGroundOn.value = 1;
     }
+    if (t.reg) this.linkRegion(m, t);
     return m;
   }
 

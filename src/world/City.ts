@@ -534,6 +534,14 @@ export class City {
   private regionMeshes = new Map<string, RegionMesh>();
   /** tiles that keep their own ground mesh even inside a coarse region (see setOwnGround) */
   private ownGround = new Set<string>();
+  /**
+   * Release A, 1a (?rmask=1; config.city.regionPaint): a coarse region's tiles show their paint in one mask of the region's (GroundPaint.attachRegion), not
+   * through ground of their own. Off (?rmask=0, and on the Moon until it takes it) is the split ground as it was. 'nofill' and 'noclamp' are QA's broken
+   * variants, a row's proof it can fail: masks made and never filled; the paint looked up over the whole region, not clamped to its tile.
+   */
+  readonly rmask: false | 'on' | 'nofill' | 'noclamp';
+  /** Release A, 1a: coarse regions whose tiles show in their region's mask (regionViewsOn) */
+  private readonly regionViews = new Set<string>();
   /** San Francisco (the mesher's icons and HIDDEN tables, and hidden footprints in the refs, apply) */
   private readonly sf: boolean;
   /** hand-built props whose own surface replaces hidden footprints in the obstacle grid (setPropObstacles) */
@@ -570,6 +578,13 @@ export class City {
     paintUniforms.uPaint.value = this.paint.texture;
     paintUniforms.uPaintW.value = this.paint.width;
     this.regionSize = manifest.regionSize;
+    {
+      const v = new URLSearchParams(location.search).get('rmask') ?? (config.city.regionPaint ? '1' : '0');
+      // (a region's mask flags its tiles in a mat4: 4 x 4 tiles, as every city's data and the Moon have them)
+      if (v !== '0' && manifest.regionSize > 4) console.warn(`?rmask: regions of ${manifest.regionSize} tiles a side, past 4: the mask stays off`);
+      this.rmask = v === '0' || moon || manifest.regionSize > 4 ? false : v === 'nofill' ? 'nofill' : v === 'noclamp' ? 'noclamp' : 'on';
+      this.ground.regionNoFill = this.rmask === 'nofill';
+    }
     this.ext = (manifest as { binExt?: string }).binExt ?? '.bin';
     for (const [rx, rz] of manifest.regions) this.regionAvailable.add(`${rx},${rz}`);
     if (moon) moon.listen((m) => this.onRegion(m));
@@ -1312,7 +1327,8 @@ export class City {
 
   /** A coarse region's two meshes: its merged buildings and its ground (one grid, one class texture). */
   private buildRegionMesh(key: string, msg: RegionResponse, swap = false) {
-    this.disposeRegionMesh(key);
+    // (a coarse region built again keeps its tiles shown in its mask: none is saved, dropped and decoded again)
+    this.disposeRegionMesh(key, true);
     const merged = msg.merged ?? null;
     // (coarse buildings are their own sun-pass casters: one quad per wall already)
     const rm: RegionMesh = { buildings: merged ? this.makeBuildingMesh(merged, msg.mergedSphere ?? null, true) : null, terrain: null, classTex: null, hidden: false };
@@ -1347,6 +1363,8 @@ export class City {
     let any = false;
     /** (?moon: a coarse region's one map comes with any of its tiles) */
     let moonTile: TerrainTile | null = null;
+    // (Release A, 1a: every tile shown in the region's mask before any loses ground of its own, so its mask, and a blast in the air over it, live on)
+    if (this.rmask) this.regionViewsOn(key);
     for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
       for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
         const lt = this.tiles.get(`${tx},${tz}`);
@@ -1354,6 +1372,7 @@ export class City {
         if (!lt || !tr) continue;
         this.setMask(tx, tz, 255);
         if (this.ground.hasSaved(tx, tz)) this.ownGround.add(`${tx},${tz}`);
+        if (this.rmask && this.ownGround.has(`${tx},${tz}`)) this.ground.flagRegionTile(tx, tz);
         if (this.ownGround.has(`${tx},${tz}`)) {
           // its own ground (painted: ground paint attaches per tile), if this frame has a split left; else merged once more, and the region comes up again. A swap to
           // coarse splits all its own: it is the frame's whole budget already, and a painted region going coarse showed its other tiles bare till their splits came,
@@ -1429,6 +1448,7 @@ export class City {
     if (own === this.ownGround.has(k)) return;
     if (own) this.ownGround.add(k);
     else this.ownGround.delete(k);
+    if (own && this.rmask) this.ground.flagRegionTile(tx, tz);
     // (its region's ground is made again in this frame's update, once, however many of its tiles changed: a MEGA's 43 tiles made the same regions again and again in one frame. The third review)
     const rs = this.regionSize;
     this.groundStale.add(`${Math.floor(tx / rs)},${Math.floor(tz / rs)}`);
@@ -1438,7 +1458,34 @@ export class City {
   private readonly groundStale = new Set<string>();
   private splitsLeft = SPLITS;
 
-  private disposeRegionMesh(key: string) {
+  /** Release A, 1a: coarse region `key`'s tiles shown in its mask (each once; a tile already shown there is left as it is). */
+  private regionViewsOn(key: string) {
+    const [rx, rz] = key.split(',').map(Number);
+    const rs = this.regionSize;
+    if (!this.regionViews.has(key)) {
+      this.ground.regionUniforms(rx, rz, rs);
+      this.regionViews.add(key);
+    }
+    for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
+      for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
+        const tr = this.tiles.get(`${tx},${tz}`)?.terrainData;
+        if (!tr) continue;
+        this.ground.attachRegion(tx, tz, tr.originX, tr.originZ, rx, rz);
+        if (this.ownGround.has(`${tx},${tz}`)) this.ground.flagRegionTile(tx, tz);
+      }
+  }
+
+  /** Release A, 1a: coarse region `key`'s tiles no longer shown in its mask (a tile with no ground of its own saves and drops its mask), and the mask freed. */
+  private regionViewsOff(key: string) {
+    if (!this.regionViews.delete(key)) return;
+    const [rx, rz] = key.split(',').map(Number);
+    const rs = this.regionSize;
+    for (let tz = rz * rs; tz < (rz + 1) * rs; tz++) for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) this.ground.detachRegion(tx, tz);
+    this.ground.releaseRegion(rx, rz);
+  }
+
+  private disposeRegionMesh(key: string, keepViews = false) {
+    if (!keepViews) this.regionViewsOff(key);
     const rm = this.regionMeshes.get(key);
     if (!rm) return;
     this.regionMeshes.delete(key);
@@ -1457,6 +1504,8 @@ export class City {
   /** Switch an adopted region to its other level of detail in one go (no holes in between). */
   private swapRegion(key: string, msg: RegionResponse) {
     if (msg.lod === 1) {
+      // (Release A, 1a: its tiles shown in the region's mask before their own ground goes: their masks live on)
+      if (this.rmask) this.regionViewsOn(key);
       // (same frame: the tiles' meshes go and the region's arrive, no holes in between)
       for (const k of this.tileKeysOf(key)) {
         const lt = this.tiles.get(k);
