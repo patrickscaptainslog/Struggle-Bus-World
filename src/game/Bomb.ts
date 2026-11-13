@@ -287,11 +287,12 @@ export class Bomb implements BombHook {
     const R = this.ring;
     R.k = this.ringK;
     if (T >= 2) {
-      // (at Nonstop and faster where the Comet would land, ahead in view: Comet.ts's plan this frame, the shot Aimer.fire hands over)
-      const P = A.planned;
-      R.x = P ? P.x : A.aim.x;
-      R.z = P ? P.z : A.aim.z;
-      R.r = blastRadiusFor(P ? P.drop : A.aim.drop) * (T >= 3 ? B.radius3 : B.radius2);
+      // (at Nonstop and faster where the Comet would land, ahead in view: Comet.ts's plan this frame, the shot Aimer.fire hands over; under a far one, which
+      // no Bomb takes, the aim's own)
+      const P = A.planned, own = A.ownAim;
+      R.x = P ? P.x : own.x;
+      R.z = P ? P.z : own.z;
+      R.r = blastRadiusFor(P ? P.drop : own.drop) * (T >= 3 ? B.radius3 : B.radius2);
     }
     this.beatK *= Math.exp(-dt * 9);
     R.pulse = T >= 3 ? this.beatK : 0;

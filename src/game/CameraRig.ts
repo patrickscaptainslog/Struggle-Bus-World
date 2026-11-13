@@ -225,6 +225,13 @@ export class CameraRig {
     this.elev = config.camera.elevationCruise;
   }
 
+  /** The sims' placed pose (s_shots): the lens as a climb to h m over the ground leaves it, its vista and its height, where only the yoke moves them. */
+  settleAt(h: number) {
+    const C = config.camera;
+    this.lensHeight = this.lensTarget = h;
+    this.vista = this.vistaTarget = smooth01(C.vistaStart, Math.max(C.vistaStart + 1, C.vistaFull), h);
+  }
+
   update(cam: THREE.PerspectiveCamera, focusOut: THREE.Vector3, f: Flight, dt: number) {
     const C = config.camera;
     const F = config.flight;

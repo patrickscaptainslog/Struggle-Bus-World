@@ -802,28 +802,40 @@ export const config = {
   comet: {
     /** A gear driving the bus at this or more (m/s): Nonstop engaged, Jet, Turbo 1-3. */
     speed: 225,
-    /** Its flight after the inhale (s), and its arc's top over its chord (share of the chord), lowered to `arcMin` where its top would leave the frame: by the
-     *  lens moved on to its flight's middle, over `apexTop` of the frame (NDC, 1 its top edge). */
-    flight: 0.6,
-    arc: 0.17,
+    /** Its flight after the inhale (s): as long as the reach allows, `flightMin` to `flight`, so it still lands where the bus will be `pass` s after the
+     *  impact (Comet.ts). Where the reach doesn't bind, a longer flight costs nothing: the landing and the lens moved on both go out by the bus's travel, and
+     *  the star is up ahead of the bus longer; at Turbo 3 near the roofs it binds, and a full second landed the hit 855-890 m ahead, not 1,270.
+     *  Its arc's top over its chord (share of the chord), lowered to `arcMin` where its top would leave the frame: by the lens moved on to its flight's
+     *  middle, over `apexTop` of the frame (NDC, 1 its top edge). */
+    flight: 1.0,
+    flightMin: 0.6,
+    arc: 0.22,
     arcMin: 0.06,
     apexTop: 0.8,
-    /** It lands this far off the bus's line (m), the side swapping with each Comet, on a building within `sidePick` of there (or of the other side's, or
-     *  of the line, where there's none; with none at all, on the ground): inside the splat and the drops' reach, never a beam out of the bus. */
-    side: 34,
+    /** It lands on the bus's own line, on the building whose landing is within `sidePick` of it (else the ground there): "I want this shot to soar
+     *  essentially directly in front of me, even when I'm traveling very fast" (the producer, 2026-11-12). `side` m off the line was the old way (34: never
+     *  a beam out of the bus). At its flight's middle its star stands `bow` of its chord to one side, the side swapping with each Comet: from behind, an
+     *  arc in the plane through the lens draws as a straight line up the screen, however high it climbs, and the bow makes it read as a curve. */
+    side: 0,
     sidePick: 12,
+    bow: 0.009,
     /** The ground standing more than this over the lens's line to the landing hides it (m): it lands on the ridge. */
     hide: 4,
     /** It lands where the bus will be this long after the impact (s)... */
     pass: 1.5,
-    /** ...at most this far from the tap (m): config.city.loadRadiusHigh, how far the city loads. */
+    /** ...at most this far from the tap (m), or farther up high, to where the city is loaded (shotReach): this is the least it reaches. */
     reach: 1900,
     /** Up high a far shot reaches to where the city is loaded (Comet.ts's shotReach): to this short of the edge of what City.request loads (m). */
     loadMargin: 100,
     /** By this frame's lens moved on by the bus's travel to the impact it lands at least this share of the height above the bus; where it doesn't it
-     *  moves out along its line `outStep` m at a time, and where it never does by `reach` the tap is the classic shot. */
+     *  moves out along its line `outStep` m at a time, and where it never does by the reach it's the far Comet: it lands at the reach, on the loaded edge,
+     *  with no in-view rule, and the view dips after it (config.shotView). From high up nothing that can take paint shows over the bus. Its flight is
+     *  `flightHigh` s at most, `fallPerKm` s longer each km the bus is over 1 km above its landing. A nearer stretch takes over from the one held where it shows `aboveNew`. */
     above: 0.03,
+    aboveNew: 0.04,
     outStep: 20,
+    flightHigh: 2.0,
+    fallPerKm: 0.1,
     /** A wall standing into the arc less than this many s of the bus's travel ahead of it at the impact is lobbed over: the arc tops out higher, up to
      *  `arcMax` of the chord. Farther, it takes the Comet on its face. */
     wallAhead: 0.5,
@@ -846,18 +858,25 @@ export const config = {
     fadeLight: 1.2,
     pillarRadius: 20,
     pillarPx: 2.5,
+    /** A far shot's pillar (a far Comet's, a far Lob's) is at least this many game px tall on the screen at its hit: from 15 km the 200 m pillar was 7. */
+    pillarTall: 60,
     pillarNear: 35,
     pillarWhole: 110,
     /** The impact: a white-hot core over this radius at the landing (m, its share of the screen as far off as it is), held `flashFrames` rendered frames
      *  and never reaching the bus on the screen; a ring of `ring` motes of paint racing out over the roofs to the blast's edge (the lighter show half). */
     flashCore: 34,
     flashFrames: 3,
+    /** ...never under this radius (game px): a far one's 34 m is a pixel or two. */
+    flashPx: 6,
     ring: 64,
     /** Into the water: a splash of `splash` motes thrown up to about `splashUp` m and a soft boom (the lighter show half); it doesn't use up the full show. */
     splash: 220,
     splashUp: 70,
-    /** Motes in the streak (the lighter one half of them), and in the crown. */
+    /** Motes in the streak (the lighter one half of them), and in the crown. A Comet's and a far Lob's streak: the head never under `headPx` game px across
+     *  on the screen, the first mote 3, the rest `streakPx` (CometFx.ts's streakSizes): a 3.4 m mote is under a pixel 2.75 km off. */
     motes: 400,
+    headPx: 5,
+    streakPx: 2,
     crown: 420,
     /** The bus within this of the pillar's axis (m), under its top: this many drops splat on the lens, run and fade in `dropLife` s (the full show). */
     lensReach: 50,
@@ -866,6 +885,8 @@ export const config = {
     dropLife: 0.5,
     /** The boom comes when its sound would reach the bus (m/s, with the bus flying into it); the camera's kick then (m), the lighter one's. */
     sound: 343,
+    /** A far one's boom comes at most this long after the impact (s): from 2.75 km the sound is 8 s. */
+    boomLate: 1.2,
     kick: 3.2,
     kickLight: 1.2,
   },

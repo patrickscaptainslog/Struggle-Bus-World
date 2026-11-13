@@ -160,9 +160,15 @@ export class Aimer {
 
   constructor(private readonly city: City, private readonly splatter: Splatter) {}
 
-  /** The Comet or the Lob a tap now fires (planned this frame; a Lob's has kind 'lob'), or null: the classic shot. */
+  /** The Comet or the Lob a tap now fires (planned this frame; a Lob's has kind 'lob'), or null: the classic shot. While a Bomb charges, never a far one:
+   *  the Bomb takes the aim's own, and its ring shows there (fire). */
   get planned(): CometPlan | null {
-    return this.cometPlan;
+    return this.bombing && this.cometPlan?.far ? null : this.cometPlan;
+  }
+
+  /** Where the aim's own shot lands (under a Comet or a Lob planned, what it was before they took the aim): a Bomb's ring on a far plan (Bomb.ts). */
+  get ownAim(): { x: number; z: number; drop: number } {
+    return this.cometPlan ? this.aimOwnPt : this.aim;
   }
 
   /** The Lob a tap now throws (planned this frame), or null: its ring shows where it lands (main.ts). */
@@ -577,15 +583,16 @@ export class Aimer {
    *  mover off a floor (a plane glinting): the building, as its ring showed. */
   fire(f: Flight, bomb = false): Shot {
     // (the tap's shot is chosen in one place, Comet.ts's chooseShot, every frame: what this frame planned and glints. A Bomb never lobs: where the Lob won,
-    // its shot is the Comet's, or the aim's own under them)
+    // its shot is the Comet's, or the aim's own under them. Nor does it take a far Comet: from 15 km one would land 2.75 km ahead, a new thing nobody asked
+    // for, and "the Bomb must not change")
     this.cometFired = this.lobFired = false;
     if (this.comet && this.cometPlan) {
-      if (!this.lobbing) {
+      if (!this.lobbing && !(bomb && this.cometPlan.far)) {
         this.cometFired = true;
         return this.comet.shotOf(this.cometPlan);
       }
       if (!bomb) return this.lobShot(this.cometPlan);
-      if (this.cometOnly) {
+      if (this.cometOnly && !this.cometOnly.far) {
         this.cometFired = true;
         return this.comet.shotOf(this.cometOnly);
       }

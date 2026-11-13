@@ -739,7 +739,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         cometBus.set(flight.x, flight.y, flight.z).project(camera);
         const gap = Math.hypot((flashPos.x - cometBus.x) * 0.5 * camera.aspect, (flashPos.y - cometBus.y) * 0.5);
         const core = Math.min((C.flashCore * camera.projectionMatrix.elements[5]) / (2 * Math.max(1, camera.position.distanceTo(b.pos))), 0.2 * gap);
-        pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, C.flashFrames, -S.flashStrength, Math.max(0.006, core));
+        // (never under config.comet.flashPx game px: from high up a far one's 34 m is a pixel or two)
+        pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, C.flashFrames, -S.flashStrength, Math.max(C.flashPx / 852, core));
       } else pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, S.flashFrames, S.flashStrength);
       if (!b.comet) rig.kick(S.kick * Math.sqrt(k));
       bumpPaint(b.spec.x, b.spec.z, Math.min(255, 30 + 5 * b.count));
