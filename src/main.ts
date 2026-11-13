@@ -17,7 +17,7 @@ import { crew } from './game/crew';
 import { FACTIONS } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
-import { clearReturn, flushReturn, noteReturn, notesReturn, OPENING_SEEN_KEY, readReturn, type ReturnInput, type ReturnStart } from './game/Return';
+import { clearReturn, flushReturn, noteReturn, notesReturn, OPENING_SEEN_KEY, readReturn, returnTune, type ReturnInput, type ReturnStart } from './game/Return';
 import { ownerOf } from './game/factions';
 import { arrival, blastRadiusFor, blobFlight, groundDeadline, LAYOUT_BANDS, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
@@ -245,6 +245,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // and lifted over the roofs as they land, with no Golden Gate. Not on a page that boots somewhere of its own, a link that says where, or a first visit
   const returnStart: ReturnStart = readReturn({ slug: manifest.slug, params, elsewhere: !!moon || !!land || !!resumed || earthFly || liftPlaced, manifest: manifest as unknown as ReturnInput['manifest'], paint: city.paint });
   const returned = returnStart.pose !== null;
+  /** the paint a return start faces, and the start's own height (the hold works from it each frame, as the tiles land) */
+  const returnP = returnStart.pose ? returnStart.p : null;
+  const returnY = returnStart.pose ? returnStart.pose.y : 0;
   if (returnStart.pose) {
     flight.x = returnStart.pose.x;
     flight.z = returnStart.pose.z;
@@ -1847,12 +1850,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     curbStick.dragging = dragging || leaving || sx !== st.stretch.x;
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
     // (a return start: held at its pose until the fog is done, and each held frame over the highest roof at the bus and 30 m ahead and to each side, so a
-    // start that was low is above the tiles landing round it while the fog still hides it. Then it flies as any ?lat start does)
+    // start that was low is above the tiles landing round it while the fog still hides it, and one from high up no more than returnTune.over over the
+    // paint's roof, where the lens still frames it: from its own height each frame, so a roof that lands late under P moves it, unseen. Then it flies
+    // as any ?lat start does)
     if (returnHold && opening >= config.fog.openingDuration) returnHold = false;
     if (returnHold) {
       const ax = flight.fx * 30, az = flight.fz * 30;
       const top = Math.max(city.obstacleAt(flight.x, flight.z), city.obstacleAt(flight.x + ax, flight.z + az), city.obstacleAt(flight.x - az, flight.z + ax), city.obstacleAt(flight.x + az, flight.z - ax));
-      flight.y = Math.max(flight.y, top + config.flight.clearance);
+      const most = returnP ? city.obstacleAt(returnP.x, returnP.z) + returnTune.over : Infinity;
+      flight.y = Math.max(Math.min(returnY, most), top + config.flight.clearance);
     } else if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x }, city);
     curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);

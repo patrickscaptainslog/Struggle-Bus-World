@@ -22,12 +22,15 @@ export const returnTune = {
    *  once the hold lifts it over the towers, and the start is `back` m before P instead. 100 m frames P in 25-65 % of the height with up to 57 m of drop
    *  from the bus to the paint (an ESTIMATE from the lens's numbers; the return visit's checks measure it) */
   ahead: 100,
+  /** and is held no higher than this many m over the paint's roof (main.ts, the hold): a record from high up, a Comet's or a Lob's from 400 m, left P
+   *  under the lens's bottom edge (the return visit's --high: P at 115 % of the frame's height). An ESTIMATE, from `ahead`'s 57 m */
+  over: 60,
   /** a start stays this many m inside the map's bounds */
   inset: 400,
   /** and this many m from every bridge's line (a landmark with points): an ESTIMATE */
   bridgeClear: 250,
 };
-registerTunables('Return', returnTune, { back: [50, 600, 10], near: [50, 1500, 10], ahead: [0, 400, 10], inset: [0, 1000, 10], bridgeClear: [0, 800, 10] });
+registerTunables('Return', returnTune, { back: [50, 600, 10], near: [50, 1500, 10], ahead: [0, 400, 10], over: [20, 400, 10], inset: [0, 1000, 10], bridgeClear: [0, 800, 10] });
 
 /** links that start where they say, or aren't the saved city: none gets a return start, and recess and swerve (their own boots) write none either */
 const NO_START = ['lat', 'lon', 'heading', 'skipintro', 'openingshot', 'noreturn', 'recess', 'swerve'];

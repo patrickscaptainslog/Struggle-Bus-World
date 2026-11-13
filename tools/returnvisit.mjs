@@ -21,6 +21,7 @@
 // --budget: (9)'s record, a reload into the return start, 5 s of flight after the fog, then 20 s: __stats.callsMax at most 200, trisMax at most 1.5 M,
 // no page error (the first 5 s's peaks, which hold the fog's and the load's frames, printed apart; and the same downtown from its ?lat start beside it);
 // then a Comet at Nonstop onto a downtown tower on a fresh page: __stats.hitMs over 0 after its impact
+// --high: (9)'s record with the bus 400 m up (a shot from high: a Comet's, a Lob's), a reload: after the fog P projects at 25-65 % of the frame's height
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -30,6 +31,7 @@ const pos = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--ref'
 const [url = 'http://127.0.0.1:4173/', out = 'shots/tmp/returnvisit'] = pos;
 const ref = args.includes('--ref') ? args[args.indexOf('--ref') + 1] : null;
 const budget = args.includes('--budget');
+const high = args.includes('--high');
 mkdirSync(out, { recursive: true });
 const T = '&t=2026-11-07T00:22:00Z&rate=0';
 const SEEN = 'strugglebus.opening.v1';
@@ -223,6 +225,29 @@ if (budget) {
   ok(!!c?.comet && c.target !== null && !c.miss, `budget: a tap at ${hit.gear} is a Comet onto a building (${c ? `comet ${!!c.comet}, target ${c.target?.index ?? null}, miss ${!!c.miss}` : 'no shot'})`);
   ok(hit.hitMs > 0, `budget: __stats.hitMs after the Comet's impact over 0 (${hit.hitMs})`);
   ok(errors.length === 0, `budget: no page error (${errors.length}${errors.length ? ': ' + errors[0] : ''})`);
+} else if (high) {
+  // ---- --high: (9)'s downtown record, its bus 400 m up, the return start; P after the fog
+  await load(page, `?lat=37.7935&lon=-122.4000&heading=90&skipintro&noreturn${T}`, 'ready');
+  await page.evaluate(HELPERS);
+  await page.evaluate((k) => localStorage.setItem(k, '1'), SEEN);
+  const s = await shoot(page, cdp);
+  await page.evaluate(() => window.__game.city.paint.persist());
+  const rec = await page.evaluate(() => window.__rec());
+  ok(!!s && !!rec, `high: a downtown tap stored a record (${JSON.stringify(rec)})`);
+  if (rec) {
+    const before = [...rec];
+    rec[2] = 400;
+    await setRec(page, rec);
+    const L = await load(page, Q);
+    await page.evaluate(HELPERS);
+    ok(!!L.start?.pose, `high: a record at 400 m: a return start (${L.start?.which ?? L.start?.why}, at ${L.start?.pose?.y ?? '-'} m)`);
+    const fog = await afterFog(page);
+    const pr = await project(page, rec[4], rec[5]);
+    R.high = { stored: before, start: L.start, afterFog: fog.first, project: pr };
+    ok(pr.inFrame && pr.fromTop >= 0.25 && pr.fromTop <= 0.65, `high: P projects at 25-65 % of the frame's height (${(pr.fromTop * 100).toFixed(1)} %, in frame ${pr.inFrame}; the bus ${fog.first.y.toFixed(1)} m)`);
+    await page.screenshot({ path: `${out}/15-high.png` });
+  }
+  ok(errors.length === 0, `high: no page error (${errors.length}${errors.length ? ': ' + errors[0] : ''})`);
 } else {
   // ---- (1) a first visit through the Golden Gate, a real tap after the gate, the record after the paint's save
   await throttle(cdp, true);
@@ -451,7 +476,7 @@ if (budget) {
 }
 await ctx.close();
 
-if (!budget) {
+if (!budget && !high) {
   // ---- (5) a fresh context with the opening marked seen only: the Golden Gate, frame 1 as the ref's
   const seen = (k) => localStorage.setItem(k, '1');
   const first5 = async (base) => {
@@ -488,6 +513,6 @@ if (!budget) {
   ok(errors.length === 0, `no page error in any case (${errors.length}${errors.length ? ': ' + errors[0] : ''})`);
 }
 await browser.close();
-writeFileSync(`${out}/${budget ? 'budget' : 'returnvisit'}.json`, JSON.stringify(R, null, 1));
+writeFileSync(`${out}/${budget ? 'budget' : high ? 'high' : 'returnvisit'}.json`, JSON.stringify(R, null, 1));
 console.log(fails.length ? `RETURNVISIT FAILED ${fails.length}:\n  ${fails.join('\n  ')}` : `returnvisit: all passed`);
 process.exit(fails.length ? 1 : 0);
