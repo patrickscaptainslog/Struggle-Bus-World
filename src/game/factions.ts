@@ -12,7 +12,9 @@
 // the flight, which has no Splatter). Rainbow in both until a player can join another (decision 15): whoever builds that sets both, or gives them one
 // source then, with the player's faction saved.
 //
-// No three.js and no DOM: the stores' Node checks and life's worker can read it.
+// No three.js and no DOM: the stores' Node checks and life's worker can read it. (The palette's import is a type's, gone at run time.)
+
+import type { Ramp } from '../render/palette';
 
 export const FACTION_NONE = 0;
 export const FACTION_RAINBOW = 1;
@@ -21,13 +23,18 @@ export const FACTION_ELDERWOOD = 3;
 export const FACTION_HYPERGLOW = 4;
 export const FACTION_INFERNO = 5;
 
-/** The five, by number (FACTIONS[id - 1]): a short key for code and files, and the name a player reads. */
-export const FACTIONS: ReadonlyArray<{ readonly id: number; readonly key: string; readonly name: string }> = [
-  { id: FACTION_RAINBOW, key: 'rainbow', name: 'Team Super Rainbow' },
-  { id: FACTION_ATLANTIS, key: 'atlantis', name: 'Atlantis' },
-  { id: FACTION_ELDERWOOD, key: 'elderwood', name: 'The Elderwood' },
-  { id: FACTION_HYPERGLOW, key: 'hyperglow', name: 'Hyperglow' },
-  { id: FACTION_INFERNO, key: 'inferno', name: 'Inferno' },
+/**
+ * The five, by number (FACTIONS[id - 1]): a short key for code and files, the name a player reads, and `bus`, the palette row its bus's body wears: what
+ * was school-bus yellow on the model takes it, and nothing else does (stripes, glass, wheels, lights, the stop arm). The one table of it: the player's bus
+ * on a page with the faction button (game/crewBus.ts), and the rival crews' buses (the rivals' own copy, rivalsBoot's BODY, has the same rows). Rainbow's
+ * is the yellow the bus always had.
+ */
+export const FACTIONS: ReadonlyArray<{ readonly id: number; readonly key: string; readonly name: string; readonly bus: keyof typeof Ramp }> = [
+  { id: FACTION_RAINBOW, key: 'rainbow', name: 'Team Super Rainbow', bus: 'BUS_YELLOW' },
+  { id: FACTION_ATLANTIS, key: 'atlantis', name: 'Atlantis', bus: 'TEAL' },
+  { id: FACTION_ELDERWOOD, key: 'elderwood', name: 'The Elderwood', bus: 'MOSS' },
+  { id: FACTION_HYPERGLOW, key: 'hyperglow', name: 'Hyperglow', bus: 'MAGENTA' },
+  { id: FACTION_INFERNO, key: 'inferno', name: 'Inferno', bus: 'CRIMSON' },
 ];
 
 /** The highest faction's number. */
