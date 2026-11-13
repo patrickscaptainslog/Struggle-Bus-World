@@ -256,8 +256,8 @@ export const config = {
     /** How far around the stream center regions load up high (m); LOAD_RADIUS at the floor. ?loadr= overrides it. */
     loadRadiusHigh: 1900,
     /** Release A, 1a: a coarse region's painted tiles show in one paint mask of the region's, not each through ground of its own (?rmask=1 / ?rmask=0
-     *  override it). Off until the region's ground reads it everywhere, the Moon's too */
-    regionPaint: false,
+     *  override it; ?rmask=0 is the split ground as it was, pixel for pixel). A painted tile there costs no draw and no ground of its own */
+    regionPaint: true,
   },
 
   camera: {

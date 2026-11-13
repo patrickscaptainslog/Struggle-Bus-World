@@ -328,6 +328,9 @@ export class GroundPaint {
   regionNoFill = false;
   /** QA: paint uploads in the last flush, to tiles' own textures and to region masks: calls and bytes */
   readonly uploadQa = { calls: 0, bytes: 0, regionCalls: 0, regionBytes: 0 };
+  /** Release A, 1a: whole tile slots queued for region masks since the start, in bytes (a tile shown in a region goes up whole once): the city counts what an
+   *  adoption adds to it in that frame's upload budget */
+  fillBytes = 0;
   /** what storage holds, by tile key (mirrored in memory so a tile decodes with no storage read) */
   private readonly store = new Map<string, SavedTile>();
   private storageOk = false;
@@ -729,6 +732,7 @@ export class GroundPaint {
       r.uniforms.tGround.value = tex;
       r.uniforms.uGroundOn.value = 1;
     }
+    if (!m.regAll) this.fillBytes += GROUND_N * GROUND_N * 4;
     m.regAll = true;
     this.queueDirty(m);
   }

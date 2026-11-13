@@ -1092,7 +1092,8 @@ export class City {
     // (a few tiles split out of the merged ground a frame, SPLITS of them: a MEGA's let-go made its 43-49 tiles' ground in one frame, 17-25 ms. The rest stay merged, their
     // regions made again on the frames after, all of it inside the breath's flight, and their masks are drawn into either way. Review four, 4)
     this.splitsLeft = SPLITS;
-    if (this.groundStale.size) {
+    // (with the region's paint mask nothing is split and no region is made again for paint: Release A, 1a)
+    if (!this.rmask && this.groundStale.size) {
       const stale = [...this.groundStale];
       this.groundStale.clear();
       for (const rkey of stale) {
@@ -1134,6 +1135,8 @@ export class City {
       n++;
       if (!this.regionsLoaded.has(a.key)) continue; // unloaded while queued
       bytes += a.bytes;
+      // (and a coarse region's painted tiles' whole slots in its paint mask, which go up in this frame's flush: 64 KB each. Release A, 1a)
+      const fill = this.ground.fillBytes;
       if (a.kind === 'tile') {
         this.addTile(a.t, a.coarse);
         this.loadedMask.needsUpdate = true;
@@ -1143,6 +1146,7 @@ export class City {
         this.swapRegion(a.key, a.msg);
         if (!this.eager) break; // (a swap happens all at once: it is this frame's whole budget)
       }
+      bytes += this.ground.fillBytes - fill;
     }
     this.farBlocksFrame();
     if (this.pools) this.poolFrame(renderer);
