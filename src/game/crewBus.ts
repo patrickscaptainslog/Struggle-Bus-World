@@ -21,6 +21,8 @@ import { FACTION_RAINBOW, FACTIONS } from './factions';
 /** a switch's flood, nose to tail (s), and its steps */
 const SWEEP = 0.5;
 const STEPS = 30;
+/** a bus not framed for this long (ms) isn't on screen (the page's other bus has the frame: the flight's, above 15 km): a switch then is taken at once */
+const UNSEEN_MS = 300;
 
 /** What the rivals show of a hit on the player's bus (rivalsBoot's RivalsGame: counts, out, and rivalScreen's flood and drain times). */
 export interface RivalsSeen {
@@ -54,6 +56,8 @@ export class CrewBus {
   private wasOut = false;
   private shown = -1;
   private version = -1;
+  /** the wall clock (ms) of the last frame() */
+  private framedAt = -Infinity;
   /** how many times the attribute was written (QA) */
   writes = 0;
 
@@ -77,12 +81,13 @@ export class CrewBus {
     this.zMax = hi;
   }
 
-  /** The crew: flooded in from the next frame on (`now`: at once, as a page starts with its pick). */
+  /** The crew: flooded in from the next frame on (`now`: at once, as a page starts with its pick, and so while nobody sees this bus: no flood waits for
+   *  the next hand-over, to replay there from the old colours). */
   set(faction: number, now = false): void {
     this.faction = faction;
     this.to = busBodyOf(faction);
     this.from.set(this.mine);
-    this.at = now ? -Infinity : NaN;
+    this.at = now || performance.now() - this.framedAt > UNSEEN_MS ? -Infinity : NaN;
     this.shown = -1;
   }
 
@@ -90,6 +95,7 @@ export class CrewBus {
   frame(t: number, rivals: RivalsSeen | null = null): void {
     const prev = this.now;
     this.now = t;
+    this.framedAt = performance.now();
     if (Number.isNaN(this.at)) this.at = t;
     // (a rival's flood: a new hit began one by the last frame (a shell's lands before the rivals' frame, and the front here must never be behind theirs:
     // behind it, a Rainbow hitter's yellow would be written over and stay so), the throw's end starts its drain 0.4 s on, as rivalsBoot's hitFx)
