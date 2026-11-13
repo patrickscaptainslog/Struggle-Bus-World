@@ -9,7 +9,8 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 // Each run is the crew's paint (render/factionLook.ts: the rows its shots and gardens use), dark to bright, and it never starts on its body's row (FACTIONS'
 // `bus`), so the band stands off the body from the first slice: a crimson band on a crimson body says nothing. Where a body's row comes back further up a
 // run, it's at a glint step the body never shows.
-//   Atlantis (body TEAL): the marble's lilac shadow, pearl, then the sea's foam and white foam. Its deep sea is TEAL's own dark steps, the body's row.
+//   Atlantis (body TEAL): the marble's lilac shadow up to pearl white, then the sea's foam and white foam (never WHITE: lit, it is the white-hot of a
+//   super's charge). Its deep sea is TEAL's own dark steps, the body's row.
 //   The Elderwood (body MOSS): violet caps at dusk, then firefly lime and lantern gold. Its deep moss is the body's own row.
 //   Hyperglow (body MAGENTA): cyan neon, lavender chrome, then silver: away from the magenta.
 //   Inferno (body CRIMSON): the black glass's violet sheen, red-hot, flame orange, then gold. Its crimson is the body's own row.
@@ -24,7 +25,7 @@ export type GaugeRun = readonly GaugeStop[];
 const STEP = 0.15;
 const run = (...s: [number, number][]): GaugeRun => s.map(([ramp, steps]) => ({ ramp, lift: steps * STEP }));
 
-const { PEARL, TEAL, WHITE, VIOLET, MOSS, YELLOW, CYAN, CHROME, OBSIDIAN, RED, ORANGE } = Ramp;
+const { PEARL, TEAL, VIOLET, MOSS, YELLOW, CYAN, CHROME, OBSIDIAN, RED, ORANGE } = Ramp;
 
 /** Rainbow's: the six hues, no lift (the band as it always was). */
 export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0 }));
@@ -32,7 +33,7 @@ export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0 
 /** By faction number (none, or a later build's, is Rainbow's). */
 const GAUGES: Record<number, GaugeRun> = {
   [FACTION_RAINBOW]: RAINBOW_GAUGE,
-  [FACTION_ATLANTIS]: run([PEARL, -1], [PEARL, 0], [PEARL, 1], [TEAL, 2], [WHITE, 2], [TEAL, 3]),
+  [FACTION_ATLANTIS]: run([PEARL, -1], [PEARL, 0], [PEARL, 1], [PEARL, 2], [TEAL, 2], [TEAL, 3]),
   [FACTION_ELDERWOOD]: run([VIOLET, -1], [VIOLET, 0], [MOSS, 2], [MOSS, 3], [YELLOW, 1], [YELLOW, 2]),
   [FACTION_HYPERGLOW]: run([CYAN, -1], [CYAN, 0], [CYAN, 1], [CHROME, 0], [CHROME, 1], [CHROME, 2]),
   [FACTION_INFERNO]: run([OBSIDIAN, 2], [RED, 0], [ORANGE, -1], [ORANGE, 0], [YELLOW, 0], [YELLOW, 2]),
