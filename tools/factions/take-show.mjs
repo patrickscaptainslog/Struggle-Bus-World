@@ -12,7 +12,8 @@
 //             picked, the hits on Inferno's block are the owner's and nothing cracks
 //   rivals    four rival buses put painting the block's squares round the bus, 24 s: no square's record changes, nothing lifts (decision (d)); then the
 //             faction button set to one of their crews and the same again
-//   far       the far Lob from 5 km up onto a square (counted once, its ring on the square), the Comet at Turbo 3 through the sky piece (a hit on the heart)
+//   far       the far Lob from 5 km up onto a square (counted once, its ring on the square), the Comet at Turbo 3 through the sky piece (a hit on the heart),
+//             then a Sonic Boom's ring barfed on a ready square (no square taken: the producer's fifth call)
 // Prints pass or FAIL a line; writes <out>/take-show-<leg>.json; exit 1 on any failure.
 //
 //   node tools/factions/take-show.mjs <url> <outDir> [--leg=producer|crew|rivals|far] [--q=<query>]
@@ -618,6 +619,22 @@ async function farLeg() {
       'a far lob; one hit, not a parry; the ring inside the square', lob.kind === 'lob' && lob.far && lob.hits.length === 1 && lob.hits[0].outcome !== 'parry' && ringOn);
   } else report('the far Lob from 5 km onto a square: counted once, its ring on the square', 'no pose put the Lob\'s plan on a square (2 squares, 4 tries each)', 'one', false);
   await page.evaluate(() => (window.__qa = null));
+  // ---- a Sonic Boom's ring on a ready square: the Splatter's own barf with Boom.ts's options and tag (Boom.barf), its hole over the square's middle. The
+  // producer's fifth call (HOOKS.md): the ring paints but takes no ground, so no rules hit on any square
+  await phase('far-boom');
+  await page.evaluate(() => window.__game.lift.forceReady());
+  const S = (await readySquares()).find((s) => !lob || s.key !== lob.square);
+  if (S) {
+    const t0 = await clock();
+    await page.evaluate((S) => {
+      const g = window.__game, y = g.city.groundAt(S.x, S.z);
+      g.splatter.barf(S.x, S.z, { target: null, exact: true, y: y + 0.5, drop: 0, radius: 120, inner: 90, travel: 0.4, stream: true, hitStop: 0, super: { kind: 'boom', charge: 1, id: 1e6, inner: 90 } });
+    }, S);
+    await after(1.2);
+    const h = await hitsSince(t0);
+    const told = await page.evaluate((t) => window.__ts.landed.filter((b) => b.t >= t).length, t0);
+    report('a Sonic Boom\'s ring on a ready square of the block takes no square', `its hole on square ${S.key}: ${told} blast told the Lift; rules hits ${h.length}${h.length ? ` ${JSON.stringify(h.slice(0, 3))}` : ''}`, 'told, no rules hit', told > 0 && h.length === 0);
+  } else report('a Sonic Boom\'s ring on a ready square of the block takes no square', 'no ready square', 'one', false);
 }
 
 /** two thumbs by id (controls.mjs's hand): down, move, up */

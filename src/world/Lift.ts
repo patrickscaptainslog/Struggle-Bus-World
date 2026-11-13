@@ -690,7 +690,8 @@ export class Lift implements LiftHooks, FieldHouses {
    * the heart if its line of fire crossed the sky piece (`via` 1), else the building it hit's, else the impact's (STAGES.md 1.2); a tap and a
    * MEGA's release are aimed hits, the firehose's impacts count on a square to one hit at the TAKE.dwell-th, a super counts once a square. The bus's
    * own blasts only, the knock's too (LIFT_HITS), each by the faction it was fired as: a breath in the air across a pick on the faction button is
-   * its old crew's hit.
+   * its old crew's hit. A Sonic Boom's ring knocks but takes no square (the producer's fifth call, HOOKS.md: "the ring and the pool paint but take
+   * no ground"), nor would a Waterfall's pool, which never reaches the Splatter.
    */
   landed(b: LandedBlast) {
     if (this.hears(b.tag)) this.heard(b);
@@ -704,6 +705,7 @@ export class Lift implements LiftHooks, FieldHouses {
       if (this.stagedSq.has(squareKey(Math.floor(x / SQUARE), Math.floor(z / SQUARE))) || this.stagedSq.has(squareKey(Math.floor(b.pos.x / SQUARE), Math.floor(b.pos.z / SQUARE)))) this.wave(b.t);
       return;
     }
+    if (b.super && (b.super.kind === 'boom' || b.super.kind === 'falls')) return;
     const x = b.via === 1 ? this.heart[0] : b.primary ? b.primary.cx : b.pos.x, z = b.via === 1 ? this.heart[1] : b.primary ? b.primary.cz : b.pos.z;
     const s = this.takeSq.get(keyAt(x, z));
     if (!s) return;
