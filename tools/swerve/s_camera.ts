@@ -6,9 +6,13 @@
 //             height and at 300 m: the bus within 0.3 of the frame's width of its middle; where a tap goes (400 m past a second's flight down the nose) within
 //             30 degrees of the view's middle at the worst and inside the frame's half width from 0.2 s after the nose is round; the view's yaw rate never over
 //             1.1 x the nose's fastest; and through the slide after its first 0.3 s no lurch: the view's yaw acceleration (a 3-frame mean) under 4 rad/s^2,
-//             its yaw rate changing sign at most once. The grip's and the 2 s after's accelerations are printed, not marked
+//             its yaw rate changing sign at most once. The grip and the 2 s after: under 10 rad/s^2, which is what is built (6 to 9), not the design's 4: the
+//             nose stops where the thumb lets go, and a view on it turning 180 degrees a second can't stop under 4 rad/s^2 in less than 0.8 s and 70 degrees
+//             past it. The producer's call (SWERVE.md section 6); the mark holds it from getting worse
 //   hard      a hard half turn (124 px) at Jet and Turbo 3, 20, 30 and 60 fps, at 300 m: the aim inside the half width from 0.5 s in; the bus within 0.3
 //   stage 1   the hard half turn at Turbo 3, 20 fps, with skidCam 1: the bus within 0.3, nothing over 1e3 (stage 1's spring, one step a frame, blew up)
+//   noseCam   the phone's first try if the view's swing is too much, noseCam 0.6: the skid's half turn at 60 fps, street and 300 m, every gear: the bus within
+//             0.3 of the middle (fx/Turbo leads across the view's own way, the nose's by noseCam). The aim is not marked there: the view doesn't face the nose
 //   off       a smooth weave with the handling on and off, Cruise and Jet, 30 and 60 fps: the rig's yaw, position and look the same to the bit
 // Prints each, and exits 1 if a row fails.
 import { config } from '../feel-sim/lib';
@@ -100,6 +104,8 @@ function rigged(rungs: number, on: boolean, dt: number, up: number) {
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 /** the rig's own yaw (rad, its private spring's state) */
 const yawOf = (rig: CameraRig) => (rig as unknown as { yaw: number }).yaw;
+/** the grip and the 2 s after: the most yaw acceleration (rad/s^2) the built camera may have (DESIGN's 4 is the producer's call, above) */
+const GRIP_MOST = 10;
 
 let bad = 0;
 const row = (ok: boolean, name: string, o: unknown) => {
@@ -162,7 +168,7 @@ for (const [name, rungs] of GEARS) {
   for (const up of [0, 300])
     for (const fps of [60, 30, 20]) {
       const o = turnWithCam(rungs, 'skid', 1 / fps, up);
-      const good = o.busOff <= 0.3 && o.aimWorst <= 30 && o.aimLate <= o.half && o.viewRateMost <= 1.1 * o.noseRateMost && o.accSlide < 4 && o.signs <= 1 && !Number.isNaN(o.t);
+      const good = o.busOff <= 0.3 && o.aimWorst <= 30 && o.aimLate <= o.half && o.viewRateMost <= 1.1 * o.noseRateMost && o.accSlide < 4 && o.accGrip < GRIP_MOST && o.signs <= 1 && !Number.isNaN(o.t);
       if (!good) ok = false;
       out[`${up ? `${Math.round(o.y)} m` : 'street'} ${fps} fps`] =
         `bus ${r2(o.busOff)}, aim ${r1(o.aimWorst)}/${r1(o.aimLate)} of ${r1(o.half)} deg, view ${r1(o.viewRateMost / DEG)} of nose ${r1(o.noseRateMost / DEG)} deg/s, ` +
@@ -191,6 +197,22 @@ for (const [name, rungs] of [GEARS[3], GEARS[6]]) {
   const o = turnWithCam(6, 'hard', 1 / 20, 300);
   T.skidCam = k;
   row(o.busOff <= 0.3 && o.worstAny < 1e3, 'camera, stage 1 at 20 fps', { busOff: r2(o.busOff), worst: r2(o.worstAny), roundAt: r2(o.t) });
+}
+
+// ---------------------------------------------------------------- noseCam 0.6
+{
+  const k = T.noseCam;
+  T.noseCam = 0.6;
+  const out: Record<string, number> = {};
+  let ok = true;
+  for (const [name, rungs] of GEARS)
+    for (const up of [0, 300]) {
+      const o = turnWithCam(rungs, 'skid', 1 / 60, up);
+      if (!(o.busOff <= 0.3) || Number.isNaN(o.t)) ok = false;
+      out[`${name}${up ? ' 300 m' : ''}`] = r2(o.busOff);
+    }
+  T.noseCam = k;
+  row(ok, 'camera, noseCam 0.6', { busOffTheMiddle: out });
 }
 
 // ---------------------------------------------------------------- off is off

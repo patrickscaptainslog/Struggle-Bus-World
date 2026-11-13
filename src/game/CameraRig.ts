@@ -223,8 +223,15 @@ export class CameraRig {
     if (yawHz === C.yawHz) [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, yawHz, C.yawDamping, dt);
     else {
       // (a stiff spring stepped in pieces, each under 0.4 of a radian of its own: stable at 20, 30 and 60 fps, and one piece, the same bits, where that is a frame)
-      const n = Math.max(1, Math.ceil((2 * Math.PI * yawHz * dt) / 0.4));
-      for (let i = 0; i < n; i++) [this.yaw, this.yawVel] = spring(this.yaw, this.yawVel, target, yawHz, C.yawDamping, dt / n);
+      // (spring()'s own sums, inline: nothing made a piece)
+      const n = Math.max(1, Math.ceil((2 * Math.PI * yawHz * dt) / 0.4)), h = dt / n, w = 2 * Math.PI * yawHz;
+      let x = this.yaw, v = this.yawVel;
+      for (let i = 0; i < n; i++) {
+        v += (w * w * (target - x) - 2 * C.yawDamping * w * v) * h;
+        x += v * h;
+      }
+      this.yaw = x;
+      this.yawVel = v;
     }
 
     // elevation from speed: slow -> diorama, fast -> vista
