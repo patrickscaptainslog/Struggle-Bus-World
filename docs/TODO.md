@@ -17,6 +17,33 @@ The producer asked on 2026-11-12: "Before we expand, let's really try and perfec
 - **For the second account:** nothing to do yet. Stage 2 would read the squares and the areas in `src/factions` from the open world. Once the producer has answered call 1, the ask goes here with the exact calls it needs.
 - **Not checked:** whether any of it is fun (nobody ran the game for this), every agent-day figure, how long a neighbourhood takes (3 to 5 minutes is an estimate), and Safari's storage limits on today's iPhones.
 
+## The one link: the far shots and the floating block's takeover on feat/handling (2026-11-13, the first account)
+
+`feat/handling` goes from 691c71c to 5480c79, 90 commits: the merge of `feat/shots` 98fca30 (711332a, the far shots), the merge of `feat/factions` b540848 (1d0c571, taking the floating block), the lead's two decisions on top (the bus's one faction; only the bus's own blasts count on the block), what a flight of the one link and three adversarial reviews found, and their fixes. Still behind `?swerve` and `?show`. Not live, not reviewed by the second account.
+
+- **Why:** the producer on 2026-11-12, of the floating block's page: "Ok the floating city block demo looks cool, bu5 1) I don't want to start/spawn there, and 2) I am unable to overtake this block with my own paint 3) I started as rainbow team but I am only shooting inferno paint." And one link that carries everything: `?show`.
+- **To fly:** https://struggle-bus-world-git-feat-handling-patricks-projects-9ff6e721.vercel.app/?show
+- **What it does.** Starts under the Golden Gate, 6,214 m from the block's heart; the camera glances once toward the block's light. The bus paints as its own faction (the faction button's pick, else Rainbow). Real taps take a square and the heart by the rules (crack, a parry inside each 5 s, the fall, the wilts, the flip); the light relights in the taker's colours. The far Lob from 5 km up counts once on a square; the Comet at Turbo 3 through the sky piece counts on the heart.
+- **The merges, proven.** Each: the changed lines both ways, tsc exit 0, the handling's 12 Node rows pass, det-flagoff 8 of 8 identical, the warm rows 0 programs after the warm-up. The shots' sims against 98fca30's outputs: 121 of 124 the same, the 3 others rc/1's own life rows. The takeover's Node checks all pass.
+- **take-areas (new):** the stand-in rules against the second account's areas engine, 82 pass: no outcome or record difference. Only the time differs: the engine books each change on the beat, up to 0.7 s later.
+- **Found and fixed,** among others: a rival bus's blast is told by its tag and never changes the block; the Sonic Boom's ring takes no square; four programs compiled in flight at the end of the opening (the Earth flight's, now warmed at boot); in a slide a tap fired a landing held from before the nose swung, up to 59 degrees off; the long swipe let go of a far shot's dip; a rival under the nose took a far shot's tap from any height. No blocker.
+- **Open: the budget by day.** Near the block at 5480c79: 212 draws / 1.57 M triangles in the fight, 237 / 1.86 M in the crew leg, against 200 and 1.5 M; at 04:30 it passes. Traced to the sun pass under the live sky's low sun, not this job's code. Not cut: `docs/specs/world/ABOVE.md` plans exactly that.
+- **Open: the holds under a held hard turn.** take-swerve is red, "4 FAILED": skids pass; hard right and left fail under the falling square and the cracking house, with larger steps by the square than without the take (at most 19.60 m against 8.53 a frame), and turning left, 3 of 40 runs pushed into another square's floating house. An arc-swept hold changed nothing and was taken out.
+- **Left:** the aim on the park heart's grass; a flick lost as the gears unlock (read, not proved); rows not rerun on the final build.
+- **What ran at the head** (5480c79, by the studio lead before the push): `tsc` 0, `build` 0, `iosfloor` 0, `det-flagoff` 0 (the 8 flag-off views identical), `warm-show` 0 (no program after the warm-up, no page error), `take-show-night` 0 (the producer's path flown with real taps on `?show`, at night), `take-show` 1 by day, on its draws and triangles line alone (the open budget above). The whole table at the head is running.
+- **For the second account** (ask 8, the day's draws, is taken back):
+  1. Rule whether a computer bus may take squares, with the producer.
+  2. `rivalsBoot.ts` 342: a soaked rival is the player's paint only if the player soaked it.
+  3. `rivals.ts` 538: re-deal a crew on a crew change, or rule them crew mates.
+  4. `Rivals.inFront`: measure the slant.
+  5. Standing: Areas' seeding call, the record driving the houses, tTake's layout, a Bomb at its cap.
+  6. The Lift's looks start at the booked `at`.
+  7. skyMark and the sky piece: one rule.
+  8. New: `Areas.hit`'s caller keeps the park heart's aim, against STAGES.md 1.2.
+- **Open calls for the producer** (the studio's pick). A computer bus taking or healing squares: not yet. The player's soak and ram on the block, uncounted: keep. The far Lob through a skid at the ceiling: let it go. The aim on a houseless heart: fly it first. The hard-turn holds: fly them first. The day's budget: a pixel-exact sun-pass cull. The park heart's rule: keep it.
+- **Not done:** the whole table at the head (started after this push), a phone, an A15.
+- **Next:** the whole table; then the shots under the handling get their own study (the Lob's pull on the longer stick, plans through a hard turn), and the budget by day.
+
 ## The core, stage 1: the loading page, the link's picture, the return visit (2026-11-13, the first account)
 
 `feat/core` is pushed at c2a00c4: 17 commits on `feat/shots` 4f33648 (eight of the plan's nine, eight fixes after its review and outside look, and `docs/specs/core/STAGE1.md`, the branch's own doc). Not live, not reviewed by the second account.
