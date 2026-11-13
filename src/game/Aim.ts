@@ -523,17 +523,22 @@ export class Aimer {
     return this.target;
   }
 
+  /** Press n's finger lifted as no tap (a look, a flick off the lane): what it ran the Lob's latch on to is given back. */
+  unpress(n: number): void {
+    this.lob?.unpress(n);
+  }
+
   /** Before a tap fires: an aim this frame found not ready, the belly full again since (a pour given back by Input's late tap, Hose.end), plans again,
    *  as it stood, so the tap throws what it would have (the Lob's roofs stage: the late tap found no plan and threw a plain splat). */
   refresh(f: Flight): void {
     if (!this.ready && Aimer.loaded(f)) this.update(f, this.t, this.wasDrag, this.wasThumb);
   }
 
-  /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). */
-  press(): void {
+  /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). n: its turn (Input.presses), for unpress. */
+  press(n = -1): void {
     // (the Lob's body, the steering thumb up: as it is now, or as it was when the thumb lifted if that's latched still. With the steering thumb down a second
     // thumb's tap reads it live. On Curb's street, none; nor with the belly not ready, whose taps ran a latch on until it was full: M90)
-    if (this.lob && this.ready && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true);
+    if (this.lob && this.ready && !this.wasThumb && this.street === 0) this.lob.latch(this.bodyWas, this.noseWas, this.t, this.t + config.lob.latch, true, false, n);
     if (this.mover && !this.moverLatch) {
       // (a mover held as it glinted: a copy, since the aim's answer is filled again next frame)
       Object.assign(this.moverHeld, this.mover);

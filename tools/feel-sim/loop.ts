@@ -16,7 +16,9 @@ export interface Game {
   frame(dt: number, inp: { sx: number; sy: number; dragging: boolean }): void;
   /** shot: what fire() handed over, and where it comes down (its roof, its wall, the ground) */
   tap(): { fired: boolean; target: BuildingRef | null; glint: BuildingRef | null; shot: Shot; landing: { x: number; y: number; z: number }; wall: boolean };
-  press(): void;
+  /** a finger's landing: its turn (Input.presses), which unpress gives back when it lifts as no tap (a look, a flick off the lane) */
+  press(): number;
+  unpress(n: number): void;
   glint(): BuildingRef | null;
   jetAt: number;
   aimer: Aimer;
@@ -26,7 +28,7 @@ export interface Game {
 export function makeGame(city: City, drive: TurboDrive | null = null): Game {
   const flight = new Flight();
   const events: Ev[] = [];
-  let hitStop = 0;
+  let hitStop = 0, presses = 0;
   const g: Game = {} as Game;
   let breathTravel: number | null = null;
   let jet: { at: number; impact: number; target: number[] } | null = null;
@@ -84,7 +86,8 @@ export function makeGame(city: City, drive: TurboDrive | null = null): Game {
       if (splatter.lastMiss) flight.refund = config.splat.missRefund;
       return { fired: true, target: shot.target, glint: shown, shot, landing, wall: shot.exact };
     },
-    press() { aimer.press(); },
+    press() { aimer.press(++presses); return presses; },
+    unpress(n) { aimer.unpress(n); },
     glint: () => aimer.shown(),
   });
   return g;

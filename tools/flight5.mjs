@@ -5,11 +5,17 @@
 // window on the game clock (from its first touch to 0.5 s past its last): steering in the lane (none); a still finger high up for 3 s with nothing
 // else down (none); a still second finger high for 3 s while the lane thumb steers (none); drags high up, looks (none); flicks up through Express,
 // Nonstop and Jet and back, a tap at each gear (a tap, or the Comet from Nonstop up); a pull past 25 degrees and one tap (a Lob); taps mashed every
-// 0.3 s for 3 s once it has levelled (taps, no Lob); School Zone and taps there; a quick look down (none); M90's case: a Lob's lift, a flick 0.5 s
-// after it, a tap at 1.2 s (a plain splat, not a Lob); then steering and a tap every 10 s until five minutes have passed since the gate.
-// Checks: every entry of __game.shots() (src/main.ts: { t, kind, bodyDeg }, the Hose's pours as kind 'hose') inside an intent of its kind; no Lob with
-// its body under config.lob.from (25 degrees); no Hose pour (nothing here is a drag held to aim); and __stats.hitMs read after a tap. On a build with no
-// shot log, the Hose's own count (hoseState().stats.pours) still says whether it poured, and the missing log fails.
+// 0.3 s for 3 s once it has levelled (taps, no Lob); School Zone and taps there; a quick look down (none); M90's two cases: a Lob's lift, a flick 0.5 s
+// after it, a tap at 1.2 s (a plain splat, not a Lob), the flick in the lane under the bus (a steering stroke: M90's own, c34034d and a1ecc30), then in
+// the look zone (r3: its landing ran the latch on and nothing gave it back); then steering and a tap every 10 s until five minutes have passed since the
+// gate.
+// Checks: every entry of __game.shots() (src/main.ts: { t, kind, bodyDeg, angleDeg }, the Hose's pours as kind 'hose') inside an intent of its kind; no
+// Lob with the bus's body under config.lob.from (25 degrees) as it fired but in the pull's own intent (that tap throws the body as the thumb lifted); no
+// Hose pour (nothing here is a drag held to aim); and __stats.hitMs read after a tap. On a build with no shot log, the Hose's own count
+// (hoseState().stats.pours) still says whether it poured, and the missing log fails; M90's cases read __game.lastShot(), so they are judged on any build,
+// and each flick is checked to be a gear (turbo.gear one up), or the case isn't the case.
+//   SB_F5=m90 [SB_F5_REPS=3]   past the gate, only M90's two cases, each SB_F5_REPS times: exit 1 if any isn't a gear and a plain splat (fa91865's build:
+//                               the lane's case Lobs; c2a00c4's: the look zone's)
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -18,6 +24,8 @@ import { flick, flickTo } from './flick.mjs';
 const [url = 'http://127.0.0.1:4173/', out = 'shots/tmp/flight5'] = process.argv.slice(2);
 mkdirSync(out, { recursive: true });
 const MINUTES = Number(process.env.SB_FLIGHT_MIN ?? 5);
+const ONLY = process.env.SB_F5 ?? '';
+const REPS = Number(process.env.SB_F5_REPS ?? 1);
 const LOB_FROM = 25; // config.lob.from
 
 const browser = await chromium.launch(browserOptions([]));
@@ -30,6 +38,7 @@ const wait = (ms) => page.waitForTimeout(ms);
 const clock = () => page.evaluate(() => window.__game.clock());
 const fails = [];
 const ok = (c, m) => (c ? console.log(`ok: ${m}`) : (fails.push(m), console.log(`FAIL: ${m}`)));
+const m90 = [];
 
 // ---- touches: each finger by id; points are CSS px
 const down = {};
@@ -75,6 +84,13 @@ await page.waitForFunction(() => !window.__game.controls.gearsLocked && !window.
 const t0 = Date.now();
 console.log(`past the gate at game ${(await clock()).toFixed(1)} s; the shot log ${hasLog ? 'is there' : 'is not on this build'}`);
 const pours0 = await hose();
+if (ONLY === 'm90') {
+  for (let i = 0; i < REPS; i++) for (const where of ['lane', 'look']) await m90Case(where);
+  await browser.close();
+  writeFileSync(`${out}/flight5-m90.json`, JSON.stringify({ m90, fails }, null, 1));
+  console.log(fails.length ? `FLIGHT5 M90 FAILED ${fails.length}:\n  ${fails.join('\n  ')}` : 'flight5 m90: all passed');
+  process.exit(fails.length ? 1 : 0);
+}
 
 await intent('steering in the lane', [], () => steer(6000));
 let p = await hose();
@@ -124,7 +140,7 @@ for (const g of [1, 2, 3, 2, 1, 0]) {
   }
 }
 // a pull past 25 degrees, the steering thumb lifted, a tap 0.1 s later: a Lob
-const pull = async () => {
+async function pull() {
   await press(1, 196, 690);
   for (let i = 1; i <= 6; i++) {
     await wait(25);
@@ -137,7 +153,43 @@ const pull = async () => {
   }
   await lift(1);
   return body;
-};
+}
+// M90's case by real touches: a Lob's lift, a flick 0.5 s after it, a tap at 1.2 s: a plain splat, not a Lob. lane: the flick lands in the lane under
+// the bus (lane(), so it follows the bus), a steering stroke; look: at (40, 560), in the look zone, a press with nobody flying and a flick's lift.
+// tools/flick.mjs's own point, (70, 560), is on the lane's edge to a third of a pixel (r3's diagnosis): it was either, by the bus's x
+async function m90Case(where) {
+  await flickTo(page, cdp, 0);
+  await ready();
+  await wait(300);
+  const last = () => page.evaluate(() => {
+    const s = window.__game.lastShot();
+    return s ? { t: s.t, kind: s.comet?.kind === 'lob' ? 'lob' : s.comet ? 'comet' : 'tap' } : null;
+  });
+  const before = hasLog ? await page.evaluate(() => window.__game.shots().length) : 0;
+  const was = await last();
+  const c = { where };
+  await intent(`M90's case (${where}): the lift, a flick at 0.5 s, a tap at 1.2 s`, ['tap', 'comet'], async () => {
+    const pt = where === 'lane' ? await lane() : [40, 560];
+    const gear = await page.evaluate(() => window.__game.controls.turbo.gear);
+    c.body = +(await pull()).toFixed(1);
+    const at = Date.now();
+    await wait(Math.max(0, 500 - (Date.now() - at)));
+    await flick(cdp, 1, { x: pt[0], y: pt[1] });
+    c.flickAt = pt;
+    await wait(Math.max(0, 1200 - (Date.now() - at)));
+    c.gear = (await page.evaluate(() => window.__game.controls.turbo.gear)) - gear;
+    c.bodyTap = +(await page.evaluate(() => (window.__game.flight.pitch * 180) / Math.PI)).toFixed(1);
+    await tap();
+  });
+  await wait(1500);
+  const now = await last();
+  c.shot = now && (!was || now.t !== was.t) ? now.kind : 'none';
+  if (hasLog) c.shots = await page.evaluate((n) => window.__game.shots().slice(n), before);
+  m90.push(c);
+  console.log(`M90's case (${where}): ${JSON.stringify(c)}`);
+  ok(c.gear === 1, `M90's case (${where}): the flick at (${c.flickAt}) was a gear (${c.gear >= 0 ? '+' : ''}${c.gear})`);
+  ok(c.shot === 'tap' || c.shot === 'comet', `M90's case (${where}): a plain splat, not a Lob (${c.shot}; the body ${c.body} at the lift, ${c.bodyTap} before the tap${c.shots ? `; logged ${JSON.stringify(c.shots)}` : ''})`);
+}
 await ready();
 await wait(300);
 let lobBody = 0;
@@ -177,25 +229,7 @@ await intent('a quick look down', [], async () => {
   await lift(3);
 });
 await wait(1500);
-// M90's case by real touches: a Lob's lift, a flick 0.5 s after it, a tap at 1.2 s: a plain splat, not a Lob
-await ready();
-await wait(300);
-let m90 = null;
-{
-  const before = hasLog ? await page.evaluate(() => window.__game.shots().length) : 0;
-  await intent("M90's case: the lift, a flick at 0.5 s, a tap at 1.2 s", ['tap', 'comet'], async () => {
-    const body = await pull();
-    const at = Date.now();
-    await wait(Math.max(0, 500 - (Date.now() - at)));
-    await flick(cdp, 1);
-    await wait(Math.max(0, 1200 - (Date.now() - at)));
-    await tap();
-    m90 = { body: +body.toFixed(1) };
-  });
-  await wait(1500);
-  if (hasLog) m90.shots = await page.evaluate((n) => window.__game.shots().slice(n), before);
-  console.log(`M90's case: ${JSON.stringify(m90)}`);
-}
+for (let i = 0; i < REPS; i++) for (const where of ['lane', 'look']) await m90Case(where);
 await flickTo(page, cdp, 0);
 // steering and a tap every 10 s, to five minutes past the gate
 while (Date.now() - t0 < MINUTES * 60000) {
@@ -221,10 +255,10 @@ if (shots) {
     if (!at.some((it) => it.kinds.includes(s.kind))) stray.push(`${s.kind} at ${s.t.toFixed(2)} s (body ${s.bodyDeg}) ${at.length ? `in ${at.map((it) => `"${it.name}"`).join(', ')}, which mean ${at.map((it) => it.kinds.join('/') || 'no shot').join(', ')}` : 'in no intent'}`);
   }
   ok(stray.length === 0, `every shot inside an intent of its kind (${shots.length} shots${stray.length ? '; ' + stray.join('; ') : ''})`);
-  const low = shots.filter((s) => s.kind === 'lob' && s.bodyDeg < LOB_FROM);
-  ok(low.length === 0, `no Lob from a body under ${LOB_FROM} degrees (${low.length})`);
+  const pulls = intents.filter((it) => it.kinds.includes('lob'));
+  const low = shots.filter((s) => s.kind === 'lob' && s.bodyDeg < LOB_FROM && !pulls.some((it) => s.t >= it.from - 0.05 && s.t <= it.to));
+  ok(low.length === 0, `no Lob with the bus under ${LOB_FROM} degrees but the pull's (${low.length}${low.length ? ': ' + low.map((s) => `${s.t.toFixed(2)} s, the body ${s.bodyDeg}, thrown at ${s.angleDeg}`).join('; ') : ''})`);
   ok(shots.some((s) => s.kind === 'lob'), `the pull threw a Lob (${shots.filter((s) => s.kind === 'lob').length} Lobs)`);
-  ok(!!m90?.shots?.length && m90.shots.every((s) => s.kind !== 'lob'), `M90's case: a plain splat, not a Lob (${JSON.stringify(m90?.shots)})`);
   const kinds = {};
   for (const s of shots) kinds[s.kind] = (kinds[s.kind] ?? 0) + 1;
   console.log(`shots by kind: ${JSON.stringify(kinds)}; ${intents.length} intents over ${((Date.now() - t0) / 60000).toFixed(1)} min`);
