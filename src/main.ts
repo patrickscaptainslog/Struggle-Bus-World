@@ -328,6 +328,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           particles.sparkles(at, 3, 2, [hue, (hue + 1) % 6, (hue + 5) % 6], Math.max(1, Math.round(n)));
           particles.palette = palette0;
         },
+        corners: (x0, z0, x1, z1, y, hue, n, faction) => {
+          const palette0 = particles.palette;
+          particles.palette = lookOf(faction).spray;
+          for (let k = 0; k < 4; k++) particles.sparkles(new THREE.Vector3(k & 1 ? x1 : x0, y, k & 2 ? z1 : z0), 2, 3, [hue, (hue + 1) % 6, (hue + 5) % 6], Math.round((n * (k + 1)) / 4) - Math.round((n * k) / 4));
+          particles.palette = palette0;
+        },
         sound: {
           wave: () => audio.superMega(0.5),
           crouch: () => audio.heave(),
@@ -365,13 +371,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
             takeAudio.rise = now;
             audio.bloomNote(takeAudio.up, 12, hue, 3);
           },
+          // (a flip's or an up's front has reached its last house: the ready chime as it finishes)
+          frontEnd: () => audio.ready(),
         },
         sun: [globals.uSunDir.value.x, globals.uSunDir.value.z],
         camera,
         // (the take's hits, LIFT.md "Taking it: the looks": with the existing calls, each faction's own owed, and every one read by eye too, iOS on
         // silent. A parry the denied buzz, its first in a window, then a soft tick, and the breath bounces off in the hitter's sparkles; the crack
         // the houses' groan and the scale's top note; the fall the big impact and a kick (its landings: sound.land); a wilt the groan and a quiet
-        // burst; the flip a hit-stop of 6 frames, a rising burst and the ready chime; an up or a heal the chime)
+        // burst; the flip a hit-stop of 6 frames and a rising burst (its chime as its front finishes: sound.frontEnd, as an up's); a heal, or the
+        // up that lifts the square, the chime at the hit)
         took: (key, outcome, _at, x, z, hitter) => {
           const now = performance.now() / 1000;
           if (outcome === 'parry') {
@@ -398,8 +407,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           } else if (outcome === 'flip') {
             hitStop = Math.max(hitStop, 6 / 60);
             audio.bloomBurst(6, 0, 1);
-            audio.ready();
-          } else if (outcome === 'up' || outcome === 'heal') audio.ready();
+          } else if ((outcome === 'up' && (lift?.rules.get(key)?.stage ?? 0) >= 4) || outcome === 'heal') audio.ready();
         },
       })
     : null;

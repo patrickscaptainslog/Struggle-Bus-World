@@ -36,7 +36,9 @@ export interface LiftGame {
   bump(x: number, z: number, amt: number): void;
   /** petals at a jump: a burst and sparkles in the house's hue, in its owner's colours */
   petals(x: number, y: number, z: number, hue: number, n: number, faction: number): void;
-  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void; skyOut(x: number, y: number, z: number, d: number): void; front(hue: number): void };
+  /** a fallen house's landing: its lake's colours burst at its footprint's four corners, n sparkles in all, in its owner's colours (C3.6) */
+  corners(x0: number, z0: number, x1: number, z1: number, y: number, hue: number, n: number, faction: number): void;
+  sound: { wave(): void; crouch(): void; jump(n: number, hue: number): void; note(i: number, n: number, hue: number): void; land(d: number, hue: number, big: boolean): void; skyOut(x: number, y: number, z: number, d: number): void; front(hue: number): void; frontEnd(): void };
   /** the sun's way on the ground (x, z) at boot: the side the sky piece faces */
   sun: [number, number];
   /** the scene's camera: the wake asks whether the heart is in its frame (as last drawn) */
@@ -216,7 +218,7 @@ export class Lift implements LiftHooks, FieldHouses {
   readonly stats = {
     scheduled: 0, up: 0, held: 0, cells: 0, capsTris: 0, skyTris: 0, skyMs: 0, skySteps: 0, planMs: 0, turning: 0,
     counted: 0, parried: 0, encores: 0, cracks: 0, heals: 0, falls: 0, fallHeld: 0, landed: 0, wilts: 0, flips: 0, ups: 0, liftedAsTaker: 0,
-    crackHeld: 0, landings: 0, skyOut: 0, wiltPetals: 0, fronted: 0,
+    crackHeld: 0, landings: 0, skyOut: 0, wiltPetals: 0, fronted: 0, frontEnds: 0, cornerBursts: 0,
   };
   /** the game clock's last step (s): the crack's look ahead */
   private lastDt = 1 / 30;
@@ -263,6 +265,12 @@ export class Lift implements LiftHooks, FieldHouses {
       if (kind === 'flip') this.g.petals(ref.cx, ref.roofY + 0.5, ref.cz, hue, 4, faction);
       this.g.sound.front(hue);
       this.stats.fronted++;
+    },
+    // (a flip's or an up's front has reached its last house: the ready chime as the front finishes, C7, C8; a wilt's has its groan at the hit)
+    done: (kind) => {
+      if (kind === 'wilt') return;
+      this.g.sound.frontEnd();
+      this.stats.frontEnds++;
     },
   };
   /** the neighbourhood's streets (its tiles' OpenStreetMap centrelines through its squares), for the sky piece; the tiles they came from */
@@ -840,6 +848,11 @@ export class Lift implements LiftHooks, FieldHouses {
     void cam;
     this.stats.landings++;
     this.g.sound.land(d, this.session.hue[i], ref.area > 400);
+    // (its lake's colours burst at its four corners as it hits, 10 sparkles in its owner's; the foam ring to the shore is not built: C11's cut)
+    if (this.loaded[i]) {
+      this.g.corners(ref.x0, ref.z0, ref.x1, ref.z1, ref.baseY + 0.5, this.session.hue[i], 10, this.session.faction[i]);
+      this.stats.cornerBursts++;
+    }
   }
 
   /** A falling house's fall is over (its landing settled and its lake drained): on the ground, its lake and underside gone with it, the cap's room back. */

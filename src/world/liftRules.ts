@@ -178,6 +178,8 @@ export interface TakeSink {
   grow(index: number, hue: number, level: number, start: number): void;
   /** a change's front has reached the house (after its write): the looks and sounds of its arrival, a wilt's petals, a flip's or an up's note */
   arrive?(index: number, kind: TakeKind, faction: number, hue: number, level: number): void;
+  /** a change's front has reached the last house it writes (the flip's and an up's chime as the front finishes, C7, C8) */
+  done?(kind: TakeKind, faction: number): void;
 }
 
 /** a counted change's kind of write to a square's houses */
@@ -209,6 +211,8 @@ export class TakeHouses {
   /** each house's last write taken (its seq), and the changes' count */
   private readonly took: Int32Array;
   private seq = 0;
+  /** each change's writes still on their way, by its seq (its front's end is when the last one lands) */
+  private readonly left = new Map<number, number>();
 
   constructor(texels: number) {
     this.took = new Int32Array(texels);
@@ -247,6 +251,7 @@ export class TakeHouses {
       this.faction[i] = f;
       this.level[i] = lv;
       this.q.push({ i, seq, kind, at: t + dist[k] / speed, faction: f, hue: this.hue[i], level: lv, garden: kind === 'up' ? (lv >= 2 ? 3 : 0) : kind === 'flip' || lv < 2 ? 1 : 2 });
+      this.left.set(seq, (this.left.get(seq) ?? 0) + 1);
     }
   }
 
@@ -261,13 +266,21 @@ export class TakeHouses {
       this.q[k] = this.q[this.q.length - 1];
       this.q.pop();
       // (two changes' fronts reaching a house in one frame, a flip and a flip back: the later change's write is the one it keeps)
-      if (w.seq < this.took[w.i]) continue;
-      this.took[w.i] = w.seq;
-      sink.stage(w.i, w.faction, w.hue, w.level, now);
-      if (w.garden === 1 || w.garden === 2) sink.clear(w.i);
-      // (a wilt's garden stands at its lower level at once; an up's grows as the front reaches it)
-      if (w.garden >= 2) sink.grow(w.i, w.hue, w.level, w.garden === 2 ? -100 : now);
-      sink.arrive?.(w.i, w.kind, w.faction, w.hue, w.level);
+      if (w.seq >= this.took[w.i]) {
+        this.took[w.i] = w.seq;
+        sink.stage(w.i, w.faction, w.hue, w.level, now);
+        if (w.garden === 1 || w.garden === 2) sink.clear(w.i);
+        // (a wilt's garden stands at its lower level at once; an up's grows as the front reaches it)
+        if (w.garden >= 2) sink.grow(w.i, w.hue, w.level, w.garden === 2 ? -100 : now);
+        sink.arrive?.(w.i, w.kind, w.faction, w.hue, w.level);
+      }
+      // (its change's front ends with its last write, whether a later change took the house or not)
+      const n = this.left.get(w.seq)! - 1;
+      if (n > 0) this.left.set(w.seq, n);
+      else {
+        this.left.delete(w.seq);
+        sink.done?.(w.kind, w.faction);
+      }
     }
   }
 

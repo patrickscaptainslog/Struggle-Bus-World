@@ -272,6 +272,32 @@ for (const [name, owner, stage, cracks, ready, own, want, st, cr, who] of ROWS) 
   report('an up that steps no house arrives nowhere', `${got.length} arrivals`, '0', got.length === 0);
 }
 
+// ------------------------------------------------------------------ 4d. each change's front ends once, with its last house (the sink's done: the flip's and an up's chime)
+{
+  const ends = [];
+  let arrived = 0;
+  const sink = { stage: () => {}, clear: () => {}, grow: () => {}, arrive: () => arrived++, done: (kind, f) => ends.push(`${kind} ${f} after ${arrived}`) };
+  const H = new TakeHouses(16);
+  const hs = [2, 4, 6], ds = [0, 60, 120];
+  hs.forEach((i, k) => H.stage(i, INF, k, 3, sink));
+  H.change('flip', hs, ds, 20, TAKE.front, RB, 1);
+  H.drain(20.6, sink);
+  const mid = ends.length;
+  H.drain(20.99, sink);
+  const before = ends.length;
+  H.drain(21, sink);
+  report('a flip\'s front ends once, at its farthest house (120 m at 120 m/s: 1.00 s), after its last arrival', `${mid} by 0.6 s, ${before} by 0.99 s, then ${ends.join('; ')}`, '0, 0, then flip 1 after 3',
+    mid === 0 && before === 0 && ends.join('; ') === 'flip 1 after 3');
+  ends.length = 0;
+  arrived = 0;
+  // (a flip back whose front reaches the houses in the same frame: both fronts end, the earlier change's though it wrote nothing)
+  H.change('flip', hs, ds, 30, TAKE.front, INF, 1);
+  H.change('flip', hs, ds, 30, TAKE.front, RB, 1);
+  H.drain(32, sink);
+  const both = ends.map((e) => e.split(' after ')[0]).sort().join('; ');
+  report('a flip and a flip back in one frame: each front ends once, whichever wrote', both, 'flip 1; flip 5', both === 'flip 1; flip 5');
+}
+
 // ------------------------------------------------------------------ 5. the plain fall's hold (fallBlocked)
 {
   const box = { x0: 0, z0: 0, x1: 20, z1: 20, top: 80, reach: 4 };
