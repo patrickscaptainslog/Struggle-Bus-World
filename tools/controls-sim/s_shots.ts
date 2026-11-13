@@ -212,7 +212,8 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   }
   let aimMs = 0, aimN = 0;
   const upd = g.aimer.update.bind(g.aimer);
-  g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return r; };
+  let aimRet: { index: number } | null = null;
+  g.aimer.update = (fl, t, dr) => { const t0 = performance.now(); const r = upd(fl, t, dr); aimMs += performance.now() - t0; aimN++; return (aimRet = r); };
   const stick = pose.nose ? stickFor(pose.nose) : pose.dive ? stickFor(-pose.dive) : 0;
   const turn = pose.turn ?? 0;
   const frame = async (k: number, holdStick: boolean) => {
@@ -245,8 +246,9 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     glintLast = gi;
   }
   if (probe) {
-    const s = g.aimer.shown(), m = (g.aimer as any).mover as { key: string } | null;
-    return { key: `${pose.key}/${rname}`, fps: Math.round(1 / dt), probe, far: !!g.aimer.planned?.far, mover: m ? m.key : null, glint: glintKey, shown: s ? s.index : -1 };
+    // (what glints: the building update returned, none while the mover glints)
+    const m = (g.aimer as any).mover as { key: string } | null, r = aimRet as { index: number } | null;
+    return { key: `${pose.key}/${rname}`, fps: Math.round(1 / dt), probe, far: !!g.aimer.planned?.far, mover: m ? m.key : null, glint: glintKey, shown: r ? r.index : -1 };
   }
   // ---- the tap (between frames, as Input's)
   const tap = { x: f.x, y: f.y, z: f.z, t: g.t, speed: f.ground, agl: f.y - city.groundAt(f.x, f.z), nose: f.nose / DEG, fx: f.fx, fz: f.fz, body: f.pitch / DEG, vista: rig.vista };
@@ -428,7 +430,7 @@ if (BOMB) {
       const pose = POSES.find((p) => p.pose.key === 'wa-c5000')!.pose, rung = RUNGS.find((r) => r[0] === 'nonstop')!;
       const tap: any = await run(rung, pose, dt, 0, 'tap'), bomb: any = await run(rung, pose, dt, 0, 'bomb');
       console.log(`mover probe @${tap.fps}: tap ${JSON.stringify(tap)} bomb ${JSON.stringify(bomb)}`);
-      ok(tap.far && tap.mover === null && tap.glint === null, `mover probe @${tap.fps}: the tap plans the far Comet over the mover (${JSON.stringify(tap)})`);
+      ok(tap.far && tap.mover === null && tap.glint === null && tap.shown >= 0, `mover probe @${tap.fps}: the tap plans the far Comet over the mover, its building glinting (${JSON.stringify(tap)})`);
       ok(!bomb.far && bomb.mover === 'probe' && bomb.glint === 'probe' && bomb.shown === -1, `mover probe @${bomb.fps}: under a Bomb the mover is kept and glints, no far plan (${JSON.stringify(bomb)})`);
     }
   for (const r of rows) {
