@@ -4,7 +4,11 @@
 // lens, then the plans' lens. A thumb held 150 px out at Jet, a skid's whole slide:
 //   hold     from 300 m (the near Comet), 1.5 and 5 km (the far one): each frame's planned landing off the nose. The handling's promise is "a tap in the slide
 //            is a shot down the nose" (Swerve.ts); a landing held from before the swing was up to 59 degrees off it (the far shots' review, F1)
-//   release  a tap 0.25 s into the slide from 1.5 and 5 km, the thumb let go at it: the shot fired off the nose, and its hit on the screen at the impact
+//   lob      the same slide with the nose up (a thumb pulled straight down first, then swung out still pulling), from 1.5 and 5 km: each frame's far Lob
+//            plan off the nose. The near Lob never planned in this rig (a Jet skid from 40, 120 or 300 m, the nose 42 to 78 degrees up: 0 plans), so the
+//            near Lob's half of the rule has no row
+//   release  a tap 0.25 s into the slide from 1.5 and 5 km, the thumb let go at it: the shot fired off the nose. Its hit's place on the screen at the impact
+//            is printed, not tested: the rig holds the view's lift at 0 (no far shot's dip), so from 5 km the hit is under the frame
 // Prints a row each, and exits 1 if one fails. SB_SRC=<an older tree's src> runs it against that tree.
 import { newCity, pump, ll, makeGame, config, THREE } from '../feel-sim/lib';
 import { CameraRig } from '@src/game/CameraRig';
@@ -16,6 +20,8 @@ import { stickParts, inputTune } from '@src/game/Input';
 const SW = 393, SH = 852, DEG = Math.PI / 180, dt = 1 / 60;
 /** the most a planned landing may be off the nose in a slide (deg): the Comet's and the Lob's 8 degrees, and a frame's swing at Jet (2.3) */
 const OFF_MOST = 12;
+/** the lob rows' pull (px down the glass): the nose comes up past config.lob.from as the slide swings */
+const LOB_PULL = 60, LOB_UP = 20;
 const r1 = (v: number) => Math.round(v * 10) / 10, r3 = (v: number) => Math.round(v * 1000) / 1000;
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const city = await newCity();
@@ -138,6 +144,32 @@ for (const h of [300, 1500, 5000]) {
     if (!f.swerve.sliding) break;
   }
   row(n > 30 && n - none > 30 && offMost <= OFF_MOST, `hold: the slide from ${h} m, its plans`, { frames: n, noPlan: none, far, offNoseMostDeg: r1(offMost), at: r1(offAt), limit: OFF_MOST });
+}
+
+// ---------------------------------------------------------------- lob: the same with the nose up, a thumb pulled as it swings (the Lob's plans)
+for (const h of [1500, 5000]) {
+  const b = await rigAt(h), f = b.f;
+  const thumb: [number, number] = [150, LOB_PULL];
+  let t0 = -1, n = 0, lobs = 0, far = 0, offMost = 0, offAt = 0, noseMost = 0;
+  // (the nose up first, a thumb pulled straight down the glass, then swung out into the slide still pulling)
+  for (let j = 0; j < LOB_UP; j++) await b.frame([0, 150]);
+  const nose0 = f.nose / DEG;
+  for (let j = 0; j < 150; j++) {
+    await b.frame(thumb);
+    if (t0 < 0 && f.swerve.sliding) t0 = b.g.t;
+    if (t0 < 0) continue;
+    n++;
+    noseMost = Math.max(noseMost, f.nose / DEG);
+    const p = b.g.aimer.lobPlan;
+    if (p) {
+      lobs++;
+      if (p.far) far++;
+      const off = Math.abs(b.offNose(p));
+      if (off > offMost) [offMost, offAt] = [off, b.g.t - t0];
+    }
+    if (!f.swerve.sliding) break;
+  }
+  row(n > 30 && lobs > 20 && offMost <= OFF_MOST, `lob: the slide from ${h} m, its Lob plans`, { noseAtSwingDeg: r1(nose0), frames: n, lobPlans: lobs, far, noseMostDeg: r1(noseMost), offNoseMostDeg: r1(offMost), at: r1(offAt), limit: OFF_MOST });
 }
 
 // ---------------------------------------------------------------- release: a tap in the slide, the thumb let go at it
