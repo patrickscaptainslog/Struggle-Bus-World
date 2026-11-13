@@ -187,6 +187,9 @@ const PAN_Y = 0.5;
  *  the city and the hour too, so a trip from ?earth&city=london comes home to London's street (the first account's review, 2026-11-04: it came home to San Francisco's, with London as the trip's home). And ?show, the one link, which index.html writes out again on the next page. */
 const SWAP_AFTER = 3;
 const SWAP_KEEP = ['fps', 't', 'tune', 'g5', 'fixeddt', 'city', 'hour', 'life', 'show'];
+/** ...and on a ?show page, what index.html wrote out and the flags given beside it, as they stand (?show&lifted=atlantis comes home Atlantis, ?show&norivals
+ *  without rivals): index.html adds only what is missing. */
+const SHOW_KEEP = ['swerve', 'crew', 'bomb', 'boom', 'falls', 'lift', 'lifted', 'earth', 'norivals'];
 
 /** The trip and its view the page before saved (?resume), taken out of storage as they're read: a reload starts afresh. */
 function readSwap(): { trip: Record<string, unknown>; view: Record<string, unknown> } | null {
@@ -512,7 +515,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
         /* blocked */
       }
     }
-    const keep = SWAP_KEEP.filter((k) => params.has(k)).map((k) => (params.get(k) ? `&${k}=${encodeURIComponent(params.get(k)!)}` : `&${k}`));
+    const keep = (params.has('show') ? SWAP_KEEP.concat(SHOW_KEEP) : SWAP_KEEP).filter((k) => params.has(k)).map((k) => (params.get(k) ? `&${k}=${encodeURIComponent(params.get(k)!)}` : `&${k}`));
     location.replace(`${location.pathname}?${to}&resume${keep.join('')}`);
     return true;
   };

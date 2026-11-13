@@ -4,7 +4,8 @@ import { FACTION_MAX, FACTION_RAINBOW } from './factions';
 // button, just for my friends and myself to easily test the factions"). A page whose link carries ?crew (or &crew) turns it on for that phone for good, and the
 // faction picked with it is remembered there too. Without ?crew ever seen, nothing changes: every splat is Rainbow's, as before. ?crew=off forgets it all on
 // that phone: no button, and the bus paints as Rainbow again (paint already down keeps its owner). ?crew=show (what ?show's one link writes, index.html) turns
-// it on for that page only, and nothing picked there is saved: the plain link after it is as it was.
+// it on for that page only, and nothing picked there is saved on the phone: the plain link after it is as it was. What is picked there lasts the tab
+// (sessionStorage), so the Moon's page change (sky/moonrun.ts, location.replace with show kept) and the way home keep it, and a new tab starts again.
 //
 // This is the player's faction's one source (game/factions.ts: Splatter.faction and MoonPaint.faction, each a painter's own): main.ts and the flight
 // (sky/moonrun.ts) set their painters from `faction` and again on every change, so a switch takes the next shot, and paint already down keeps its owner.
@@ -13,6 +14,9 @@ import { FACTION_MAX, FACTION_RAINBOW } from './factions';
 // No three.js; the DOM only for localStorage, every read and write in a try.
 
 const KEY = 'strugglebus.crew.v1';
+/** ...and a ?crew=show page's pick, for the tab only */
+const SHOW_KEY = 'strugglebus.crew.show.v1';
+const isFaction = (f: unknown): f is number => typeof f === 'number' && Number.isInteger(f) && f >= FACTION_RAINBOW && f <= FACTION_MAX;
 
 type Listener = (faction: number) => void;
 
@@ -38,7 +42,7 @@ class Crew {
         if (v && v.on === true) {
           this.on = true;
           const f = v.faction;
-          if (typeof f === 'number' && Number.isInteger(f) && f >= FACTION_RAINBOW && f <= FACTION_MAX) this.faction = f;
+          if (isFaction(f)) this.faction = f;
         }
       } catch {
         // (storage blocked: the button shows on ?crew pages only, and picks last this page)
@@ -55,6 +59,12 @@ class Crew {
     } else if (params.get('crew') === 'show') {
       this.on = true;
       this.keep = false;
+      try {
+        const f = JSON.parse(sessionStorage.getItem(SHOW_KEY) ?? 'null') as unknown;
+        if (isFaction(f)) this.faction = f;
+      } catch {
+        // (storage blocked: this page's pick, this page only)
+      }
     } else if (params.has('crew') && !this.on) {
       this.on = true;
       this.save();
@@ -81,7 +91,14 @@ class Crew {
   }
 
   private save() {
-    if (!this.keep) return;
+    if (!this.keep) {
+      try {
+        sessionStorage.setItem(SHOW_KEY, JSON.stringify(this.faction));
+      } catch {
+        // (storage blocked: this page only)
+      }
+      return;
+    }
     try {
       localStorage.setItem(KEY, JSON.stringify({ on: this.on, faction: this.faction }));
     } catch {
