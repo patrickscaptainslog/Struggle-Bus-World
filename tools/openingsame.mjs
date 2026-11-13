@@ -9,7 +9,8 @@
 // __game.renderAgain()): the puffs are Math.random's, and they alone moved 400-900 pixels round the bus from one run of one build to the next (r3). The
 // pixels compared are the second's.
 // The ref against itself twice first: traces not equal, exit 3 (the measure isn't stable); a still from 4.2 s on not equal, exit 3 too; one before it
-// not equal (one run in three, the camera 9 cm off at the release, the whole frame resampled: r3, not found why), the legs leave that still out, and say so.
+// not equal (one run in three, the camera 9 cm off at the release, the whole frame resampled: r3, not found why) passes on a leg when the new run equals
+// any of the ref's runs there, up to two more ref runs taken while it equals none.
 // Then (i) new &hose against the ref, with the HUD: trace and pixels; (ii) both &nohud: trace and pixels; (iii) both with the HUD: the trace only
 // (with the Hose off, the plain link's first-run hint has three lines where the ref's has four).
 // SB_OPEN_Q=&nohud appends to every run of the new url, to show the pixels bite: (i) must then fail.
@@ -102,6 +103,8 @@ const traceDiff = (a, b) => {
   return null;
 };
 const pixDiff = (a, b, at = SHOTS) => SHOTS.filter((s, i) => at.includes(s) && !a.pix[i].equals(b.pix[i]));
+/** the stills where `a` equals none of `refs` */
+const pixDiffAny = (a, refs) => SHOTS.filter((s, i) => !refs.some((r) => a.pix[i].equals(r.pix[i])));
 
 const fails = [];
 const R1 = await run('ref-a', refUrl, '');
@@ -113,24 +116,31 @@ if (stableTrace || stablePix.some((s) => s >= STEADY)) {
   await browser.close();
   process.exit(3);
 }
-const at = SHOTS.filter((s) => !stablePix.includes(s));
-const withPix = at.length === SHOTS.length;
-if (!withPix) console.log(`the ref against itself differs at ${stablePix.join(', ')} s: every leg compares pixels at ${at.join(', ')} s only`);
-const leg = (name, a, b, pixels) => {
-  const t = traceDiff(a, b), p = pixels ? pixDiff(a, b, at) : [];
+// (a still where the ref's own runs differ, before STEADY, is still compared: the new run must equal one of the ref's runs there, and while it equals
+// none another ref run is taken, up to MORE_REFS: left out, the fog's frames, where the first draws act, were never compared, r3's review)
+const MORE_REFS = 2;
+if (stablePix.length) console.log(`the ref against itself differs at ${stablePix.join(', ')} s: there each leg passes on any of the ref's runs`);
+const leg = async (name, a, refs, pixels, label, extra) => {
+  const t = traceDiff(a, refs[0]);
+  let p = pixels ? pixDiffAny(a, refs) : [];
+  for (let k = 0; pixels && p.length && p.every((s) => s < STEADY) && k < MORE_REFS; k++) {
+    refs.push(await run(`${label}-${refs.length + 1}`, refUrl, extra));
+    p = pixDiffAny(a, refs);
+  }
   if (t) fails.push(`${name}: trace ${t}`);
   if (p.length) fails.push(`${name}: pixels differ at ${p.join(', ')} s`);
-  console.log(`${name}: trace ${t ?? 'equal'}${pixels ? `; pixels (the puffs out) ${p.length ? 'differ at ' + p.join(', ') + ' s' : 'equal at ' + at.join(', ') + ' s'}` : ''}`);
+  const which = pixels ? SHOTS.map((s, i) => `${s} ${refs.findIndex((r) => a.pix[i].equals(r.pix[i])) + 1 || '-'}`).join(', ') : '';
+  console.log(`${name}: trace ${t ?? 'equal'}${pixels ? `; pixels (the puffs out) ${p.length ? 'differ at ' + p.join(', ') + ' s' : 'equal at every still'} (the ref run each equals: ${which})` : ''}`);
 };
 const Bh = await run('new-hose', newUrl, '&hose' + NEW_Q);
-leg('(i) new &hose against the ref, with the HUD', Bh, R1, true);
+await leg('(i) new &hose against the ref, with the HUD', Bh, [R1, R2], true, 'ref', '');
 const Rn = await run('ref-nohud', refUrl, '&nohud');
 const Bn = await run('new-nohud', newUrl, '&nohud' + NEW_Q);
-leg('(ii) both &nohud', Bn, Rn, true);
+await leg('(ii) both &nohud', Bn, [Rn], true, 'ref-nohud', '&nohud');
 const B = await run('new-plain', newUrl, NEW_Q);
-leg('(iii) both with the HUD', B, R1, false);
+await leg('(iii) both with the HUD', B, [R1], false);
 if (errors.length) fails.push(`page errors: ${errors[0]}`);
 await browser.close();
-writeFileSync(`${out}/openingsame.json`, JSON.stringify({ fails, stablePix, comparedAt: at, withPix }, null, 1));
+writeFileSync(`${out}/openingsame.json`, JSON.stringify({ fails, stablePix, comparedAt: SHOTS }, null, 1));
 console.log(fails.length ? `OPENINGSAME FAILED ${fails.length}:\n  ${fails.join('\n  ')}` : 'openingsame: all legs equal');
 process.exit(fails.length ? 1 : 0);
