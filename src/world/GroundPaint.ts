@@ -182,6 +182,8 @@ interface RegionMask {
   grounds: number;
   /** tiles shown in it (attachRegion / detachRegion) */
   tiles: Set<string>;
+  /** its slots written since its texture was made, a bit each (1 << ri * 4 + rj): the rest are the zeros WebGL made it with */
+  filled: number;
 }
 
 /** A loaded tile: its own ground's uniforms (the own view) and its slot in its coarse region's mask (the region view), either or both. */
@@ -331,6 +333,8 @@ export class GroundPaint {
   /** Release A, 1a: whole tile slots queued for region masks since the start, in bytes (a tile shown in a region goes up whole once): the city counts what an
    *  adoption adds to it in that frame's upload budget */
   fillBytes = 0;
+  /** writeBox's, a blast's */
+  private boxes = new WeakMap<Prepared, number[]>();
   /** what storage holds, by tile key (mirrored in memory so a tile decodes with no storage read) */
   private readonly store = new Map<string, SavedTile>();
   private storageOk = false;
@@ -679,7 +683,7 @@ export class GroundPaint {
     const key = `${rx},${rz}`;
     let r = this.regions.get(key);
     if (!r) {
-      r = { rx, rz, n, tex: null, uniforms: { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundSq: { value: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) } }, grounds: 0, tiles: new Set() };
+      r = { rx, rz, n, tex: null, uniforms: { tGround: { value: this.empty }, uGroundOn: { value: 0 }, uGroundSq: { value: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) } }, grounds: 0, tiles: new Set(), filled: 0 };
       this.regions.set(key, r);
     }
     r.grounds++;
@@ -725,8 +729,12 @@ export class GroundPaint {
     this.regions.delete(`${r.rx},${r.rz}`);
   }
 
-  /** A mask shown in its region: its slot flagged, the region's texture made (no data: WebGL makes it zeros), its whole slot up at the next flush. */
-  private linkRegion(m: TileMask, t: LoadedTileView) {
+  /**
+   * A mask shown in its region: its slot flagged, the region's texture made (no data: WebGL makes it zeros), its whole slot up at the next flush. A mask made
+   * just now (`fresh`: all zeros) into a slot never written sends nothing: the slot holds its zeros already, and what's drawn on it goes up by its dirty rects
+   * (a saved mask decoded onto it marks its whole rect, startShown). So a blast over unpainted coarse ground uploads what it paints, not 64 KB a tile (review 1).
+   */
+  private linkRegion(m: TileMask, t: LoadedTileView, fresh = false) {
     const r = t.reg!;
     m.reg = r;
     m.ri = t.ri;
@@ -744,6 +752,7 @@ export class GroundPaint {
       r.uniforms.tGround.value = tex;
       r.uniforms.uGroundOn.value = 1;
     }
+    if (fresh && !(r.filled & (1 << (t.ri * 4 + t.rj)))) return;
     if (!m.regAll) this.fillBytes += GROUND_N * GROUND_N * 4;
     m.regAll = true;
     this.queueDirty(m);
@@ -771,6 +780,7 @@ export class GroundPaint {
     }
     const m = this.mask(key)!;
     if (rec.m && !decodeMask(rec.m, m.data)) rec.m = null; // corrupt entry: dropped on its next save
+    else if (rec.m && m.reg) this.markAll(m); // (its region's slot: the decoded paint goes up whole. Release A, 1a)
     if (rec.p.length) {
       this.replaying.set(key, rec.p.length);
       for (const s of rec.p) this.jobs.push({ spec: s, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
@@ -1124,6 +1134,7 @@ export class GroundPaint {
         const props = renderer.properties.get(r.tex!) as { __webglTexture?: WebGLTexture };
         if (!props.__webglTexture) renderer.initTexture(r.tex!);
         uploadRectFrom(renderer, r.tex!, m.ri * GROUND_N + x0, m.rj * GROUND_N + z0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, 4, m.data, GROUND_N, x0, z0);
+        r.filled |= 1 << (m.ri * 4 + m.rj);
         qa.regionCalls++;
         qa.regionBytes += w * h * 4;
       }
@@ -1607,7 +1618,7 @@ export class GroundPaint {
       t.uniforms.tGround.value = tex;
       t.uniforms.uGroundOn.value = 1;
     }
-    if (t.reg) this.linkRegion(m, t);
+    if (t.reg) this.linkRegion(m, t, true);
     return m;
   }
 
@@ -1725,13 +1736,43 @@ export class GroundPaint {
   /** Grow the tile's dirty rect by everything this blast can touch on it (dots fly past the splat). */
   private markDirty(m: TileMask, p: Prepared) {
     const cs = this.cell;
-    const x0 = Math.max(0, Math.floor((p.minX - m.ox) / cs)), x1 = Math.min(GROUND_N - 1, Math.floor((p.maxX - m.ox) / cs));
-    const z0 = Math.max(0, Math.floor((p.minZ - m.oz) / cs)), z1 = Math.min(GROUND_N - 1, Math.floor((p.maxZ - m.oz) / cs));
+    // (in a region's mask, every texel the blast writes: its splat's rows and its dots reach past p's box, a dab's most of all, and a region slot is sent only
+    // what's dirty, where a tile's own texture went up whole once. Today's box for a tile of its own, so ?rmask=0 is today's to the texel. Review 1)
+    const b = m.reg ? this.writeBox(p) : null;
+    const minX = b ? b[0] : p.minX, minZ = b ? b[1] : p.minZ, maxX = b ? b[2] : p.maxX, maxZ = b ? b[3] : p.maxZ;
+    const x0 = Math.max(0, Math.floor((minX - m.ox) / cs)), x1 = Math.min(GROUND_N - 1, Math.floor((maxX - m.ox) / cs));
+    const z0 = Math.max(0, Math.floor((minZ - m.oz) / cs)), z1 = Math.min(GROUND_N - 1, Math.floor((maxZ - m.oz) / cs));
     if (x0 > x1 || z0 > z1) return;
     m.x0 = Math.min(m.x0, x0);
     m.x1 = Math.max(m.x1, x1);
     m.z0 = Math.min(m.z0, z0);
     m.z1 = Math.max(m.z1, z1);
+    this.queueDirty(m);
+  }
+
+  /** The world box (minX, minZ, maxX, maxZ) of every texel a blast can write: p's box, its rows' reach (rows) and each dot's (dot), as they bound their loops. */
+  private writeBox(p: Prepared): number[] {
+    let b = this.boxes.get(p);
+    if (b) return b;
+    const s = p.spec, R = p.max + 3;
+    b = [Math.min(p.minX, s.x - R), Math.min(p.minZ, s.z - R), Math.max(p.maxX, s.x + R), Math.max(p.maxZ, s.z + R)];
+    for (const d of p.dots) {
+      const rr = d.rad * d.elong + 1.5;
+      b[0] = Math.min(b[0], d.x - rr);
+      b[1] = Math.min(b[1], d.z - rr);
+      b[2] = Math.max(b[2], d.x + rr);
+      b[3] = Math.max(b[3], d.z + rr);
+    }
+    this.boxes.set(p, b);
+    return b;
+  }
+
+  /** The whole tile dirty. */
+  private markAll(m: TileMask) {
+    m.x0 = 0;
+    m.z0 = 0;
+    m.x1 = GROUND_N - 1;
+    m.z1 = GROUND_N - 1;
     this.queueDirty(m);
   }
 

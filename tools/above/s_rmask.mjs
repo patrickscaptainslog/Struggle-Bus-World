@@ -61,7 +61,7 @@ const R = {
 };
 
 const uni = () => ({ tGround: { value: null }, uGroundOn: { value: 0 } });
-const REGIONS = [[0, 0], [1, 0]];
+let REGIONS = [[0, 0], [1, 0]];
 const tilesOf = ([rx, rz]) => { const o = []; for (let tz = rz * RS; tz < (rz + 1) * RS; tz++) for (let tx = rx * RS; tx < (rx + 1) * RS; tx++) o.push([tx, tz]); return o; };
 /** a page: 'region', its tiles shown in their regions' masks (?rmask=1), or 'own', each through ground of its own (?rmask=0: today's split ground) */
 const page = (kind) => {
@@ -261,6 +261,31 @@ row('  its painted texels as before the reload (the saved code is 5-bit: within 
   frame(3);
   const h = held(A2);
   row('  a blast after the slide: the region\'s slots equal the tiles\' arrays', h.diff === 0 && h.unflagged === 0 && h.painted > 0, h);
+}
+// 11. a Bomb III's crater (r 459 m, a wide job) over unpainted coarse ground, 3 x 3 regions: every tile in its box gets a mask in its first frame, and none
+// may send its slot's zeros (the slot holds them already). The mark: no frame sends more than one region's whole mask, 1 MiB (the budget a region turning
+// coarse or a twin's first fill takes); before the fix its first frame sent 36 whole slots, 2,304 KiB (the review's finding 1)
+{
+  pages.length = 0;
+  REGIONS = [];
+  for (let rz = 0; rz < 3; rz++) for (let rx = 0; rx < 3; rx++) REGIONS.push([rx, rz]);
+  globals.uTime.value = 0;
+  mem.clear();
+  pages.push(page('region'), page('own'));
+  const [A3] = pages;
+  const r = 459, dl = groundDeadline(r);
+  let worst = 0, worstAt = -1, worstCalls = 0, frames = 0, total = 0, made = 0;
+  taken();
+  live(makeBlastSpec(1.5 * RS * TS, 1.5 * RS * TS, r, 2, nextSeed()), 0.6, dl, () => {
+    const q = A3.uploadQa;
+    total += q.regionBytes;
+    if (q.regionBytes > worst) (worst = q.regionBytes, worstAt = frames, worstCalls = q.regionCalls);
+    frames++;
+  });
+  made = A3.masks.size;
+  const MiB = (N * RS) ** 2 * 4;
+  row('a Bomb III over unpainted coarse ground: no frame sends more than 1 MiB of paint', worst <= MiB && frames > 0 && made > 16, { r, masks: made, frames, worstFrame: worstAt, worstCalls, worstKiB: +(worst / 1024).toFixed(1), totalKiB: +(total / 1024).toFixed(1) });
+  check('  settled: the 9 regions equal their tiles, and today\'s own textures', taken());
 }
 row('every frame: at most one upload a region slot', worstSlot <= 1, { worstSlot });
 console.log(bad ? `S_RMASK FAILED: ${bad}` : 's_rmask: all passed');
