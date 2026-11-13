@@ -14,6 +14,7 @@ import { CameraRig, looksAway, shotTip, turnedAway } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
+import { CrewBus } from './game/crewBus';
 import { FACTION_RAINBOW, paintAsOf } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
@@ -997,6 +998,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   crew.init(params);
   if (crew.on && !paintAs) paintAsFaction(crew.faction);
   crew.listen(paintAsFaction);
+  // (and the bus wears its crew where the button is: what was yellow on it takes the crew's row, game/crewBus.ts, flooding in from the nose with the super's
+  // chime on a switch. &paintas is the paint's alone. Not in a Recess match, whose player is Rainbow's side. Without the button nothing is made or written)
+  const crewBus = crew.on && !recessMod ? new CrewBus(bus) : null;
+  if (crewBus) {
+    crewBus.set(crew.faction, true);
+    crew.listen((f) => {
+      crewBus.set(f);
+      audio.superReady();
+    });
+  }
 
   /** QA: the last sign raised (its text, where, and what named it). */
   let lastSign: { text: string; x: number; z: number; from: string; t: number } | null = null;
@@ -1713,6 +1724,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         heroScale: () => rig.heroScale, arm: (t) => swerve.arm(t),
       })
     : null;
+  /** what the rivals show of a hit on the bus, for its crew's look (game/crewBus.ts) */
+  const rivalsSeen = rivals && rivalsMod ? { counts: rivals.counts, get out() { return rivals.out; }, screen: rivalsMod.rivalScreen } : null;
   if (rivals && swerve) {
     swerve.onWave = (x, z, r) => rivals.wave(x, z, r);
     (window as unknown as { __rivals?: unknown }).__rivals = rivals;
@@ -2414,6 +2427,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     recess?.frame(dt, simTime, camera, held ? 0 : realDt);
     // (?swerve: the city's other buses fly, touch and are drawn; they aren't out until the opening is over)
     rivals?.frame(dt, simTime, held ? 0 : realDt, gateShut || opening < config.fog.openingDuration);
+    // (the bus's crew: after the rivals' flood has drawn this frame)
+    crewBus?.frame(simTime, rivalsSeen);
 
     // painted neighborhoods hum
     const near = city.buildingsNear(flight.x, flight.z, 90, nearTmp);
@@ -2785,6 +2800,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const lose = renderer.getContext().getExtension('WEBGL_lose_context');
     (window as unknown as Record<string, unknown>).__game = {
       flight, city, splatter, input, audio, rig, camera, tuner, perf, pipeline, scene, config, HUE_RAMPS, controls, particles, sky: live ?? hour, moon, life, lift, sprouts,
+      /** QA: the bus's crew look (game/crewBus.ts), on a page with the faction button; null without it */
+      crewBus,
       /** QA, ?life: Curb (src/game/CurbFlight.ts): its state and its qa */
       get curb() {
         return curbFlight;
