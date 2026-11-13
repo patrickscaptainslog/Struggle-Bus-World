@@ -220,6 +220,8 @@ export class Perf {
     this.peakCalls.fill(0);
     this.peakTris.fill(0);
     this.winCalls = this.winTris = this.callsMax = this.trisMax = 0;
+    // (and __stats with them: it is written as each 1 s window closes, so for up to a second after the fog it held the fog's peak, 229-328 draws, r3)
+    (window as unknown as { __stats?: PerfSnapshot }).__stats = this.snapshot();
   }
 
   /** The resolve's link and first draw (ms) as the warm-up timed them, and the hour the frame is under. */
