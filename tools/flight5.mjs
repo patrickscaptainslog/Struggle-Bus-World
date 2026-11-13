@@ -174,6 +174,11 @@ async function m90Case(where) {
     c.body = +(await pull()).toFixed(1);
     const at = Date.now();
     await wait(Math.max(0, 500 - (Date.now() - at)));
+    // (where the flick lands, by Input's own test just before it: a flick is a gear anywhere, so the gear can't say which case ran)
+    c.look = await page.evaluate(([x, y]) => {
+      const inp = window.__game.input;
+      return inp.inLookZone(x - inp.rectL, y - inp.rectT);
+    }, pt);
     await flick(cdp, 1, { x: pt[0], y: pt[1] });
     c.flickAt = pt;
     await wait(Math.max(0, 1200 - (Date.now() - at)));
@@ -187,6 +192,7 @@ async function m90Case(where) {
   if (hasLog) c.shots = await page.evaluate((n) => window.__game.shots().slice(n), before);
   m90.push(c);
   console.log(`M90's case (${where}): ${JSON.stringify(c)}`);
+  ok(c.look === (where === 'look'), `M90's case (${where}): the flick at (${c.flickAt}) landed ${where === 'look' ? 'in the look zone' : 'in the lane'} (Input.inLookZone ${c.look})`);
   ok(c.gear === 1, `M90's case (${where}): the flick at (${c.flickAt}) was a gear (${c.gear >= 0 ? '+' : ''}${c.gear})`);
   ok(c.shot === 'tap' || c.shot === 'comet', `M90's case (${where}): a plain splat, not a Lob (${c.shot}; the body ${c.body} at the lift, ${c.bodyTap} before the tap${c.shots ? `; logged ${JSON.stringify(c.shots)}` : ''})`);
 }
