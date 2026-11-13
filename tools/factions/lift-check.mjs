@@ -908,7 +908,7 @@ void main() {
       tSq = Math.max(tSq, Math.abs(g[1] - o[1]));
       tLean = Math.max(tLean, Math.abs(g[2] - o[2]), Math.abs(g[3] - o[3]));
     }
-    report('the take's motion on the GPU', `the fall, the crack, the heal, the flinch: dy within ${(tDy * 1000).toFixed(2)} mm (worst at ${JSON.stringify(tAt)}), the stretch within ${tSq.toExponential(1)}, the lean within ${tLean.toExponential(1)}`, 'dy <= 5 mm, the stretch <= 1e-3, the lean <= 1e-4', tDy <= 0.005 && tSq <= 1e-3 && tLean <= 1e-4);
+    report('the motion of the take on the GPU', `the fall, the crack, the heal, the flinch: dy within ${(tDy * 1000).toFixed(2)} mm (worst at ${JSON.stringify(tAt)}), the stretch within ${tSq.toExponential(1)}, the lean within ${tLean.toExponential(1)}`, 'dy <= 5 mm, the stretch <= 1e-3, the lean <= 1e-4', tDy <= 0.005 && tSq <= 1e-3 && tLean <= 1e-4);
     report('the aim against the drawn', `a point up to 12 m off the centre and 14 m up it: the CPU's height within ${f2(dAim * 100)} cm of the GPU's turned house`, '<= 25 cm (inside the lean\'s margin, liftTiltReach)', dAim <= 0.25);
   }
 }

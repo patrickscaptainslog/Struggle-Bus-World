@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Taking the block's frames (docs/specs/factions/LIFT.md, "Taking it: the looks"), for one outside look: Rainbow's bus on Inferno's block at a
 // fixed sun. 01 from the producer's own link (?lift&lifted=inferno, the opening under the Golden Gate) as the glance turns to the block's light;
-// the rest on the tools' start (&hoodstart&skipintro), the lens put 230 m out from a square of the block (__qa.camAt) and the bus pinned by it,
+// the rest on the tools' start (&hoodstart&skipintro), the lens put 260 m out from a square of the block and 190 m up, over the floating layer (__qa.camAt) and the bus pinned by it,
 // as the rules' scripted hits (Lift.qaHit, forceReady between) take it: 02 the block before the wave, 03 the wave, 04 a parry after the crack
 // (the bounce, the shimmer, the line's pulse), 05 the crack (veins, the raft's list), 06 the fall mid-air, 07 landed (the slow motion, the lakes
 // draining), 08 a wilt, 09 the flip's front, 10 the square Rainbow's at 3, 11 the sky piece coming down through the heart's fall, 12 the square
@@ -49,6 +49,8 @@ async function open(q) {
     return !!g && !!w?.report && !w.running && w.report.programs >= g.pipeline.renderer.info.programs.length;
   }, null, { timeout: 240000, polling: 100 });
   page.warmDoneAt = await page.evaluate(() => Math.round(window.__game.warm?.doneAt ?? performance.now()));
+  // (the QA's hooks: the held frame, the lens and the bus's pin)
+  await page.evaluate(() => (window.__qa = window.__qa ?? {}));
   return page;
 }
 const wait = (page, fn, arg, timeout = 120000) => page.waitForFunction(fn, arg, { timeout, polling: 50 });
@@ -63,7 +65,11 @@ async function shot(page, name) {
     return { clock: +l.now.toFixed(2), calls: g.perf.calls, tris: g.perf.tris, up: l.up, stats: { counted: l.stats.counted, parried: l.stats.parried, falls: l.stats.falls, landings: l.stats.landings, crackHeld: l.stats.crackHeld, fallHeld: l.stats.fallHeld } };
   });
   await page.screenshot({ path: `${out}/${name}.png` });
-  await page.evaluate(() => (window.__qa.held = false));
+  // (and on: the hold let go)
+  await page.evaluate(() => {
+    delete window.__qa.holdAt;
+    window.__qa.held = false;
+  });
   frames[name] = s;
   console.log(name, JSON.stringify(s));
 }
@@ -105,7 +111,7 @@ try {
       window.__qa.camAt = { x, z, h, lookX: s.x, lookZ: s.z, lookH, hfov };
       window.__qa.pin = { x: x + 20, y: g.city.groundAt(x + 20, z) + h, z, heading: Math.atan2(-(s.x - x), s.z - z) };
     }, [s, heart.x, heart.z, d, h, lookH, hfov]);
-  await look(A, 230, 60, 45);
+  await look(A, 260, 190, 10);
   await until((await now()) + 0.5);
   const hit = (s, f = RB, via = 0) => page.evaluate(([x, z, f, via]) => window.__game.lift.qaHit(x, z, f, via), [s.x, s.z, f, via]);
   const ready5 = () => page.evaluate(() => window.__game.lift.forceReady());
@@ -148,7 +154,7 @@ try {
   // ---- the heart through the piece: its crack, then its fall; the lens out on the heart's own side
   const hasSky = await page.evaluate(() => !!window.__game.lift.sky);
   if (hasSky) {
-    await look(heart, 420, 90, 260, 60);
+    await look(heart, 520, 240, 300, 60);
     await after(0.4);
     await page.evaluate(() => window.__game.lift.forceReady());
     await page.evaluate(() => window.__game.lift.qaHit(-1e9, -1e9, 1, 1));
@@ -160,7 +166,7 @@ try {
   } else (failed++, console.log('no sky piece for 11'));
 
   // ---- 12: the square's third up lifts it as Rainbow's
-  await look(A, 230, 60, 45);
+  await look(A, 260, 190, 10);
   await ready5();
   await hit(A);
   await after(4);
