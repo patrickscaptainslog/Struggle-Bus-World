@@ -3,9 +3,11 @@
 //   check (the default): from Rainbow through Atlantis, the Elderwood, Hyperglow and Inferno and back to Rainbow, then Atlantis again. After each switch the
 //     bus's body read from its own `ramp` attribute (every part that was yellow at the start now the crew's row, as the rivals' table has it, and none left
 //     yellow but Rainbow's) and the paint's faction (the splatter's), each the crew's; the first switch caught half way (part old, part new: no pop); the
-//     super's ready chime once a switch; any rival bus drawn wearing its own crew's row, the same table; then two hits on the Atlantis bus (rivalsBoot's
-//     hurtMe, as the swerve warm row does it), an Inferno one and a Rainbow one: the hitter's colours flood the body, and after the drain it is Atlantis's
-//     again. No program made after the warm-up, no page error.
+//     super's ready chime once a switch; the rival buses, held alongside, each wearing its own crew's row, the same table (none read is a fail); then three
+//     hits on the Atlantis bus (rivalsBoot's hurtMe): an Inferno one and a Rainbow one made between frames (a shell's path, as the swerve warm row does it),
+//     and an Inferno one made inside the rivals' frame (a ram's path: from sim.step): the hitter's colours flood the body with no frame showing yellow on
+//     it but the Rainbow hitter's own, and after the drain it is Atlantis's again; then a switch made while the bus isn't framed (as above 15 km, where the
+//     flight's own bus has the frame): its first frame back shows the new crew whole. No program made after the warm-up, no page error.
 //   --look=<dir>: the stills, no verdict. Each crew's bus held over the Mission at 12:30 from the chase camera (the phone's whole screen) and from close; a
 //     rival bus of the bus's crew alongside; two frames in the middle of a switch.
 // Prints pass or FAIL a line; writes <out>/crew-bus.json; exit 1 on any failure (the stills: exit 0 once they are written).
@@ -108,6 +110,12 @@ await page.evaluate(() => {
     const R = window.__rivals;
     return { hist: h, faction: g.splatter.faction, look: g.crewBus ? g.crewBus.qa() : null, out: R ? R.out : null, flung: R ? R.counts.flung ?? 0 : null, t: g.clock(), chimes: window.__cbChimes ?? 0 };
   };
+  // (the body's parts: the vertices yellow now, at the start, Rainbow's)
+  {
+    const ra = busRa(), body = [];
+    for (let i = 0; i < ra.count; i++) if (ra.getX(i) === 14) body.push(i);
+    window.__cbBody = body;
+  }
   // (the chime a switch plays: the super's ready, counted)
   const a = g.audio, sr = a.superReady.bind(a);
   a.superReady = () => {
@@ -181,19 +189,99 @@ if (!LOOK) {
     });
     for (const r of riv) (R.rivals ??= []).push(r);
   }
+  // (four rival buses held alongside, 24 and 48 m off each side, the bus pinned where it is, one of each crew but Rainbow (a rival not yet out has no crew):
+  // each one's body row against its crew's in the table)
+  const beside = await page.evaluate(() => {
+    const Rv = window.__rivals, g = window.__game, f = g.flight;
+    if (!Rv) return 0;
+    window.__qa = { ...(window.__qa ?? {}), pin: { x: f.x, z: f.z, y: f.y, heading: 0, speed: 0 } };
+    const list = Rv.sim.list.slice(0, 4), off = [24, -24, 48, -48];
+    window.__cbBeside = true;
+    const tick = () => {
+      if (!window.__cbBeside) return;
+      const p = window.__qa.pin;
+      list.forEach((r, k) => {
+        Object.assign(r, { live: true, faction: k + 2, soaked: 0, x: p.x + off[k], z: p.z, y: p.y, heading: 0, speed: 0, state: 0, act: 1, tx: p.x + off[k], tz: p.z - 1e7, mischiefIn: 1e9, ramIn: 0 });
+        r.px = r.x;
+        r.py = r.y;
+        r.pz = r.z;
+      });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return list.length;
+  });
+  if (beside) {
+    await after(1.5);
+    const riv = await page.evaluate(() => {
+      const g = window.__game, Rv = window.__rivals, j = window.__cbBody[0], out = [];
+      for (let k = 0; k < 4; k++) {
+        const root = g.scene.getObjectByName(`Rival${k}`);
+        if (!root?.visible) continue;
+        const r = Rv.sim.list.find((x) => Math.hypot(x.x - root.position.x, x.z - root.position.z) < 1);
+        if (!r || r.soaked) continue;
+        out.push({ faction: r.faction, row: root.children[0].geometry.getAttribute('ramp').getX(j) });
+      }
+      return out;
+    });
+    for (const r of riv) (R.rivals ??= []).push(r);
+  }
+  // (then the rivals sent home and the bus let go: no stray hit in what follows)
+  await page.evaluate(() => {
+    window.__cbBeside = false;
+    for (const o of window.__rivals?.sim.list ?? []) o.live = false;
+    if (window.__qa) delete window.__qa.pin;
+  });
   const rv = R.rivals ?? [];
-  report('rival buses wear the same table', rv.length ? rv.map((r) => `${KEY[r.faction]} ${r.row}`).join(', ') : 'none drawn near enough: not checked', 'each its crew\'s row', rv.every((r) => r.row === BODY[r.faction]));
-  // (the hits, on the Atlantis bus: an Inferno one, then a Rainbow one)
-  for (const [hf, name] of [[5, 'Inferno'], [1, 'Rainbow']]) {
+  report('rival buses wear the same table', rv.length ? `${rv.length} read: ${rv.map((r) => `${KEY[r.faction]} ${r.row}`).join(', ')}` : `none read (${beside} held alongside)`, "at least one, each its crew's row", rv.length > 0 && rv.every((r) => r.row === BODY[r.faction]));
+  await after(1);
+  // (every frame CrewBus draws, what the body shows after it; and a hit made inside the rivals' frame, as sim.step's 'ram' makes one)
+  const hooked = await page.evaluate(() => {
+    const g = window.__game, cb = g.crewBus, Rv = window.__rivals;
+    if (!cb || !Rv) return false;
+    const ra = g.scene.getObjectByName('BusRoot').children[0].geometry.getAttribute('ramp'), body = window.__cbBody;
+    const P = (window.__cbP = { rec: [], on: false, hit: 0, skip: false, first: null });
+    const hist = () => {
+      const h = {};
+      for (const i of body) {
+        const v = ra.getX(i);
+        h[v] = (h[v] ?? 0) + 1;
+      }
+      return h;
+    };
+    const f0 = cb.frame.bind(cb);
+    cb.frame = (t, r) => {
+      if (P.skip) return;
+      f0(t, r);
+      if (P.first === true) P.first = hist();
+      if (P.on) P.rec.push({ t: +t.toFixed(4), h: hist() });
+    };
+    const st = Rv.sim.step.bind(Rv.sim);
+    Rv.sim.step = (...a) => {
+      st(...a);
+      if (P.hit) {
+        const f = P.hit;
+        P.hit = 0;
+        Rv.hurtMe(1, 1, 0, 170, f);
+      }
+    };
+    return true;
+  });
+  // (the hits, on the Atlantis bus: Inferno and Rainbow between frames, then Inferno inside the rivals' frame)
+  for (const [hf, name, inFrame] of [[5, 'Inferno', false], [1, 'Rainbow', false], [5, "Inferno inside the rivals' frame", true]]) {
     await quiet();
+    await after(0.3);
     const t0 = await clock();
-    const ok = await page.evaluate((hf) => {
-      if (!window.__rivals) return false;
-      window.__rivals.hurtMe(1, 1, 0, 170, hf);
+    const ok = hooked && (await page.evaluate(([hf, inFrame]) => {
+      const P = window.__cbP;
+      P.rec = [];
+      P.on = true;
+      if (inFrame) P.hit = hf;
+      else window.__rivals.hurtMe(1, 1, 0, 170, hf);
       return true;
-    }, hf);
+    }, [hf, inFrame]));
     if (!ok) {
-      report(`a hit by ${name}`, 'no rivals on the page', 'rivals', false);
+      report(`a hit by ${name}`, 'no rivals or no crew look on the page', 'both', false);
       continue;
     }
     const want = BODY[hf];
@@ -201,12 +289,37 @@ if (!LOOK) {
       const s = window.__cbRead();
       return (s.hist[w] ?? 0) >= N ? s : false;
     }, [want, N], { timeout: 4000, polling: 'raf' }).then((h) => h.jsonValue()).catch(() => null);
+    const rec = await page.evaluate(() => {
+      const P = window.__cbP;
+      P.on = false;
+      return P.rec;
+    });
     report(`a hit by ${name}: its colours flood the body`, fl ? `all ${N} parts row ${want} ${(fl.t - t0).toFixed(2)} s after` : 'not in 4 s', `all ${N} row ${want}`, !!fl);
+    if (hf !== 1) {
+      // (until the flood fills the body: no frame with yellow on it, the band a front ahead of the rivals' leaves)
+      const upto = rec.findIndex((r) => (r.h[want] ?? 0) >= N);
+      const seen = upto < 0 ? rec : rec.slice(0, upto + 1), yel = seen.filter((r) => (r.h[YELLOW] ?? 0) > 0);
+      report(`a hit by ${name}: no yellow in its flood`, `${yel.length} of ${seen.length} frames with yellow, most at once ${Math.max(0, ...seen.map((r) => r.h[YELLOW] ?? 0))} of ${N}`, '0 frames, of more than 1', seen.length > 1 && yel.length === 0);
+    }
     await quiet();
     await after(0.3);
     const s = await read(), b = body(s, 2);
     report(`a hit by ${name}: then the crew's again`, `${b.n} of ${N} parts row 26, ${b.yellow} yellow, ${(s.hist[30] ?? 0) - (s0.hist[30] ?? 0)} Inferno's (${(s.t - t0).toFixed(1)} s after the hit)`, `all ${N} row 26, none yellow`, b.ok && (s.hist[30] ?? 0) === (s0.hist[30] ?? 0));
   }
+  // (a switch to the Elderwood while the bus isn't framed, as when the flight has the frame: its first frame back shows the Elderwood whole, not a sweep from Atlantis)
+  if (hooked) {
+    await quiet();
+    await page.evaluate(() => (window.__cbP.skip = true));
+    await page.waitForTimeout(500);
+    const tapped = await pick(3);
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      window.__cbP.first = true;
+      window.__cbP.skip = false;
+    });
+    const first = await page.waitForFunction(() => (typeof window.__cbP.first === 'object' ? window.__cbP.first : false), null, { timeout: 5000, polling: 'raf' }).then((h) => h.jsonValue()).catch(() => null);
+    report('a switch while the bus is not framed: its first frame back', first ? `${first[28] ?? 0} of ${N} parts row 28, ${first[26] ?? 0} Atlantis's, ${first[YELLOW] ?? 0} yellow${tapped ? '' : ' (the button not tapped)'}` : 'no frame came back', `all ${N} row 28`, tapped && !!first && (first[28] ?? 0) === N);
+  } else report('a switch while the bus is not framed', 'no crew look or rivals to hook', 'both', false);
   const late = await page.evaluate((t) => window.__cb.programs.filter((p) => p > t).length, warmDoneAt);
   report('no program made after the warm-up', late, '0', late === 0);
   report('no page error', errors, '0', errors === 0);
