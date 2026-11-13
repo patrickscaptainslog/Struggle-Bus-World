@@ -16,6 +16,7 @@ export function shellAt(sim: Rivals, r: Rival, busSpeed: number, hit: (at: THREE
     speed: T.shellSpeed + busSpeed,
     turn: T.shellTurn,
     white: T.shellWhite,
+    pitchInWhite: true,
     hitRadius: Math.max(9, r.speed / 30 + 5),
     maxTime: 5,
     onWhite: (s) => {

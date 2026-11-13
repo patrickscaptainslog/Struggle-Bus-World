@@ -107,6 +107,9 @@ export interface HomingOpts {
   turn: number;
   /** its last seconds (time to go = distance / speed): white-hot, and it no longer steers (SHOTS.md: 0.7, 0.45 at a full charge) */
   white: number;
+  /** ...but in the white it keeps its pitch on the target (default false: it flies straight). Its way across stays as it was, so a turn across still dodges it
+   *  and a climb or a dive doesn't: a rival's shell (src/rivals/shell.ts), whose target climbs to its roofs as the shot flies */
+  pitchInWhite?: boolean;
   /** a hit is within this of the target (m, default 6): this frame's target against the shot's path this frame, so at least the target's speed / 30, a frame of its travel at 30 fps */
   hitRadius?: number;
   /** it ends as a miss after this long (s, default 8) */
@@ -577,6 +580,13 @@ export class Holds {
           if (axis.lengthSq() < 1e-10) axis.set(0, 1, 0);
           s.dir.applyAxisAngle(axis.normalize(), max).normalize();
         }
+      }
+    } else if (s.seen && o.pitchInWhite) {
+      // (in the white it keeps its pitch on the target and its way across as it is: a bus climbing to its roofs doesn't duck it, a turn across still does)
+      const hx = s.dir.x, hz = s.dir.z, hl = Math.hypot(hx, hz), dx = s.tgt.x - s.pos.x, dz = s.tgt.z - s.pos.z;
+      if (hl > 1e-6 && dx * hx + dz * hz > 0) {
+        const p = Math.atan2(s.tgt.y - s.pos.y, Math.hypot(dx, dz)), c = Math.cos(p) / hl;
+        s.dir.set(hx * c, Math.sin(p), hz * c);
       }
     }
     // move, and test the segment against the target (a fast shot steps metres a frame)
