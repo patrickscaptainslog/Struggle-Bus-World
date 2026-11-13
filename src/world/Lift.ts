@@ -1115,6 +1115,8 @@ export class Lift implements LiftHooks, FieldHouses {
         houses: s.houses.slice(), up: s.houses.filter((i) => this.state[i] !== ST_GROUND).length, falling: s.houses.filter((i) => this.falls.has(i)).length,
         paint: s.houses.map((i) => [this.session.faction[i], this.session.hue[i], this.session.level[i]]),
         parry: s.parry,
+        // (&veins=stay's band as tTake carries it)
+        band: veinsStay ? veinBand(a.stage, s.veins) : 0,
       };
     });
   }
