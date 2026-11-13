@@ -9,7 +9,7 @@ import { config } from '../config';
 //   resolve: its link + its first draw (ms), as the warm-up timed them (WarmReport.resolveLinkMs: the one program that grows most with the sky)
 //   frame ms · CPU work ms (the GPU side is unknowable on WebGL/iOS)
 //   draw calls · triangles for the WHOLE frame (max: the most in one frame over the last five 1-s windows) · low-res framebuffer size
-//   first: the tap on the link to the first frame (s) · load: this tab's loads (sessionStorage): over 1, it was reloaded, by hand or by iOS
+//   first: the tap on the link to the page's first frame (s) · load: this tab's loads (sessionStorage, once a page): over 1, it was reloaded, by hand or by iOS
 //   "30 Hz cap? (Low Power Mode)" when frames lock to ~33 ms while work is light.
 //
 // Draw-call counting: the pixel pipeline renders several passes per frame
@@ -57,9 +57,9 @@ export interface PerfSnapshot {
   /** the most draws and triangles in any one frame over the last five 1-s windows */
   callsMax: number;
   trisMax: number;
-  /** performance.now() at the first frame: the tap on the link to the first frame (ms) */
+  /** performance.now() at the page's first frame: the tap on the link to the first frame (ms) */
   firstMs: number;
-  /** loads of this tab (sessionStorage): over 1, it was reloaded, by hand or by iOS */
+  /** loads of this tab (sessionStorage, counted once a page): over 1, it was reloaded, by hand or by iOS */
   loads: number;
 }
 
@@ -67,6 +67,9 @@ const RING = 300; // ~5 s at 60 fps for the 1% low
 const PEAKS = 5; // 1-s windows the draws' and triangles' peaks are kept over
 const HIT_MS = 600; // the impact's frames: those that end this long after it
 const LOADS_KEY = 'strugglebus.loads.v1';
+// (once a page: ?moonland, ?earth and ?earth&resume make two meters, the flight's and the street's, and the second's frames start minutes in)
+let pageLoads = 0;
+let pageFirstMs = 0;
 const GRAPH = 90; // bars in the sparkline
 
 const TIER = ['#7ad65a', '#ffd23e', '#ffa94a', '#f6707a'] as const; // palette: green, yellow, orange, red
@@ -151,12 +154,16 @@ export class Perf {
     // Totals across every pass of a frame; reset by frame() itself.
     renderer.info.autoReset = false;
     installStyle();
-    try {
-      this.loads = Number(sessionStorage.getItem(LOADS_KEY) ?? 0) + 1;
-      sessionStorage.setItem(LOADS_KEY, String(this.loads));
-    } catch {
-      // (storage blocked: the count stays 0, unknown)
+    if (pageLoads === 0) {
+      try {
+        pageLoads = Number(sessionStorage.getItem(LOADS_KEY) ?? 0) + 1;
+        sessionStorage.setItem(LOADS_KEY, String(pageLoads));
+      } catch {
+        // (storage blocked: the count stays 0, unknown)
+        pageLoads = -1;
+      }
     }
+    this.loads = Math.max(0, pageLoads);
 
     const root = document.createElement('div');
     root.className = 'sbp';
@@ -238,7 +245,7 @@ export class Perf {
     info.reset();
 
     const now = performance.now();
-    if (this.firstMs === 0) this.firstMs = now;
+    if (this.firstMs === 0) this.firstMs = pageFirstMs || (pageFirstMs = now);
     if (this.calls > this.winCalls) this.winCalls = this.calls;
     if (this.tris > this.winTris) this.winTris = this.tris;
     this.lastDt = dtMs;
