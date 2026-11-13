@@ -1200,3 +1200,39 @@ Glen Park's, Bayview's, the turn's and the water's floor rows moved the same way
 - `tools/controls.mjs stills` (the suite's `stills-calls`): exit 0, 9 of 9 stills, no page error: the far Comet's hit from 5 and 14 km with the bus held at 0.3 (the pick), at 0.78 and with no dip; the far Lob's ring and beacon from 14 km, capped at 2 km and uncapped; the low Comet's bow at Turbo 3 at its flight's middle. They go to the producer with the link (calls 4 and 5) and to the one outside look.
 - `tools/controls.mjs moonhigh` on 4f33648's build and then this one (the suite's `controls-moon-high`): exit 0. 5 km over Tycho, a level tap at Turbo 3 and one 38 degrees nose up at Cruise: the classic shot on both builds, never far, no Lob; landed 7,013 and 7,669 m from the tap point against 6,989 and 7,655 (the touches are on the wall's clock).
 - Not run: two-way, `s_lob --high` (a Comet's flight can't move a Lob row: the far Lob reads `timeTo` alone), the det views, the warm rows, `controls-comet` again (its budget fail from high up at Turbo 3 is round 1's, the studio's call), every other browser row. No phone.
+
+## The review of the far shots, and what it came to
+
+The review of 4f33648..986d6a4 (the Lob from any height and the Comet dead ahead) had one blocker, three majors and seven minors.
+
+**Fixed.**
+- The streak's motes (major): a line put inside the faction shapes' else-chain gave every near Lob a random scatter, the drips flying up, and the fifth faction's Comet none. The chain is closed again before the far floor. `s_cometfx` now runs `CometFx.streak` on a stub for a near Lob and a Comet in every faction's slot against 4f33648's shapes: with the old line put back it fails 5 of 39, the review's cases exactly; fixed, 39 of 39.
+- A Bomb under a far Comet (major): the aim now drops a far plan while a Bomb charges, before it takes the aim, so the glint, the ring and `?life`'s mover are the aim's own as at 4f33648. `planned`, `Bomb.ts` and `s_hold`'s stubs are back as they were. `fire` keeps its "a Bomb never takes a far Comet" guard: a Bomb can be let go on a frame before it marks the aim as bombing (and `s_shots --bomb` lets one go with no charging frames). `s_shots --bomb` has a mover probe at Nonstop 5 km up: the tap plans the far Comet over the mover, and under a Bomb the mover is kept and glints.
+- A pull barred from the far Lob stayed barred across taps (minor): a throw now ends the bar (a shot that didn't leave puts it back). The far branch's hysteresis (open down to 700 m once a pull has had one) is kept: ending it at a throw would shut the far Lob between 700 and 1,000 m after every tap. `s_lob --high` checks the bar on the Lob's own state.
+- Allocations a frame (minor): the far Lob's plan returns its flight as a number, the stretches' middle and the beacon's projection are functions, and the plans' lens copies the camera's place, turn and projection (not its `userData` through JSON).
+- A chain of far shots compounded the swing's limit (minor): the lift before the first of a chain is kept through it.
+- HOOKS.md's Lob section (minor): the far Lob, the Lob winning over the Comet, a Bomb's shot never a far Comet, `CometPlan.far` and `bow`.
+
+**Not taken.**
+- The stream centre in `shotReach` (minor): it puts the load circle round the bus where the city loads round the look. Lost reach only after a look, never a miss. Taking it moves every far landing in the sims, and they pump the city every 10 frames, so a centre read off the city would be stale there: its own change, with its own rows.
+
+**The blocker, for the producer: the dip's frame is over the budget.** `tools/controls.mjs dipcost` holds the view dipped after placing the bus and letting the city stream in, with the lens a climb leaves. At Turbo 3:
+
+| dip | 2 km | 5 km | 14 km |
+|---|---|---|---|
+| none | 185 draws, 1.50 M | 154, 1.22 M | 109, 0.77 M |
+| 10 degrees | 189, 1.56 M | 194, 1.60 M | 229, 1.83 M |
+| 20 degrees | 189, 1.56 M | 205, 1.76 M | 254, 1.98 M |
+| 30 degrees | 191, 1.62 M | 213, 1.85 M | 274, 2.02 M |
+
+Nonstop is the same within a few draws. At full dip what draws is the whole loaded city: 85 ground meshes and 84 building meshes, 1.56 M triangles, and the far boxes, 25 draws from 5 km and 84 from 14 km. From 2 km the whole circle is in the frame already with no dip. The hit needs 22-26 degrees of dip to show. A cap that keeps the ruling is 0-5 degrees, which leaves the hit under the frame from 5 km up; hiding the far boxes while dipped brings 14 km's draws to about 190 but leaves 1.8-2.0 M triangles. So it isn't fixed here. The picks: keep the dip and give the world a lighter city from high up (coarser buildings past 2 km up, the far boxes merged: the world's job), or cap the dip at about 5 degrees until then, or no dip. `citycost` (the city alone, no shot, flown at Turbo 3) gives the same numbers on 4f33648's build and this one, so nothing here moved the city's own cost.
+
+**For the producer, as before:** at Turbo 3 the far shots land nearly under the bus (the far Lob 300 m past it at the impact, the hit at -0.40 to -0.62 of the half height; the far Comet at -0.56 from 5 km and -0.74 to -0.91 from 14 km). More lead room at Turbo 3, or accept. The stills go with the link.
+
+**What ran** (the laptop, the gate suite on the head, one row at a time under the lock; each exit decides). A stray earlier run of the whole suite was still going on the same folders for the first two hours, so every row below that ran in both was run twice; the exits agree, and where its rows ran on an older tree they're left out.
+- `tsc` 0. The Node rows: `s_lob` (1,253) 0, `lob-keep`, `lob-misfire`, `lob-size`, `lob-tower`, `lob-street`, `s_hold --review`, `--late`, `hooks-doc`, `s_shots --lob`, `s_boom`, `s_falls`, `s_tip` 0 each. `s_cometfx` 0, "all 39 passed". `s_shots --bomb` 0, "all 302 passed" (the mover probe in it). `s_shots` 1, "FAILED 2 of 1803", the same two as before (`dt-floor/nonstop` painting 15 on a tower's face, the open wall call). `s_lob --high` in five parts by `--only` (whole, it passed 40 minutes on the loaded laptop before): 6,053 + its downtown part + the rest, each 0.
+- The two-way proof against 4f33648 (`lob-high` left to its own rows, as new): "109 of 109 outputs pass".
+- The build 0, `iosfloor` 0; `det-skyoff`, `det-golden` 0 (the views as 4f33648's); the six `warm` rows 0; `controls-lob`, `-noon`, the three `misfire`, `controls-bomb`, `-curb`, `-boom`, `-falls`, `budget`, `budget-bomb`, `hint`, `meet`, `controls-lob-high`, `controls-moon-high`, `stills-calls` 0 each.
+- `controls-comet` 1, twice: the budget from 1, 5 and 14 km at Turbo 3, 14 km at Nonstop and the dive (the call above), and frames over 100 ms at the floor (119-130 ms, the laptop shared with two other jobs' browsers).
+- `controls-shot-chain` four times: 0, 1, 0, 1. The two fails are its look: a touch at the top middle during a dip registered as neither a look nor a flight, the whole trace with no look in it. Round 2 saw the same one pass in six; nothing here touched the input. A row to fix (its gestures are timed on the wall clock), or a look lost during a dip: not settled.
+- `dipcost` and `citycost` (the measurements above), 0 each. No phone.
