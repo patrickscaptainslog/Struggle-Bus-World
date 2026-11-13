@@ -1908,7 +1908,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // only a new far shot dips it again)
     const farN = cometFx.shotFrame(simTime, shotSeen);
     if (farN !== farWas) {
-      if (farN) farLift = rig.skyLift;
+      // (the lift before the first of a chain: one taken while dipped put a second shot's floor 25 degrees under the first's, 50 from the sky's lift. The review, 7)
+      if (farN && farWas === 0 && rig.skyDipMost <= 0) farLift = rig.skyLift;
       farWas = farN;
     }
     if (farN && st.look.on) farLooked = farN;
@@ -1938,7 +1939,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     rig.update(camera, focus, flight, dt);
     // (the plans' lens: the dip turned back)
     if (rig.skyLift < 0) {
-      planLens.copy(camera);
+      // (its place, its turn and its projection: Object3D.copy would also copy userData through JSON, a frame)
+      planLens.position.copy(camera.position);
+      planLens.quaternion.copy(camera.quaternion);
+      planLens.projectionMatrix.copy(camera.projectionMatrix);
+      planLens.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
       planLens.rotateX(THREE.MathUtils.degToRad(-rig.skyLift));
       planLens.updateMatrixWorld(true);
       comet.lens = lob.lens = planLens;
