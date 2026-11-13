@@ -72,9 +72,14 @@ for (const [tag, tq] of tags) {
   page.on('pageerror', (e) => (errors++, console.log('[pageerror]', e.message)));
   if (saved) await page.addInitScript((entries) => { for (const [k, v] of entries) localStorage.setItem(k, v); }, saved.entries);
   await page.addInitScript(() => {
+    // (Math.random reseeded from the game clock every frame, and again after the city's streaming step, as tools/shots.mjs --det has it: three.js draws
+    // randoms for every object it makes, and the two pages make different objects, so a particle once moved with them)
     let s = 1;
-    Math.random = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
     let g = null;
+    const seed = () => (s = 1 + ((987654321 + (g ? Math.round(g.clock() * 30) : 0) * 48271) % 2147483646));
+    Math.random = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => raf((t) => (seed(), cb(t)));
     Object.defineProperty(window, '__game', {
       configurable: true,
       get: () => g,
@@ -82,6 +87,12 @@ for (const [tag, tq] of tags) {
         g = v;
         // (the clock stands from the first frame: the tool runs it in exact steps)
         v.controls.frozen = true;
+        const update = v.city.update;
+        v.city.update = function (...a) {
+          const r = update.apply(this, a);
+          seed();
+          return r;
+        };
         // (the live sky's files land at once while it stands, as tools/shots.mjs --det has them)
         const st = v.sky && v.sky.street;
         if (st && typeof st.load === 'function') {
