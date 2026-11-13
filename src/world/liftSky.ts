@@ -1,9 +1,11 @@
 import * as THREE from 'three';
-import { FACTION_ATLANTIS, FACTION_ELDERWOOD, FACTION_HYPERGLOW, FACTION_INFERNO } from '../game/factions';
+import { config } from '../config';
+import { FACTION_ATLANTIS, FACTION_ELDERWOOD, FACTION_HYPERGLOW, FACTION_INFERNO, FACTION_RAINBOW, FACTION_ROOM } from '../game/factions';
+import { FACTION_LOOKS } from '../render/factionLook';
 import { globals, GLSL_COMMON, GLSL_OUT } from '../render/materials';
 import { Ramp } from '../render/palette';
 import { registerWarm } from '../render/warmup';
-import { LIFT, LIFT_TURN, liftSeed, SQUARE, squareIx, squareIz, squareKey } from './liftGlsl';
+import { BEAM, LIFT, LIFT_TURN, liftSeed, SQUARE, squareIx, squareIz, squareKey } from './liftGlsl';
 
 // Stage 4's sky marks in the other four factions (docs/specs/factions/LIFT.md, "Stage 4 in the other factions"; FACTIONS.md section 2): the set
 // piece over a lifted neighbourhood's heart, about 300 m over its ground and over the highest floating roof under it, one draw and one program,
@@ -1305,6 +1307,8 @@ function cutReaches(box: Float32Array, n: number, cx: number, cy: number, cz: nu
 export interface SkyPiece {
   mesh: THREE.Mesh;
   tris: number;
+  /** its highest point (m, world y): its parts' boxes, smoke and corona included, and its risers' */
+  top: number;
   feet: Array<[number, number]>;
   cols: number[][];
   start(t: number): void;
@@ -1350,6 +1354,8 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
       boxes.push(Math.max(c[k], c[k + 4]) + r, Math.max(c[k + 1], c[k + 5]) + r, Math.max(c[k + 2], c[k + 6]) + r);
     }
   const reach = new Float32Array(boxes);
+  let top = -Infinity;
+  for (let i = 4; i < reach.length; i += 6) top = Math.max(top, reach[i]);
   const geo = g.build(), holes = PIECES[faction].holes;
   const mesh = new THREE.Mesh(geo, solid);
   mesh.frustumCulled = false;
@@ -1366,6 +1372,7 @@ function finish(faction: number, place: SkyPlace, g: Geo, { R: size, Y, feet, co
   return {
     mesh,
     tris: g.idx.length / 3,
+    top,
     feet,
     cols,
     start: (t: number) => {
@@ -1396,3 +1403,132 @@ export function registerSkyWarm(faction: number) {
   });
 }
 
+// ---------------------------------------------------------------- the far sign: the block's light over the heart
+
+// &lifted (LIFT.md, "Taking the block"): a column of the block's faction's light over the heart, seen from across the city, so the block is
+// something to fly to from the Golden Gate. One draw, one program for all five (the faction is a uniform), two triangles turned to the lens
+// about the vertical, at least BEAM.wMin m and BEAM.px game pixels wide. It writes the G-buffer as the pieces do, no blending, with no
+// outline (a line three pixels wide would be all ink). Its foot stands over the sky piece's top once the piece forms, so it never stands out
+// of the piece as its stalk.
+
+/** each faction's six bands up the beam: its breath's colours (FACTION_LOOKS' spray), its black glass as its trim (a light can't be black) */
+const BEAM_BANDS = FACTION_LOOKS.flatMap((l) => l.spray.map((r) => (r === Ramp.OBSIDIAN ? l.trim : r)));
+
+const BEAM_VS = /* glsl */ `
+${GLSL_COMMON}
+uniform vec4 uBeamC; // the heart x, its ground, the heart z, the top (m over the ground)
+uniform vec3 uBeamLo; // the foot (m over the ground): from x to y over BEAM.ease s from z
+uniform vec2 uBeamT; // its rise from the foot up (x) and its drain from the top down (y), each over BEAM.drain s (game clock)
+out vec3 vWorldPos;
+out vec2 vB; // across (-1..1), how far up the whole column (0..1)
+out float vY; // m over the ground
+void main() {
+  float lo = mix(uBeamLo.x, uBeamLo.y, smoothstep(uBeamLo.z, uBeamLo.z + ${F(BEAM.ease)}, uTime));
+  float hi = uBeamC.w;
+  float top = lo + (hi - lo) * clamp((uTime - uBeamT.x) / ${F(BEAM.drain)}, 0.0, 1.0) * (1.0 - clamp((uTime - uBeamT.y) / ${F(BEAM.drain)}, 0.0, 1.0));
+  if (top < lo + 0.5) { ${HIDE} }
+  float y = lo + (top - lo) * position.y;
+  vec2 to = cameraPosition.xz - uBeamC.xz;
+  float d = max(length(to), 1.0);
+  // (BEAM.px game pixels at its distance across the lens: projectionMatrix[0][0] is 1 / tan of half the horizontal lens; liftGlsl's beamWidth)
+  float w = max(${F(BEAM.wMin)}, ${F(BEAM.px * 2)} * d / (projectionMatrix[0][0] * ${F(config.render.pixelWidth)}));
+  vec3 p = vec3(uBeamC.x - to.y / d * position.x * w * 0.5, uBeamC.y + y, uBeamC.z + to.x / d * position.x * w * 0.5);
+  vWorldPos = p;
+  vB = vec2(position.x, (y - lo) / max(hi - lo, 1.0));
+  vY = y;
+  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+}
+`;
+
+const BEAM_FS = /* glsl */ `
+${GLSL_COMMON}
+uniform vec4 uBeamC;
+uniform float uBeamFac; // whose light (game/factions.ts)
+in vec3 vWorldPos;
+in vec2 vB;
+in float vY;
+${GLSL_OUT}
+const float SB_BEAM[${BEAM_BANDS.length}] = float[${BEAM_BANDS.length}](${BEAM_BANDS.map((r) => r.toFixed(1)).join(', ')});
+void main() {
+  float h = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+  // (gone by a dither as the lens nears the heart, and over its top's share)
+  float keep = smoothstep(${F(BEAM.fadeNear)}, ${F(BEAM.fadeFar)}, length(cameraPosition.xz - uBeamC.xz)) * (1.0 - smoothstep(${F(1 - BEAM.top)}, 1.0, vB.y));
+  if (h >= keep) discard;
+  int f = clamp(int(uBeamFac + 0.5), 0, ${FACTION_ROOM});
+  // its hues in bands drifting up; a core of its brightest step, its edges a step lower; one pulse of a step running up it
+  int b = int(mod(floor((vY - uTime * ${F(BEAM.drift)}) / ${F(BEAM.band)}), 6.0));
+  bool core = abs(vB.x) < 0.34;
+  float light = core ? 0.92 : 0.78;
+  float glow = core ? 0.85 : 0.6;
+  if (abs(vY - mod(uTime, ${F(BEAM.pulse)}) / ${F(BEAM.pulse)} * uBeamC.w) < 24.0) light = min(1.0, light + 0.143);
+  sbWrite(SB_BEAM[f * 6 + b], light, sbFog(vWorldPos), glow, vec3(0.0, 0.0, 1.0), 0.71, 0.5);
+}
+`;
+
+function beamMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: {
+      ...globals,
+      uBeamC: { value: new THREE.Vector4(0, 0, 0, BEAM.hi) },
+      uBeamLo: { value: new THREE.Vector3(BEAM.lo, BEAM.lo, -1e9) },
+      uBeamT: { value: new THREE.Vector2(-1e9, 1e9) },
+      uBeamFac: { value: FACTION_RAINBOW },
+    },
+    side: THREE.DoubleSide,
+    vertexShader: BEAM_VS,
+    fragmentShader: BEAM_FS,
+  });
+}
+
+function beamGeometry(): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, 0, 0, 1, 0, 0, 1, 1, 0, -1, 1, 0]), 3));
+  g.setIndex([0, 1, 2, 0, 2, 3]);
+  return g;
+}
+
+/** The block's light over the heart (a mesh for the scene) and what moves it. */
+export interface Beam {
+  mesh: THREE.Mesh;
+  /** the heart's ground (m), once its tiles are in */
+  ground(y: number): void;
+  /** the sky piece's top (m, world y): from `t` the foot eases up to it plus BEAM.over */
+  foot(top: number, t: number): void;
+  /** it drains from the top down from `t` (the heart's fall) */
+  drain(t: number): void;
+  /** it rises again from BEAM.lo in `faction`'s colours from `t` (the heart's flip: nothing compiles, the faction is a uniform) */
+  relight(faction: number, t: number): void;
+}
+
+/** The far sign for `faction`'s block over `heart` (x, z), its ground `groundY` as known now. */
+export function makeBeam(faction: number, heart: [number, number], groundY: number): Beam {
+  const m = beamMaterial(), u = m.uniforms;
+  const c = u.uBeamC.value as THREE.Vector4, lo = u.uBeamLo.value as THREE.Vector3, tt = u.uBeamT.value as THREE.Vector2;
+  c.set(heart[0], groundY, heart[1], BEAM.hi);
+  u.uBeamFac.value = faction;
+  const mesh = new THREE.Mesh(beamGeometry(), m);
+  mesh.frustumCulled = false;
+  return {
+    mesh,
+    ground: (y) => {
+      c.y = y;
+    },
+    foot: (top, t) => {
+      lo.set(BEAM.lo, Math.max(BEAM.lo, top - c.y + BEAM.over), t);
+    },
+    drain: (t) => {
+      tt.y = t;
+    },
+    relight: (f, t) => {
+      u.uBeamFac.value = f;
+      lo.set(BEAM.lo, BEAM.lo, -1e9);
+      tt.set(t, 1e9);
+    },
+  };
+}
+
+/** Shader warm-up (render/warmup.ts): the beam's one program, on every ?lift&lifted page. */
+export function registerBeamWarm() {
+  registerWarm('liftbeam', () => [new THREE.Mesh(beamGeometry(), beamMaterial())]);
+}

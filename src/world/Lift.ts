@@ -7,7 +7,7 @@ import type { RoofSprouts } from './props/sprouts';
 import { liftUniforms } from './buildingMaterial';
 import { LiftField, type FieldHouses } from './LiftField';
 import { makeCapGeometry, makeCapMaterial, makeLiftDepthMaterial, registerLiftWarm, type Centre } from './liftDraw';
-import { makeSkyPiece, registerSkyWarm, type SkyPiece } from './liftSky';
+import { type Beam, makeBeam, makeSkyPiece, registerBeamWarm, registerSkyWarm, type SkyPiece } from './liftSky';
 import {
   hoodStart, LAKE_FLOOD, liftAt, liftWakes, waveSlow, liftFaction, liftTurnCode, liftLow, LIFT_NEAR, liftPlace, type LiftNear, liftedOn, liftHeave, liftReach, liftRest, liftSeed, liftTiltReach, LIFT, slowAt, slowmoOn, SLOW_COOLDOWN, SLOW_HIT, SLOW_WAVE, SQUARE, squareIx, squareIz, squareKey, type LiftHooks,
 } from './liftGlsl';
@@ -174,6 +174,8 @@ export class Lift implements LiftHooks, FieldHouses {
   private sky: SkyPiece | null = null;
   /** the sky piece being built, a part a frame (frame()), from the frame after staging's last */
   private skyBuild: ReturnType<typeof makeSkyPiece> = null;
+  /** &lifted's far sign: the block's light over the heart (liftSky.ts), from the Lift's construction */
+  readonly beam: Beam | null = null;
   /** the bus as frame() had it, for lens() (the caller's own object) */
   private busAt: { x: number; y: number; z: number } | null = null;
 
@@ -264,6 +266,12 @@ export class Lift implements LiftHooks, FieldHouses {
     this.depthMaterial = makeLiftDepthMaterial();
     registerLiftWarm(this.depthMaterial);
     registerSkyWarm(this.block);
+    if (liftedOn) {
+      // (from hoods.bin alone: no tile needed. Its ground is the heart's as known now, and again once staging has the tiles)
+      this.beam = makeBeam(this.block, this.heart, city.groundAt(this.heart[0], this.heart[1]));
+      g.scene.add(this.beam.mesh);
+      registerBeamWarm();
+    }
     // (bounds grown past the highest flyer's overshoot and heave: a house 100 m up is never culled)
     city.liftShadow = { rect: this.rect, material: this.depthMaterial, grow: Math.ceil(LIFT.hMax * 1.14 + LIFT.heaveSmall * 1.2 + 2) };
     city.lift = this;
@@ -471,6 +479,7 @@ export class Lift implements LiftHooks, FieldHouses {
     for (const { ref, d } of this.waveOrder()) this.schedule(ref.index, this.waveAt + d / LIFT.wave + LIFT.waveJitter * liftSeed(ref.index, 3), BY_WAVE);
     if (this.block === FACTION_HYPERGLOW) this.turns();
     this.sky?.start(this.waveAt);
+    if (this.sky) this.beam?.foot(this.sky.top, this.waveAt);
     this.g.sound.wave();
   }
 
@@ -682,6 +691,7 @@ export class Lift implements LiftHooks, FieldHouses {
       this.stagedRects.push(ix * SQUARE, iz * SQUARE, (ix + 1) * SQUARE, (iz + 1) * SQUARE);
     }
     this.heartY = city.groundAt(hx, hz);
+    this.beam?.ground(this.heartY);
     // (the sky piece from the next frame on, a part a frame: not on top of this one's 50 houses, nor the wave's)
     this.buildSky();
   }
@@ -723,8 +733,12 @@ export class Lift implements LiftHooks, FieldHouses {
     this.sky = piece;
     this.g.scene.add(piece.mesh);
     this.stats.skyTris = piece.tris;
-    // (the wave can start the frame staging ends, before the piece is whole: it forms from the wave's start all the same)
-    if (this.waveAt >= 0) piece.start(this.waveAt);
+    // (the wave can start the frame staging ends, before the piece is whole: it forms from the wave's start all the same, and the beam's foot
+    // rises over it from then)
+    if (this.waveAt >= 0) {
+      piece.start(this.waveAt);
+      this.beam?.foot(piece.top, this.waveAt);
+    }
   }
 
   /**
@@ -831,6 +845,8 @@ export class Lift implements LiftHooks, FieldHouses {
     this.now = now;
     this.wall += realDt;
     let busy = false;
+    // (the beam's foot on the heart's ground as the far field and the tiles bring it in, until staging has it)
+    if (!this.staged) this.beam?.ground(this.g.city.groundAt(this.heart[0], this.heart[1]));
     if (liftedOn && !this.staged && this.tilesWanted.size === 0) this.stage();
     else if (this.skyBuild) {
       this.skyStep();

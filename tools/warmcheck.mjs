@@ -317,6 +317,11 @@ const res = {
   programsAtReady: info.programsAtReady,
   blast,
   low: lowRun,
+  // (?lift&lifted: the wave's start on the game clock, and whether the sky piece and the far sign are in the scene)
+  ...(await page.evaluate(() => {
+    const l = window.__game.lift;
+    return l ? { waveAt: l.waveAt, sky: !!l.sky?.mesh.parent, beam: !!l.beam?.mesh.parent } : {};
+  })),
   programsTotal: W.programs.length,
   programsAfterWarmup: after.length,
   programsAfterWarmupByPhase: after.map(([t, p]) => `${p}@${t}`),
