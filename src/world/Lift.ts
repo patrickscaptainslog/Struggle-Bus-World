@@ -706,7 +706,10 @@ export class Lift implements LiftHooks, FieldHouses {
       return;
     }
     if (b.super && (b.super.kind === 'boom' || b.super.kind === 'falls')) return;
-    const x = b.via === 1 ? this.heart[0] : b.primary ? b.primary.cx : b.pos.x, z = b.via === 1 ? this.heart[1] : b.primary ? b.primary.cz : b.pos.z;
+    // (a park heart, a square with no houses (Alamo Square's): a blast whose impact is on its ground is a hit on it, before the building the breath hit,
+    // which stands across the street. Else, once its sky piece fell, taps landing on its grass counted on the squares round it: the one link flown)
+    const at = this.takeSq.get(keyAt(b.pos.x, b.pos.z)), park = b.via !== 1 && !!at && at.heart && at.houses.length === 0;
+    const x = b.via === 1 ? this.heart[0] : park || !b.primary ? b.pos.x : b.primary.cx, z = b.via === 1 ? this.heart[1] : park || !b.primary ? b.pos.z : b.primary.cz;
     const s = this.takeSq.get(keyAt(x, z));
     if (!s) return;
     let superId: number | undefined;
