@@ -1505,8 +1505,10 @@ if (modes.has('comet')) {
         await place(false);
         await runFor(page, 1);
       }
+      // (the trace from 0.5 s before the tap: what the frame cost with no Comet in the air, for the record)
       await page.evaluate(() => (window.__coTrace = []));
-      const at = await page.evaluate(() => { const g = window.__game, f = g.flight; return { agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), nose: +((f.nose * 180) / Math.PI).toFixed(1), shots: g.cometFx.stats.fired }; });
+      await runFor(page, 0.5);
+      const at = await page.evaluate(() => { const g = window.__game, f = g.flight; return { agl: Math.round(f.y - g.city.groundAt(f.x, f.z)), nose: +((f.nose * 180) / Math.PI).toFixed(1), shots: g.cometFx.stats.fired, t: g.clock() }; });
       await H.down(2, 300, 300);
       await wall(60);
       await H.up(2);
@@ -1519,7 +1521,7 @@ if (modes.has('comet')) {
         const off = c ? Math.abs((c.x - c.x0) * f.fz - (c.z - c.z0) * f.fx) : null;
         return { t: l?.t ?? null, travel: l?.travel ?? null, kind: c?.kind ?? (c ? 'comet' : 'splat'), far: !!c?.far, loaded: !!c?.loaded, miss: !!l?.miss, reach: c ? Math.round(c.reach) : null, off: off === null ? null : +off.toFixed(1), tr };
       });
-      const tImp = b.t !== null ? b.t + b.travel : Infinity, tr = b.tr.filter((q) => q[0] <= tImp + 0.6 + 1e-6);
+      const pre = b.tr.filter((q) => q[0] < at.t), tImp = b.t !== null ? b.t + b.travel : Infinity, tr = b.tr.filter((q) => q[0] >= at.t && q[0] <= tImp + 0.6 + 1e-6);
       const atImp = tr.find((q) => q[0] >= tImp - 1e-6) ?? null;
       const starFrames = tr.filter((q) => q[6] !== null), starIn = starFrames.filter((q) => Array.isArray(q[6]) && Math.abs(q[6][0]) <= 1 && Math.abs(q[6][1]) <= 1).length;
       taps.push({
@@ -1527,7 +1529,10 @@ if (modes.has('comet')) {
         busOff: tr.filter((q) => !q[4] || Math.abs(q[4][0]) > 1 || q[4][1] < -1 || q[4][1] > 0.35).length, starFrames: starFrames.length, starIn,
         landAtImp: atImp?.[5] ?? null, liftLeast: tr.length ? Math.min(...tr.map((q) => q[7])) : null,
         draws: tr.length ? Math.max(...tr.map((q) => q[1])) : null, tris: tr.length ? Math.max(...tr.map((q) => q[2])) : null, worstMs: tr.length > 1 ? Math.max(...tr.slice(1).map((q) => q[3])) : null,
+        drawsBefore: pre.length ? Math.max(...pre.map((q) => q[1])) : null, trisBefore: pre.length ? Math.max(...pre.map((q) => q[2])) : null,
       });
+      // (at the floor the bus flies on through its pillar, 1.3-1.8 s after the impact, before it's flown from the start again: the full show's drops)
+      if (h === 'floor') await runFor(page, 1.5);
     }
     if (h === 'dive') await H.up(1);
     const drops = (await page.evaluate(() => window.__game.cometFx.stats.drops)) - a.drops;
@@ -1546,7 +1551,7 @@ if (modes.has('comet')) {
     ok(sf > 0 && si >= 0.9 * sf, `${key}: the star on screen on 90 % of its frames (${si} of ${sf})`);
     ok(taps.every((q) => q.busOff === 0), `${key}: the bus on screen and at +0.35 or lower every frame (${taps.map((q) => q.busOff).join(', ')} not)`);
     if (h === 'floor') ok(drops > 0, `${key}: the full show's drops on the lens (${drops})`);
-    ok(taps.every((q) => q.draws === null || (q.draws <= 200 && q.tris <= 1.5e6)), `${key}: at most 200 draws and 1.5 M triangles (${Math.max(...taps.map((q) => q.draws ?? 0))}, ${(Math.max(...taps.map((q) => q.tris ?? 0)) / 1e6).toFixed(3)} M)`);
+    ok(taps.every((q) => q.draws === null || (q.draws <= 200 && q.tris <= 1.5e6)), `${key}: at most 200 draws and 1.5 M triangles (${Math.max(...taps.map((q) => q.draws ?? 0))}, ${(Math.max(...taps.map((q) => q.tris ?? 0)) / 1e6).toFixed(3)} M; in the 0.5 s before the taps ${Math.max(...taps.map((q) => q.drawsBefore ?? 0))}, ${(Math.max(...taps.map((q) => q.trisBefore ?? 0)) / 1e6).toFixed(3)} M)`);
     ok(taps.every((q) => q.worstMs === null || q.worstMs <= 100), `${key}: no frame over 100 ms (${Math.max(...taps.map((q) => q.worstMs ?? 0))})`);
   }
   const made = (await page.evaluate(() => window.__progs)) - progs0;

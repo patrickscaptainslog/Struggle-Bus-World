@@ -394,8 +394,9 @@ const OUT = process.env.SB_OUT ?? 'shots/controls/sim';
 mkdirSync(OUT, { recursive: true });
 if (BOMB) {
   // ---- the Bomb's rows: each pose's tap, then a Bomb II and III let go at the same moment, and their gates alone
-  for (const key of ['wa-floor', 'wa-300', 'dt-floor'])
-    for (const name of ['nonstop', 'jet', 't3']) {
+  // (and from 5 km at Nonstop and Turbo 3, where the tap is the far Comet: the Bomb never takes it, it's the classic tap's, as before. DESIGN C13)
+  for (const key of ['wa-floor', 'wa-300', 'dt-floor', 'wa-c5000'])
+    for (const name of key === 'wa-c5000' ? ['nonstop', 't3'] : ['nonstop', 'jet', 't3']) {
       const pose = POSES.find((p) => p.pose.key === key)!.pose, rung = RUNGS.find((r) => r[0] === name)!;
       if (ONLY && !`${key}/${name}`.includes(ONLY)) continue;
       for (const dt of [1 / 60, 1 / 30]) for (const tier of [0, 2, 3] as const) rows.push(await run(rung, pose, dt, tier));
@@ -414,6 +415,15 @@ if (BOMB) {
     const d = t ? Math.hypot(r.landing[0] - t.landing[0], r.landing[1] - t.landing[1], r.landing[2] - t.landing[2]) : Infinity;
     // (where the tap is the classic shot, at Turbo 3 from 300 m (BUILT.md: no Comet in turbo from about 300 m up, the producer's call), so is the Bomb, with
     // its hit-stop; the Comet's own gates are where the tap's a Comet)
+    if (t?.far) {
+      // (the tap a far Comet: the Bomb the aim's own shot, on the landing the aim had under it, its radius a tap's from there, with its hit-stop)
+      const dOwn = r.own ? Math.hypot(r.landing[0] - r.own[0], r.landing[2] - r.own[1]) : Infinity;
+      // (the classic shot lands on the building glinting by the aim's own point, not on the point: within a tap's circle of it)
+      ok(r.kind === 'splat' && dOwn <= r.wantRadius / k, `${id}: never the far Comet, the aim's own shot (${r.kind}, ${r1(dOwn)} m from the aim's own landing)`);
+      ok(r.radius !== null && Math.abs(r.radius - k * r.wantRadius) <= k, `${id}: ${k} times a tap's radius from there (${r.radius} against ${r.wantRadius})`);
+      ok(r.painted > 0 && r.wrong === 0 && r.past3 === 0 && r.hitStops === 1, `${id}: its buildings each at min(3, before + jump), none past 3, the classic shot's hit-stop (${r.painted}, ${r.wrong} not, ${r.past3} past, ${r.hitStops} hit-stops)`);
+      continue;
+    }
     const comet = t?.kind === 'comet';
     ok(r.kind === t?.kind, `${id}: the tap's shot (${r.kind}, tap ${t?.kind})`);
     ok(d <= 2 && Math.abs((r.tImpact ?? 9) - (t?.tImpact ?? 0)) <= 0.05, `${id}: lands within 2 m and 0.05 s of the tap's ${comet ? 'Comet' : 'shot'} (${r1(d)} m, ${r.tImpact} against ${t?.tImpact} s)`);
