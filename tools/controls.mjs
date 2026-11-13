@@ -53,6 +53,9 @@
 //            floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //            <baseUrl>, in one browser session                                              -> perf in controls.json
 // SB_Q=&hour=blue appends to the street page's query (thumbs, states, keyboard, audio, firstrun): the same rows under a flag.
+// The draws a frame makes follow the sun on the real clock (the sun pass keeps every caster in its window with the sun a few degrees up: at one pose 119 at
+// night, 135 at noon, 188-205 at 07:15), so a row judging them pins it: SB_Q='&t=2026-11-13T15:15:00Z&rate=0', the worst minute measured (r3). SB_REPS=3
+// (boom, falls) flies each page that many times and judges every run.
 // Launches through tools/browser.mjs (the GPU here, SwiftShader in the cloud): everything waits on the game
 // clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
@@ -1301,8 +1304,11 @@ if (modes.has('boom') || modes.has('falls')) {
     if (!modes.has(mode)) continue;
     const R = { rows: [], verdicts: [] };
     const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
-    // (SB_ONLY=rainbow,inferno: those factions' pages alone)
-    for (const [fk, fq] of FACTIONS[mode].filter(([k]) => !process.env.SB_ONLY || process.env.SB_ONLY.split(',').includes(k))) {
+    // (SB_ONLY=rainbow,inferno: those factions' pages alone; SB_REPS=3: each page that many times, fresh, its rows as rainbow-run2 and on, every one judged,
+    // so a frame's cost isn't one run's luck: what streamed in by the flick and was drawn for the first time in its frames moved the worst 10 draws, r3)
+    const reps = Math.max(1, Number(process.env.SB_REPS ?? 1));
+    const pages = FACTIONS[mode].filter(([k]) => !process.env.SB_ONLY || process.env.SB_ONLY.split(',').includes(k)).flatMap(([k, q]) => Array.from({ length: reps }, (_, i) => [i ? `${k}-run${i + 1}` : k, q]));
+    for (const [fk, fq] of pages) {
       // (the Waterfall's page starts over the Financial District: pinned there from the Western Addition, its towers weren't in yet)
       const page = await open((mode === 'falls' ? `?lat=37.7946&lon=-122.4030&heading=88&skipintro&fixeddt=0.05${process.env.SB_Q ?? ''}` : Q) + `&${mode}` + fq, progInit);
       const cdp = await page.context().newCDPSession(page);
