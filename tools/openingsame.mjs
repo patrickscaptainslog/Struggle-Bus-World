@@ -12,7 +12,8 @@
 // the camera 9 cm off at the release, the whole frame resampled; at 30 s a lit spot far off: r3, neither found why) passes on a leg when the new run
 // equals any of the ref's runs there, up to two more ref runs taken while it equals none.
 // Then (i) new &hose against the ref, with the HUD: trace and pixels; (ii) both &nohud: trace and pixels; (iii) both with the HUD: the trace only
-// (with the Hose off, the plain link's first-run hint has three lines where the ref's has four).
+// (with the Hose off, the plain link's first-run hint has three lines where the ref's has four), or with SB_OPEN_REF_Q the pixels too, against the ref's
+// own plain runs (its Hose off as well, its hint three lines).
 // SB_OPEN_Q=&nohud appends to every run of the new url, to show the pixels bite: (i) must then fail.
 // SB_OPEN_REF_Q=&hose appends to the ref's runs with the HUD (the ref against itself and (i)): with a ref whose Hose is off too (the core's own build, as
 // the ref for a branch merged with it), its hint then has the Hose's four lines, as 4f33648's had.
@@ -142,7 +143,8 @@ const Rn = await run('ref-nohud', refUrl, '&nohud');
 const Bn = await run('new-nohud', newUrl, '&nohud' + NEW_Q);
 await leg('(ii) both &nohud', Bn, [Rn], true, 'ref-nohud', '&nohud');
 const B = await run('new-plain', newUrl, NEW_Q);
-await leg('(iii) both with the HUD', B, [R1], false);
+if (REF_Q) await leg('(iii) both with the HUD', B, [await run('ref-plain', refUrl, '')], true, 'ref-plain', '');
+else await leg('(iii) both with the HUD', B, [R1], false);
 if (errors.length) fails.push(`page errors: ${errors[0]}`);
 await browser.close();
 writeFileSync(`${out}/openingsame.json`, JSON.stringify({ fails, stablePix, comparedAt: SHOTS }, null, 1));
