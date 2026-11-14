@@ -2605,6 +2605,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       /** QA: the same at a point of the map (m) */
       paintedAt: (x: number, z: number, r: number) => paintedAt(x, z, r),
+      /** QA: the trees within r of a point of the map (m): where each stands, the tile whose list holds it, its paint level (0 grey, 1-3) */
+      treesAt: (x: number, z: number, r: number) => {
+        const out: Array<{ x: number; z: number; tile: string; level: number }> = [];
+        for (const [k, list] of treeIndex) {
+          const tf = treeFields.get(k);
+          if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r) out.push({ x: list[i].x, z: list[i].z, tile: k, level: tf.paintLevel(i) });
+        }
+        return out;
+      },
     };
     /** QA: paintedNear's and paintedAt's count */
     function paintedAt(x: number, z: number, r: number) {
