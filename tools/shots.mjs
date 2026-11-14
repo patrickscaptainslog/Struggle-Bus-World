@@ -401,6 +401,49 @@ const drift = (page, speed) => page.evaluate((v) => ((window.__qa = null), (wind
 
 const views = new Set((opt.views ?? (det ? 'grey,painted,opening,fidi,soma,high,ceiling,swap' : 'grey,painted,opening')).split(','));
 
+/**
+ * --probe=x,y;x,y (game pixels, from the top left): which draw writes each of those pixels. The held frame is drawn once more (pipeline.render, nothing
+ * stepped), and after every draw into the G-buffer each pixel is read back: a draw that changes it wrote it, the last one is what shows. <name>-probe.json
+ * holds each pixel's writers in order and the main pass's draws (object, material and its id, renderOrder), <name>-probe.png the frame drawn again
+ * (it should equal <name>.png). For telling two builds' draw orders apart where their frames differ (Release A, 1a).
+ */
+async function probe(page, name) {
+  const pts = String(opt.probe).split(';').map((s) => s.split(',').map(Number));
+  const res = await page.evaluate((pts) => {
+    const g = window.__game, P = g.pipeline, r = P.renderer, gl = r.getContext(), gb = P.gbuf, H = gb.height;
+    const label = (o) => `${o.type}:${o.name || o.parent?.name || ''}#${o.id}`;
+    const mlabel = (m) => `${m.type}:${m.name || ''}#${m.id}`;
+    const buf = new Uint32Array(4), last = pts.map(() => null), hits = pts.map(() => []), draws = [];
+    const read = (k) => {
+      gl.readPixels(pts[k][0], H - 1 - pts[k][1], 1, 1, gl.RGBA_INTEGER, gl.UNSIGNED_INT, buf);
+      return Array.from(buf).join(',');
+    };
+    const orig = r.renderBufferDirect;
+    r.renderBufferDirect = function (camera, scene, geo, mat, o, group) {
+      const res = orig.call(this, camera, scene, geo, mat, o, group);
+      if (r.getRenderTarget() === gb) {
+        const k = draws.length, d = { k, obj: label(o), mat: mlabel(mat), ro: o.renderOrder, aTile: !!geo.attributes?.aTile };
+        draws.push(d);
+        for (let i = 0; i < pts.length; i++) {
+          const v = read(i);
+          if (v !== last[i]) hits[i].push({ ...d, value: v });
+          last[i] = v;
+        }
+      }
+      return res;
+    };
+    try {
+      P.render(g.scene);
+    } finally {
+      r.renderBufferDirect = orig;
+    }
+    return { gbuf: [gb.width, H], pixels: pts.map((p, i) => ({ at: p, writers: hits[i], shows: hits[i][hits[i].length - 1] ?? null })), draws };
+  }, pts);
+  await page.screenshot({ path: `${out}/${name}-probe.png` });
+  writeFileSync(`${out}/${name}-probe.json`, JSON.stringify(res, null, 1));
+  for (const p of res.pixels) console.log(`probe ${name} (${p.at}): shows ${p.shows ? `${p.shows.obj} ${p.shows.mat} ro ${p.shows.ro} draw ${p.shows.k}` : 'nothing'}; writers ${p.writers.map((w) => `${w.k}:${w.mat}`).join(' ')}`);
+}
+
 async function detShot(name, query, script) {
   if (!views.has(name)) return;
   const page = await open(query);
@@ -410,6 +453,7 @@ async function detShot(name, query, script) {
   await runDet(page, 0.3);
   await settle(page);
   await page.screenshot({ path: `${out}/${name}.png` });
+  if (opt.probe) await probe(page, name);
   if ('seq' in opt) {
     await page.screenshot({ path: `${out}/${name}-seq-0.png` });
     for (let i = 1; i <= 5; i++) {
@@ -596,6 +640,31 @@ if (det) {
     await runDet(p, 10);
     unstick(p);
     await runDet(p, 1.5);
+  });
+  // (the same line of blasts thrown from about 1.3 km east, and the bus kept at the street looking at it: painted ground in a coarse region in a street
+  // frame, where 1a draws it from the region's mask. Its stats say whether the painted tiles' regions are coarse when it's shot)
+  await detShot('paintstreet', '?lat=37.77615&lon=-122.4180&heading=268&skipintro&nohud', async (p) => {
+    glide(p, 6);
+    await runDet(p, 2);
+    for (const lat of [37.7754, 37.7758, 37.7762, 37.7766, 37.777, 37.7762, 37.7758]) {
+      barf(p, lat, -122.43262);
+      await runDet(p, 1.3);
+    }
+    await runDet(p, 6);
+    stats.paintstreet = await p.evaluate(() => {
+      const c = window.__game.city, gp = c.ground, ts = c.manifest.tileSize, rs = c.regionSize, o = { painted: 0, coarse: 0, agl: 0 };
+      const f = window.__game.flight;
+      o.agl = Math.round(f.y - c.groundAt(f.x, f.z));
+      for (const key of gp.masks.keys()) {
+        const [tx, tz] = key.split(',').map(Number);
+        if (!gp.masks.get(key).data.some((v, i) => i % 4 === 0 && v >= 128)) continue;
+        o.painted++;
+        if (c.regionLod.get(`${Math.floor(tx / rs)},${Math.floor(tz / rs)}`) === 1) o.coarse++;
+      }
+      o.tileSize = ts;
+      return o;
+    });
+    console.log(`paintstreet: ${stats.paintstreet.painted} painted tiles loaded, ${stats.paintstreet.coarse} of them in coarse regions; ${stats.paintstreet.agl} m off the ground`);
   });
   writeFileSync(`${out}/stats.json`, JSON.stringify(stats, null, 2));
   await browser.close();
