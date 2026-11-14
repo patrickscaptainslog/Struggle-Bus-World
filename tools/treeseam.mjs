@@ -5,6 +5,7 @@
 //   node tools/treeseam.mjs <url> <outdir>            exit 0: the tree painted; 1: it stayed grey on painted ground; 2: the run could not set it up
 //   node tools/treeseam.mjs <url> <outdir> --level    a tree whose nearest house (within 25 m) is on the next tile: its level after a reload with its
 //                                                     own tile shown first, and with the house's: exit 1 when they differ (a report: see NOTE)
+//   (--pick: print which tree, and stop)
 //   node tools/treeseam.mjs <url> <outdir> --cost     a report: saved paint over the Sunset, a reload there, every onTileReady's time
 // The tree: of those on a region's edge (found here in the city's region files), the one nearest the Sunset's houses. The order: one region is
 // loaded and its paint shown while the next, across the edge, is past the loading circle (1500 m from the bus at street height); then the bus
@@ -71,6 +72,25 @@ if (!LEVEL) {
   console.log(`trees ${all}, on another tile than their list's ${strays}, across a region's edge on one axis ${seams.length}`);
   S = seams.sort(near)[0];
 } else {
+  /** a building's wall within r of the tree on a tile of region rg (each ring's corners in order, the gap between two rings counted too) */
+  const wallNear = (t, rg, r) => {
+    const [l0, l1] = [Math.floor(t.x / TS), Math.floor(t.z / TS)];
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const k = [l0 + dx, l1 + dz], h = housesOf.get(`${k[0]},${k[1]}`);
+        if (!h || regionOf(k)[0] !== rg[0] || regionOf(k)[1] !== rg[1]) continue;
+        for (let i = 0; i < h.count; i++) {
+          const v0 = h.vertStart[i], v1 = i + 1 < h.count ? h.vertStart[i + 1] : h.xz.length / 2;
+          for (let v = v0; v < v1; v++) {
+            const w = v + 1 < v1 ? v + 1 : v0;
+            const ax = h.xz[v * 2], az = h.xz[v * 2 + 1], bx = h.xz[w * 2] - ax, bz = h.xz[w * 2 + 1] - az;
+            const s = Math.max(0, Math.min(1, ((t.x - ax) * bx + (t.z - az) * bz) / (bx * bx + bz * bz || 1)));
+            if (Math.hypot(t.x - ax - s * bx, t.z - az - s * bz) < r) return true;
+          }
+        }
+      }
+    return false;
+  };
   // a tree within 25 m of its tile's edge whose nearest building (by its ring's corners, within 25 m) is on the next tile, across a region's edge
   const cands = [];
   for (const [k, trees] of treesOf) {
@@ -89,10 +109,11 @@ if (!LEVEL) {
             }
         }
       const e = bt && edge(l, bt);
-      if (e && best < 6) cands.push({ list: l, other: [bt[0], bt[1]], x: t.x, z: t.z, hx: bt[2], hz: bt[3], ...e });
+      // (and no wall within 30 m on its own region's side: there, with the house's region not loaded, nothing painted is near it)
+      if (e && best < 6 && !wallNear(t, regionOf(l), 30)) cands.push({ list: l, other: [bt[0], bt[1]], x: t.x, z: t.z, hx: bt[2], hz: bt[3], ...e });
     }
   }
-  console.log(`trees within 6 m of a house on the next tile, across a region's edge: ${cands.length}`);
+  console.log(`trees within 6 m of a house on the next tile and 30 m from any wall on their own side, across a region's edge: ${cands.length}`);
   S = cands.sort(near)[0];
 }
 if (!S) {
@@ -103,6 +124,8 @@ const key = (t) => `${t[0]},${t[1]}`;
 const ll = (p) => localToLatLon(p[0], p[1], city.origin);
 const [tLat, tLon] = ll([S.x, S.z]);
 console.log(`the tree: in ${key(S.list)}'s list at ${S.x}, ${S.z} (${tLat.toFixed(6)}, ${tLon.toFixed(6)}), ${LEVEL ? `its nearest house on ${key(S.other)} at ${S.hx.toFixed(1)}, ${S.hz.toFixed(1)}` : `standing on ${key(S.other)}`}`);
+// (--pick: only which tree, no browser)
+if (process.argv.includes('--pick')) process.exit(0);
 /** the start spot and the move for an approach from tile `from`'s side (its region loads first): heading along the edge at the start (the
  *  streaming's look-ahead then keeps its distance to both regions), towards it at the move (fx = sin h, fz = -cos h) */
 const approach = (from, way) => {
