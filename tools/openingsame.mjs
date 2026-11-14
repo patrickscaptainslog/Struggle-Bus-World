@@ -14,6 +14,8 @@
 // Then (i) new &hose against the ref, with the HUD: trace and pixels; (ii) both &nohud: trace and pixels; (iii) both with the HUD: the trace only
 // (with the Hose off, the plain link's first-run hint has three lines where the ref's has four).
 // SB_OPEN_Q=&nohud appends to every run of the new url, to show the pixels bite: (i) must then fail.
+// SB_OPEN_REF_Q=&hose appends to the ref's runs with the HUD (the ref against itself and (i)): with a ref whose Hose is off too (the core's own build, as
+// the ref for a branch merged with it), its hint then has the Hose's four lines, as 4f33648's had.
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -27,6 +29,7 @@ mkdirSync(out, { recursive: true });
 const Q = '?t=2026-11-07T00:22:00Z&rate=0&fixeddt=0.0333333';
 const DT = 0.0333333, SHOTS = [0.5, 1, 2, 4.2, 8, 16, 30];
 const NEW_Q = process.env.SB_OPEN_Q ?? '';
+const REF_Q = process.env.SB_OPEN_REF_Q ?? '';
 const browser = await chromium.launch(browserOptions([]));
 const errors = [];
 
@@ -107,8 +110,8 @@ const pixDiff = (a, b, at = SHOTS) => SHOTS.filter((s, i) => at.includes(s) && !
 const pixDiffAny = (a, refs) => SHOTS.filter((s, i) => !refs.some((r) => a.pix[i].equals(r.pix[i])));
 
 const fails = [];
-const R1 = await run('ref-a', refUrl, '');
-const R2 = await run('ref-b', refUrl, '');
+const R1 = await run('ref-a', refUrl, REF_Q);
+const R2 = await run('ref-b', refUrl, REF_Q);
 const stableTrace = traceDiff(R1, R2), stablePix = pixDiff(R1, R2);
 console.log(`the ref against itself: trace ${stableTrace ?? 'equal'}; pixels ${stablePix.length ? 'differ at ' + stablePix.join(', ') + ' s' : 'equal'}`);
 if (stableTrace) {
@@ -134,7 +137,7 @@ const leg = async (name, a, refs, pixels, label, extra) => {
   console.log(`${name}: trace ${t ?? 'equal'}${pixels ? `; pixels (the puffs out) ${p.length ? 'differ at ' + p.join(', ') + ' s' : 'equal at every still'} (the ref run each equals: ${which})` : ''}`);
 };
 const Bh = await run('new-hose', newUrl, '&hose' + NEW_Q);
-await leg('(i) new &hose against the ref, with the HUD', Bh, [R1, R2], true, 'ref', '');
+await leg('(i) new &hose against the ref, with the HUD', Bh, [R1, R2], true, 'ref', REF_Q);
 const Rn = await run('ref-nohud', refUrl, '&nohud');
 const Bn = await run('new-nohud', newUrl, '&nohud' + NEW_Q);
 await leg('(ii) both &nohud', Bn, [Rn], true, 'ref-nohud', '&nohud');
