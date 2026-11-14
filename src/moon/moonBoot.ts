@@ -342,7 +342,9 @@ export async function startMoon(pipeline: PixelPipeline, params: URLSearchParams
     // (a tile has one, empty or not, and three keys its programs by that: ?moon had a tile to warm by the time it mattered, and from orbit there's none)
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3));
     g.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2]), 1));
-    return [new THREE.Mesh(g, makeMoonGround(warmTex, 0, 0, 2, 2, 0, 0, 256)), rockProxy()];
+    // (Release A, 1a: and a coarse region's, with its paint mask's aTile: a vertex layout of its own, which Metal builds a pipeline for)
+    const gt = g.clone().setAttribute('aTile', new THREE.BufferAttribute(new Uint8Array(12), 4));
+    return [new THREE.Mesh(g, makeMoonGround(warmTex, 0, 0, 2, 2, 0, 0, 256)), new THREE.Mesh(gt, makeMoonGround(warmTex, 0, 0, 2, 2, 0, 0, 256)), rockProxy()];
   });
 
   paint = new CraterPaint({ renderer: pipeline.renderer, post: (m) => worker.postMessage(m), frame, albedo, places, names: nameRows, seed: SEED, paintRocks });

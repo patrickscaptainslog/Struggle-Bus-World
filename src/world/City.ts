@@ -300,6 +300,8 @@ registerWarm('city', () => {
     buildingMesh(m, makeBuildingMaterial(), true),
     casterMesh({ position: f(v * 3), index: new Uint16Array([0, 1, 2]), vertexCount: v }),
     groundMesh(makeHeightGrid(f(4), 2, 1, 0, 0, 1), makeTerrainMaterial(tex, 0, 0, 1, 2), true),
+    // (Release A, 1a: a coarse region's ground with its paint mask carries aTile, a vertex layout of its own: Metal builds a pipeline a layout, so it's warmed too)
+    groundMesh(makeHeightGrid(f(4), 2, 1, 0, 0, 1).setAttribute('aTile', new THREE.BufferAttribute(new Uint8Array(16), 4)), makeTerrainMaterial(tex, 0, 0, 1, 2), true),
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 1),
     farGridMesh(f(9), f(9), f(3), f(3), f(3), [0, 1, 2], 0, makeHorizonMaterial()),
     new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), makeSkylineMaterial(tex, new THREE.Vector4(), new THREE.Vector2(1, 1)), 1),
