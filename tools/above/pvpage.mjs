@@ -25,6 +25,21 @@ export async function openPv(browser, view, url, entries = null) {
         g = v;
         // (the clock stands from the first frame: the tool runs it in exact steps)
         v.controls.frozen = true;
+        // (&pvtrace, a diagnosis: each tile's ground paint views and its onTileReady, by frame, in window.__pvTrace)
+        if (location.search.includes('pvtrace')) {
+          const G = v.city.ground, log = (window.__pvTrace = []);
+          const at = () => [v.pipeline.renderer.info.render.frame, +v.clock().toFixed(2)];
+          for (const name of ['attach', 'attachRegion', 'detach', 'detachRegion', 'startShown', 'endShown', 'replayed']) {
+            const f = G[name];
+            if (typeof f !== 'function') continue;
+            G[name] = function (...a) {
+              log.push([...at(), name, typeof a[0] === 'string' ? a[0] : name === 'replayed' ? a[0]?.only : `${a[0]},${a[1]}`]);
+              return f.apply(this, a);
+            };
+          }
+          const ready = G.onTileReady;
+          G.onTileReady = (tx, tz) => (log.push([...at(), 'ready', `${tx},${tz}`]), ready?.(tx, tz));
+        }
         const update = v.city.update;
         v.city.update = function (...a) {
           const r = update.apply(this, a);
@@ -228,6 +243,15 @@ export async function openPv(browser, view, url, entries = null) {
       window.__qa.pin = { x: H.x, z: H.z, heading: H.heading, y };
       Object.assign(g.flight, { x: H.x, z: H.z, heading: H.heading, y, holdY: y, targetY: y, vy: 0, mode: 0 });
       g.flight.glideSpeed = 0;
+      // (the broad ground under the bus set to Flight's own sum here, and the nose eased from level: both ease (0.5/s, 5/s), and what they eased from
+      // depends on when the tiles round the start landed during the load, so two loads of one page held the camera a millimetre apart, 83 game pixels)
+      const B = 220;
+      g.flight.groundBroad = (c.groundAt(H.x, H.z) + c.groundAt(H.x + B, H.z) + c.groundAt(H.x - B, H.z) + c.groundAt(H.x, H.z + B) + c.groundAt(H.x, H.z - B)) / 5;
+      g.flight.pitch = 0;
+      // (and the chase camera put where it wants to be at its next step, its spring at rest: it eases from where the load left it too)
+      g.rig.pos.set(0, 0, 0);
+      g.rig.posVel.set(0, 0, 0);
+      g.rig.look.set(0, 0, 0);
       // (4f33648's rig has no settleAt: the same lines here, as the study's grid tool has them)
       const lh = h === 'roofs' ? 30 : Number(h), C = g.config.camera, rg = g.rig;
       if (rg.settleAt) rg.settleAt(lh);
