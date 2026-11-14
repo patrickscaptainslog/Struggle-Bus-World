@@ -12,7 +12,8 @@
 // --late=<ms>: far16.bin held back that long by a route, so it lands in play (City.landFar), and ready waits for it.
 // --moon: the url is ?moonrun: no city, so the phases are the flight's: real flicks, out and home.
 // --low: the url is ?moon, the ground: real touches through a cruise, a surge, Jet, a climb, a dive, a crater taken to level 3, a mega and a firehose
-//   (MEGA is asleep since 2026-11-06: give the url &mega for those two).
+//   (MEGA is asleep since 2026-11-06: give the url &mega for those two; without it the run stops at the mega and says so).
+//   --qa-cold: at the mega, a mesh of the scene drawn again with a new define, so a program is made in flight (a check of the count: it must fail).
 // --crew: the url has ?crew: after the blasts, the faction crest switched through all five by real taps (Atlantis, the Elderwood, Hyperglow, Inferno,
 //   Rainbow), each switch followed by three blasts on a fresh block (levels 1-3, the gardens and crowns in that faction's rows), in view.
 // --comet: after the blasts (and --crew's factions), the shots' step 3 by real taps (CDP): at Jet over the Western Addition a Comet with the full show
@@ -213,10 +214,13 @@ const low = async () => {
     await run(secs);
     await up();
   };
+  // (a button that isn't shown has no box: MEGA's, without &mega on the url, since it sleeps. Said, not a TypeError)
   const centre = async (name) => {
     const b = await page.locator(`[data-hud="${name}"]`).boundingBox();
+    if (!b) throw new Error(`warmcheck --low: no [data-hud="${name}"] button shown${name === 'mega' ? ' (MEGA sleeps: give the url &mega)' : ''}`);
     return [b.x + b.width / 2, b.y + b.height / 2];
   };
+  const shot = () => page.evaluate(() => { const s = window.__game.superState().stats; return { kind: s.kind, impacts: s.impacts, blooms: s.blooms }; });
   const breaths = async (n) => {
     for (let i = 0; i < n; i++) {
       await page.waitForFunction(() => window.__game.flight.fullness >= 0.999 && !!window.__game.moon.paint.target, null, { timeout: 30000, polling: 50 }).catch(() => {});
@@ -224,6 +228,18 @@ const low = async () => {
       await run(2.4);
     }
   };
+  // (on a build with coarse regions' paint masks, Release A 1a: the most region masks holding paint in any frame of the run, and in which phase first, so the report
+  // says whether a region view with paint drew while programs were counted)
+  await page.evaluate(() => {
+    const gp = window.__game.city.ground, R = (window.__wc.regions = { most: 0, at: null });
+    if (!gp.regionStats) return (window.__wc.regions = null);
+    const tick = () => {
+      const t = gp.regionStats().textures;
+      if (t > R.most) Object.assign(R, { most: t, at: R.at ?? window.__wc.phase });
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
   await phase('cruise');
   await run(3);
   await phase('surge');
@@ -238,15 +254,30 @@ const low = async () => {
   });
   await run(3.5);
   await phase('mega');
+  // (--qa-cold, the row's own proof: a mesh of the scene drawn again with a define no program has, so the renderer makes one in flight here, and the report must say so)
+  if (opt['qa-cold'])
+    await page.evaluate(() => {
+      const g = window.__game;
+      let src = null;
+      g.scene.traverse((o) => (src ??= o.isMesh && o.visible && o.material && !Array.isArray(o.material) ? o : null));
+      const m = src.material.clone();
+      m.defines = { ...(m.defines ?? {}), QA_COLD: 1 };
+      const c = src.clone();
+      c.material = m;
+      c.frustumCulled = false;
+      src.parent.add(c);
+    });
   await run(2);
   const [mx, my] = await centre('mega');
   await tap(mx, my, 3000);
   await run(4);
+  const mega = await shot();
   await page.evaluate(() => window.__game.superSkip(100));
   await run(1);
   await phase('firehose');
   await tap(mx, my, 10600);
   await run(7);
+  const firehose = await shot();
   await page.evaluate(() => window.__game.superSkip(100));
   await phase('jet');
   await flickTo(page, cdp, 3);
@@ -256,7 +287,13 @@ const low = async () => {
   await phase('dive');
   await pull(0, -90, 16);
   await phase('done');
-  return { id, recs: await page.evaluate(() => window.__game.moon.paint.recs.size) };
+  const paint = await page.evaluate((cid) => {
+    const recs = [...window.__game.moon.paint.recs.values()];
+    // (and on a build with coarse regions' paint masks, Release A 1a, what they held at the end, and the most with paint in any frame)
+    const gp = window.__game.city.ground;
+    return { recs: recs.length, level: cid ? recs.find((r) => r.id === cid)?.level ?? 0 : 0, regions: gp.regionStats ? { ...gp.regionStats(), mostTextures: window.__wc.regions.most, firstIn: window.__wc.regions.at } : null };
+  }, id);
+  return { id, ...paint, mega, firehose };
 };
 
 // (--curb: the url is a street with ?life, GEARS.md's arterial for one: Curb's phases, with real touches. A flick down to School Zone and another onto
@@ -785,6 +822,11 @@ const res = {
   low: lowRun,
   curb: curbRun,
   programsTotal: W.programs.length,
+  // (ready itself, the page's clock: a program made between the warm-up's end and ready is made while the page still loads; those after it, in play)
+  readyAt: Math.round(readyAt),
+  programsAfterReady: W.programs.filter(([t]) => t > readyAt).length,
+  // (the renderer's programs past the warm-up's own count, by name, in the order made)
+  programsPastWarm: await page.evaluate((n) => window.__game.pipeline.renderer.info.programs.slice(n).map((q) => `${q.name || q.cacheKey.slice(0, 8)}#${q.id}`), info.report?.programs ?? 0),
   programsAfterWarmup: after.length,
   programsAfterWarmupByPhase: after.map(([t, p]) => `${p}@${t}`),
   drawKeys: firstDraws.keys,
