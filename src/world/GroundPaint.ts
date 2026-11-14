@@ -330,7 +330,8 @@ export class GroundPaint {
   regionNoFill = false;
   /** QA: paint uploads in the last flush, to tiles' own textures and to region masks: calls and bytes */
   readonly uploadQa = { calls: 0, bytes: 0, regionCalls: 0, regionBytes: 0 };
-  /** Release A, 1a: whole tile slots queued for region masks since the start, in bytes (a tile shown in a region goes up whole once): the city counts what an
+  /** Release A, 1a: whole tile slots queued for region masks since the start, in bytes (a tile shown in a region goes up whole once: linked to a slot written before, its saved paint decoded onto it, or the Moon's
+   *  copy put on it; wholeSlot): the city counts what an
    *  adoption adds to it in that frame's upload budget */
   fillBytes = 0;
   /** writeBox's, a blast's */
@@ -753,9 +754,15 @@ export class GroundPaint {
       r.uniforms.uGroundOn.value = 1;
     }
     if (fresh && !(r.filled & (1 << (t.ri * 4 + t.rj)))) return;
-    if (!m.regAll) this.fillBytes += GROUND_N * GROUND_N * 4;
-    m.regAll = true;
+    this.wholeSlot(m);
     this.queueDirty(m);
+  }
+
+  /** A region slot queued whole, to go up in the next flush: counted once in fillBytes, which the city's adoption budget reads (review 2, R2-1). */
+  private wholeSlot(m: TileMask) {
+    if (!m.reg || m.regAll) return;
+    this.fillBytes += GROUND_N * GROUND_N * 4;
+    m.regAll = true;
   }
 
   private ownTexture(data: Uint8Array): THREE.DataTexture {
@@ -780,7 +787,11 @@ export class GroundPaint {
     }
     const m = this.mask(key)!;
     if (rec.m && !decodeMask(rec.m, m.data)) rec.m = null; // corrupt entry: dropped on its next save
-    else if (rec.m && m.reg) this.markAll(m); // (its region's slot: the decoded paint goes up whole. Release A, 1a)
+    else if (rec.m && m.reg) {
+      // (its region's slot: the decoded paint goes up whole, and counted. Release A, 1a)
+      this.wholeSlot(m);
+      this.markAll(m);
+    }
     if (rec.p.length) {
       this.replaying.set(key, rec.p.length);
       for (const s of rec.p) this.jobs.push({ spec: s, tImpact: 0, serial: null, p: null, tiles: [], only: key, under: false });
@@ -1263,6 +1274,8 @@ export class GroundPaint {
         m.z0 = 0;
         m.x1 = GROUND_N - 1;
         m.z1 = GROUND_N - 1;
+        // (a region's slot: the copy goes up whole, and counted)
+        this.wholeSlot(m);
         this.queueDirty(m);
         this.ready.push(key);
       }

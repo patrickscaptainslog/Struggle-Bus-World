@@ -45,10 +45,13 @@ const gl = {
     for (let j = 0; j < h; j++) T.data.set(src.subarray(off + j * rl * 4, off + j * rl * 4 + w * 4), ((y + j) * T.w + x) * 4);
     const slot = `${T.id}:${Math.floor(x / N)},${Math.floor(y / N)}`;
     frameSlots.set(slot, (frameSlots.get(slot) ?? 0) + 1);
+    slotBytes.set(slot, (slotBytes.get(slot) ?? 0) + w * h * 4);
   },
 };
 let bound = null, rowLen = 0, nextId = 1;
 let frameSlots = new Map();
+/** bytes sent to each texture's slot since it was last cleared */
+const slotBytes = new Map();
 const props = new WeakMap();
 const R = {
   properties: { get: (o) => { let p = props.get(o); if (!p) props.set(o, (p = {})); return p; } },
@@ -232,10 +235,19 @@ pages.length = 0;
 globals.uTime.value = 0;
 const A2 = page('region');
 pages.push(A2);
-frame(3);
+// (what the views' attach added to fillBytes, which the city's adoption budget reads, against what the first flush sends to region slots. Review 2, R2-1)
+const fill8 = A2.fillBytes;
+const whole8 = [...A2.masks.values()].filter((m) => m.reg && m.regAll);
+slotBytes.clear();
+frame(1);
+const first8 = taken();
+let sent8 = 0;
+for (const m of whole8) sent8 += slotBytes.get(`${R.properties.get(m.reg.tex).__webglTexture.id}:${m.ri},${m.rj}`) ?? 0;
+frame(2);
 const h2 = held(A2);
 row('saved paint at load: the region masks equal the decoded tiles', h2.diff === 0 && h2.unflagged === 0 && h2.painted > 0, { ...h2, ...taken() });
 row('  its painted texels as before the reload (the saved code is 5-bit: within 1 %)', Math.abs(h2.painted - paintedBefore) <= paintedBefore * 0.01, { before: paintedBefore, after: h2.painted });
+row('  fillBytes added by the attach equals what the first flush sends to the slots it queued whole', fill8 > 0 && fill8 === sent8 && whole8.length * N * N * 4 === fill8, { fillKiB: fill8 / 1024, slots: whole8.length, sentKiB: sent8 / 1024, flushKiB: +(first8.regionBytes / 1024).toFixed(1), calls: first8.regionCalls });
 // 9. a region's views dropped: each tile saved and its mask dropped, the region freed
 {
   const saved0 = A2.tileCount;
