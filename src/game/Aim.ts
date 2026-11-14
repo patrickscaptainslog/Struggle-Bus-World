@@ -526,10 +526,11 @@ export class Aimer {
     return this.target;
   }
 
-  /** Press n's finger lifted as no tap (a look, a flick off the lane): what it ran the Lob's latch on to is given back. */
+  /** Press n's finger lifted as no tap (a look, a flick off the lane): what it ran the Lob's latch on to is given back. Only a press the latch still held
+   *  marks the plan stale: a steering thumb's landing, given back at the other thumb's tap long after the Aimer let go of the latch, planned that tap again
+   *  between frames with the camera drawn since, and at a gear it landed off what glinted (the review of the resting thumb's fix, 1) */
   unpress(n: number): void {
-    this.lob?.unpress(n);
-    this.given = true;
+    if (this.lob?.unpress(n)) this.given = true;
   }
 
   /** Before a tap fires: an aim this frame found not ready, the belly full again since (a pour given back by Input's late tap, Hose.end), plans again,
