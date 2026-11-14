@@ -160,22 +160,26 @@ Rows run on earlier commits of this branch, not again on the final build:
 
 ## A painted tree that came back grey (after round 3)
 
-**What was wrong.** After a reload a tree on saved ground paint sometimes stayed grey (3 of 64 reloads at the Sunset's houses, found on another branch). The bake keeps a tree's spot in decimetres from its tile's corner, so a tree a few centimetres short of the next tile is kept on the seam and stands on that tile's ground: 46 of the city's 120,545 trees, 11 of them on a region's edge. `onTileReady` painted only the ready tile's own list, from the ground under each tree. When the tree's own tile was shown first it found no paint under it, and the next tile's pass never read it. Every flight towards a region's edge from the tree's side does that, not only a reload.
+**What was wrong.** After a reload a tree on saved ground paint sometimes stayed grey (3 of 64 reloads at the Sunset's houses, found on another branch). The bake keeps a tree's spot in decimetres from its tile's corner, so a tree a few centimetres short of the next tile was kept on the seam and read that tile's ground: 46 of the city's 120,545 trees, 11 of them on a region's edge. `onTileReady` painted only the ready tile's own list, from the ground under each tree. When the tree's own tile was shown first it found no paint under it, and the next tile's pass never read it. Every flight towards a region's edge from the tree's side does that, not only a reload.
 
-**What changed** (945fe6c, `src/main.ts`). A tile's trees that stand on another tile go in a short list with that tile. When a tile's paint is shown, the trees standing on it take it, whichever list holds them. A list that arrives after its trees' tile was shown takes the paint at once. The ready handler loops over the short list only, checks the tree's level before any sample, and makes nothing new. It reads only `onTileReady` and `ground.sample`, nothing inside GroundPaint. The row is `tools/treeseam.mjs` (a97bb16, 84a71c4), with a QA hook, `__game.treesAt`.
+**What changed.** First (945fe6c, `src/main.ts`) a short list of the trees standing on another tile, painted when that tile's paint was shown. The review (on the laptop's sb-checks/core/stage1, review-tree/REVIEW-tree.md) found it right for the fault, but such a tree still stood grey at the edge of its own tile's painted ground 1 to 2 km out, until the next region came in, in view from high up. So the cause went instead (1e13ca8): `parseTerrainTile` holds every spot a decimetre inside its tile, and the bake does too for new bakes. The 46 trees move by a decimetre at most, every tree reads the ground of the tile whose list holds it, and the short list is gone. The row is `tools/treeseam.mjs`, with a QA hook, `__game.treesAt`; it now also checks the tree painted while only its own tile's paint is shown.
 
-**What ran** (the suite's rows, on the laptop's sb-checks/core/stage1, NOTE-tree.md):
+**The level beside it** (829481b). A restored tree takes the level of the nearest house within 25 m, but only loaded houses count. When its own tile's paint was shown before the house's tile was in, it came back at level 1 and stayed there (3,751 trees within 25 m of a tile's edge have their nearest building on the next tile, 987 across a region's edge). Now, when a tile's buildings come in, each tree restored on the tiles around it within 25 m of one of its painted buildings takes the level it would have taken with that tile in first: raised only, and a tree painted by a blast this visit keeps its own.
+
+**What ran** at 829481b (main chunk `main-CySsWzFe.js`; NOTE-tree-close.md):
 
 | Row | Exit | Printed |
 |---|---|---|
-| tree-seam, three runs on the new build | 0, 0, 0 | "treeseam: passed": the tree in -27,3's list on -27,4's ground painted after -27,3's paint was shown with -27,4's region not loaded; no tree within 1500 m grey on painted ground |
-| tree-seam-0c8, three runs on 0c8c065's build | 1, 1, 1 (the row passes) | "FAIL: the tree on the seam (in -27,3's list, on -27,4) painted after the reload", 1 grey within 1500 m |
-| tree-cost / tree-cost-0c8 | 0 / 0 | a reload over 60 saved blasts at the Sunset: onTileReady's worst 2.40 ms over 97 calls (20.3 ms in all) after, 2.80 ms over 103 (18.4 ms) before: the same, to the page clock's 0.1 ms |
-| tree-level | **1** | the fault beside it, not fixed: a tree whose nearest house is on the next tile came back at level 3 with the house's tile shown first and 1 with its own first |
+| tree-seam | 0 | "treeseam: passed": the tree in -27,3's list painted with only -27,3's paint shown and -27,4's region not loaded, and after -27,4 came in; no tree within 1500 m grey on painted ground (94 on it) |
+| tree-seam-945, on 945fe6c's build | 0 (the row passes) | "FAIL: the tree painted with its own tile's paint shown, -27,4's region not loaded" |
+| tree-seam-0c8, on 0c8c065's build | 0 (the row passes) | the same line, and "FAIL: the tree on the seam ... painted after the reload" |
+| tree-level | 0 | "level: the tree 3 with the house's tile shown first, 3 with its own first (the house 3)" |
+| tree-level-945, on 945fe6c's build | 0 (the row passes) | "level: the tree 3 with the house's tile shown first, 1 with its own first (the house 3)" |
+| fly-close (the review's flight: 200 blasts on a 1.6 km strip over six seams, flown back at TURBO 3 twice, the strip's regions unloaded between) | 0 | "held on the strip: trees on it 625, on paint by the spot 625 (grey 0)" after each leg; no tree grey on paint in flight; "fly: passed" |
 
-The build these ran on, main chunk `main-CyJEI9mT.js`, was built from 945fe6c's tree. It also passed tsc, iosfloor ("iOS 15.0 parses every chunk"), return-rule ("return: all 76 passed"), returnvisit, return-high and budget-return ("returnvisit: all passed"), warm-return and warm-plain ("warmcheck: passed"), and det-skyoff and det-golden ("det-cmp: 8 of 8 views pass"). All exited 0.
+The same build passed tsc, iosfloor ("iOS 15.0 parses every chunk"), return-rule ("return: all 76 passed"), returnvisit, return-high and budget-return ("returnvisit: all passed"), warm-plain and warm-return ("warmcheck: passed"), and det-skyoff and det-golden ("det-cmp: 8 of 8 views pass"). All exited 0.
 
-**Left.** A tree takes its level from the nearest painted house within 25 m. When that house's tile isn't loaded yet, the tree comes back at level 1 and stays there (3,751 trees within 25 m of a tile's edge have their nearest building on the next tile, 987 of them across a region's edge). It needs its own change: the studio's call.
+**Left.** Sprouts' obstacle raise: a painted building's rooftop garden whose pad crosses onto a tile that loads after it doesn't raise that tile's cells, so the bus can fly through the garden's edge there (read in the review, not run). The paint holds. It needs a row and its own change.
 
 ## What did not run
 
