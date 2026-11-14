@@ -408,9 +408,10 @@ if (budget) {
     await setRec(page, good);
     // (?recess on the one link boots its arena before the return start and gives it its own lat and skipintro (docs/specs/core/STAGE1.md): no start, the
     // first flag the start finds being lat)
-    for (const flag of ['recess', 'swerve']) {
+    // (?lift starts under the Golden Gate, the producer's ask of 2026-11-12, and &lifted with it: main.ts's elsewhere, why "elsewhere")
+    for (const flag of ['recess', 'swerve', 'lift', 'lift&lifted=inferno']) {
       L = await load(page, `?${flag}${T}`);
-      ok(!L.start.pose && (L.start.why === flag || (flag === 'recess' && L.start.why === 'lat')), `(14) ?${flag} with a good record: no start (${L.start.why})`);
+      ok(!L.start.pose && (L.start.why === flag || (flag === 'recess' && L.start.why === 'lat') || (flag.startsWith('lift') && L.start.why === 'elsewhere')), `(14) ?${flag} with a good record: no start (${L.start.why})`);
     }
     await setRec(page, good);
   }

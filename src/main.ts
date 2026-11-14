@@ -280,8 +280,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     params.set('skipintro', '');
   }
   // a return visit (game/Return.ts): from the bus's pose at its last shot that bloomed a building, the paint ahead, held still under the fog (returnHold)
-  // and lifted over the roofs as they land, with no Golden Gate. Not on a page that boots somewhere of its own, a link that says where, or a first visit
-  const returnStart: ReturnStart = readReturn({ slug: manifest.slug, params, elsewhere: !!moon || !!land || !!resumed || earthFly || liftPlaced, manifest: manifest as unknown as ReturnInput['manifest'], paint: city.paint });
+  // and lifted over the roofs as they land, with no Golden Gate. Not on a page that boots somewhere of its own, a link that says where, or a first visit.
+  // Nor on ?lift, which starts under the Golden Gate (the producer, 2026-11-12, above) or at &hoodstart's edge: the merge with the core gave it a return start
+  const returnStart: ReturnStart = readReturn({ slug: manifest.slug, params, elsewhere: !!moon || !!land || !!resumed || earthFly || liftOn || liftPlaced, manifest: manifest as unknown as ReturnInput['manifest'], paint: city.paint });
   const returned = returnStart.pose !== null;
   /** the paint a return start faces, and the start's own height (the hold works from it each frame, as the tiles land) */
   const returnP = returnStart.pose ? returnStart.p : null;
