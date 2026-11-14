@@ -2,7 +2,7 @@
 // Release A, 1a (docs/specs/world/ABOVE.md, ABOVE-BUILT.md): the pass marks of the painted place seen from above, read from paintview.mjs's json.
 //   node tools/above/marks.mjs <out>/paintview-<place>.json [--tag=on] [--off=off]
 // Draws (the tag's poses, the painted place in Cruise, settled): 14.9 km held 60 degrees down at most 100 draws, 5 km at 60 degrees at most 70, each at most
-// 1.0 M triangles; every pose at most the ruling's 1.5 M triangles; no pose draws a tile's own ground in a coarse region. A cell over its mark is listed below
+// 1.0 M triangles; every pose at most the ruling's 200 draws and 1.5 M triangles; no pose draws a tile's own ground in a coarse region. A cell over its mark is listed below
 // by place, pose and what it measured, with the stage that ends it: it passes while it is no worse than its number, and fails past that (the page is
 // frame-exact: two runs of one build read the same draws and triangles). A marked pose missing, or a pose without its ownCoarse, calls or tris, fails.
 // The blast (--blast's Bomb III on a coarse region, every frame for 4 s): every frame at most 200 draws; no program made; no geometry made; no texture made
@@ -23,6 +23,7 @@ if (!row) {
 const MARKS = { '14900@60': { calls: 100, tris: 1.0e6 }, '5000@60': { calls: 70, tris: 1.0e6 } };
 /** the producer's ruling, at every pose */
 const RULING_TRIS = 1.5e6;
+const RULING_CALLS = 200;
 // (cells over a mark, as Release A's 1a and 1c measured them; the ruling is 120-200 draws and 1.0-1.5 M triangles)
 const LISTED = [
   { place: 'houses', pose: '5000@60', key: 'calls', was: 83, by: 'inside the ruling (200); the mark of 70 was the plan\'s estimate. Stage 2 and 5 take draws off' },
@@ -45,11 +46,11 @@ for (const [pose, st] of Object.entries(poses)) {
   const has = (k) => typeof f[k] === 'number';
   if (!has('ownCoarse')) say(false, `${R.place} ${pose}: no ownCoarse in the json`);
   else say(f.ownCoarse === 0, `${R.place} ${pose}: tiles' own grounds drawn in coarse regions ${f.ownCoarse} (mark 0)`);
-  const m = { calls: Infinity, tris: RULING_TRIS, ...MARKS[pose] };
+  const m = { calls: RULING_CALLS, tris: RULING_TRIS, ...MARKS[pose] };
   for (const k of ['calls', 'tris']) {
     const v = f[k], l = LISTED.find((c) => c.place === R.place && c.pose === pose && c.key === k);
     if (!has(k)) say(false, `${R.place} ${pose}: no ${k} in the json`);
-    else if (v <= m[k]) say(true, `${R.place} ${pose}: ${fmt(k, v)}${m[k] === Infinity ? '' : ` (mark ${fmt(k, m[k])})`}`);
+    else if (v <= m[k]) say(true, `${R.place} ${pose}: ${fmt(k, v)} (mark ${fmt(k, m[k])})`);
     else if (l) say(v <= l.was, `${R.place} ${pose}: ${k === 'tris' ? v.toLocaleString('en') + ' triangles' : fmt(k, v)}, over the mark ${fmt(k, m[k])}: a listed cell, at most ${k === 'tris' ? l.was.toLocaleString('en') : l.was} (${l.by})`);
     else say(false, `${R.place} ${pose}: ${fmt(k, v)}, over the mark ${fmt(k, m[k])}, and not a listed cell`);
   }
