@@ -282,10 +282,11 @@ const VERTEX_CHUNK = /* glsl */ `
       float hot = smoothstep(0.62, 0.9, bCh);
       bool white = sbHash11(floor(bT * 18.0) * 3.7 + bPar * 41.0) < hot;
       bRamp = white ? ${f(Ramp.GLOW_WHITE)} : uGauge[int(hue)];
-      // (each stop races to its own top, uGaugeTop: 1 on Rainbow's, and on the white-hot's)
+      // (each stop races to its own top, uGaugeTop: 1 on Rainbow's, and on the white-hot's. Under 1 it holds from the charge's first moment: the full
+      // wave's sparkle and the charge's light would reach step 7 while the race is still young)
       float bTop = white ? 1.0 : uGaugeTop[int(hue)];
       bGlow = mix(max(bGlow, 0.55), bTop, smoothstep(0.0, 0.6, bCh));
-      if (bTop < 1.0) bCap = mix(1.0, bTop, smoothstep(0.0, 0.6, bCh));
+      if (bTop < 1.0) bCap = bTop;
       bLo = mix(bLo, 0.42, smoothstep(0.0, 0.5, bCh));
     }
     // spent: the band goes dim
