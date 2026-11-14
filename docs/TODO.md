@@ -17,6 +17,25 @@ The producer asked on 2026-11-12: "Before we expand, let's really try and perfec
 - **For the second account:** nothing to do yet. Stage 2 would read the squares and the areas in `src/factions` from the open world. Once the producer has answered call 1, the ask goes here with the exact calls it needs.
 - **Not checked:** whether any of it is fun (nobody ran the game for this), every agent-day figure, how long a neighbourhood takes (3 to 5 minutes is an estimate), and Safari's storage limits on today's iPhones.
 
+## The core, round 3: a Lob misfire, a return start's first frames, the link picture (2026-11-13, the first account)
+
+`feat/core` is pushed at 720a57a (c2a00c4..720a57a, 17 commits). Not live, not reviewed by the second account. The branch's own account is `docs/specs/core/STAGE1.md` there: its two "Round 3" tables say what each commit was for, and "What ran at the head, round 3" what each row printed.
+
+- **To fly:** https://struggle-bus-world-git-feat-core-patricks-projects-9ff6e721.vercel.app/ (`?fps` for the numbers, `?hose` for the Hose).
+- **A game fault, fixed (410222e).** A finger landing in the look zone (a look, or a flick off the lane) 0.5 s after a pull's lift ran the Lob's latch on, nothing gave it back when the finger lifted, and a tap at 1.2 s threw the lift's 32 degrees with the bus level. The earlier fix covered a steering stroke only. `Input` now numbers its presses and fires `onUnpress` when a finger that pressed with nobody flying lifts as no tap; the Lob takes that press out of its latch. The check that should have caught it could not fail (it read the thrown angle as the body's); it is rewritten. **This fault is on the one link too** until the merge below.
+- **A return start's first frames (009dd7b, 873e2e1).** They drew 229 to 392 times under the fog, each new mesh's first draw unculled. Now ten forced first draws a frame, the rest culled as normal until their turn; a swap's unseen mesh never waits. Every return-start frame from the first drawn one: at most 151 draws downtown and 154 in the Marina.
+- **No opening pull on a return start (d20796f).** The outside look saw the lens come in 140 m through the towers round the paint.
+- **The Comet's impact frame (d82285f, 9a6f2c5).** A bloom's arpeggio made up to 40 audio nodes in it; each note is now made when it is due.
+- **The link picture (7d020be).** `public/og-6.png`, the bus near and side on over painted roofs, Coit Tower behind, replaces the first one; its checks read pixels and fail on a picture with no landmark or no paint.
+- **The whole table at 720a57a:** 57 rows, 53 at exit 0 (the five-minute flight, the first-run rows and every warm row among them). Red:
+  - `controls-boom`: 201, 202 and 203 draws at its worst pose in three runs, against 200; the sun pass is 82 to 90 of them, first draws 4 or 5. The sun pass keeps nearly every caster at a low sun. It is `src/render`'s, the first account's own, and its fix is stage 2 of `docs/specs/world/ABOVE.md`. Not fixed here.
+  - `opening-same`: one leg, at the 30 s still, 17 pixels in one box 6 by 3 far off. It is the base's own flicker (033d823: one lit spot, on in some of its runs): this time the base's four runs all fell one way and the new run the other, and the base's two `&nohud` runs differ from each other in the same box by 18 pixels. The row's, not the game's: it wants a mask on that spot.
+  - `look2`, `look2-load`: the outside look's stills rows. They exit 1 on candidate pictures the round's last pass replaced; they check nothing of the game.
+- **For the second account:** a review of c2a00c4..720a57a, above all 410222e (`src/game/Input.ts`, `Lob.ts`, `Aim.ts`, `main.ts`) and 009dd7b with 873e2e1 (`src/world/City.ts`).
+- **For the producer** (the calls are in `STAGE1.md`, each with the studio's pick). Three block going live: the Hose off by default (built so), the Lob's one-time hint kept, and the word to go live with MEGA off. The outside look also found that a return start says nothing about "this is yours": the studio's pick is one glint on the building the record names, in the next stage.
+- **The one link takes the core:** `feat/core` 720a57a is being merged into `feat/handling` on its side branch, with the rule that the plain page stays the core's and the flags' pages stay the one link's.
+- **Not done:** a phone, an A15 (the measuring pass on an iPhone 13 is still a call), a stranger with the watch sheet (`docs/specs/core/WATCH.md`).
+
 ## The bus's gauge wears its crew too (2026-11-13, the first account)
 
 `feat/handling` is pushed at 0639b27 (b1bbb98..0639b27, 11 commits, built on the side branch `feat/crewbus`). Not live, not reviewed by the second account.
