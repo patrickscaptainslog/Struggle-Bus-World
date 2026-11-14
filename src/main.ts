@@ -313,6 +313,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // ---- props: trees stream with tiles, landmarks are placed once
   const treeFields = new Map<string, TreeField>();
   const treeIndex = new Map<string, TreeInstance[]>();
+  /** trees kept on another tile than the one whose list holds them (the bake keeps a spot in decimetres: a tree a few centimetres short of the
+   *  next tile is kept on the seam, on that tile's ground), each with the tile it stands on, whose saved paint is shown in its own time */
+  const strayTrees: Array<{ key: string; tf: TreeField; t: TreeInstance; i: number; tx: number; tz: number }> = [];
+  /** tiles whose saved paint is on screen (onTileReady), until they unload */
+  const groundShown = new Set<string>();
   // (a rim runs on for kilometres, and nothing else out here is near it: wider cells than a city's)
   const sprouts = new RoofSprouts(4096, moon ? 2048 : undefined);
   scene.add(sprouts.object);
@@ -376,8 +381,18 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const tf = new TreeField(list);
       scene.add(tf.object);
       for (const m of tf.meshes) city.firstDraw(m);
-      treeFields.set(`${tx},${tz}`, tf);
-      treeIndex.set(`${tx},${tz}`, list);
+      const k = `${tx},${tz}`;
+      treeFields.set(k, tf);
+      treeIndex.set(k, list);
+      // (a tree on a neighbour's ground takes that tile's saved paint now if it is shown already, else when it is: onTileReady)
+      dropStrays(k);
+      const ts = manifest.tileSize;
+      for (let i = 0; i < list.length; i++) {
+        const sx = Math.floor(list[i].x / ts), sz = Math.floor(list[i].z / ts);
+        if (sx === tx && sz === tz) continue;
+        strayTrees.push({ key: k, tf, t: list[i], i, tx: sx, tz: sz });
+        if (groundShown.has(`${sx},${sz}`)) restoreTree(tf, list[i], i);
+      }
     }
     bindSpire();
     // saved paint: regrow rooftop gardens and thin the fog again
@@ -392,24 +407,37 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     }
   };
-  // trees standing in saved ground paint come back painted once their tile's paint is redrawn, at the
+  // trees standing in saved ground paint come back painted once the paint they stand on is redrawn, at the
   // level of the painted house beside them (every blast that splattered them escalated it too)
+  function restoreTree(tf: TreeField, t: TreeInstance, i: number) {
+    if (tf.paintLevel(i) !== 0) return;
+    const g = city.ground.sample(t.x, t.z);
+    if (!g || g.cov < 0.5) return;
+    const near = city.nearestBuilding(t.x, t.z, 25);
+    const lv = near ? Math.round(city.paint.level(near.index)) : 0;
+    tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
+  }
+  function dropStrays(key: string) {
+    let n = 0;
+    for (const s of strayTrees) if (s.key !== key) strayTrees[n++] = s;
+    strayTrees.length = n;
+  }
   city.ground.onTileReady = (tx, tz) => {
     const k = `${tx},${tz}`;
+    groundShown.add(k);
     moon?.rocksReady(tx * manifest.tileSize, tz * manifest.tileSize, (tx + 1) * manifest.tileSize, (tz + 1) * manifest.tileSize);
+    // (the trees of a neighbour's list kept on this tile's ground: the pass over this tile's own list never reads them, and their own tile's
+    // pass found no paint under them while this tile's wasn't shown yet)
+    for (const s of strayTrees) if (s.tx === tx && s.tz === tz) restoreTree(s.tf, s.t, s.i);
     const tf = treeFields.get(k);
     const list = treeIndex.get(k);
     if (!tf || !list) return;
-    for (let i = 0; i < list.length; i++) {
-      const g = city.ground.sample(list[i].x, list[i].z);
-      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0) continue;
-      const near = city.nearestBuilding(list[i].x, list[i].z, 25);
-      const lv = near ? Math.round(city.paint.level(near.index)) : 0;
-      tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
-    }
+    for (let i = 0; i < list.length; i++) restoreTree(tf, list[i], i);
   };
   city.onTileUnload = (tx, tz) => {
     const k = `${tx},${tz}`;
+    groundShown.delete(k);
+    dropStrays(k);
     const tf = treeFields.get(k);
     if (tf) {
       scene.remove(tf.object);
