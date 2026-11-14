@@ -241,6 +241,8 @@ interface Slot {
   /** Its landing was press number pressN (Input.presses), with nobody flying or the flying thumb not yet committed: lifted as no tap, onUnpress. 0: it
    *  pressed nothing. */
   pressN: number;
+  /** ...and a tap of another's gave it back while it was down (giveBackRests): lifted as a tap of its own, onRepress puts it back first. 0: none */
+  givenN: number;
   /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. armed: a frame has seen it past aimHoldMs (the next one starts it). */
   aiming: boolean;
   aimArmed: boolean;
@@ -304,6 +306,9 @@ export class Input {
    *  or lost, or still down and no longer a tap when a tap fires (giveBackRests). n: its press's turn. A flying thumb's never does: it steered, and the
    *  stroke gives its own back (Aimer.update), but for another thumb's tap answered before it commits (answer), or its touch cancelled or lost before. */
   onUnpress: ((n: number) => void) | null = null;
+  /** A finger whose press a tap of another's gave back while it was down (giveBackRests) lifted as a tap of its own: its press is put back as it was,
+   *  before its tap fires, so its tap reads the latch as its own landing ran it on. n: its press's turn. */
+  onRepress: ((n: number) => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
   /** The Bomb (&bomb on the link, src/game/Bomb.ts sets it): off, a thumb on the bus is the flying thumb as it always was, and the onBomb* callbacks never fire. */
@@ -421,7 +426,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, pressN: 0, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, looking: false, right: false, ownsPress: false, inLook: false, pressN: 0, givenN: 0, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -593,7 +598,7 @@ export class Input {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.releaseAll();
     this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = this.onChargeStart = this.onAimStart = null;
-    this.onUnpress = null;
+    this.onUnpress = this.onRepress = null;
     this.onAimEnd = null;
     this.onChargeEnd = null;
     this.onTurbo = null;
@@ -791,7 +796,7 @@ export class Input {
     const quick = !cancelled && !aimed && !bombed && (this.isQuick(slot, now) || bombTap);
     if (!quick) this.gAllQuick = false;
     const tap = !cancelled && !aimed && this.secondTap(slot, now);
-    const ownsPress = slot.ownsPress, t0 = slot.t0, pressN = slot.pressN;
+    const ownsPress = slot.ownsPress, t0 = slot.t0, pressN = slot.pressN, givenN = slot.givenN;
     this.free(slot);
 
     if (role === Role.Fly) {
@@ -811,17 +816,19 @@ export class Input {
       else if (quick && !this.gAnswered) {
         if (this.gMulti) this.gPendingTap = true;
         else {
-          this.giveBackRests(now);
+          this.giveBackRests();
           this.onTap?.();
         }
       }
     } else if (dir) this.onTurbo?.(dir, false);
     else if (tap) {
+      // (its press given back at another's tap while it was down: its own tap reads the latch as its landing ran it on, put back first)
+      if (givenN) this.onRepress?.(givenN);
       if (this.primarySteering(now)) this.answer();
       // Landed before the thumb committed to steering: still the player's tap, as soon as it commits (or when the gesture ends).
       else if (this.fly || (this.gMulti && !this.gAnswered)) this.gPendingTap = true;
       else {
-        this.giveBackRests(now);
+        this.giveBackRests();
         this.onTap?.();
       }
     }
@@ -895,6 +902,7 @@ export class Input {
     slot.ownsPress = false;
     slot.inLook = false;
     slot.pressN = 0;
+    slot.givenN = 0;
     slot.aiming = false;
     slot.aimArmed = false;
     slot.onBus = false;
@@ -1003,19 +1011,21 @@ export class Input {
     // bus level. Given back, the latch is as if it never landed. Once the Aimer has seen the thumb down it has let go of the latch, and this is nothing)
     if (this.fly && this.flyPress) this.onUnpress?.(this.flyPress);
     this.flyPress = 0;
-    this.giveBackRests(performance.now());
+    this.giveBackRests();
     this.gAnswered = true;
     this.gPendingTap = false;
     this.onTap?.();
   }
 
-  /** Before a tap fires: a finger still down whose landing pressed, and that can no longer be a tap (resting, or looking), gives that press back now and
-   *  not at its lift: the tap read the Lob's latch its landing ran on, the lift's body with the bus level (a finger resting in the look zone, the tap on the
-   *  lane: the review of the resting thumb's fix, 3) */
-  private giveBackRests(now: number) {
+  /** Before a tap fires: every other finger still down whose landing pressed gives that press back now, and not at its lift: the tap read the Lob's latch
+   *  its landing ran on, the lift's body with the bus level (a finger resting in the look zone, the tap on the lane: the review of the resting thumb's fix,
+   *  3). Whether or not it could still be a tap: one resting still in the look zone 370 ms, under stillTapMs, kept its press, and the tap threw the lift's
+   *  Lob at 70 degrees with the bus at 17 (the check of that fix, 1). One that then lifts as a tap of its own puts it back first (givenN, onRepress) */
+  private giveBackRests() {
     for (const s of this.slots) {
-      if (s.role !== Role.Second || !s.pressN || this.secondTap(s, now)) continue;
+      if (s.role !== Role.Second || !s.pressN) continue;
       this.onUnpress?.(s.pressN);
+      s.givenN = s.pressN;
       s.pressN = 0;
     }
   }

@@ -1230,7 +1230,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // a still finger off the lane rests there as it always did, and the first run's hint has no HOLD HIGH UP TO AIM. The Moon has no Hose yet)
   input.aimOn = !moon && hoseOn;
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
-  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false };
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onRepress: input.onRepress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
@@ -1278,6 +1278,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     moonPaint?.latch(simTime);
   };
   input.onUnpress = (n) => aimer.unpress(n);
+  input.onRepress = (n) => aimer.repress(n);
   /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
   const breatheNow = (shot: Shot, mega?: MegaBreath): number => {
     pose.squash = mega ? 0.72 : 0.8;
@@ -1634,7 +1635,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   warm.add(scene);
   exposeQA();
   /** ?moonland: what the thumb does down here, until it is down here. */
-  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
+  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onRepress: input.onRepress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
   // (and ?earth&resume: the flight has the bus while the street boots behind it)
   if (land || resumed) {
     Object.assign(input, flightHands);
@@ -2397,7 +2398,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     earthBooting = true;
     if (resumed) skyHands = resumed.hands;
     // (the street's own: on ?earth&resume the flight's are on the thumb by now, so they're the ones kept from before it. The first account's review, 2026-11-04: the street took the flight's for good)
-    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
+    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onRepress: input.onRepress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
       // (?life: the movers the flight's loop draws while it has the bus, CONTRACT.md O4)
@@ -2748,7 +2749,7 @@ async function bootEarthResumed() {
   const street = laterStreet();
   const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world, clock: skyClock })) as EarthLanding | null;
   const i = shared.input;
-  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onUnpress: i.onUnpress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
+  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onUnpress: i.onUnpress, onRepress: i.onRepress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
   if (join) await boot(undefined, shared, { join, hands, attach: street.attach });
 }
 

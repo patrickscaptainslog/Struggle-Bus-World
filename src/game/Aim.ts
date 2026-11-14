@@ -533,6 +533,12 @@ export class Aimer {
     if (this.lob?.unpress(n)) this.given = true;
   }
 
+  /** Press n, given back at another's tap while its finger was down, is put back: that finger lifted as a tap of its own (Input.onRepress). The plan is
+   *  stale as for unpress: the tap plans again (refresh) with the latch that press runs on. */
+  repress(n: number): void {
+    if (this.lob?.repress(n)) this.given = true;
+  }
+
   /** Before a tap fires: an aim this frame found not ready, the belly full again since (a pour given back by Input's late tap, Hose.end), plans again,
    *  as it stood, so the tap throws what it would have (the Lob's roofs stage: the late tap found no plan and threw a plain splat). And one a press given
    *  back since (Input.answer: a resting thumb's landing, the tap the other thumb's) planned with the latch that press ran on: the tap threw the lift's body. */
