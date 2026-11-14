@@ -160,6 +160,8 @@ export class Aimer {
   private lastAim: BuildingRef | null = null;
   private latchUntil = 0;
   private wasDrag = false;
+  /** a press was given back since this frame planned (unpress): a tap before the next frame plans again (refresh) */
+  private given = false;
   private wallRef: BuildingRef | null = null;
   private lastShown: BuildingRef | null = null;
   private t = 0;
@@ -376,6 +378,7 @@ export class Aimer {
   update(f: Flight, t: number, dragging: boolean, thumb = dragging): BuildingRef | null {
     const S = config.splat;
     this.t = t;
+    this.given = false;
     this.ready = Aimer.loaded(f) || (this.primed && f.barfT < 0);
     this.cometPlan = this.cometOnly = this.lobLast = null;
     this.lobbing = false;
@@ -566,12 +569,14 @@ export class Aimer {
   /** Press n's finger lifted as no tap (a look, a flick off the lane): what it ran the Lob's latch on to is given back. */
   unpress(n: number): void {
     this.lob?.unpress(n);
+    this.given = true;
   }
 
   /** Before a tap fires: an aim this frame found not ready, the belly full again since (a pour given back by Input's late tap, Hose.end), plans again,
-   *  as it stood, so the tap throws what it would have (the Lob's roofs stage: the late tap found no plan and threw a plain splat). */
+   *  as it stood, so the tap throws what it would have (the Lob's roofs stage: the late tap found no plan and threw a plain splat). And one a press given
+   *  back since (Input.answer: a resting thumb's landing, the tap the other thumb's) planned with the latch that press ran on: the tap threw the lift's body. */
   refresh(f: Flight): void {
-    if (!this.ready && Aimer.loaded(f)) this.update(f, this.t, this.wasDrag, this.wasThumb);
+    if ((!this.ready && Aimer.loaded(f)) || this.given) this.update(f, this.t, this.wasDrag, this.wasThumb);
   }
 
   /** A touch went down that may become a tap: freeze what glints (taps fire on the lift). n: its turn (Input.presses), for unpress. */

@@ -396,7 +396,7 @@ export class Input {
   /** Every press so far (onPress's), in order. */
   presses = 0;
   /** A finger whose landing pressed with nobody flying (a look zone's) lifted as no tap: a look, a flick, a rest, or lost. n: its press's turn. A flying
-   *  thumb's never does: it steered, and the stroke gives its own back (Aimer.update). */
+   *  thumb's never does: it steered, and the stroke gives its own back (Aimer.update), but for another thumb's tap answered before it commits (answer). */
   onUnpress: ((n: number) => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
@@ -470,6 +470,8 @@ export class Input {
   private gAnswered = false;
   /** A finger tapped before the thumb committed: fire when it commits (or at the end). */
   private gPendingTap = false;
+  /** The flying thumb's landing was press number flyPress (0: none): another thumb's tap answered before it commits gives it back (answer). */
+  private flyPress = 0;
   /** The flying thumb committed to a drag at some point. */
   private gSteered = false;
   private pointerDragging = false;
@@ -862,7 +864,7 @@ export class Input {
     this.gMax = others + 1;
     this.gMulti = recent;
     if (others + 1 >= 3 && recent) this.triple();
-    else this.press();
+    else this.flyPress = this.press();
   }
 
   private pointerMove(e: PointerEvent) {
@@ -989,6 +991,7 @@ export class Input {
     // to fly starts a new gesture, which forgot it, so a tap and the same thumb back down to steer beside a resting or looking thumb splatted nothing)
     if (this.gPendingTap && !this.gAnswered) this.answer();
     this.fly = slot;
+    this.flyPress = 0;
     this.beginGesture(now);
     this.pointerDragging = false;
     // Show where the bungee is pinned right away; it only steers once committed.
@@ -1115,6 +1118,11 @@ export class Input {
   private answer() {
     // (another thumb's tap: a Bomb charging fizzles, and the tap is the tap)
     if (this.fly) this.bombEnd(this.fly, true);
+    // (and reads the Lob's body live, as beside a thumb steering. A flying thumb back down after a lift, resting or charging a Bomb on the bus, isn't the
+    // Aimer's thumb until it commits (state.thumb, at stillTapMs), and its landing ran the lift's latch on: the tap past tapMs threw the lift's body, the
+    // bus level. Given back, the latch is as if it never landed. Once the Aimer has seen the thumb down it has let go of the latch, and this is nothing)
+    if (this.fly && this.flyPress) this.onUnpress?.(this.flyPress);
+    this.flyPress = 0;
     this.gAnswered = true;
     this.gPendingTap = false;
     this.onTap?.();
