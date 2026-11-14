@@ -103,6 +103,11 @@ export class Lob {
   private readonly pressT = [0, 0, 0, 0];
   private readonly pressRan = [false, false, false, false];
   private presses = 0;
+  /** presses given back while their finger was still down (unpress), as they were: one whose finger lifts as a tap of its own is put back (repress) */
+  private readonly givenN = [0, 0, 0, 0];
+  private readonly givenT = [0, 0, 0, 0];
+  private readonly givenRan = [false, false, false, false];
+  private givens = 0;
   private baseUntil = -1;
   private baseFrom = -1;
   /** as fired() found them, for unfired() */
@@ -175,7 +180,7 @@ export class Lob {
    *  is the one, ending when it would have. press: a press's turn (Input.presses), which unpress gives back. */
   latch(body: number, nose: number, t: number, until: number, keep = false, quick = false, press = -1): void {
     const parked = quick && this.parkedAt >= 0;
-    if (!keep || press < 0 || this.presses >= PRESSES) this.presses = 0;
+    if (!keep || press < 0 || this.presses >= PRESSES) this.presses = this.givens = 0;
     if (keep && press >= 0) {
       if (this.presses === 0) {
         this.baseUntil = this.latchUntil;
@@ -217,7 +222,7 @@ export class Lob {
       this.parkedAt = t;
     }
     this.latchUntil = this.ranFrom = -1;
-    this.presses = 0;
+    this.presses = this.givens = 0;
   }
 
   /** The finger whose landing was press `n` (latch's keep) lifted as no tap, a look's or a flick's: the latch is as if it had never landed, the presses
@@ -228,12 +233,50 @@ export class Lob {
     let i = 0;
     while (i < this.presses && this.pressN[i] !== n) i++;
     if (i >= this.presses) return false;
+    if (this.givens >= PRESSES) this.givens = 0;
+    this.givenN[this.givens] = n;
+    this.givenT[this.givens] = this.pressT[i];
+    this.givenRan[this.givens++] = this.pressRan[i];
     for (let j = i + 1; j < this.presses; j++) {
       this.pressN[j - 1] = this.pressN[j];
       this.pressT[j - 1] = this.pressT[j];
       this.pressRan[j - 1] = this.pressRan[j];
     }
     this.presses--;
+    this.rerun();
+    return true;
+  }
+
+  /** Press n, given back while its finger was still down (Input.giveBackRests: another's tap), and that finger lifted as a tap of its own: back in its
+   *  place by its landing's time, with whether it ran the latch on, as if never given back. Nothing if anything latched, let go or fired since. */
+  repress(n: number): boolean {
+    let g = 0;
+    while (g < this.givens && this.givenN[g] !== n) g++;
+    if (g >= this.givens || this.presses >= PRESSES) return false;
+    const t = this.givenT[g], ran = this.givenRan[g];
+    for (let k = g + 1; k < this.givens; k++) {
+      this.givenN[k - 1] = this.givenN[k];
+      this.givenT[k - 1] = this.givenT[k];
+      this.givenRan[k - 1] = this.givenRan[k];
+    }
+    this.givens--;
+    let i = this.presses;
+    while (i > 0 && this.pressT[i - 1] > t) {
+      this.pressN[i] = this.pressN[i - 1];
+      this.pressT[i] = this.pressT[i - 1];
+      this.pressRan[i] = this.pressRan[i - 1];
+      i--;
+    }
+    this.pressN[i] = n;
+    this.pressT[i] = t;
+    this.pressRan[i] = ran;
+    this.presses++;
+    this.rerun();
+    return true;
+  }
+
+  /** The latch's end run again from the end before the first press, over the presses it holds (unpress, repress). */
+  private rerun(): void {
     let end = this.baseUntil, from = this.baseFrom;
     for (let j = 0; j < this.presses; j++) {
       const t = this.pressT[j];
@@ -248,7 +291,6 @@ export class Lob {
     }
     this.latchUntil = end;
     this.ranFrom = from;
-    return true;
   }
 
   /** A latch parked by a stroke that may still be a quick tap. */
@@ -625,7 +667,7 @@ export class Lob {
     this.heldOk = this.farOk = this.farBarred = false;
     this.latchUntil = this.ranFrom = -1;
     this.parkedAt = -1;
-    this.presses = 0;
+    this.presses = this.givens = 0;
     this.stats.fired++;
   }
 

@@ -551,22 +551,66 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         if (lv >= 2) growSprouts(ref, city.paint.get(ref.index).color, lv, -100);
       }
     }
+    relevelTrees(tx, tz, refs);
   };
   // trees standing in saved ground paint come back painted once their tile's paint is redrawn, at the
   // level of the painted house beside them (every blast that splattered them escalated it too)
+  /** a restored tree's paint starts long ago: it is there as the tile comes in, with no pop */
+  const RESTORED = -100;
+  const restoreLevel = (x: number, z: number) => {
+    const near = city.nearestBuilding(x, z, 25);
+    return Math.min(3, Math.max(1, near ? Math.round(city.paint.level(near.index)) : 1));
+  };
+  function restoreTree(tf: TreeField, t: TreeInstance, i: number) {
+    if (tf.paintLevel(i) !== 0) return;
+    const g = city.ground.sample(t.x, t.z);
+    // (?lift: a tree on a seeded square takes no paint but its owner's, B4.3)
+    if (!g || g.cov < 0.5 || lift?.refuses(t.x, t.z, g.faction)) return;
+    tf.setPaint(i, g.hue, restoreLevel(t.x, t.z), RESTORED, g.faction);
+  }
+  /** A tile's buildings came in: a tree beside it restored before they were (its own tile's paint shown first) took its level without them.
+   *  Each restored tree on the loaded tiles around, within 25 m of one of this tile's painted buildings, takes the level it would have taken
+   *  with this tile in first (raised only: setPaint never lowers, and a tree painted in this visit keeps its blasts' level). */
+  function relevelTrees(tx: number, tz: number, refs: BuildingRef[]) {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (const r of refs)
+      if (city.paint.level(r.index) >= 1.5) {
+        x0 = Math.min(x0, r.x0);
+        z0 = Math.min(z0, r.z0);
+        x1 = Math.max(x1, r.x1);
+        z1 = Math.max(z1, r.z1);
+      }
+    // (only a house at level 2 or more raises a tree: every restored tree is at 1 at least)
+    if (x0 === Infinity) return;
+    x0 -= 25;
+    z0 -= 25;
+    x1 += 25;
+    z1 += 25;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const k = `${tx + dx},${tz + dz}`;
+        const tf = treeFields.get(k);
+        const list = treeIndex.get(k);
+        if (!tf || !list || (!dx && !dz)) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue;
+          const lv = tf.paintLevel(i);
+          if (lv === 0 || lv === 3 || tf.paintStart(i) !== RESTORED) continue;
+          const up = restoreLevel(t.x, t.z);
+          if (up <= lv) continue;
+          const g = city.ground.sample(t.x, t.z);
+          if (g && g.cov >= 0.5 && !lift?.refuses(t.x, t.z, g.faction)) tf.setPaint(i, g.hue, up, RESTORED, g.faction);
+        }
+      }
+  }
   city.ground.onTileReady = (tx, tz) => {
     const k = `${tx},${tz}`;
     moon?.rocksReady(tx * manifest.tileSize, tz * manifest.tileSize, (tx + 1) * manifest.tileSize, (tz + 1) * manifest.tileSize);
     const tf = treeFields.get(k);
     const list = treeIndex.get(k);
     if (!tf || !list) return;
-    for (let i = 0; i < list.length; i++) {
-      const g = city.ground.sample(list[i].x, list[i].z);
-      if (!g || g.cov < 0.5 || tf.paintLevel(i) !== 0 || lift?.refuses(list[i].x, list[i].z, g.faction)) continue;
-      const near = city.nearestBuilding(list[i].x, list[i].z, 25);
-      const lv = near ? Math.round(city.paint.level(near.index)) : 0;
-      tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
-    }
+    for (let i = 0; i < list.length; i++) restoreTree(tf, list[i], i);
   };
   city.onTileUnload = (tx, tz) => {
     lift?.tileOut(tx, tz);
@@ -1398,7 +1442,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // and ?recess's duel take their holds from the aim (src/life/Lock.ts, src/recess/Duel.ts), so it's on with them, the Hose with it, as the one link had it)
   input.aimOn = !moon && (hoseOn || lifeOn || recessOn);
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
-  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false, swipeOn: false };
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onRepress: input.onRepress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false, swipeOn: false };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
@@ -1446,6 +1490,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     moonPaint?.latch(simTime);
   };
   input.onUnpress = (n) => aimer.unpress(n);
+  input.onRepress = (n) => aimer.repress(n);
   /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
   const breatheNow = (shot: Shot, mega?: MegaBreath): number => {
     pose.squash = mega ? 0.72 : 0.8;
@@ -1897,7 +1942,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   }
   exposeQA();
   /** ?moonland: what the thumb does down here, until it is down here. (?swerve's long swipe is the low game's: off while the flight has the thumb) */
-  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
+  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onRepress: input.onRepress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
   // (and ?earth&resume: the flight has the bus while the street boots behind it)
   if (land || resumed) {
     Object.assign(input, flightHands);
@@ -2744,7 +2789,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     earthBooting = true;
     if (resumed) skyHands = resumed.hands;
     // (the street's own: on ?earth&resume the flight's are on the thumb by now, so they're the ones kept from before it. The first account's review, 2026-11-04: the street took the flight's for good)
-    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
+    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onRepress: input.onRepress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
       // (?life: the movers the flight's loop draws while it has the bus, CONTRACT.md O4)
@@ -2999,6 +3044,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       },
       /** QA: the same at a point of the map (m) */
       paintedAt: (x: number, z: number, r: number) => paintedAt(x, z, r),
+      /** QA: the trees within r of a point of the map (m): where each stands, the tile whose list holds it, its paint level (0 grey, 1-3) */
+      treesAt: (x: number, z: number, r: number) => {
+        const out: Array<{ x: number; z: number; tile: string; level: number }> = [];
+        for (const [k, list] of treeIndex) {
+          const tf = treeFields.get(k);
+          if (tf) for (let i = 0; i < list.length; i++) if (Math.hypot(list[i].x - x, list[i].z - z) < r) out.push({ x: list[i].x, z: list[i].z, tile: k, level: tf.paintLevel(i) });
+        }
+        return out;
+      },
     };
     /** QA: paintedNear's and paintedAt's count */
     function paintedAt(x: number, z: number, r: number) {
@@ -3090,7 +3144,7 @@ async function bootEarthResumed() {
   const street = laterStreet();
   const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world, clock: skyClock })) as EarthLanding | null;
   const i = shared.input;
-  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onUnpress: i.onUnpress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
+  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onUnpress: i.onUnpress, onRepress: i.onRepress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
   if (join) await boot(undefined, shared, { join, hands, attach: street.attach });
 }
 

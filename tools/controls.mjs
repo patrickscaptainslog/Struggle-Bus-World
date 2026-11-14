@@ -53,7 +53,8 @@
 //   rest     the Lob's latch beside a resting thumb (not in the default list), by real CDP touches with the loop held and stepped a frame at a time (fixed
 //            0.05 s), the touches stamped: a pull held in the lane, lifted; (lane) the same thumb back down on the lane a frame before the lift's latch ends,
 //            and two frames on, past it, the other thumb's tap 290-350 ms into the rest, before it commits (stillTapMs): a plain splat, the bus level;
-//            (bus, &bomb) the same with the thumb back down on the bus, a Bomb charging short of its first tier; (none) the same tap, no thumb down: a plain
+//            (bus, &bomb) the same with the thumb back down on the bus, a Bomb charging short of its first tier; (look) a finger still in the look zone
+//            instead, the tap on the lane, 290-350 ms into it, younger than its tap window (stillTapMs, nobody flying); (none) the same tap, no thumb down: a plain
 //            splat; (live) the pull held, the other thumb's tap: a Lob at the body as it is; (one) one thumb, its tap 0.3 s after the lift: a Lob at the
 //            body as it lifted. Each SB_REPS times (3); a leg whose window wasn't hit runs again, twice at most. Exits 1 when a leg fails  -> rest.json
 //   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 and 300 m over the Western Addition and 150 over
@@ -2296,7 +2297,7 @@ if (modes.has('rest')) {
   const FROM = 25; // config.lob.from
   // (lane, none, live, one on the plain page; bus with &bomb, where a thumb landing on the bus charges)
   const pages = [
-    ['plain', Q, ['lane', 'none', 'live', 'one']],
+    ['plain', Q, ['lane', 'look', 'none', 'live', 'one']],
     ['bomb', Q + '&bomb', ['bus']],
   ];
   for (const [where, query, legs] of pages) {
@@ -2393,7 +2394,9 @@ if (modes.has('rest')) {
         } else {
           // (lane, bus) the same thumb back down a frame before the latch ends, on the lane or on the bus; two frames on, past the lift's latch and well
           // inside stillTapMs, the other thumb taps: down 290 ms and up 350 ms after the rest's landing by the events' own clock, the thumb past tapMs,
-          // so the tap is answered at its lift; the Bomb's first tier (aimHoldMs) never comes, the loop held. (none) the same tap with no thumb down
+          // so the tap is answered at its lift; the Bomb's first tier (aimHoldMs) never comes, the loop held. (look) a finger landing still in the look zone
+          // instead, the thumb's tap on the lane: the finger could still be a tap at the tap, and kept its landing's run-on (the check of the resting thumb's
+          // fix, 1). (none) the same tap with no thumb down
           const sR = await to(U - 0.05);
           c.restAt = +(sR.t - s0.t).toFixed(2);
           let pt = null, T = 0;
@@ -2403,7 +2406,7 @@ if (modes.has('rest')) {
                 const b = window.__game.input.busBox;
                 return b ? [Math.round((b.x0 + b.x1) / 2), Math.round((b.y0 + b.y1) / 2)] : null;
               })
-              : [196, 690];
+              : leg === 'look' ? [300, 300] : [196, 690];
             if (!pt) {
               await page.evaluate(() => (window.__qa = null));
               return { ...c, miss: 'no bus box', shots: [] };
@@ -2423,14 +2426,15 @@ if (modes.has('rest')) {
           c.tapAt = +(s2.t - s0.t).toFixed(2);
           c.bodyTap = s2.body;
           c.thumb = s2.thumb;
+          const tp = leg === 'look' ? [196, 690] : [300, 300];
           if (pt) {
             c.restMs = Math.round((Date.now() / 1000 - T) * 1000);
             c.charge = s2.bus;
             c.tier = s2.bomb;
             await till(T + 0.29);
-            await touch('touchStart', [[1, pt[0], pt[1]], [2, 300, 300]], T + 0.29);
+            await touch('touchStart', [[1, pt[0], pt[1]], [2, tp[0], tp[1]]], T + 0.29);
             await till(T + 0.35);
-            await touch('touchEnd', [[2, 300, 300]], T + 0.35);
+            await touch('touchEnd', [[2, tp[0], tp[1]]], T + 0.35);
             c.tapMs = [290, 350];
             await till(T + 0.4);
             await touch('touchEnd', [], T + 0.4);
@@ -2440,7 +2444,7 @@ if (modes.has('rest')) {
             await touch('touchEnd', []);
           }
           // (the window as the row means it, or it isn't the case: then the leg runs again)
-          const hit = U > s0.t && sR.t < U - 0.01 && s2.t > U + 0.01 && (!pt || (!s2.thumb && c.ranTo > c.latch + 0.3 && c.look === false && (leg !== 'bus' || (s2.bus?.onBus && s2.bus.from > 0 && s2.bus.tier === 0 && s2.bomb === 0))));
+          const hit = U > s0.t && sR.t < U - 0.01 && s2.t > U + 0.01 && (!pt || (!s2.thumb && c.ranTo > c.latch + 0.3 && c.look === (leg === 'look') && (leg !== 'bus' || (s2.bus?.onBus && s2.bus.from > 0 && s2.bus.tier === 0 && s2.bomb === 0))));
           if (!hit) c.miss = 'the window was not hit';
         }
         await page.evaluate(() => (window.__qa = null));
@@ -2465,8 +2469,8 @@ if (modes.has('rest')) {
           ok(false, `${key}: ${c.miss} (${JSON.stringify(c)})`);
           continue;
         }
-        if (leg === 'lane' || leg === 'bus' || leg === 'none') {
-          const what = leg === 'lane' ? 'a thumb back down resting on the lane' : leg === 'bus' ? 'a thumb back down charging a Bomb on the bus (tier 0)' : 'no thumb down';
+        if (leg === 'lane' || leg === 'bus' || leg === 'look' || leg === 'none') {
+          const what = leg === 'lane' ? 'a thumb back down resting on the lane' : leg === 'bus' ? 'a thumb back down charging a Bomb on the bus (tier 0)' : leg === 'look' ? 'a finger resting still in the look zone, the tap on the lane' : 'no thumb down';
           ok(s && s.kind === 'tap' && s.bodyDeg < FROM, `${key}: ${what}, the other thumb's tap ${c.tapAt} s after the lift (latch ${c.latch} s${leg !== 'none' ? `, run on to ${c.ranTo} s by the landing at ${c.restAt} s, the tap ${c.tapMs.join('-')} ms into it` : ''}): a plain splat, the bus level (${thrown}; the body ${c.bodyLift} at the lift)`);
         } else if (leg === 'live') {
           ok(s && s.kind === 'lob' && c.thumb && Math.abs(s.angleDeg - Math.min(70, c.body)) <= 2, `${key}: the pull held and steering, the other thumb's tap: a Lob at the body as it is (${thrown}; the body ${c.body} before the tap)`);

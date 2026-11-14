@@ -297,9 +297,12 @@ export function parseTerrainTile(buf: ArrayBuffer, classN: number): TerrainTile 
   const treeCount = dv.getUint16(o, true);
   o += 4;
   const trees: TerrainTile['trees'] = [];
+  // (a spot is kept in decimetres from the corner: a tree a few centimetres short of the next tile was kept on the seam itself, where it read the
+  // next tile's ground; held a decimetre inside, every tree stands on the tile whose list holds it)
+  const last = Math.round((n - 1) * cell * 10) - 1;
   for (let i = 0; i < treeCount; i++) {
-    const x = originX + dv.getInt16(o, true) / 10;
-    const z = originZ + dv.getInt16(o + 2, true) / 10;
+    const x = originX + Math.min(last, dv.getInt16(o, true)) / 10;
+    const z = originZ + Math.min(last, dv.getInt16(o + 2, true)) / 10;
     const y = dv.getInt16(o + 4, true) / 10;
     const size = dv.getUint8(o + 6) / 100;
     const kind = dv.getUint8(o + 7);

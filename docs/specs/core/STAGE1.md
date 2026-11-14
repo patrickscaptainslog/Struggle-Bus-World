@@ -158,6 +158,29 @@ Rows run on earlier commits of this branch, not again on the final build:
 | flight5 | a4ec81b | 0 | "flight5: all passed": 5.1 min, 54 intents, 30 shots (27 taps, 2 Comets, 1 Lob), 0 pours; M90's case one plain tap. On the base it failed, as it must ("a still finger high up for 3 s pours nothing (1 pours)") |
 | hint, controls-lob, misfire | a4ec81b | 0 | the Bomb's hint in 20 s; every pull's tap a Lob; "every row threw its Lob (7)" |
 
+## A painted tree that came back grey (after round 3)
+
+**What was wrong.** After a reload a tree on saved ground paint sometimes stayed grey (3 of 64 reloads at the Sunset's houses, found on another branch). The bake keeps a tree's spot in decimetres from its tile's corner, so a tree a few centimetres short of the next tile was kept on the seam and read that tile's ground: 46 of the city's 120,545 trees, 11 of them on a region's edge. `onTileReady` painted only the ready tile's own list, from the ground under each tree. When the tree's own tile was shown first it found no paint under it, and the next tile's pass never read it. Every flight towards a region's edge from the tree's side does that, not only a reload.
+
+**What changed.** First (945fe6c, `src/main.ts`) a short list of the trees standing on another tile, painted when that tile's paint was shown. The review (on the laptop's sb-checks/core/stage1, review-tree/REVIEW-tree.md) found it right for the fault, but such a tree still stood grey at the edge of its own tile's painted ground 1 to 2 km out, until the next region came in, in view from high up. So the cause went instead (1e13ca8): `parseTerrainTile` holds every spot a decimetre inside its tile, and the bake does too for new bakes. The 46 trees move by a decimetre at most, every tree reads the ground of the tile whose list holds it, and the short list is gone. The row is `tools/treeseam.mjs`, with a QA hook, `__game.treesAt`; it now also checks the tree painted while only its own tile's paint is shown.
+
+**The level beside it** (829481b). A restored tree takes the level of the nearest house within 25 m, but only loaded houses count. When its own tile's paint was shown before the house's tile was in, it came back at level 1 and stayed there (3,751 trees within 25 m of a tile's edge have their nearest building on the next tile, 987 across a region's edge). Now, when a tile's buildings come in, each tree restored on the tiles around it within 25 m of one of its painted buildings takes the level it would have taken with that tile in first: raised only, and a tree painted by a blast this visit keeps its own.
+
+**What ran** at 829481b (main chunk `main-CySsWzFe.js`; NOTE-tree-close.md):
+
+| Row | Exit | Printed |
+|---|---|---|
+| tree-seam | 0 | "treeseam: passed": the tree in -27,3's list painted with only -27,3's paint shown and -27,4's region not loaded, and after -27,4 came in; no tree within 1500 m grey on painted ground (94 on it) |
+| tree-seam-945, on 945fe6c's build | 0 (the row passes) | "FAIL: the tree painted with its own tile's paint shown, -27,4's region not loaded" |
+| tree-seam-0c8, on 0c8c065's build | 0 (the row passes) | the same line, and "FAIL: the tree on the seam ... painted after the reload" |
+| tree-level | 0 | "level: the tree 3 with the house's tile shown first, 3 with its own first (the house 3)" |
+| tree-level-945, on 945fe6c's build | 0 (the row passes) | "level: the tree 3 with the house's tile shown first, 1 with its own first (the house 3)" |
+| fly-close (the review's flight: 200 blasts on a 1.6 km strip over six seams, flown back at TURBO 3 twice, the strip's regions unloaded between) | 0 | "held on the strip: trees on it 625, on paint by the spot 625 (grey 0)" after each leg; no tree grey on paint in flight; "fly: passed" |
+
+The same build passed tsc, iosfloor ("iOS 15.0 parses every chunk"), return-rule ("return: all 76 passed"), returnvisit, return-high and budget-return ("returnvisit: all passed"), warm-plain and warm-return ("warmcheck: passed"), and det-skyoff and det-golden ("det-cmp: 8 of 8 views pass"). All exited 0.
+
+**Left.** Sprouts' obstacle raise: a painted building's rooftop garden whose pad crosses onto a tile that loads after it doesn't raise that tile's cells, so the bus can fly through the garden's edge there (read in the review, not run). The paint holds. It needs a row and its own change.
+
 ## What did not run
 
 - **The whole table on the head's build.** The rows above ran on it; these ran on this round's first build (main-BqeLn1fl.js, the same game but for the four game changes above) or on c2a00c4's, and not again: controls-bomb (0), flight5 whole (0; its M90 cases ran again alone), warm-plain (0), returnvisit-on-R, loadpage, loadpage-on-R, controls-firstrun and -hose, controls-lob, controls-lob-noon, hint, misfire, misfire-30, misfire-60, budget, budget-bomb, det-golden, warm-comet, warm-crew-lob, warm-crew-bomb, warm-extras, warm-curb, warm-hose, controls-curb, s-boom, s-falls, s-shots-known. In c2a00c4's first whole table 47 of 49 rows exited 0 (flight5 and controls-boom the two: flight5's M90 case was a game fault, fixed in round 3; controls-boom still reads 201 at its pose in some runs, above). The table runs again before the push.

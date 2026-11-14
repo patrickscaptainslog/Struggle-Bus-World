@@ -2525,8 +2525,10 @@ def main():
         tb = struct.pack('<HH', len(tl), 0)
         tr = b''
         ty = dem_at([t[0] for t in tl], [t[1] for t in tl]) if tl else []
+        # (a tree a few cm short of the next tile would round onto the seam, the next tile's ground: held a decimetre inside its own)
+        tlast = int(round(TILE * 10)) - 1
         for (x, z, s, k), y in zip(tl, ty):
-            tr += struct.pack('<hhhBB', int(round((x - x0) * 10)), int(round((z - z0) * 10)), int(round(float(y) * 10)), int(min(255, s * 100)), k)
+            tr += struct.pack('<hhhBB', min(tlast, int(round((x - x0) * 10))), min(tlast, int(round((z - z0) * 10))), int(round(float(y) * 10)), int(min(255, s * 100)), k)
         # 2 m ground-class texture (texel centers)
         cx = x0 + (np.arange(CLASS_N) + 0.5) * (TILE / CLASS_N)
         cz = z0 + (np.arange(CLASS_N) + 0.5) * (TILE / CLASS_N)
