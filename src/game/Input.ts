@@ -802,8 +802,10 @@ export class Input {
     if (role === Role.Fly) {
       this.fly = null;
       this.endSteering();
-      // (a touch taken before it committed, iOS's: its landing ran the Lob's latch on, and no tap of its own follows. Given back)
-      if (cancelled && this.flyPress) this.onUnpress?.(this.flyPress);
+      // (a touch taken before it committed, iOS's: its landing ran the Lob's latch on, and no tap of its own follows. Given back. So is any lift that is no
+      // tap: one still past stillTapMs, before the frame that would commit it, kept its landing, and the next tap threw the lift's Lob, the bus level (the
+      // check of the resting thumb's fix, 3). Once committed the Aimer has let go of the latch, and this is nothing)
+      if ((cancelled || !quick) && this.flyPress) this.onUnpress?.(this.flyPress);
       this.flyPress = 0;
       // A charge MEGA's finger carried off ends here, and only here.
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
