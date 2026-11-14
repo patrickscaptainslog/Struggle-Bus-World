@@ -391,16 +391,57 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         if (lv >= 2) growSprouts(ref, city.paint.get(ref.index).color, lv, -100);
       }
     }
+    relevelTrees(tx, tz, refs);
   };
   // trees standing in saved ground paint come back painted once their tile's paint is redrawn, at the
   // level of the painted house beside them (every blast that splattered them escalated it too)
+  /** a restored tree's paint starts long ago: it is there as the tile comes in, with no pop */
+  const RESTORED = -100;
+  const restoreLevel = (x: number, z: number) => {
+    const near = city.nearestBuilding(x, z, 25);
+    return Math.min(3, Math.max(1, near ? Math.round(city.paint.level(near.index)) : 1));
+  };
   function restoreTree(tf: TreeField, t: TreeInstance, i: number) {
     if (tf.paintLevel(i) !== 0) return;
     const g = city.ground.sample(t.x, t.z);
     if (!g || g.cov < 0.5) return;
-    const near = city.nearestBuilding(t.x, t.z, 25);
-    const lv = near ? Math.round(city.paint.level(near.index)) : 0;
-    tf.setPaint(i, g.hue, Math.min(3, Math.max(1, lv)), -100, g.faction);
+    tf.setPaint(i, g.hue, restoreLevel(t.x, t.z), RESTORED, g.faction);
+  }
+  /** A tile's buildings came in: a tree beside it restored before they were (its own tile's paint shown first) took its level without them.
+   *  Each restored tree on the loaded tiles around, within 25 m of one of this tile's painted buildings, takes the level it would have taken
+   *  with this tile in first (raised only: setPaint never lowers, and a tree painted in this visit keeps its blasts' level). */
+  function relevelTrees(tx: number, tz: number, refs: BuildingRef[]) {
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (const r of refs)
+      if (city.paint.level(r.index) >= 1.5) {
+        x0 = Math.min(x0, r.x0);
+        z0 = Math.min(z0, r.z0);
+        x1 = Math.max(x1, r.x1);
+        z1 = Math.max(z1, r.z1);
+      }
+    // (only a house at level 2 or more raises a tree: every restored tree is at 1 at least)
+    if (x0 === Infinity) return;
+    x0 -= 25;
+    z0 -= 25;
+    x1 += 25;
+    z1 += 25;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const k = `${tx + dx},${tz + dz}`;
+        const tf = treeFields.get(k);
+        const list = treeIndex.get(k);
+        if (!tf || !list || (!dx && !dz)) continue;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue;
+          const lv = tf.paintLevel(i);
+          if (lv === 0 || lv === 3 || tf.paintStart(i) !== RESTORED) continue;
+          const up = restoreLevel(t.x, t.z);
+          if (up <= lv) continue;
+          const g = city.ground.sample(t.x, t.z);
+          if (g && g.cov >= 0.5) tf.setPaint(i, g.hue, up, RESTORED, g.faction);
+        }
+      }
   }
   city.ground.onTileReady = (tx, tz) => {
     const k = `${tx},${tz}`;

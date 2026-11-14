@@ -768,6 +768,12 @@ export class TreeField {
     return slot > 0 ? this.data[o + 1] % 4 : 0;
   }
 
+  /** When a tree's paint popped (setPaint's startTime; grey: -1e4). */
+  paintStart(index: number): number {
+    if (this.disposed || index < 0 || index >= this.mesh.count) return -1e4;
+    return this.data[index * 3 + 2];
+  }
+
   /** Back to grey (e.g. paint reset). */
   clearPaint(index: number): void {
     if (this.disposed || index < 0 || index >= this.mesh.count) return;
