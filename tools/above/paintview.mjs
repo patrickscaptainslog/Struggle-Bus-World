@@ -33,6 +33,62 @@ const PLACES = {
   // the Moon's open ground by Tycho
   moon: { q: 'moon&site=TYCHO' },
 };
+// --dump (a diagnosis): each shot's next frame, draw by draw in the order drawn, to <name>.dump.json: the object, its material, geometry, program, world
+// matrix and a hash of every uniform's value (a data texture by its bytes), so two loads' frames can be held draw by draw (tools/above/dumpcmp.mjs)
+const dumpFrame = () => new Promise((res) => {
+  const g = window.__game, r = g.pipeline.renderer, props = r.properties;
+  const fnv = (h, v) => Math.imul(h ^ (v & 0xffffffff), 16777619) >>> 0;
+  const hashArr = (h, a) => { for (let i = 0; i < a.length; i++) h = fnv(h, Math.round(a[i] * 1e4)); return h; };
+  const hashVal = (h, v) => {
+    if (v == null) return fnv(h, 7);
+    if (typeof v === 'number' || typeof v === 'boolean') return fnv(h, Math.round(Number(v) * 1e4));
+    if (v.isTexture) {
+      h = fnv(h, v.image?.width ?? 0);
+      h = fnv(h, v.image?.height ?? 0);
+      const d = v.image?.data;
+      return d ? hashArr(h, d) : fnv(h, 11);
+    }
+    if (v.toArray) return hashArr(h, v.toArray());
+    if (v.elements) return hashArr(h, v.elements);
+    if (Array.isArray(v) || ArrayBuffer.isView(v)) { for (const x of v) h = hashVal(h, x); return h; }
+    return fnv(h, 13);
+  };
+  const draws = [];
+  const rbd = r.renderBufferDirect;
+  r.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
+    rbd.call(this, camera, scene, geometry, material, object, group);
+    let u = 2166136261;
+    for (const [k, v] of Object.entries(material.uniforms ?? {}).sort(([a], [b]) => (a < b ? -1 : 1))) u = hashVal(fnv(u, k.length), v.value);
+    let a = 2166136261;
+    for (const [k, v] of Object.entries(geometry.attributes).sort(([x], [y]) => (x < y ? -1 : 1))) a = fnv(hashArr(fnv(a, k.length), v.array.length > 4e5 ? v.array.subarray(0, 4e5) : v.array), v.version);
+    draws.push({
+      f: r.info.render.frame, cam: camera.type, rt: r.getRenderTarget() ? 1 : 0, name: object.name, type: object.type, oid: object.id, mid: material.id, mtype: material.type, gid: geometry.id,
+      prog: props.get(material).currentProgram?.id ?? -1, ro: object.renderOrder, range: [geometry.drawRange.start, geometry.drawRange.count, group?.start ?? -1],
+      m: object.matrixWorld.elements.map((e) => Math.round(e * 1000) / 1000), u, a, inst: object.count ?? 0, ic: object.instanceColor ? hashArr(2166136261, object.instanceColor.array) : 0,
+    });
+  };
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    r.renderBufferDirect = rbd;
+    const H = window.__pv.home, c = g.city, f = g.flight;
+    // (the rig's and the flight's own numbers and vectors, by name)
+    const flat = (o) => Object.fromEntries(Object.entries(o).flatMap(([k, v]) => (typeof v === 'number' || typeof v === 'boolean' ? [[k, v]] : v && typeof v.x === 'number' ? [[k, [v.x, v.y, v.z ?? 0, v.w ?? 0]]] : [])));
+    // (&pvtrace: the tiles that hold a grey tree on painted ground, each with its trace)
+    let greyTiles = null;
+    if (window.__pvTrace && g.paintedAt) {
+      const ts = c.manifest.tileSize;
+      greyTiles = [];
+      for (const [k] of c.tiles) {
+        const [tx, tz] = k.split(',').map(Number);
+        if (g.paintedAt((tx + 0.5) * ts, (tz + 0.5) * ts, ts * 0.75).treesGrey) greyTiles.push(k);
+      }
+      greyTiles = greyTiles.map((k) => {
+        const [tx, tz] = k.split(',').map(Number), near = (e) => { const [x, z] = String(e[3]).split(',').map(Number); return Math.abs(x - tx) <= 1 && Math.abs(z - tz) <= 1; };
+        return { key: k, lod: c.regionLod.get(`${Math.floor(tx / c.regionSize)},${Math.floor(tz / c.regionSize)}`), trace: window.__pvTrace.filter(near) };
+      });
+    }
+    res({ greyTiles, trees: g.paintedAt ? g.paintedAt(H.x, H.z, 2500) : null, rig: flat(g.rig), flightAll: flat(f), flight: { x: f.x, y: f.y, z: f.z, heading: f.heading }, ground: c.groundAt(H.x, H.z), surface: c.surfaceAt(H.x, H.z), pin: window.__qa.pin, camera: g.camera.matrixWorld.elements, draws });
+  }));
+});
 const place = opt.place ?? 'downtown';
 const P = PLACES[place];
 const tags = (opt.tags ?? 'on:,off:rmask=0').split(',').map((t) => t.split(':'));
@@ -164,6 +220,7 @@ for (const [tag, tq] of tags) {
       return { frame: f, cull, at, memory: A.memory(), readBack: A.readBack(), bus: bb, clock: +g.clock().toFixed(3), agl: Math.round(g.flight.y - c.groundAt(g.flight.x, g.flight.z)), regions: lod, ownGround: c.ownGround.size };
     });
     await page.screenshot({ path: `${out}/${name}.png` });
+    if ('dump' in opt) writeFileSync(`${out}/${name}.dump.json`, JSON.stringify(await page.evaluate(dumpFrame)));
     return st;
   };
   for (const h of poses) {
