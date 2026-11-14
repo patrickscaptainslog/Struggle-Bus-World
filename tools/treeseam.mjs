@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Trees on a tile's edge, back after a reload. The bake keeps a tree's spot in decimetres from its tile's corner, so a tree a few centimetres short of
-// the next tile is kept on the seam itself and stands on the next tile's ground (46 of San Francisco's 120,545 trees, 11 of them on a region's edge).
-// Saved ground paint under one must paint it again on the next visit, whichever tile's paint is shown first.
+// the next tile was kept on the seam itself and read the next tile's ground (46 of San Francisco's 120,545 trees, 11 of them on a region's edge);
+// the game now holds each a decimetre inside its own tile (tiles.ts). Saved ground paint under one must paint it again on the next visit as soon as
+// its own tile's paint is shown, and whichever tile's paint is shown first.
 //   node tools/treeseam.mjs <url> <outdir>            exit 0: the tree painted; 1: it stayed grey on painted ground; 2: the run could not set it up
 //   node tools/treeseam.mjs <url> <outdir> --level    a tree whose nearest house (within 25 m) is on the next tile: its level after a reload with its
 //                                                     own tile shown first, and with the house's: exit 1 when they differ (a report: see NOTE)
@@ -13,7 +14,8 @@
 // inside the circle): the run only holds the bus still at each end, under __qa.pin.
 // (1) a visit at the tree: breaths at it through the real splat pipeline (barfAtLatLon), the tree painted by its blast, the paint saved
 // (2) a reload (same storage) 495 m short of the tree's region, looking along the edge: the tree's tile's paint shown, the other region not
-// loaded (else exit 2); then the bus 200 m short of the edge: the other tile's paint shown
+// loaded (else exit 2), and 1.5 s on the tree painted already (its own tile's paint is shown); then the bus 200 m short of the edge: the other
+// tile's paint shown
 // (3) 1.5 s on: the tree on painted ground and painted; and every tree within 1500 m on painted ground painted (__game.paintedAt)
 import { chromium } from 'playwright-core';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -33,7 +35,21 @@ const near = (a, b) => Math.hypot(a.x - HOUSES[0], a.z - HOUSES[1]) - Math.hypot
 const dir = new URL('../public/city/sf/', import.meta.url);
 const city = JSON.parse(readFileSync(new URL('city.json', dir), 'utf8'));
 const TS = city.tileSize, RS = city.regionSize;
-const treesOf = new Map(), housesOf = new Map();
+const treesOf = new Map(), housesOf = new Map(), seamOf = new Map();
+/** the trees a terrain tile's file keeps on its seam (a spot of one tile's width from the corner, in decimetres), by index: [1 or 0, 1 or 0], the
+ *  way to the tile whose ground the spot was on. Read from the file's own numbers: parseTerrainTile holds every spot inside its tile */
+const seamTrees = (buf) => {
+  const dv = new DataView(buf), n = dv.getUint16(12, true), obstN = dv.getUint16(14, true), w = Math.round((n - 1) * dv.getFloat32(16, true) * 10);
+  let o = 28 + n * n * 2 + n * n;
+  o += (4 - (o % 4)) % 4;
+  o += obstN * obstN * 2;
+  const out = new Map();
+  for (let i = 0, c = dv.getUint16(o, true); i < c; i++) {
+    const dx = dv.getInt16(o + 4 + i * 8, true), dz = dv.getInt16(o + 6 + i * 8, true);
+    if (dx >= w || dz >= w) out.set(i, [dx >= w ? 1 : 0, dz >= w ? 1 : 0]);
+  }
+  return out;
+};
 for (const f of readdirSync(dir).filter((f) => /^r_-?\d+_-?\d+\.bin$/.test(f))) {
   let b = readFileSync(new URL(f, dir));
   if (b[0] === 0x1f && b[1] === 0x8b) b = gunzipSync(b);
@@ -44,6 +60,7 @@ for (const f of readdirSync(dir).filter((f) => /^r_-?\d+_-?\d+\.bin$/.test(f))) 
     const tx = dv.getInt32(o, true), tz = dv.getInt32(o + 4, true), bOff = dv.getUint32(o + 8, true), bLen = dv.getUint32(o + 12, true);
     const tOff = dv.getUint32(o + 16, true), tLen = dv.getUint32(o + 20, true);
     if (tLen) treesOf.set(`${tx},${tz}`, parseTerrainTile(buf.slice(tOff, tOff + tLen), city.classN).trees);
+    if (tLen) seamOf.set(`${tx},${tz}`, seamTrees(buf.slice(tOff, tOff + tLen)));
     if (LEVEL && bLen) housesOf.set(`${tx},${tz}`, parseBuildingTile(buf.slice(bOff, bOff + bLen)));
   }
 }
@@ -59,17 +76,18 @@ if (!LEVEL) {
   const seams = [];
   let all = 0, strays = 0;
   for (const [k, trees] of treesOf) {
-    const l = k.split(',').map(Number);
-    for (const t of trees) {
+    const l = k.split(',').map(Number), seam = seamOf.get(k);
+    for (let i = 0; i < trees.length; i++) {
+      const t = trees[i];
       all++;
-      const s = [Math.floor(t.x / TS), Math.floor(t.z / TS)];
-      if (s[0] === l[0] && s[1] === l[1]) continue;
+      if (!seam.has(i)) continue;
+      const s = [l[0] + seam.get(i)[0], l[1] + seam.get(i)[1]];
       strays++;
       const e = edge(l, s);
       if (e) seams.push({ list: l, other: s, x: t.x, z: t.z, ...e });
     }
   }
-  console.log(`trees ${all}, on another tile than their list's ${strays}, across a region's edge on one axis ${seams.length}`);
+  console.log(`trees ${all}, kept on their tile's seam ${strays}, across a region's edge on one axis ${seams.length}`);
   S = seams.sort(near)[0];
 } else {
   /** a building's wall within r of the tree on a tile of region rg (each ring's corners in order, the gap between two rings counted too) */
@@ -123,7 +141,7 @@ if (!S) {
 const key = (t) => `${t[0]},${t[1]}`;
 const ll = (p) => localToLatLon(p[0], p[1], city.origin);
 const [tLat, tLon] = ll([S.x, S.z]);
-console.log(`the tree: in ${key(S.list)}'s list at ${S.x}, ${S.z} (${tLat.toFixed(6)}, ${tLon.toFixed(6)}), ${LEVEL ? `its nearest house on ${key(S.other)} at ${S.hx.toFixed(1)}, ${S.hz.toFixed(1)}` : `standing on ${key(S.other)}`}`);
+console.log(`the tree: in ${key(S.list)}'s list at ${S.x}, ${S.z} (${tLat.toFixed(6)}, ${tLon.toFixed(6)}), ${LEVEL ? `its nearest house on ${key(S.other)} at ${S.hx.toFixed(1)}, ${S.hz.toFixed(1)}` : `kept on the seam with ${key(S.other)}`}`);
 // (--pick: only which tree, no browser)
 if (process.argv.includes('--pick')) process.exit(0);
 /** the start spot and the move for an approach from tile `from`'s side (its region loads first): heading along the edge at the start (the
@@ -190,10 +208,13 @@ async function reload(first, second, way) {
   console.log(`  start ${A.P0.map(Math.round)}: ready ${JSON.stringify(r0)}; ${key(second)} loaded: ${otherIn}`);
   if (otherIn || r0.some((r) => r.k === key(second)) || r0[0].other) throw new Setup(`${key(second)} came in with ${key(first)}: not the order this run needs`);
   await page.waitForTimeout(1500);
+  const start = await trees([S.x, S.z], 2);
+  console.log(`  the tree with only ${key(first)}'s paint shown: ${JSON.stringify(start)}`);
   await page.evaluate(([x, y, z, h]) => (window.__qa.pin = { x, y, z, heading: h }), [A.P1[0], y, A.P1[1], A.H1]);
   await until((k) => window.__ready.some((r) => r.k === k) && window.__game.city.tiles.has(k), key(second), 400);
   console.log(`  moved to ${A.P1.map(Math.round)}: ready ${JSON.stringify(await page.evaluate(() => window.__ready.map((r) => r.k)))}`);
   await page.waitForTimeout(1500);
+  return start;
 }
 
 let code = 0;
@@ -237,13 +258,14 @@ try {
     await page.waitForTimeout(500);
     if (!LEVEL) {
       // (2) the reload, the tree's tile first; (3) the count
-      await reload(S.list, S.other, S.dir);
+      const start = await reload(S.list, S.other, S.dir);
       const t = await trees([S.x, S.z], 2);
       const wide = await trees(approach(S.list, S.dir).P1, 1500);
       console.log(`the tree: ${JSON.stringify(t)}`);
       console.log(`within 1500 m: trees on painted ground ${wide.treesOnPaint}, of them grey ${wide.treesGrey}`);
+      ok(start.paintedTrees >= 1, `the tree painted with its own tile's paint shown, ${key(S.other)}'s region not loaded`);
       ok(t.treesOnPaint >= 1, 'the tree stands on painted ground after the reload');
-      ok(t.treesGrey === 0, `the tree on the seam (in ${key(S.list)}'s list, on ${key(S.other)}) painted after the reload`);
+      ok(t.treesGrey === 0, `the tree on the seam (in ${key(S.list)}'s list, kept on the seam with ${key(S.other)}) painted after the reload`);
       ok(wide.treesGrey === 0, `no tree within 1500 m grey on painted ground (${wide.treesGrey})`);
     } else {
       // the tree's level after a reload from the house's side, then from its own
