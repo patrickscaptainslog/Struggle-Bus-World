@@ -11,13 +11,16 @@
 //     The gauge (bus/gauge.ts): the held rival buses' gauges each their crew's run; then through Atlantis, the Elderwood, Hyperglow, Inferno, Rainbow and
 //     Atlantis again, the bus pinned with the rivals sent home: the band's and the bar's rows and lifts in the bus's own attributes and the charge's rows,
 //     each the crew's run (Rainbow's: the six hues, no lift, as built), and the colours read from the page's own frame (its resolved picture, at the 24
-//     slices from the close camera on its left side, the 6 cells from the chase camera behind) at empty, half and full: each the stop's row (90 %), lit
-//     back to front (at half the rear lit, the front not).
+//     slices from the close camera on its left side, the 6 cells from the chase camera behind) at empty, half and full: each the stop's row or its empty
+//     row (90 %), lit back to front (at half the rear lit, the front not). Then on each crew, held through __qa.busFx: the full wave and the sparkle over
+//     24 reads (each stop's steady steps move, and a sparkle climbs over them); a super's charge at 0.3 and 0.8 (a crew's band keeps its run's rows at step
+//     6 or under, and at 0.8 the white-hot is GLOW_WHITE beside them; Rainbow's said, not judged); spent at half (the lit rear a step darker).
 //   --look=<dir>: the stills, no verdict. Each crew's bus held over the Mission at 12:30 from the chase camera (the phone's whole screen) and from close; a
 //     rival bus of the bus's crew alongside; two frames in the middle of a switch.
-//   --look=<dir> --gauge: the gauge's stills instead: each crew's bus from the chase camera with the gauge empty, half and full over the grey city, and close
-//     at half; the full wave on Atlantis and Inferno, close; two frames in the middle of a switch at a phone's size; an Inferno rival ahead of the Atlantis
-//     bus; then each crew over its own paint (its shots at the blocks ahead).
+//   --look=<dir> --gauge: the gauge's stills instead: each crew's bus from the chase camera with the gauge empty, half and full over the grey city, close
+//     at half and under a super's charge at 0.3 and 0.8, and spent at half from behind; the full wave on every crew, close; two frames in the middle of a
+//     switch at a phone's size; an Inferno rival ahead of the Atlantis bus; then each crew over its own paint (its shots where the chase camera sees the
+//     ground behind the bus).
 // Prints pass or FAIL a line; writes <out>/crew-bus.json; exit 1 on any failure (the stills: exit 0 once they are written).
 //
 //   node tools/factions/crew-bus.mjs <url> <outDir> [--q=<query>] [--look=<dir>]
@@ -38,14 +41,19 @@ if (LOOK) mkdirSync(LOOK, { recursive: true });
 const KEY = { 1: 'rainbow', 2: 'atlantis', 3: 'elderwood', 4: 'hyperglow', 5: 'inferno' };
 const BODY = { 1: 14, 2: 26, 3: 28, 4: 24, 5: 30 };
 const YELLOW = 14;
-/** each crew's gauge run, rear to front: [row, lift in steps] (a copy of bus/gauge.ts's table, which the page's reads are held against) */
+/** each crew's gauge run, rear to front: [row, lift in steps, empty row (0: its own)] (a copy of bus/gauge.ts's table, which the page's reads are held against) */
 const RUNS = {
   1: [[8, 0], [9, 0], [10, 0], [11, 0], [12, 0], [13, 0]],
-  2: [[27, -1], [27, 0], [27, 1], [27, 2], [26, 2], [26, 3]],
-  3: [[13, -1], [13, 0], [28, 2], [28, 3], [10, 1], [10, 2]],
-  4: [[25, -1], [25, 0], [25, 1], [29, 0], [29, 1], [29, 2]],
-  5: [[31, 2], [8, 0], [9, -1], [9, 0], [10, 0], [10, 2]],
+  2: [[26, -2], [26, -2], [26, -1], [26, -1], [26, 2], [26, 2]],
+  3: [[28, -1], [28, -1], [28, 2], [28, 2], [10, 1, 28], [10, 2, 28]],
+  4: [[29, -2], [25, 0], [29, -1], [25, 1], [29, 0], [25, 2]],
+  5: [[31, 1], [9, -1], [9, 0], [9, 1], [10, 1], [10, 2]],
 };
+/** a stop's empty row: its own empty row, or its row */
+const darkOf = (s) => s[2] || s[0];
+/** the glow a stop races at under a charge (gauge.ts's topOf; Rainbow's 1) */
+const topOf = (f, s) => (f === 1 ? 1 : +((Math.min(6, 4 + s[1] + 1) + 0.2) / 7).toFixed(3));
+const GLOW_WHITE = 16;
 /** the palette (render/palette.ts, read as text): each colour's rows and steps, to name what a pixel of the page shows */
 const PAL = (() => {
   const src = readFileSync(resolve('src/render/palette.ts'), 'utf8');
@@ -152,16 +160,17 @@ await page.evaluate(() => {
   };
   // (a bus's gauge as its attributes hold it: by stop (a part's uv.y x 6; PART.BAND is 9), the row and the lift in steps, and any stop whose parts disagree)
   window.__cbGaugeOf = (mesh) => {
-    const geo = mesh.geometry, ua = geo.getAttribute('uv'), ra = geo.getAttribute('ramp'), la = geo.getAttribute('lightOffset'), rows = [], lifts = [], mixed = new Set();
+    const geo = mesh.geometry, ua = geo.getAttribute('uv'), ra = geo.getAttribute('ramp'), la = geo.getAttribute('lightOffset'), ga = geo.getAttribute('glow'), rows = [], lifts = [], darks = [], mixed = new Set();
     for (let i = 0; i < ua.count; i++) {
       if (Math.round(ua.getX(i)) !== 9) continue;
-      const st = Math.min(5, Math.floor(ua.getY(i) * 6)), r = ra.getX(i), l = Math.round(((la.getX(i) + 0.5) / 0.15) * 100) / 100;
+      const st = Math.min(5, Math.floor(ua.getY(i) * 6)), r = ra.getX(i), l = Math.round((la.getX(i) + 0.5) * 7 * 100) / 100, d = ga.getX(i);
       if (rows[st] === undefined) {
         rows[st] = r;
         lifts[st] = l;
-      } else if (rows[st] !== r || lifts[st] !== l) mixed.add(st);
+        darks[st] = d;
+      } else if (rows[st] !== r || lifts[st] !== l || darks[st] !== d) mixed.add(st);
     }
-    return { rows, lifts, mixed: [...mixed] };
+    return { rows, lifts, darks, mixed: [...mixed] };
   };
   // (the gauge's 30 places on the player's bus, in its mesh's space: each slice's left face and each bar cell's back face, a third down from the top)
   {
@@ -201,9 +210,9 @@ await page.evaluate(() => {
 });
 const read = () => page.evaluate(() => window.__cbRead());
 /** a gauge read from attributes against a crew's run: its rows, its lifts, no stop of mixed parts */
-const gaugeIs = (gq, f) => gq.mixed.length === 0 && RUNS[f].every(([r, l], k) => gq.rows[k] === r && Math.abs(gq.lifts[k] - l) < 0.01);
-const runSays = (rows, lifts) => rows.map((r, k) => `${r}${lifts[k] ? (lifts[k] > 0 ? '+' : '') + lifts[k] : ''}`).join(' ');
-const gaugeSays = (gq, f) => `${runSays(gq.rows, gq.lifts)}${gq.mixed.length ? ` (stops ${gq.mixed} mixed)` : ''} against ${runSays(RUNS[f].map((s) => s[0]), RUNS[f].map((s) => s[1]))}`;
+const gaugeIs = (gq, f) => gq.mixed.length === 0 && RUNS[f].every(([r, l, d = 0], k) => gq.rows[k] === r && Math.abs(gq.lifts[k] - l) < 0.01 && (gq.darks?.[k] ?? 0) === d);
+const runSays = (rows, lifts, darks) => rows.map((r, k) => `${r}${lifts[k] ? (lifts[k] > 0 ? '+' : '') + lifts[k] : ''}${darks?.[k] ? `/${darks[k]}` : ''}`).join(' ');
+const gaugeSays = (gq, f) => `${runSays(gq.rows, gq.lifts, gq.darks)}${gq.mixed.length ? ` (stops ${gq.mixed} mixed)` : ''} against ${runSays(RUNS[f].map((s) => s[0]), RUNS[f].map((s) => s[1]), RUNS[f].map((s) => s[2] ?? 0))}`;
 /** a colour's rows and steps: the palette's own, or (the live sky's table of the hour shifts a colour a little: ORANGE's #dc5235 drawn #dd5043) the nearest
  *  palette colour within 20 of it, as RGB distance; null past that */
 const PAL_LIST = Object.keys(PAL).map((h) => [h, [0, 2, 4].map((k) => parseInt(h.slice(k, k + 2), 16))]);
@@ -353,18 +362,20 @@ if (!LOOK) {
     // (the first: the chase camera settles behind the bus just pinned, which was flying a moment ago)
     await after(k === 0 ? 3 : 1);
     const st = await page.evaluate(() => window.__cbGaugeOf(window.__game.scene.getObjectByName('BusRoot').children[0]));
-    const ch = await page.evaluate(() => window.__game.crewBus?.qa().gauge?.charge ?? null);
+    const ch = await page.evaluate(() => window.__game.crewBus?.qa().gauge ?? null);
     report(`${KEY[f]}: the gauge's rows and lifts`, gaugeSays(st, f), "the crew's run", gaugeIs(st, f));
-    report(`${KEY[f]}: the charge's rows`, ch ? ch.join(' ') : 'no crew look', RUNS[f].map((s) => s[0]).join(' '), !!ch && RUNS[f].every((s, j) => ch[j] === s[0]));
+    report(`${KEY[f]}: the charge's rows and tops`, ch ? `${ch.charge.join(' ')}; tops ${ch.tops.join(' ')}` : 'no crew look', `${RUNS[f].map((s) => s[0]).join(' ')}; tops ${RUNS[f].map((s) => topOf(f, s)).join(' ')}`, !!ch && RUNS[f].every((s, j) => ch.charge[j] === s[0] && Math.abs(ch.tops[j] - topOf(f, s)) < 0.002));
+    // (the slices from the close camera on the left side, the bar from the chase camera behind, as a player sees it; and the bus's charge or spent, held)
+    const view = (F, on, fx = null) =>
+      page.evaluate(([F, on, fx]) => {
+        const g = window.__game, p = window.__qa.pin;
+        p.fullness = F;
+        window.__qa.camAt = on ? { x: p.x - 13, z: p.z + 20, h: p.y - g.city.groundAt(p.x - 13, p.z + 20) + 6, lookX: p.x, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x, p.z) + 1 } : null;
+        window.__qa.busFx = fx;
+      }, [F, on, fx]);
+    const sideReads = async () => (await page.evaluate(() => window.__cbPixels())).filter((q) => !q.bar).map((q) => ({ ...q, n: named(q) }));
     const reads = {};
     for (const F of [0, 0.5, 1]) {
-      // (the slices from the close camera on the left side, the bar from the chase camera behind, as a player sees it)
-      const view = (F, on) =>
-        page.evaluate(([F, on]) => {
-          const g = window.__game, p = window.__qa.pin;
-          p.fullness = F;
-          window.__qa.camAt = on ? { x: p.x - 13, z: p.z + 20, h: p.y - g.city.groundAt(p.x - 13, p.z + 20) + 6, lookX: p.x, lookZ: p.z, lookH: p.y - g.city.groundAt(p.x, p.z) + 1 } : null;
-        }, [F, on]);
       // (the chase camera first, given 2 s to come back behind the bus from the close one: 0.8 s left it to the left, the bar's left cells behind the bumper)
       await view(F, false);
       await after(2);
@@ -374,16 +385,74 @@ if (!LOOK) {
       const side = await page.evaluate(() => window.__cbPixels());
       reads[F] = side.map((q, j) => (q.bar ? back[j] : q)).map((q) => ({ ...q, n: named(q) }));
     }
-    // (each place: its row the stop's, at all three; then lit back to front: a lit place is a step or more over its empty self, in the same row)
+    // (each place: its row the stop's, or its empty row's where it's unlit, at all three; then lit back to front: a lit place is in its stop's row and a
+    // step or more over its empty self, or its empty self is its empty row's)
     const places = reads[0].length, want = Math.ceil(places * 0.9);
-    const rowOk = [0, 0.5, 1].map((F) => reads[F].filter((q) => q.n && q.n.row === RUNS[f][q.stop][0]).length);
-    const lit = (q, j) => !!(q.n && reads[0][j].n && q.n.row === reads[0][j].n.row && q.n.step >= reads[0][j].n.step + 0.9);
+    const rowOk = [0, 0.5, 1].map((F) => reads[F].filter((q) => q.n && (q.n.row === RUNS[f][q.stop][0] || q.n.row === darkOf(RUNS[f][q.stop]))).length);
+    const lit = (q, j) => {
+      const e = reads[0][j].n;
+      return !!(q.n && e && q.n.row === RUNS[f][q.stop][0] && (e.row !== q.n.row || q.n.step >= e.step + 0.9));
+    };
     const full = reads[1].filter(lit).length;
     const rearN = reads[0.5].filter((q) => q.par < 0.45).length, rear = reads[0.5].filter((q, j) => q.par < 0.45 && lit(q, j)).length;
     const frontN = reads[0.5].filter((q) => q.par > 0.55).length, front = reads[0.5].filter((q, j) => q.par > 0.55 && q.n && !lit(q, j)).length;
-    R.gauge.push({ f, st, ch, reads });
     report(`${KEY[f]}: the page's colours, empty / half / full`, `${rowOk.join(' / ')} of ${places} places the stop's row`, `30 places, each ${want} or more`, places === 30 && rowOk.every((n) => n >= want));
     report(`${KEY[f]}: it fills back to front`, `full: ${full} of ${places} lit; half: ${rear} of ${rearN} at the rear lit, ${front} of ${frontN} at the front not`, '90 % of each', full >= want && rear >= Math.ceil(rearN * 0.9) && front >= Math.ceil(frontN * 0.9));
+    if (k === 5) {
+      R.gauge.push({ f, st, ch, reads });
+      continue;
+    }
+    // (the full wave and the sparkle, the slices from the side: 24 reads a little over a sparkle's ninth of a second apart. Each stop: its steady steps
+    // (under 6.6) span half a step or more over the reads, the wave; and some read of one of its places is at step 6.6 or more in its row, a sparkle over
+    // its steady steps. Step 7 is the sparkle's alone on every stop)
+    await view(1, true);
+    await after(0.8);
+    const waves = [];
+    for (let r = 0; r < 24; r++) {
+      waves.push(await sideReads());
+      await after(0.12);
+    }
+    const byStop = [0, 1, 2, 3, 4, 5].map((s) => {
+      const seen = waves.flatMap((w) => w.filter((q) => q.stop === s && q.n && q.n.row === RUNS[f][s][0]).map((q) => q.n.step));
+      const steady = seen.filter((x) => x < 6.6);
+      return { n: seen.length, lo: steady.length ? Math.min(...steady) : NaN, hi: steady.length ? Math.max(...steady) : NaN, sparkles: seen.filter((x) => x >= 6.6).length };
+    });
+    const waveOk = byStop.every((b) => b.n >= 24 && b.hi - b.lo >= 0.5), sparkleOk = byStop.every((b) => b.sparkles > 0 && b.lo < 6.6);
+    report(`${KEY[f]}: the full wave and the sparkle, every stop`, byStop.map((b, s) => `${s}: ${b.lo.toFixed(1)}-${b.hi.toFixed(1)}, ${b.sparkles} sparkles of ${b.n}`).join('; '), 'each stop: steady steps over half a step apart, a sparkle at 6.6 or more', waveOk && sparkleOk);
+    // (a super's charge, held at 0.3 and 0.8: on a crew's bus every place not white-hot is one of the run's rows at step 6.5 or less, and at 0.8 the
+    // white-hot is GLOW_WHITE with some places still the crew's; Rainbow's runs to step 7 as it always did, read and said only)
+    const charge = {};
+    for (const c of [0.3, 0.8]) {
+      await view(1, true, { charge: c });
+      await after(0.8);
+      const rs = [];
+      for (let r = 0; r < 6; r++) {
+        rs.push(...(await sideReads()));
+        await after(0.1);
+      }
+      const nm = rs.filter((q) => q.n), white = nm.filter((q) => q.n.row === GLOW_WHITE), crew = nm.filter((q) => q.n.row !== GLOW_WHITE);
+      const inRun = crew.filter((q) => RUNS[f].some((s) => s[0] === q.n.row)), over = crew.filter((q) => q.n.step > 6.5);
+      charge[c] = { n: rs.length, named: nm.length, white: white.length, crew: crew.length, inRun: inRun.length, over: over.length, hi: crew.length ? Math.max(...crew.map((q) => q.n.step)) : NaN };
+    }
+    const cs = (c) => `at ${c}: ${charge[c].crew} of ${charge[c].n} the crew's (${charge[c].inRun} in its run, ${charge[c].over} over step 6.5, top ${charge[c].hi.toFixed(1)}), ${charge[c].white} white-hot`;
+    if (f === 1) report('rainbow: the charge, as it always was (said, not judged)', `${cs(0.3)}; ${cs(0.8)}`, 'none', true);
+    else
+      report(
+        `${KEY[f]}: the charge keeps the crew's colours under the white-hot`,
+        `${cs(0.3)}; ${cs(0.8)}`,
+        "every non-white place in the run at step 6.5 or less; at 0.3 no white-hot; at 0.8 some white-hot and a tenth or more still the crew's",
+        [0.3, 0.8].every((c) => charge[c].named >= charge[c].n * 0.9 && charge[c].inRun === charge[c].crew && charge[c].over === 0) && charge[0.3].white === 0 && charge[0.8].white > 0 && charge[0.8].crew >= charge[0.8].n * 0.1,
+      );
+    // (spent, held: the half-full band's lit places at the rear a step or more darker than they were lit)
+    await view(0.5, true, { spent: 1 });
+    await after(0.8);
+    const sp = await sideReads();
+    const half = reads[0.5].filter((q) => !q.bar);
+    const rearLit = half.map((q, j) => [q, sp[j]]).filter(([q]) => q.par < 0.45 && q.n);
+    const dim = rearLit.filter(([q, s]) => s && s.n && (s.n.row !== q.n.row || s.n.step <= q.n.step - 0.9)).length;
+    report(`${KEY[f]}: spent dims the lit band`, `${dim} of ${rearLit.length} lit places at the rear a step or more darker`, '90 %', rearLit.length > 0 && dim >= Math.ceil(rearLit.length * 0.9));
+    await view(1, false);
+    R.gauge.push({ f, st, ch, reads, waves: byStop, charge, spent: dim });
   }
   await page.evaluate(() => {
     delete window.__qa.pin;
@@ -550,10 +619,22 @@ if (!LOOK) {
       await close(true);
       await after(0.6);
       await still(`${f}-${KEY[f]}-close-half`);
+      // (a super's charge held at 0.3 and at 0.8, full and close; then spent, held, at half from behind)
+      await fill(1);
+      for (const c of [0.3, 0.8]) {
+        await page.evaluate((c) => (window.__qa.busFx = { charge: c }), c);
+        await after(0.8);
+        await still(`${f}-${KEY[f]}-close-charge-${Math.round(c * 100)}`);
+      }
       await close(false);
+      await fill(0.5);
+      await page.evaluate(() => (window.__qa.busFx = { spent: 1 }));
+      await ready();
+      await still(`${f}-${KEY[f]}-phone-spent-half`);
+      await page.evaluate(() => (window.__qa.busFx = null));
     }
-    // (the full wave and the sparkle, close, on two crews: two frames a quarter second apart)
-    for (const f of [2, 5]) {
+    // (the full wave and the sparkle, close, on every crew: two frames a quarter second apart)
+    for (const f of [1, 2, 3, 4, 5]) {
       await pick(f);
       await fill(1);
       await close(true);
@@ -589,13 +670,15 @@ if (!LOOK) {
       window.__cbBeside = false;
       for (const o of window.__rivals?.sim.list ?? []) o.live = false;
     });
-    // (over its own paint: each crew paints the blocks under and ahead of the bus with its own shots, from where it's held, then the still at half)
+    // (over its own paint: each crew paints the blocks the chase camera sees behind the bus, round where its line through the bus meets the ground, with its
+    // own shots, then the still at half)
     for (const f of [1, 2, 3, 4, 5]) {
       await pick(f);
       await after(1);
       await page.evaluate(() => {
-        const g = window.__game, p = window.__qa.pin;
-        for (let i = 0; i < 16; i++) g.splatter.barf(p.x + ((i % 4) - 1.5) * 22, p.z - 20 - Math.floor(i / 4) * 24, { drop: 90 });
+        const g = window.__game, p = window.__qa.pin, c = g.camera.position, gy = g.city.groundAt(p.x, p.z), t = (gy - p.y) / Math.min(-1e-3, p.y - c.y);
+        const hx = p.x + (p.x - c.x) * t, hz = p.z + (p.z - c.z) * t;
+        for (let i = 0; i < 16; i++) g.splatter.barf(hx + ((i % 4) - 1.5) * 22, hz + (Math.floor(i / 4) - 1.5) * 24, { drop: 90 });
       });
       await after(3);
       await ready();
