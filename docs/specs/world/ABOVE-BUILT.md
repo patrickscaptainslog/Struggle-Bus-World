@@ -238,7 +238,7 @@ the second review), the browser rows one at a time. 45 exit 0. The 19 that do no
 
 A det row that shoots one side fresh against a side kept from an earlier shoot holds only where the bus's height is the same at both
 shots. In that one shoot of downtown it was not (why, not looked into). `pinAt` (9e000fe) settles the bus for the paint rows;
-`tools/shots.mjs --det` does not call it.
+`tools/shots.mjs --det` does not call it. The Moon rows were fixed after this table ("The Moon rows, made able to gate", below).
 
 ## What did not run
 
@@ -254,9 +254,9 @@ shots. In that one shoot of downtown it was not (why, not looked into). `pinAt` 
 - The Moon with `?rmask=0` against 4f33648's build: no row compares them (moon-above compares the mask with `?rmask=0`, both on this build).
   By reading, the Moon shader with `uTileM.x` 0 runs today's arithmetic.
 - The plan's rows that belong to 1b: shots-above, climb-above, flip-look, warm-above's gear climb.
-- warm-moon and moon-keep's heavy row fail on 4f33648's build too (round 2 ran both on R, and warm-moon ran on B and R again after the
-  second review: the same output, a throw in warmcheck's Moon script), so they say nothing about 1a. Each needs its own fix, outside this
-  job. So the Moon's warm draw with `aTile` is unproven (moon-programs shows only that no program comes after ready).
+- warm-moon and moon-keep's heavy row failed on 4f33648's build too, through the whole table. Both rows are fixed since ("The Moon rows,
+  made able to gate", below) and pass on both builds. What stays unproven on the Moon: paint drawn through the tile path in flight
+  (warm-moon's flight puts none in a coarse region's mask; moon-above and moon-programs hold it at fixed poses).
 - A frame where a region's edge is marked: the paint is a 2.8 km square laid over many region edges, and no frame shows a line, but none
   marks where one lies.
 
@@ -352,6 +352,59 @@ A check of 702bb35..325573d: the src changes sound, no blocker; one major for th
 | minor: Curb's dab named as the writer the old box missed | it wasn't: s_rmask's dab is a dab-sized blast with the config's spatter; main.ts's dab has none. Reworded here and in GroundPaint (f9867f7), and s_rmask has a row with main.ts's own dab spec: on 702bb35's GroundPaint the dabs leave no texel off ("offByTheDabs 0"), while the spatter row fails there |
 | minor: fillBytes' wording claims every whole slot | reworded (f9867f7): it counts what attaching and linking queue, what an adoption adds; later copies, clears and a wide blast's bands aren't in it, and none runs inside the adoption |
 | minor: moon-programs passes with no blast | fixed in the suite's tool: a missing blast fails (its proof row, on the kept json with its blast deleted, exits 1) |
+
+## The Moon rows, made able to gate
+
+After the whole table both Moon rows were fixed, in the tools only (f81ab1d, 150388a). Neither says anything against 1a.
+
+- **warm-moon** threw because its url had no `&mega`: MEGA is off since 2026-11-06, its button never shows, and the tool read null. With
+  `&mega`, on 4f33648's build and on this one: "ok: the Moon: no program made after ready", "warmcheck: passed". Its proof, warm-moon-cold
+  (the tool's `--qa-cold`, on 4f33648's build): "FAIL: the Moon: no program made after ready (1: ... mega@65759)", exit 1 as wanted.
+- **moon-keep**'s heavy row took a tile's mask for its paint. After a reload every tile has an empty mask from the first frame, while its
+  copy is on its way and the journal's replays wait: "back 0". The row now waits for the mask, the copy landed and no job queued (up to
+  1,500 frames; the bars are unchanged). 4f33648's build: "painted 1000, back 1000, sameHue 969". This build: "painted 1000, back 1000,
+  sameHue 973". Its proof, moon-keep-lose (`--lose`): "back 261", exit 1 as wanted. Round 2's 995 and 64 % were read before the replays
+  had finished. The floor: 2.4 to 3.1 % of the points change hue each time the paint makes a round trip through the pictures, on both
+  builds.
+- **Two things of today's game the rows show, on both builds, not touched here.** After a heavy session on the Moon (200 blasts, then
+  the page again) the paint's cover is back by frame 30, but about half the points show another hue until the journal's 260 to 311
+  replays are drawn, 650 to 780 frames later (the row keep-diag-R). And one program is made on the Moon after the warm-up reports done,
+  about 0.3 s before ready: printed by warm-moon, not gated.
+
+## 1b, the gear's twin: planned and attacked, not built
+
+The build plan and its critique are in the suite on the laptop (sb-checks/world/above/a: BUILD-B.md, CRITIQUE-B.md, LEAD-B.md). No game
+code yet.
+
+- **Today, measured** (this build, noon, the hold as it is). A climb in Turbo 3 from the roofs to 5 km and a dive back (the row
+  climb-today): "hold on in 1027 of 1027 frames", "514 over 200 draws or 1.5 M triangles", the worst "358 draws at 5266 ms lift 4572",
+  2.12 M. The same climb in Cruise: "0 over 200 draws or 1.5 M triangles". The settled grid (the row pre-1b; draws / M triangles, Turbo 3
+  against Cruise, held 60 degrees down): downtown at 5 km 353 / 2.04 against 74 / 0.90, at 14.9 km 370 / 2.15 against 87 / 1.02; the
+  Sunset at 5 km 366 / 2.83 against 84 / 1.54; the Western Addition at 5 km 307 / 2.61 against 82 / 1.38.
+- **What 1b will leave over.** A twin is drawn through the gear's wider lens, not Cruise's. With the hold taken off in Turbo 3 (the
+  critic's row crb-nohold): at most 116 draws, but the Western Addition reads 1.55 M triangles at 5 km and 1.70 M at 14.9 km (Cruise's
+  1.38 and 1.50), and the Sunset 1.56 to 1.77 M; downtown about Cruise's. So Release A brings every gear's draws inside the ruling and
+  leaves the houses' triangles over from 5 km up, until the plan's stage 3 or 5.
+- **The plan settles:** the twin needs 1a's region mask (with `?rmask=0` it is off); the up line is Cruise's 910 of `detailD`; at most one
+  flip and one twin adopted a frame; a twin lives only inside the hold; a classic coarse answer that meets the hold becomes the twin; a
+  twin's region views go on and off all 16 tiles at once (the second review's R2-7 cannot be reached); one function writes a tile's
+  visibility and one a twin's, so the fog pass and a flip cannot undo each other; 14 invariants, 7 commits, 14 rows, each row with a
+  variant that must fail it.
+- **The critique:** "build as amended"; two blockers, seven majors, ten minors.
+  1. Blocker: a region is loaded detailed under 650 m of `detailD`, but the plan's twin flips back only under 520, so after a dive four
+     of downtown's six home regions would stay coarse at Nonstop's floor. **The lead's ruling: a twin's down line is the load line, 650**
+     (260 m under the up line; a flip down costs nothing), so the roofs after a dive are today's meshes.
+  2. Blocker: three.js sends a texture or an attribute up at a mesh's next draw, and a hidden mesh is not drawn. Paint, the lamps' pools
+     and the Moon's rocks' colours put on a hidden level would all go up on the frame of its flip. The plan gains an invariant: nothing a
+     flip shows has an upload pending; the flip sends what is pending and flips on the next frame; a row checks the versions.
+  3. Among the majors: the look row compares a flip with Cruise's swap of the same region at Cruise's own climb, as a share of the
+     region's box; `?twin=0` is compared in a gear, not only in views that never hold; twins are asked two in flight, in Cruise's order,
+     and only above about 150 m or rising; a row turns and flicks at 400 m (a region that flips twice in 3 s goes to the lead); on the
+     Moon the rocks drop by the twin's current key; the memory row measures after a dive too (a twin is 1.34 MB at the median, 4.94 MB at
+     most, plus 1 MB painted: downtown's six come to 19 to 25 MB).
+- **Why it is not built yet.** It is the largest job left and the first account is near its weekly limit; and its real rows (the far
+  shots' dip, the Lob from any height) need 1c and 1a merged with `feat/shots` first. It is next once this branch has its review from
+  the second account.
 
 ## Calls for the producer, with the studio's pick
 
