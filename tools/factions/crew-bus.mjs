@@ -51,8 +51,12 @@ const RUNS = {
 };
 /** a stop's empty row: its own empty row, or its row */
 const darkOf = (s) => s[2] || s[0];
-/** the glow a stop races at under a charge (gauge.ts's topOf; Rainbow's 1) */
-const topOf = (f, s) => (f === 1 ? 1 : +((Math.min(6, 4 + s[1] + 1) + 0.2) / 7).toFixed(3));
+/** the glow a stop races at under a charge (gauge.ts's topOf: a step over its lit one, to 6, never onto its body's sunlit 4 and 5 in the body's row; Rainbow's 1) */
+const topOf = (f, s) => {
+  if (f === 1) return 1;
+  const lit = 4 + s[1], up = Math.min(6, lit + 1);
+  return +(((s[0] === BODY[f] && (up === 4 || up === 5) ? lit : up) + 0.2) / 7).toFixed(3);
+};
 const GLOW_WHITE = 16;
 /** the palette (render/palette.ts, read as text): each colour's rows and steps, to name what a pixel of the page shows */
 const PAL = (() => {
