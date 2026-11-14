@@ -1,5 +1,5 @@
 // The resting thumb through the whole chain: the REAL Input (../controls-sim/fakedom) wired to the REAL Flight, Aimer, Comet and Lob as main.ts wires them
-// (onPress -> aimer.press(input.presses), onUnpress -> aimer.unpress(n), onTap -> aimer.refresh(flight) then fire, tapSplat's order), frames in main.ts's
+// (onPress -> aimer.press(input.presses), onUnpress -> aimer.unpress(n), onRepress -> aimer.repress(n), onTap -> aimer.refresh(flight) then fire, tapSplat's order), frames in main.ts's
 // order (input.update, the flight's steps, aimer.update with state.thumb), touches between frames on the fake clock. s_lob's rest cases model Input's
 // calls and s_rest never runs the Aimer: each passed with half the fix taken out. This one sees Input, the Aimer and the Lob together.
 // Every case: the Western Addition at Cruise on the floor (s_lob's rest-a), a real thumb on the lane pulls the whole stick for 2 s and lifts at L; times
@@ -10,7 +10,9 @@
 //   with no finger left down that ran it on, the body as it is, the bus level by then).
 // - twin: a case with a finger resting (R on the lane, Q in the look zone) against the same touches with that finger never down: the rest changes
 //   nothing, the tap throws a Lob exactly when its twin's does (Input.answer: given back, the latch is as if the rest never landed). A tap landing
-//   within a frame of the latch's end can go either way by the frame rate; the twin is the rule there, not a time.
+//   within a frame of the latch's end can go either way by the frame rate; the twin is the rule there, not a time. second: a case's second tap against
+//   the same touches with that finger never down. Hold to aim is Input's default (on, as ?life and ?hose have it) unless a case says aim: false (the
+//   plain page, main.ts's aimOn).
 import { newCity, pump, ll, makeGame, config, THREE, CameraRig } from './lib';
 import { TurboDrive } from '@src/game/Turbo';
 import { TurboLens } from '@src/fx/Turbo';
@@ -27,7 +29,7 @@ const DEG = Math.PI / 180, SW = 393, SH = 852;
 const r1 = (x: number) => Math.round(x * 10) / 10;
 
 type Ev = { t: number; k: 'down' | 'up' | 'move' | 'cancel'; who: 'R' | 'O' | 'Q'; dy?: number };
-interface Case { key: string; want: 'lob' | 'none' | 'twin'; twin?: 'R' | 'Q'; why: string; evs: Ev[] }
+interface Case { key: string; want: 'lob' | 'none' | 'twin'; twin?: 'R' | 'Q'; second?: 'R' | 'O'; eatBefore?: number; aim?: boolean; why: string; evs: Ev[] }
 const R = { x: 196, y: 700 }, O = { x: 70, y: 330 }, Q = { x: 330, y: 300 };
 const CASES: Case[] = [
   // (the baseline: the other finger's tap inside the lift's latch, nobody down: a Lob)
@@ -54,6 +56,18 @@ const CASES: Case[] = [
   { key: 'hole/look-rest-ctl', want: 'none', why: 'the same tap on the lane, nothing in the look zone', evs: [{ t: 0.9, k: 'down', who: 'R' }, { t: 0.97, k: 'up', who: 'R' }] },
   // (what the fix must keep: the rest down at 0.3 s, the other thumb's tap 0.55-0.60 s answered at once, inside the latch: the Lob)
   { key: 'keep/rest-early', twin: 'R', want: 'lob', why: 'the rest down at 0.3 s, the tap 0.55-0.60 s', evs: [{ t: 0.3, k: 'down', who: 'R' }, { t: 0.55, k: 'down', who: 'O' }, { t: 0.6, k: 'up', who: 'O' }, { t: 2, k: 'up', who: 'R' }] },
+  // (a finger still in the look zone younger than its tap window, under stillTapMs with nobody flying, when the other's tap fires: it could still be a tap,
+  // and it kept its press, and the tap threw the lift's body at 70 degrees with the bus at 17. Every finger down gives its press back before a tap: the
+  // check of the resting thumb's fix, 1. On the plain page (aim: false) and with hold to aim on; the control's look finger is 520 ms old, past stillTapMs)
+  ...[false, true].flatMap((aim) => [
+    { key: `young/look${aim ? '-aim' : ''}`, aim, twin: 'Q', want: 'twin', why: 'a finger still in the look zone from 0.60 s, the tap on the lane 0.90-0.97 s (the look finger 370 ms old)', evs: [{ t: 0.6, k: 'down', who: 'Q' }, { t: 0.9, k: 'down', who: 'R' }, { t: 0.97, k: 'up', who: 'R' }, { t: 2, k: 'up', who: 'Q' }] },
+    { key: `young/lone${aim ? '-aim' : ''}`, aim, twin: 'Q', want: 'twin', why: 'a finger still in the look zone from 0.55 s, a lone tap in the look zone 0.88-0.95 s', evs: [{ t: 0.55, k: 'down', who: 'Q' }, { t: 0.88, k: 'down', who: 'O' }, { t: 0.95, k: 'up', who: 'O' }, { t: 2, k: 'up', who: 'Q' }] },
+    { key: `young/ctl${aim ? '-aim' : ''}`, aim, twin: 'Q', want: 'twin', why: 'a finger still in the look zone from 0.45 s, the tap on the lane 0.90-0.97 s (the look finger 520 ms old)', evs: [{ t: 0.45, k: 'down', who: 'Q' }, { t: 0.9, k: 'down', who: 'R' }, { t: 0.97, k: 'up', who: 'R' }, { t: 2, k: 'up', who: 'Q' }] },
+  ] as Case[]),
+  // (the look finger given back at the other's tap, then lifted as a tap of its own: its press is put back, and its tap reads the latch as its landing ran it
+  // on, as alone. The first tap is taken without a breath before 0.95 s, as main.ts's onTap lets Holds.tap or the opening's skip take one: a breath empties
+  // the belly, and the second tap 70 ms on throws nothing whatever the latch)
+  { key: 'young/drum', aim: false, twin: 'Q', second: 'R', eatBefore: 0.95, want: 'twin', why: 'a finger still in the look zone from 0.60 s, the tap on the lane 0.86-0.91 s, the look finger lifted as a tap at 0.98 s', evs: [{ t: 0.6, k: 'down', who: 'Q' }, { t: 0.86, k: 'down', who: 'R' }, { t: 0.91, k: 'up', who: 'R' }, { t: 0.98, k: 'up', who: 'Q' }] },
   // (one thumb: the lift, the same thumb's tap at 0.5-0.6 s: the Lob)
   { key: 'keep/one', want: 'lob', why: 'the same thumb taps 0.5-0.6 s', evs: [{ t: 0.5, k: 'down', who: 'R' }, { t: 0.6, k: 'up', who: 'R' }] },
 ];
@@ -87,6 +101,7 @@ async function run(c: Case, fps: number) {
   const input = new Input(el as unknown as HTMLElement);
   input.setMode('touch');
   input.busZone = { x: 196, y: 511, r: inputTune.laneHalf * 393, open: inputTune.laneOpen * 852 };
+  if (c.aim !== undefined) input.aimOn = c.aim;
   const log: string[] = [];
   let L = -1;
   const rel = () => (L < 0 ? -1 : Math.round(clock.ms - L) / 1000);
@@ -101,9 +116,18 @@ async function run(c: Case, fps: number) {
     givenSinceFrame = true;
     g.aimer.unpress(n);
   };
+  input.onRepress = (n) => {
+    log.push(`repress ${n} at ${rel()}`);
+    g.aimer.repress(n);
+  };
   input.onTap = () => {
     // (what the screen showed: the last frame's plan, then main.ts's tapSplat)
     const ring = g.aimer.lobPlan !== null;
+    if (c.eatBefore !== undefined && rel() < c.eatBefore) {
+      taps.push({ at: rel(), lob: false, angle: 0, body: r1(f.pitch / DEG), ring, given: givenSinceFrame });
+      log.push(`tap at ${rel()} taken (no breath)`);
+      return;
+    }
     g.aimer.refresh(f);
     const r = g.tap();
     const lob = r.shot.comet?.kind === 'lob';
@@ -191,10 +215,17 @@ for (const c of CASES) {
     if (c.twin) {
       const w = await run({ ...c, evs: c.evs.filter((e) => e.who !== c.twin) }, fps);
       const tw = w.taps[0];
-      const ok = r.taps.length === 1 && w.taps.length === 1 && t.lob === tw.lob;
+      let ok = r.taps.length === (c.second ? 2 : 1) && w.taps.length === 1 && t.lob === tw.lob;
+      let more = '';
+      if (c.second) {
+        const w2 = await run({ ...c, evs: c.evs.filter((e) => e.who !== c.second) }, fps);
+        const t2 = r.taps[1], tw2 = w2.taps[0];
+        ok &&= w2.taps.length === 1 && !!t2 && t2.lob === tw2.lob;
+        more = ` second tap with ${c.second} ${say(t2)}, without ${say(tw2)};`;
+      }
       n++;
       if (!ok) bad++;
-      console.log(`${ok ? 'pass' : 'FAIL'}  ${`${c.key}@${fps}`.padEnd(26)} twin with the rest ${say(t).padEnd(9)} without ${say(tw).padEnd(9)} ${facts}, the twin's at ${tw ? tw.at.toFixed(3) : '-'} s`);
+      console.log(`${ok ? 'pass' : 'FAIL'}  ${`${c.key}@${fps}`.padEnd(26)} twin with the rest ${say(t).padEnd(9)} without ${say(tw).padEnd(9)}${more} ${facts}, the twin's at ${tw ? tw.at.toFixed(3) : '-'} s [${r.log.join('; ')}]`);
     }
   }
 }
