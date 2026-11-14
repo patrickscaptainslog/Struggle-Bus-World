@@ -90,6 +90,19 @@ export async function openPv(browser, view, url, entries = null) {
     r.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
       const info = r.info.render, c0 = info.calls;
       rbd.call(this, camera, scene, geometry, material, object, group);
+      // (while A.geo is set: a geometry drawn that no scene held when the watch began, and what draws it. Second review, R2-3)
+      if (A.geo) {
+        if (!A.geo.scenes.has(scene)) {
+          A.geo.scenes.add(scene);
+          scene.traverse((o) => o.geometry && A.geo.old.add(o.geometry));
+        }
+        if (!A.geo.old.has(geometry)) {
+          A.geo.old.add(geometry);
+          const path = [];
+          for (let o = object; o && path.length < 4; o = o.parent) path.push(o.name || o.type);
+          A.geo.made.push({ t: +g.clock().toFixed(2), path: path.join(' < '), material: material.name || material.type, verts: geometry.attributes.position?.count ?? 0, attrs: Object.keys(geometry.attributes).join(',') });
+        }
+      }
       if (!A.on || camera !== pl.snapCam) return;
       const k = A.cur;
       if (!k) return;

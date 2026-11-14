@@ -157,6 +157,7 @@ for (const [tag, tq] of tags) {
             let last = performance.now(), mem = A.memory(), rb = A.rebuilds;
             A.frames = [];
             A.on = true;
+            A.geo = { scenes: new WeakSet(), old: new WeakSet(), made: [] };
             g.forceReady();
             g.splatter.barf(aim.x, aim.z, { radius, width: B.width3, jump: B.jump3, hitStop: 0 });
             const qa = window.__qa;
@@ -172,7 +173,9 @@ for (const [tag, tq] of tags) {
               if (g.clock() - t0 >= 4) {
                 A.on = false;
                 g.controls.frozen = true;
-                res({ radius: Math.round(radius), rows });
+                const geoMade = A.geo.made;
+                A.geo = null;
+                res({ radius: Math.round(radius), rows, geoMade });
               } else requestAnimationFrame(tick);
             };
             requestAnimationFrame(tick);
@@ -182,9 +185,10 @@ for (const [tag, tq] of tags) {
       await settle();
       const b = await page.evaluate(() => window.__pv.readBack());
       const rows = frames.rows, worst = (k) => rows.reduce((a, r) => Math.max(a, r[k]), 0), total = (k) => rows.reduce((a, r) => a + r[k], 0);
-      row.blast = { aim, radius: frames.radius, frames: rows.length, worstCalls: worst('calls'), worstTris: worst('tris'), worstUploads: worst('uploads'), worstUploadBytes: worst('uploadBytes'), worstMs: worst('ms'), rebuilds: total('rebuilds'), texturesMade: total('textures'), geometriesNet: total('geometries'), programsMade: total('programs'), regionMasksMade: total('regionMasks'), ownCoarseWorst: worst('ownCoarse'), readBack: b, rows };
+      row.blast = { aim, radius: frames.radius, frames: rows.length, worstCalls: worst('calls'), worstTris: worst('tris'), worstUploads: worst('uploads'), worstUploadBytes: worst('uploadBytes'), worstMs: worst('ms'), rebuilds: total('rebuilds'), texturesMade: total('textures'), geometriesNet: total('geometries'), programsMade: total('programs'), regionMasksMade: total('regionMasks'), ownCoarseWorst: worst('ownCoarse'), geoMade: frames.geoMade, readBack: b, rows };
       const x = row.blast;
       console.log(`${tag} blast: Bomb III crater r ${x.radius} m on region ${aim.key} (${aim.d} m off, ${aim.painted} painted tiles), ${x.frames} frames | worst frame: ${x.worstCalls} draws ${(x.worstTris / 1e6).toFixed(3)} M, ${x.worstUploads} paint uploads ${(x.worstUploadBytes / 1024).toFixed(0)} KiB, ${x.worstMs} ms (laptop) | region grounds made again ${x.rebuilds}, textures made ${x.texturesMade}, geometries net ${x.geometriesNet}, programs made ${x.programsMade}, region masks made ${x.regionMasksMade} | read back after: ${b.regions} regions ${b.diff} bytes differ`);
+      for (const m of x.geoMade) console.log(`${tag} blast: a geometry first drawn in its frames, at ${m.t} s: ${m.path}, ${m.material}, ${m.verts} vertices (${m.attrs})`);
       if (b.diff) fail(`${tag} blast: a region mask differs from its tiles' arrays by ${b.diff} bytes`);
       if (x.programsMade) fail(`${tag} blast: ${x.programsMade} programs made`);
     }
