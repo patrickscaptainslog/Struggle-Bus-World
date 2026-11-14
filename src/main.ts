@@ -569,18 +569,19 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     tf.setPaint(i, g.hue, restoreLevel(t.x, t.z), RESTORED, g.faction);
   }
   /** A tile's buildings came in: a tree beside it restored before they were (its own tile's paint shown first) took its level without them.
-   *  Each restored tree on the loaded tiles around, within 25 m of one of this tile's painted buildings, takes the level it would have taken
-   *  with this tile in first (raised only: setPaint never lowers, and a tree painted in this visit keeps its blasts' level). */
+   *  Each restored tree on the loaded tiles around, within 25 m of one of this tile's buildings, takes the level the rule gives with this tile
+   *  in, up or down: by load order alone a farther house painted higher could have raised it past a nearer one painted lower. A tree painted
+   *  in this visit keeps its blasts' level. */
   function relevelTrees(tx: number, tz: number, refs: BuildingRef[]) {
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
-    for (const r of refs)
-      if (city.paint.level(r.index) >= 1.5) {
-        x0 = Math.min(x0, r.x0);
-        z0 = Math.min(z0, r.z0);
-        x1 = Math.max(x1, r.x1);
-        z1 = Math.max(z1, r.z1);
-      }
-    // (only a house at level 2 or more raises a tree: every restored tree is at 1 at least)
+    let high = false;
+    for (const r of refs) {
+      x0 = Math.min(x0, r.x0);
+      z0 = Math.min(z0, r.z0);
+      x1 = Math.max(x1, r.x1);
+      z1 = Math.max(z1, r.z1);
+      if (city.paint.level(r.index) >= 1.5) high = true;
+    }
     if (x0 === Infinity) return;
     x0 -= 25;
     z0 -= 25;
@@ -596,11 +597,15 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           const t = list[i];
           if (t.x < x0 || t.x > x1 || t.z < z0 || t.z > z1) continue;
           const lv = tf.paintLevel(i);
-          if (lv === 0 || lv === 3 || tf.paintStart(i) !== RESTORED) continue;
-          const up = restoreLevel(t.x, t.z);
-          if (up <= lv) continue;
+          // (a tree at 1 goes no lower, and only a house at level 2 or more raises one)
+          if (lv === 0 || (lv === 1 && !high) || tf.paintStart(i) !== RESTORED) continue;
+          const want = restoreLevel(t.x, t.z);
+          if (want === lv) continue;
           const g = city.ground.sample(t.x, t.z);
-          if (g && g.cov >= 0.5 && !lift?.refuses(t.x, t.z, g.faction)) tf.setPaint(i, g.hue, up, RESTORED, g.faction);
+          // (?lift: a tree on a seeded square takes no paint but its owner's, down as well as up, B4.3)
+          if (g && lift?.refuses(t.x, t.z, g.faction)) continue;
+          if (want < lv) tf.setLevel(i, want);
+          else if (g && g.cov >= 0.5) tf.setPaint(i, g.hue, want, RESTORED, g.faction);
         }
       }
   }
