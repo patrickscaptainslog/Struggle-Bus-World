@@ -8,7 +8,7 @@
 //   one name a page started 25 km off, ?moon&lat=&lon=, and ?moonland: the same store, and on the first the paint where the bus reaches it
 // The first account's review, 2026-11-04: kept by tile of a map that slides, the paint came back 131 km off, could overwrite older paint, and a new map wiped it. The third, 2026-11-05: the
 // store was named by the page's start place, and the new-map row failed once in four. --runs=N runs it all N times in one browser, a new context each, and counts the runs each row passed.
-// --short runs only what leads up to the new map. BASE is the page (http://localhost:4179/). A row passes or fails on the numbers printed with it; exit 1 if any fails.
+// --short runs only what leads up to the new map. --lose drops the journal before the heavy row's page again (a check of that row: it must fail). BASE is the page (http://localhost:4179/). A row passes or fails on the numbers printed with it; exit 1 if any fails.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -29,7 +29,7 @@ const row = (name, ok, got) => {
   tally.set(name, [t[0] + (ok ? 1 : 0), t[1] + 1]);
   console.log(`${ok ? 'pass' : 'FAIL'}  ${name.padEnd(76)} ${JSON.stringify(got)}`);
 };
-const RUNS = Math.max(1, Number(opt.runs ?? 1)), SHORT = !!opt.short;
+const RUNS = Math.max(1, Number(opt.runs ?? 1)), SHORT = !!opt.short, LOSE = !!opt.lose;
 for (let run = 0; run < RUNS; run++) {
   if (RUNS > 1) console.log(`---- run ${run + 1} of ${RUNS}`);
   const errors = [];
@@ -37,6 +37,12 @@ for (let run = 0; run < RUNS; run++) {
   try {
     ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 1 });
     await ctx.addInitScript(() => (window.__qa = { holdFrames: 4, held: false }));
+    if (LOSE)
+      await ctx.addInitScript(() => {
+        if (sessionStorage.getItem('qa.keep.lose') !== '1') return;
+        sessionStorage.removeItem('qa.keep.lose');
+        localStorage.removeItem('strugglebus.moonpaint.journal.v1');
+      });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && errors.push(m.text().slice(0, 200)));
@@ -141,24 +147,30 @@ for (let run = 0; run < RUNS; run++) {
         return out;
       }, patch);
       const center = await page.evaluate((P) => { const o = [0, 0]; window.__game.city.ground.geo.toLatLon(P.cx, P.cz, o); return o; }, patch);
+      // (--lose, the row's own proof: the journal the page leaves as it goes, the blasts and pictures not yet in the store, is dropped before the next page reads it: paint
+      // really lost, and the row must fail)
+      if (LOSE) await page.evaluate(() => sessionStorage.setItem('qa.keep.lose', '1'));
       await page.reload({ waitUntil: 'load', timeout: 180000 });
       await page.waitForFunction(() => !!window.__game?.city && window.__qa?.held === true, null, { timeout: 600000, polling: 500 });
-      // (frames until every tile of the patch has come in with its paint, each when its paint's copied out of the pictures, then two more)
+      // (frames until every tile of the patch has come in with its paint, then two more. A tile is in with its paint when it has a mask, its copy out of the pictures has
+      // landed on it, and the blasts the pictures didn't hold yet (the journal's, 300 and more replays after this row's 200 breaths) are drawn: no job queued. A mask alone
+      // is there from the first frame, empty, its copy on its way, and the row read that as in: "back 0" on the base as on this branch (sb-checks/world/above/a/NOTE-moon.md
+      // on the laptop). On the base it's all drawn about 780 frames on, so the wait goes to 1,500)
       let inAt = -1, firstAt = -1;
-      for (let i = 0; i < 400 && inAt < 0; i++) {
+      for (let i = 0; i < 1500 && inAt < 0; i++) {
         await frames(1);
         const tin = await page.evaluate((G) => {
-          const g = window.__game.city.ground, o = [0, 0], ts = window.__game.city.manifest.tileSize, keys = new Set();
+          const g = window.__game.city.ground, pics = g.geoPaint, o = [0, 0], ts = window.__game.city.manifest.tileSize, keys = new Set();
           for (const [la, lo] of G) {
             g.geo.toXZ(la, lo, o);
             keys.add(`${Math.floor(o[0] / ts)},${Math.floor(o[1] / ts)}`);
           }
           let n = 0;
-          for (const k of keys) if (g.has(...k.split(',').map(Number))) n++;
-          return [n, keys.size];
+          for (const k of keys) if (g.has(...k.split(',').map(Number)) && !pics?.copyingTile(k)) n++;
+          return [n, keys.size, g.queued];
         }, grid);
         if (tin[0] > 0 && firstAt < 0) firstAt = i;
-        if (tin[0] === tin[1]) inAt = i;
+        if (tin[0] === tin[1] && tin[2] === 0) inAt = i;
       }
       await frames(2);
       const back = await page.evaluate((G) => {
