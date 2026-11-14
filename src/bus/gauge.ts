@@ -9,14 +9,14 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 // Under a super's charge each stop races a step over its lit one, to step 6 at most (`top`), so the race keeps the crew's colours and the white-hot (step 7
 // of GLOW_WHITE) is still a change. Rainbow's run is the six hues with no lift, no empty row and a top of 1: the band it always had.
 //
-// Each run is the crew's paint (render/factionLook.ts: the rows its shots and gardens use), dark to bright, and it never starts on its body's row (FACTIONS'
-// `bus`), so the band stands off the body from the first slice: a crimson band on a crimson body says nothing. Where a body's row comes back further up a
-// run, it's at a glint step the body never shows.
-//   Atlantis (body TEAL): the marble's lilac shadow up to pearl white, then the sea's foam and white foam (never WHITE: lit, it is the white-hot of a
-//   super's charge). Its deep sea is TEAL's own dark steps, the body's row.
-//   The Elderwood (body MOSS): violet caps at dusk, then firefly lime and lantern gold. Its deep moss is the body's own row.
-//   Hyperglow (body MAGENTA): cyan neon, lavender chrome, then silver: away from the magenta.
-//   Inferno (body CRIMSON): the black glass's violet sheen, red-hot, flame orange, then gold. Its crimson is the body's own row.
+// Each run is the crew's paint (render/factionLook.ts: the rows its shots and gardens use), dark to bright, and it stands off its body (FACTIONS' `bus`):
+// a crimson band on a crimson body says nothing. Where a crew's only paint for the run's start is its body's row (the sea and the forest are TEAL's and
+// MOSS's dark steps), the gauge takes that row only at steps the body's sunlit faces never show (4 and 5): below them lit, and above them, a glint. (A
+// side in deep shade is its row's step 2: there the black rub rail is what parts the band from the body.)
+//   Atlantis (body TEAL): the deep sea (TEAL 2), azure (TEAL 3), then foam (TEAL 6, never white: white is the charge's white-hot).
+//   The Elderwood (body MOSS): deep moss (MOSS 3), leaf (MOSS 6), then lantern gold (YELLOW 5, 6), whose empty is the moss's dark, not YELLOW's wine.
+//   Hyperglow (body MAGENTA): lavender chrome and cyan neon in turn, each a step brighter, to electric cyan: away from the magenta.
+//   Inferno (body CRIMSON): the black glass's violet (OBSIDIAN 5), orange-red, flame orange, then gold. Its crimson is the body's own row.
 
 export interface GaugeStop {
   readonly ramp: number;
@@ -34,7 +34,7 @@ const STEP = 1 / 7;
 const topOf = (steps: number) => (Math.min(6, 4 + steps + 1) + 0.2) / 7;
 const run = (...s: [number, number, number?][]): GaugeRun => s.map(([ramp, steps, dark = 0]) => ({ ramp, lift: steps * STEP, dark, top: topOf(steps) }));
 
-const { PEARL, TEAL, VIOLET, MOSS, YELLOW, CYAN, CHROME, OBSIDIAN, RED, ORANGE } = Ramp;
+const { TEAL, MOSS, YELLOW, CYAN, CHROME, OBSIDIAN, ORANGE } = Ramp;
 
 /** Rainbow's: the six hues, no lift (the band as it always was). */
 export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0, dark: 0, top: 1 }));
@@ -42,10 +42,10 @@ export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0,
 /** By faction number (none, or a later build's, is Rainbow's). */
 const GAUGES: Record<number, GaugeRun> = {
   [FACTION_RAINBOW]: RAINBOW_GAUGE,
-  [FACTION_ATLANTIS]: run([PEARL, -1], [PEARL, 0], [PEARL, 1], [PEARL, 2], [TEAL, 2], [TEAL, 3]),
-  [FACTION_ELDERWOOD]: run([VIOLET, -1], [VIOLET, 0], [MOSS, 2], [MOSS, 3], [YELLOW, 1], [YELLOW, 2]),
-  [FACTION_HYPERGLOW]: run([CYAN, -1], [CYAN, 0], [CYAN, 1], [CHROME, 0], [CHROME, 1], [CHROME, 2]),
-  [FACTION_INFERNO]: run([OBSIDIAN, 2], [RED, 0], [ORANGE, -1], [ORANGE, 0], [YELLOW, 0], [YELLOW, 2]),
+  [FACTION_ATLANTIS]: run([TEAL, -2], [TEAL, -2], [TEAL, -1], [TEAL, -1], [TEAL, 2], [TEAL, 2]),
+  [FACTION_ELDERWOOD]: run([MOSS, -1], [MOSS, -1], [MOSS, 2], [MOSS, 2], [YELLOW, 1, MOSS], [YELLOW, 2, MOSS]),
+  [FACTION_HYPERGLOW]: run([CHROME, -2], [CYAN, 0], [CHROME, -1], [CYAN, 1], [CHROME, 0], [CYAN, 2]),
+  [FACTION_INFERNO]: run([OBSIDIAN, 1], [ORANGE, -1], [ORANGE, 0], [ORANGE, 1], [YELLOW, 1], [YELLOW, 2]),
 };
 
 /** A crew's run: Rainbow's for none or a later build's. */
