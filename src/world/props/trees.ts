@@ -759,6 +759,18 @@ export class TreeField {
     this.color.needsUpdate = true;
   }
 
+  /** A painted tree's level set to 1..3, lower as well as higher, with no pop: its hue, faction and paint start kept (setPaint never lowers).
+   *  For a restored tree whose nearest painted house came in after it (main.ts relevelTrees). Grey stays grey. */
+  setLevel(index: number, level: number): void {
+    if (this.paintLevel(index) === 0) return;
+    const d = this.data;
+    const o = index * 3;
+    const lv = Math.max(1, Math.min(3, Math.round(level)));
+    if (d[o + 1] % 4 === lv) return;
+    d[o + 1] = d[o + 1] - (d[o + 1] % 4) + lv;
+    this.color.needsUpdate = true;
+  }
+
   /** Paint level of a tree (0 = grey, 1..3). */
   paintLevel(index: number): number {
     if (this.disposed || index < 0 || index >= this.mesh.count) return 0;
