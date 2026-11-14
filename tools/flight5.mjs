@@ -180,7 +180,8 @@ async function m90Case(where) {
       const inp = window.__game.input;
       return inp.inLookZone(x - inp.rectL, y - inp.rectT);
     }, pt);
-    await flick(cdp, 1, { x: pt[0], y: pt[1] });
+    // (the look zone's stamped as it happens: 2 s back, a page with hold to aim on took it for a hold, and poured: tools/flick.mjs)
+    await flick(cdp, 1, { x: pt[0], y: pt[1], back: where === 'look' ? 0 : 2 });
     c.flickAt = pt;
     await wait(Math.max(0, 1200 - (Date.now() - at)));
     c.gear = (await page.evaluate(() => window.__game.controls.turbo.gear)) - gear;
