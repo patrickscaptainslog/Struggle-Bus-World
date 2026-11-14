@@ -16,6 +16,7 @@
 // and each flick is checked to be a gear (turbo.gear one up), or the case isn't the case.
 //   SB_F5=m90 [SB_F5_REPS=3]   past the gate, only M90's two cases, each SB_F5_REPS times: exit 1 if any isn't a gear and a plain splat (fa91865's build:
 //                               the lane's case Lobs; c2a00c4's: the look zone's)
+//   SB_Q=&swerve                appends to the page's query: the same flight under a flag (the one link's ?swerve, ?show)
 import { chromium } from 'playwright-core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { browserOptions } from './browser.mjs';
@@ -77,7 +78,7 @@ const steer = async (ms) => {
   await lift(1);
 };
 
-await page.goto(`${url}?t=2026-11-07T00:22:00Z&rate=0`, { waitUntil: 'domcontentloaded', timeout: 400000 });
+await page.goto(`${url}?t=2026-11-07T00:22:00Z&rate=0${process.env.SB_Q ?? ''}`, { waitUntil: 'domcontentloaded', timeout: 400000 });
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 400000, polling: 100 });
 const hasLog = await page.evaluate(() => typeof window.__game.shots === 'function');
 await page.waitForFunction(() => !window.__game.controls.gearsLocked && !window.__game.controls.opening, null, { timeout: 120000, polling: 50 });
