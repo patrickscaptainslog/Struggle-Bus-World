@@ -19,6 +19,7 @@
 //   (the first) and one with the lighter (the next), its pillar flown through; with --crew in each of the five factions, switched on the crest.
 // --hose: after the blasts, the shots' step 2 by real touches (CDP) over the Western Addition: a tap off the lane, a hold to aim that pours the Hose,
 //   a sweep, the tank run dry, its refill, a second hold taken through the hook (window.__game.holds.add) that fires a homing shot at a point ahead.
+//   The Hose waits for ?hose on the link (src/game/Hose.ts, hoseOn): --hose adds it when the url hasn't it.
 // --bomb: the url has &bomb: after the blasts (and --crew's factions, --comet's Comets), the Bomb (src/game/Bomb.ts) by real touches (CDP) held still on the
 //   bus itself (Input.busBox): at Cruise over the Western Addition a Bomb II and a Bomb III, at Jet a Bomb III where the Comet lands (its full show), and a
 //   gift (holds.bomb.gift(3)) let go at III; with --crew in each of the five factions, switched on the crest.
@@ -38,7 +39,8 @@ import { flick, flickTo } from './flick.mjs';
 const args = process.argv.slice(2);
 const pos = args.filter((a) => !a.startsWith('--'));
 const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) => [a.slice(2).split('=')[0], a.split('=').slice(1).join('=') || '1']));
-const [url = 'http://127.0.0.1:4173/', out = 'warmcheck.json'] = pos;
+const [url0 = 'http://127.0.0.1:4173/', out = 'warmcheck.json'] = pos;
+const url = opt.hose && !new URL(url0).searchParams.has('hose') ? url0 + (url0.includes('?') ? '&' : '?') + 'hose' : url0;
 
 const browser = await chromium.launch(browserOptions([]));
 const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
@@ -109,8 +111,42 @@ await page.addInitScript(() => {
   raf(tick);
 });
 
+if (opt.return) {
+  // a visit that paints (Alamo Square by ?lat, its opening marked seen), a real tap on a building, the paint saved and the record with it; then the url
+  // below loads into the return start (it must: exit 1 if not), and the phases run from there
+  const u = new URL(url);
+  for (const [k, v] of [['lat', '37.77628'], ['lon', '-122.4352'], ['heading', '88'], ['skipintro', '']]) u.searchParams.set(k, v);
+  await page.goto(u.href.replace('skipintro=', 'skipintro'), { waitUntil: 'domcontentloaded', timeout: 300000 });
+  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000, polling: 100 });
+  const rec = await page.evaluate(async () => {
+    const g = window.__game;
+    localStorage.setItem('strugglebus.opening.v1', '1');
+    for (let i = 0; i < 40 && !g.glintNow(); i++) await new Promise((r) => requestAnimationFrame(r));
+    g.forceReady();
+    g.tapSplat();
+    const s = g.lastShot();
+    const until = (s?.t ?? 0) + (s?.travel ?? 0) + 0.5;
+    while (g.clock() < until) await new Promise((r) => requestAnimationFrame(r));
+    g.city.paint.persist();
+    return localStorage.getItem(`strugglebus.last.v1:${g.city.manifest.slug}`);
+  });
+  console.log('return: the record after a tap at Alamo Square:', rec);
+  if (!rec) {
+    console.log('FAIL: no return record was stored');
+    process.exit(1);
+  }
+}
 const t0 = Date.now();
 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 300000 });
+if (opt.return) {
+  await page.waitForFunction(() => !!window.__game?.returnStart, null, { timeout: 300000, polling: 100 });
+  const rs = await page.evaluate(() => window.__game.returnStart());
+  console.log('return: the start', JSON.stringify(rs));
+  if (!rs.pose) {
+    console.log('FAIL: the reload did not start over the paint');
+    process.exit(1);
+  }
+}
 await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000, polling: 100 });
 const readyMs = Date.now() - t0;
 const readyAt = await page.evaluate(() => performance.now());

@@ -49,6 +49,16 @@ import { registerTunables } from '../ui/tunables';
 // Frame order (main.ts): update() after SuperSplat.update (it writes Flight.speedScale too)
 // and before Splatter.update; impact() from the Splatter's impact callback for its blasts.
 
+const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
+/**
+ * ?hose on the link wakes the Hose (docs/specs/core/CORE.md, call 4). Without it the plain link has no pour: a resting thumb poured it there,
+ * and a tap mid-pour splatted nothing. The studio's pick, the producer's call. It turns hold to aim off with it (main.ts: input.aimOn): the Hose
+ * is the only thing on the plain link that takes a hold, so an aim there did nothing else. With ?hose it is BASE's build to the byte: the Hose
+ * is made and added either way. The other design (the Hose on, and a resting thumb pouring nothing) waits on the same call; undo this one by
+ * making hoseOn true.
+ */
+export const hoseOn = !!q && q.has('hose');
+
 export const hoseTune = {
   /** blast radius at roof height (m; more from up high, as every blast) */
   radius: 40,

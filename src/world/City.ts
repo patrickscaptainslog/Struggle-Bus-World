@@ -417,6 +417,9 @@ const FAR_CHUNK_TILES = 4;
 /** A far box's roof in steps of this (m): equal tops merge. */
 const FAR_TOP_STEP = 4;
 const FAR_CHUNKS_A_FRAME = 8;
+/** First draws a frame (firstDraw: culling off, both passes): the rest wait their turn, culled as any mesh is, so one in view still draws, and uploads,
+ *  that frame. A return start's ring landed at once under the fog, and its first frames drew 250-390 times, 69-75 % of the first draws out of view (r3) */
+const FIRSTS_A_FRAME = 10;
 // (while the opening's fog is up everything lands at once, up to this much per frame: a deep link into
 // downtown is ~100 MB of first uploads)
 const ADOPT_BYTES_EAGER = 16 << 20;
@@ -527,6 +530,9 @@ export class City {
   private adopt: Adopt[] = [];
   /** meshes on their first draw (see firstDraw), and frames run (the first one's meshes are drawn by that frame) */
   private firsts: THREE.Mesh[] = [];
+  /** ...and those waiting their turn (FIRSTS_A_FRAME), oldest from waitFrom */
+  private waiting: THREE.Mesh[] = [];
+  private waitFrom = 0;
   private framesRun = 0;
   /** coarse (LOD 1) regions: all their buildings / all their ground as one mesh each */
   private regionMeshes = new Map<string, RegionMesh>();
@@ -1071,7 +1077,7 @@ export class City {
    */
   update(focus: THREE.Vector3, renderer: THREE.WebGLRenderer, dt: number, adoptMs?: number) {
     // (a frame's update: the frame before it drew what was fresh then)
-    if (adoptMs === undefined && this.framesRun++ > 0 && this.firsts.length) this.firstsDone();
+    if (adoptMs === undefined && this.framesRun++ > 0 && (this.firsts.length || this.waiting.length)) this.firstsDone();
     // (a few tiles split out of the merged ground a frame, SPLITS of them: a MEGA's let-go made its 43-49 tiles' ground in one frame, 17-25 ms. The rest stay merged, their
     // regions made again on the frames after, all of it inside the breath's flight, and their masks are drawn into either way. Review four, 4)
     this.splitsLeft = SPLITS;
@@ -1238,9 +1244,21 @@ export class City {
   /**
    * A mesh's first draw happens the next frame, in view or not: three uploads a mesh the first time it is
    * drawn, so without this everything streamed in beside or behind the bus uploads the moment the view turns
-   * to it, all at once. This way each upload lands with its adoption, on the adoption's byte budget.
+   * to it, all at once. This way each upload lands with its adoption, on the adoption's byte budget: FIRSTS_A_FRAME of
+   * them a frame, and the rest on the frames after, oldest first (a ghost never waits).
    */
   firstDraw(m: THREE.Mesh) {
+    // (a ghost goes first: it is one mesh drawn unseen so its swap's commit uploads nothing in view, and waiting it could be committed first, r3's review)
+    if (m.userData.ghost || this.firsts.length < FIRSTS_A_FRAME) this.forceDraw(m);
+    else this.waiting.push(m);
+  }
+
+  /** Meshes waiting their first draw's turn (FIRSTS_A_FRAME): the checks read it each frame. */
+  get firstsWaiting(): number {
+    return this.waiting.length - this.waitFrom;
+  }
+
+  private forceDraw(m: THREE.Mesh) {
     m.frustumCulled = false;
     m.userData.sunCullAfter = m.userData.sunCull;
     m.userData.sunCull = false;
@@ -1249,10 +1267,10 @@ export class City {
 
   /** A first draw nobody sees, for a mesh that shows later, at its swap's commit. */
   private ghost(m: THREE.Mesh) {
-    this.firstDraw(m);
     m.userData.ghost = true;
     m.onBeforeRender = GHOST_ON;
     m.onAfterRender = GHOST_OFF;
+    this.firstDraw(m);
   }
 
   private unghost(m: THREE.Mesh | null) {
@@ -1272,6 +1290,9 @@ export class City {
       }
     }
     this.firsts.length = 0;
+    // (the next waiting their turn)
+    while (this.firsts.length < FIRSTS_A_FRAME && this.waitFrom < this.waiting.length) this.forceDraw(this.waiting[this.waitFrom++]);
+    if (this.waitFrom >= this.waiting.length) this.waiting.length = this.waitFrom = 0;
   }
 
   /** Distance `d` from the focus as the detail radii judge it: from the lens up high, and its fov. */

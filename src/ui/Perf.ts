@@ -5,9 +5,11 @@ import { config } from '../config';
 //
 //   fps (1 s average) · 1% low (from the 99th-percentile frame time, ~5 s window)
 //   worst: the longest frame of those same ~5 s (ms)
+//   hit: the longest frame in the 600 ms after the last shot's impact (any shot's, a Comet's too: not the Hose's), held until the next (perf.hit())
 //   resolve: its link + its first draw (ms), as the warm-up timed them (WarmReport.resolveLinkMs: the one program that grows most with the sky)
 //   frame ms · CPU work ms (the GPU side is unknowable on WebGL/iOS)
-//   draw calls · triangles for the WHOLE frame · low-res framebuffer size
+//   draw calls · triangles for the WHOLE frame (max: the most in one frame over the last five 1-s windows) · low-res framebuffer size
+//   first: the tap on the link to the page's first frame (s) · load: this tab's loads (sessionStorage, once a page): over 1, it was reloaded, by hand or by iOS
 //   "30 Hz cap? (Low Power Mode)" when frames lock to ~33 ms while work is light.
 //
 // Draw-call counting: the pixel pipeline renders several passes per frame
@@ -50,9 +52,24 @@ export interface PerfSnapshot {
   canvas: string;
   cap30: boolean;
   frames: number;
+  /** the longest frame in the 600 ms after the last shot's impact (not the Hose's light ones), held until the next (0: none yet) */
+  hitMs: number;
+  /** the most draws and triangles in any one frame over the last five 1-s windows since the first ready frame (past the fog) */
+  callsMax: number;
+  trisMax: number;
+  /** performance.now() at the page's first frame: the tap on the link to the first frame (ms) */
+  firstMs: number;
+  /** loads of this tab (sessionStorage, counted once a page): over 1, it was reloaded, by hand or by iOS */
+  loads: number;
 }
 
 const RING = 300; // ~5 s at 60 fps for the 1% low
+const PEAKS = 5; // 1-s windows the draws' and triangles' peaks are kept over
+const HIT_MS = 600; // the impact's frames: those that end this long after it
+const LOADS_KEY = 'strugglebus.loads.v1';
+// (once a page: ?moonland, ?earth and ?earth&resume make two meters, the flight's and the street's, and the second's frames start minutes in)
+let pageLoads = 0;
+let pageFirstMs = 0;
 const GRAPH = 90; // bars in the sparkline
 
 const TIER = ['#7ad65a', '#ffd23e', '#ffa94a', '#f6707a'] as const; // palette: green, yellow, orange, red
@@ -69,6 +86,8 @@ export class Perf {
   private readonly elFps: HTMLElement;
   private readonly elLow: HTMLElement;
   private readonly elWorst: HTMLElement;
+  private readonly elHit: HTMLElement;
+  private readonly elFirst: HTMLElement;
   private readonly elResolve: HTMLElement;
   private readonly elHour: HTMLElement;
   private readonly elFrame: HTMLElement;
@@ -99,6 +118,12 @@ export class Perf {
   private uiAt = 0;
   private capStreak = 0;
   private totalFrames = 0;
+  private winCalls = 0;
+  private winTris = 0;
+  private readonly peakCalls = new Float64Array(PEAKS);
+  private readonly peakTris = new Float64Array(PEAKS);
+  private peakI = 0;
+  private hitAt = -1;
 
   // published
   private fpsV = 0;
@@ -115,6 +140,11 @@ export class Perf {
   private points = 0;
   private lines = 0;
   private cap30 = false;
+  private hitMs = 0;
+  private callsMax = 0;
+  private trisMax = 0;
+  private firstMs = 0;
+  private loads = 0;
   private resW = 0;
   private resH = 0;
   private resScale = 1;
@@ -124,6 +154,16 @@ export class Perf {
     // Totals across every pass of a frame; reset by frame() itself.
     renderer.info.autoReset = false;
     installStyle();
+    if (pageLoads === 0) {
+      try {
+        pageLoads = Number(sessionStorage.getItem(LOADS_KEY) ?? 0) + 1;
+        sessionStorage.setItem(LOADS_KEY, String(pageLoads));
+      } catch {
+        // (storage blocked: the count stays 0, unknown)
+        pageLoads = -1;
+      }
+    }
+    this.loads = Math.max(0, pageLoads);
 
     const root = document.createElement('div');
     root.className = 'sbp';
@@ -132,16 +172,20 @@ export class Perf {
     root.innerHTML =
       '<div class="sbp-l"><b class="sbp-fps">--</b><span class="sbp-u">fps</span><span class="sbp-dim">1% </span><b class="sbp-low">--</b></div>' +
       '<div class="sbp-l sbp-big"><span class="sbp-dim">worst </span><b class="sbp-worst">--</b><span class="sbp-u">ms</span></div>' +
+      '<div class="sbp-l sbp-big"><span class="sbp-dim">hit </span><b class="sbp-hit">--</b><span class="sbp-u">ms</span></div>' +
       '<div class="sbp-l sbp-big"><span class="sbp-dim">resolve </span><b class="sbp-resolve">--</b><span class="sbp-u">ms</span></div>' +
       '<div class="sbp-l"><b class="sbp-frame">--</b><span class="sbp-u">ms</span><span class="sbp-dim">cpu </span><b class="sbp-work">--</b></div>' +
       '<div class="sbp-l sbp-small"><span class="sbp-draw">--</span></div>' +
       '<div class="sbp-l sbp-small"><span class="sbp-res">--</span> <span class="sbp-hour"></span></div>' +
+      '<div class="sbp-l sbp-small"><span class="sbp-first">--</span></div>' +
       '<canvas class="sbp-graph"></canvas>' +
       '<div class="sbp-warn">30 Hz cap? (Low Power Mode)</div>';
     const q = (c: string) => root.querySelector(c) as HTMLElement;
     this.elFps = q('.sbp-fps');
     this.elLow = q('.sbp-low');
     this.elWorst = q('.sbp-worst');
+    this.elHit = q('.sbp-hit');
+    this.elFirst = q('.sbp-first');
     this.elResolve = q('.sbp-resolve');
     this.elHour = q('.sbp-hour');
     this.elFrame = q('.sbp-frame');
@@ -162,6 +206,22 @@ export class Perf {
 
   get visible(): boolean {
     return this.shown;
+  }
+
+  /** A shot's impact, now (main.ts, the Splatter's impact hook): the longest frame of the next HIT_MS is its `hit`, held until the next. */
+  hit(): void {
+    this.hitAt = performance.now();
+    this.hitMs = 0;
+  }
+
+  /** The draws' and triangles' peaks from now (main.ts: the first ready frame, past the fog), so `max` holds none of the fog's frames. The city
+   *  still streams for a few seconds after it, and those frames count: they are flight. */
+  peaksFrom(): void {
+    this.peakCalls.fill(0);
+    this.peakTris.fill(0);
+    this.winCalls = this.winTris = this.callsMax = this.trisMax = 0;
+    // (and __stats with them: it is written as each 1 s window closes, so for up to a second after the fog it held the fog's peak, 229-328 draws, r3)
+    (window as unknown as { __stats?: PerfSnapshot }).__stats = this.snapshot();
   }
 
   /** The resolve's link and first draw (ms) as the warm-up timed them, and the hour the frame is under. */
@@ -195,6 +255,9 @@ export class Perf {
     info.reset();
 
     const now = performance.now();
+    if (this.firstMs === 0) this.firstMs = pageFirstMs || (pageFirstMs = now);
+    if (this.calls > this.winCalls) this.winCalls = this.calls;
+    if (this.tris > this.winTris) this.winTris = this.tris;
     this.lastDt = dtMs;
     const interval = this.lastCall > 0 ? now - this.lastCall : 0;
     this.lastCall = now;
@@ -211,6 +274,7 @@ export class Perf {
       if (interval > this.winFrameMax) this.winFrameMax = interval;
       this.winWorkSum += workMs;
       if (workMs > this.winWorkMax) this.winWorkMax = workMs;
+      if (this.hitAt >= 0 && now - this.hitAt <= HIT_MS && interval > this.hitMs) this.hitMs = interval;
     } else if (interval >= 1000) {
       this.winStart = now; // restart the window after a stall
       this.winFrames = this.winFrameSum = this.winFrameMax = this.winWorkSum = this.winWorkMax = 0;
@@ -250,6 +314,11 @@ export class Perf {
       canvas: `${c.width}x${c.height}`,
       cap30: this.cap30,
       frames: this.totalFrames,
+      hitMs: round(this.hitMs, 1),
+      callsMax: this.callsMax,
+      trisMax: this.trisMax,
+      firstMs: Math.round(this.firstMs),
+      loads: this.loads,
     };
   }
 
@@ -270,6 +339,18 @@ export class Perf {
     this.workMax = this.winWorkMax;
     this.winStart = now;
     this.winFrames = this.winFrameSum = this.winFrameMax = this.winWorkSum = this.winWorkMax = 0;
+    // (the draws' and triangles' peaks: this window's into the ring of the last PEAKS)
+    this.peakCalls[this.peakI] = this.winCalls;
+    this.peakTris[this.peakI] = this.winTris;
+    this.peakI = (this.peakI + 1) % PEAKS;
+    this.winCalls = this.winTris = 0;
+    let pc = 0, pt = 0;
+    for (let i = 0; i < PEAKS; i++) {
+      if (this.peakCalls[i] > pc) pc = this.peakCalls[i];
+      if (this.peakTris[i] > pt) pt = this.peakTris[i];
+    }
+    this.callsMax = pc;
+    this.trisMax = pt;
 
     // 1% low = fps at the 99th-percentile frame time over the ring
     const m = this.ringN;
@@ -331,10 +412,13 @@ export class Perf {
     this.elLow.style.color = TIER[tierOf(this.low1)];
     this.elWorst.textContent = this.worstMs ? this.worstMs.toFixed(0) : '--';
     this.elWorst.style.color = TIER[tierOf(1000 / Math.max(1, this.worstMs))];
+    this.elHit.textContent = this.hitMs ? this.hitMs.toFixed(0) : '--';
+    this.elHit.style.color = TIER[tierOf(1000 / Math.max(1, this.hitMs))];
+    this.elFirst.textContent = `first ${this.firstMs ? (this.firstMs / 1000).toFixed(1) : '--'} s · load ${this.loads || '--'}`;
     this.elResolve.textContent = this.resolveLink ? `${this.resolveLink}+${this.resolveDraw}` : '--';
     this.elFrame.textContent = this.frameMs ? this.frameMs.toFixed(1) : '--';
     this.elWork.textContent = this.workMs ? `${this.workMs.toFixed(1)}` : '--';
-    this.elDraw.textContent = `${this.calls} draws · ${fmtK(this.tris)} tris`;
+    this.elDraw.textContent = `${this.calls} draws · ${fmtK(this.tris)} tris (max ${this.callsMax} · ${fmtK(this.trisMax)})`;
     this.elRes.textContent = `${this.resW}×${this.resH} ·${this.resScale}x`;
     this.elWarn.style.display = this.cap30 ? 'block' : 'none';
     this.paintGraph();

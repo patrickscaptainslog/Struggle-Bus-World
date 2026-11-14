@@ -77,7 +77,10 @@
 //   perf=<otherBaseUrl>  CPU work ms, draw calls, triangles at the same Alamo Square view (cruising at the
 //            floor, the fps meter's per-frame counters) for <otherBaseUrl> (e.g. the build before) and
 //            <baseUrl>, in one browser session                                              -> perf in controls.json
-// SB_Q=&hour=blue appends to the street page's query (thumbs, states, keyboard, audio): the same rows under a flag.
+// SB_Q=&hour=blue appends to the street page's query (thumbs, states, keyboard, audio, firstrun): the same rows under a flag.
+// The draws a frame makes follow the sun on the real clock (the sun pass keeps every caster in its window with the sun a few degrees up: at one pose 119 at
+// night, 135 at noon, 188-205 at 07:15), so a row judging them pins it: SB_Q='&t=2026-11-13T15:15:00Z&rate=0', the worst minute measured (r3). SB_REPS=3
+// (boom, falls) flies each page that many times and judges every run.
 // Launches through tools/browser.mjs (the GPU here, SwiftShader in the cloud): everything waits on the game
 // clock (fixed 1/20 s steps), never wall time.
 import { chromium } from 'playwright-core';
@@ -2315,22 +2318,38 @@ if (modes.has('boom') || modes.has('falls')) {
   };
   // (every frame's draws, triangles and live particles, the fps meter's counters, from when __xTrace is set; and the bus's least distance to __xAt)
   const traceInit = () => {
-    const g = window.__game, p = g.perf, orig = p.frame.bind(p);
+    const g = window.__game, p = g.perf, orig = p.frame.bind(p), R = g.pipeline.renderer, c = g.city;
     g.audio.unlock();
+    // (each frame's draws split three ways: the sun pass's, first draws (City.firstDraw's meshes, culling off) and the rest, so a pass near the bound
+    // shows which moved it, r3's review)
+    let sun = 0, first = 0, firsts = new Set(), firstsOf = null;
+    const rbd = R.renderBufferDirect.bind(R);
+    R.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
+      if (window.__xTrace) {
+        if (firstsOf !== c.firsts) (firstsOf = c.firsts), (firsts = new Set(c.firsts));
+        if (R.getRenderTarget() === g.pipeline.shadowRT) sun++;
+        else if (firsts.has(object)) first++;
+      }
+      return rbd(camera, scene, geometry, material, object, group);
+    };
     p.frame = (dt, work) => {
       orig(dt, work);
       const T = window.__xTrace;
-      if (!T) return;
-      T.push([p.calls, p.tris, g.particles.alive]);
+      firstsOf = null;
+      if (!T) return (sun = first = 0);
+      T.push([p.calls, p.tris, g.particles.alive, sun, first]);
+      sun = first = 0;
       if (window.__xAt) window.__xMin = Math.min(window.__xMin ?? Infinity, Math.hypot(g.flight.x - window.__xAt[0], g.flight.z - window.__xAt[1]));
     };
   };
   const traced = (page) => page.evaluate(() => {
     const tr = window.__xTrace;
     window.__xTrace = null;
-    return { frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), particles: Math.max(...tr.map((t) => t[2])) };
+    const worst = tr.reduce((a, t) => (t[0] > a[0] ? t : a), tr[0] ?? [0, 0, 0, 0, 0]);
+    // (the worst frame's draws: the sun pass's, first draws outside it, the rest)
+    return { frames: tr.length, draws: Math.max(...tr.map((t) => t[0])), tris: Math.max(...tr.map((t) => t[1])), particles: Math.max(...tr.map((t) => t[2])), split: [worst[3], worst[4], worst[0] - worst[3] - worst[4]] };
   });
-  const limits = (ok, key, t) => ok(t.frames > 10 && t.draws <= 200 && t.tris <= 1.5e6 && t.particles <= 8000, `${key}: at most 200 draws, 1.5 M triangles and 8,000 particles (${t.frames} frames, ${t.draws} draws, ${(t.tris / 1e6).toFixed(3)} M, ${t.particles} particles)`);
+  const limits = (ok, key, t) => ok(t.frames > 10 && t.draws <= 200 && t.tris <= 1.5e6 && t.particles <= 8000, `${key}: at most 200 draws, 1.5 M triangles and 8,000 particles (${t.frames} frames, ${t.draws} draws (the sun pass ${t.split[0]}, first draws ${t.split[1]}, the rest ${t.split[2]}), ${(t.tris / 1e6).toFixed(3)} M, ${t.particles} particles)`);
   const raisedBy = (page) => page.evaluate(() => {
     const d = window.__game.city.paint.data, d0 = window.__lv0;
     let raised = 0, wrong = 0;
@@ -2347,8 +2366,11 @@ if (modes.has('boom') || modes.has('falls')) {
     if (!modes.has(mode)) continue;
     const R = { rows: [], verdicts: [] };
     const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
-    // (SB_ONLY=rainbow,inferno: those factions' pages alone)
-    for (const [fk, fq] of FACTIONS[mode].filter(([k]) => !process.env.SB_ONLY || process.env.SB_ONLY.split(',').includes(k))) {
+    // (SB_ONLY=rainbow,inferno: those factions' pages alone; SB_REPS=3: each page that many times, fresh, its rows as rainbow-run2 and on, every one judged,
+    // so a frame's cost isn't one run's luck: what streamed in by the flick and was drawn for the first time in its frames moved the worst 10 draws, r3)
+    const reps = Math.max(1, Number(process.env.SB_REPS ?? 1));
+    const pages = FACTIONS[mode].filter(([k]) => !process.env.SB_ONLY || process.env.SB_ONLY.split(',').includes(k)).flatMap(([k, q]) => Array.from({ length: reps }, (_, i) => [i ? `${k}-run${i + 1}` : k, q]));
+    for (const [fk, fq] of pages) {
       // (the Waterfall's page starts over the Financial District: pinned there from the Western Addition, its towers weren't in yet)
       const page = await open((mode === 'falls' ? `?lat=37.7946&lon=-122.4030&heading=88&skipintro&fixeddt=0.05${process.env.SB_Q ?? ''}` : Q) + `&${mode}` + fq, progInit);
       const cdp = await page.context().newCDPSession(page);
@@ -2361,6 +2383,13 @@ if (modes.has('boom') || modes.has('falls')) {
       await wall(60);
       await H.up(1);
       await runFor(page, 1);
+      // (what that first touch hit: over the Financial District it can pour too, and its pool landed in the measured tap's window, a second pool, in 5 of
+      // 18 runs (r3: its run still going when the window opened). So the Waterfall's page lets every run of it finish on the game clock first)
+      const warm = await page.evaluate(() => ({ target: window.__game.lastShot()?.target?.index ?? null, pours: window.__game.falls?.stats.pours ?? 0, c: +window.__game.clock().toFixed(2) }));
+      if (mode === 'falls') {
+        await page.waitForFunction(() => window.__game.falls.runs.length === 0, null, { timeout: 120000, polling: 100 });
+        warm.done = +(await page.evaluate(() => window.__game.clock())).toFixed(2);
+      }
       const progs0 = await page.evaluate(() => window.__progs);
       if (mode === 'boom') {
         const E = Math.PI / 2;
@@ -2493,7 +2522,7 @@ if (modes.has('boom') || modes.has('falls')) {
           await page.evaluate(() => ((window.__qa = null), (window.__lv0 = window.__game.city.paint.data.slice())));
           await page.evaluate(() => window.__game.forceReady());
           await runFor(page, 0.3);
-          const a = await page.evaluate(() => ({ ...window.__game.falls.stats }));
+          const a = await page.evaluate(() => ({ ...window.__game.falls.stats, c: +window.__game.clock().toFixed(2), running: window.__game.falls.runs.map((r) => [r.ref.index, +r.t0.toFixed(2), +r.land.toFixed(2), r.landed, r.dropped, r.drops]) }));
           await page.evaluate(() => ((window.__xTrace = []), (window.__xAt = null)));
           await H.down(1, 300, 260);
           await wall(90);
@@ -2521,10 +2550,11 @@ if (modes.has('boom') || modes.has('falls')) {
             }
             return { ...g.falls.stats, wet };
           }, [r, hit.target]);
-          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, earlierDown: earlier, ...t };
+          const row = { key, tower: r, target: hit.target, pours: b.pours - a.pours, drops: b.drops - a.drops, pools: b.pools - a.pools, wet: b.wet, earlierDown: earlier, warm, at: a.c, running: a.running, ...t };
           R.rows.push(row);
           console.log('falls:', JSON.stringify(row));
           if (!poured) continue;
+          ok(row.running.length === 0, `${key}: nothing poured before its tap still running as it came (${JSON.stringify(row.running)}; the page's first touch hit ${warm.target}, ${warm.pours} pours)`);
           ok(row.pools === 1 && row.drops > 0, `${key}: it poured, its drops and its pool (${row.drops} drops, ${row.pools} pool; tower ${r.index}, ${r.h} m)`);
           ok(row.wet >= 8, `${key}: its pool round its foot (${row.wet} of 16)`);
           limits(ok, key, t);
@@ -2701,12 +2731,13 @@ if (modes.has('firstrun')) {
   // a first visit: no skipintro, no card, no hold; every cue in order, on the real clock of the game
   mkdirSync(`${out}/firstrun`, { recursive: true });
   const FR = {};
-  const page = await open('?fixeddt=0.05', null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
+  // (&noreturn: the next visit below is the Golden Gate's, not a return start over this visit's splat: src/game/Return.ts)
+  const page = await open(`?fixeddt=0.05&noreturn${process.env.SB_Q ?? ''}`, null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
   const cdp = await page.context().newCDPSession(page);
   const H = hand(page, cdp);
   const ui = () => page.evaluate(() => {
     const g = window.__game, s = g.controls.snapshot();
-    return { t: +g.clock().toFixed(1), opening: g.controls.opening, coach: s.coach, mega: getComputedStyle(document.querySelector('[data-hud="mega"]')).display, glint: g.glintNow()?.index ?? -1, prefs: s.prefs };
+    return { t: +g.clock().toFixed(1), opening: g.controls.opening, coach: s.coach, mega: getComputedStyle(document.querySelector('[data-hud="mega"]')).display, glint: g.glintNow()?.index ?? -1, prefs: s.prefs, bridge: g.openingBridge ? g.openingBridge() !== null : null };
   });
   await runFor(page, 0.5);
   FR.frame0 = await ui();

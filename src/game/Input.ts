@@ -267,6 +267,8 @@ interface Slot {
   ownsPress: boolean;
   /** It landed in the look zone, as the zone was then (the bus's lane moves with the bus). */
   inLook: boolean;
+  /** Its landing was press number pressN (Input.presses) with nobody flying: lifted as no tap, onUnpress. 0: it pressed nothing. */
+  pressN: number;
   /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. armed: a frame has seen it past aimHoldMs (the next one starts it). */
   aiming: boolean;
   aimArmed: boolean;
@@ -389,8 +391,13 @@ export class Input {
   onChargeEnd: ((heldSeconds: number, cancelled: boolean) => void) | null = null;
   /** A flick (or E / Q): +1 up, -1 down; flew = it was on the stick. */
   onTurbo: ((dir: 1 | -1, flew: boolean) => void) | null = null;
-  /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. */
+  /** A new gesture touched down (it may become a tap, which fires on the lift): the game freezes its aim cue. Its turn is `presses`. */
   onPress: (() => void) | null = null;
+  /** Every press so far (onPress's), in order. */
+  presses = 0;
+  /** A finger whose landing pressed with nobody flying (a look zone's) lifted as no tap: a look, a flick, a rest, or lost. n: its press's turn. A flying
+   *  thumb's never does: it steered, and the stroke gives its own back (Aimer.update). */
+  onUnpress: ((n: number) => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
   /** The Bomb (&bomb on the link, src/game/Bomb.ts sets it): off, a thumb on the bus is the flying thumb as it always was, and the onBomb* callbacks never fire. */
@@ -519,7 +526,7 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el;
-    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, swipe: Swipe.No, tEv: 0, tAt: 0, looking: false, right: false, ownsPress: false, inLook: false, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
+    for (let i = 0; i < MAX_POINTERS; i++) this.slots.push({ id: -1, role: Role.None, type: '', x0: 0, y0: 0, t0: 0, seq: 0, x: 0, y: 0, maxDist: 0, flick: Flick.No, swipe: Swipe.No, tEv: 0, tAt: 0, looking: false, right: false, ownsPress: false, inLook: false, pressN: 0, aiming: false, aimArmed: false, lobAim: false, onBus: false, bombFrom: -1, bombTier: 0, bombArm: 0, bombShown2: -1, bombShown3: -1 });
 
     const s = el.style as CSSStyleDeclaration & { webkitUserSelect?: string; webkitTouchCallout?: string; webkitTapHighlightColor?: string };
     s.touchAction = 'none';
@@ -567,7 +574,7 @@ export class Input {
     const now = at !== undefined && at > 0 && at <= t + 50 && t - at < 30000 ? at : t;
     if (down) {
       this.fireFirstGesture();
-      if (this.pressBegin(Src.Button, now)) this.onPress?.();
+      if (this.pressBegin(Src.Button, now)) this.press();
       else this.onTap?.(); // another press is held (Space): this one is a tap of its own
     } else this.pressEnd(Src.Button, now, cancelled);
   }
@@ -712,6 +719,7 @@ export class Input {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.releaseAll();
     this.onTap = this.onTripleFinger = this.onFirstGesture = this.onPress = this.onChargeStart = this.onAimStart = null;
+    this.onUnpress = null;
     this.onAimEnd = null;
     this.onChargeEnd = null;
     this.onTurbo = null;
@@ -838,7 +846,7 @@ export class Input {
           return;
         }
       }
-      if (!this.fly) this.onPress?.();
+      if (!this.fly) slot.pressN = this.press();
       return;
     }
 
@@ -854,7 +862,7 @@ export class Input {
     this.gMax = others + 1;
     this.gMulti = recent;
     if (others + 1 >= 3 && recent) this.triple();
-    else this.onPress?.();
+    else this.press();
   }
 
   private pointerMove(e: PointerEvent) {
@@ -911,7 +919,7 @@ export class Input {
     const quick = !cancelled && !aimed && !bombed && (this.isQuick(slot, now) || bombTap);
     if (!quick) this.gAllQuick = false;
     const tap = !cancelled && !aimed && this.secondTap(slot, now);
-    const ownsPress = slot.ownsPress, t0 = slot.t0;
+    const ownsPress = slot.ownsPress, t0 = slot.t0, pressN = slot.pressN;
     this.free(slot);
 
     if (role === Role.Fly) {
@@ -936,6 +944,7 @@ export class Input {
       else if (this.fly || (this.gMulti && !this.gAnswered)) this.gPendingTap = true;
       else this.onTap?.();
     }
+    if (pressN && !tap) this.onUnpress?.(pressN);
 
     if (this.onGlass() === 0) {
       // Two fingers tapped together, nobody steering: one tap at the last lift.
@@ -947,6 +956,13 @@ export class Input {
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /** onPress, its turn counted: returns it. */
+  private press(): number {
+    const n = ++this.presses;
+    this.onPress?.();
+    return n;
+  }
 
   private readRect() {
     const r = this.el.getBoundingClientRect();
@@ -998,6 +1014,7 @@ export class Input {
     slot.right = false;
     slot.ownsPress = false;
     slot.inLook = false;
+    slot.pressN = 0;
     slot.aiming = false;
     slot.aimArmed = false;
     slot.onBus = false;
@@ -1425,7 +1442,7 @@ export class Input {
         if (down) {
           this.fireFirstGesture();
           if (!e.repeat) {
-            if (this.pressBegin(Src.Key, evTime(e))) this.onPress?.();
+            if (this.pressBegin(Src.Key, evTime(e))) this.press();
             else this.onTap?.();
           }
         } else this.pressEnd(Src.Key, evTime(e), false);

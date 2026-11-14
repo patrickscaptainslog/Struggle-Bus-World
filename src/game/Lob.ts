@@ -48,6 +48,8 @@ import { blastRadiusFor } from './blastLayout';
 // under a deck or through one, and while a Bomb charges (its shot skips it, Aimer.fire). Recess's comet.clamp is told it's a Lob (HOOKS.md).
 
 const DEG = Math.PI / 180;
+/** presses a latch keeps track of (unpress): more fingers than that on the glass at once start it afresh */
+const PRESSES = 4;
 
 /** The Lob's angle a body throws at (rad): the body, at most config.lob.most; under config.lob.from, none (NaN). */
 export function lobAngle(body: number): number {
@@ -95,6 +97,14 @@ export class Lob {
   private parkedFrom = -1;
   private parkedUntil = -1;
   private parkedAt = -1;
+  /** the presses into this latch since anything else latched, let go or fired (at most PRESSES): each one's turn (Input.presses), game time, and whether
+   *  it ran a latch on (or latched afresh); with the latch's end and ranFrom before the first. A press's finger lifting as no tap takes it out (unpress) */
+  private readonly pressN = [0, 0, 0, 0];
+  private readonly pressT = [0, 0, 0, 0];
+  private readonly pressRan = [false, false, false, false];
+  private presses = 0;
+  private baseUntil = -1;
+  private baseFrom = -1;
   /** as fired() found them, for unfired() */
   private firedHeld = false;
   private firedUntil = -1;
@@ -162,9 +172,19 @@ export class Lob {
    *  is what a tap throws until game time `until`. keep: a press inside a latch keeps its body, the body having dropped since the lift, and runs it on to
    *  `until` (a tap lifted 0.53 s after the steering thumb threw the dropped body, a plain splat at 60 fps and a Lob at 30), at most twice config.lob.latch
    *  past when the body was latched. quick: the steering stroke lifting was short enough to be a tap (Aimer.update): the latch it found as it began, if any,
-   *  is the one, ending when it would have. */
-  latch(body: number, nose: number, t: number, until: number, keep = false, quick = false): void {
+   *  is the one, ending when it would have. press: a press's turn (Input.presses), which unpress gives back. */
+  latch(body: number, nose: number, t: number, until: number, keep = false, quick = false, press = -1): void {
     const parked = quick && this.parkedAt >= 0;
+    if (!keep || press < 0 || this.presses >= PRESSES) this.presses = 0;
+    if (keep && press >= 0) {
+      if (this.presses === 0) {
+        this.baseUntil = this.latchUntil;
+        this.baseFrom = this.ranFrom;
+      }
+      this.pressN[this.presses] = press;
+      this.pressT[this.presses] = t;
+      this.pressRan[this.presses++] = t < this.latchUntil;
+    }
     this.parkedAt = -1;
     this.ranFrom = -1;
     if (parked) {
@@ -197,6 +217,37 @@ export class Lob {
       this.parkedAt = t;
     }
     this.latchUntil = this.ranFrom = -1;
+    this.presses = 0;
+  }
+
+  /** The finger whose landing was press `n` (latch's keep) lifted as no tap, a look's or a flick's: the latch is as if it had never landed, the presses
+   *  after it run again from the end before the first (one that ran on what only that press had run on latches nothing now: the tap reads the body live).
+   *  A look landing 0.5 s after the lift ran the lift's latch on to 1.3 s, the tap's finger at 1.2 s ran it on again to the cap, and the tap threw the body
+   *  of the lift with the bus long level (r3's look case, the fault M90's fix left) */
+  unpress(n: number): void {
+    let i = 0;
+    while (i < this.presses && this.pressN[i] !== n) i++;
+    if (i >= this.presses) return;
+    for (let j = i + 1; j < this.presses; j++) {
+      this.pressN[j - 1] = this.pressN[j];
+      this.pressT[j - 1] = this.pressT[j];
+      this.pressRan[j - 1] = this.pressRan[j];
+    }
+    this.presses--;
+    let end = this.baseUntil, from = this.baseFrom;
+    for (let j = 0; j < this.presses; j++) {
+      const t = this.pressT[j];
+      if (t < end) {
+        from = end;
+        end = Math.min(Math.max(end, t + config.lob.latch), this.latchedAt + 2 * config.lob.latch);
+      } else if (this.pressRan[j]) end = from = -1;
+      else {
+        end = t + config.lob.latch;
+        from = -1;
+      }
+    }
+    this.latchUntil = end;
+    this.ranFrom = from;
   }
 
   /** A latch parked by a stroke that may still be a quick tap. */
@@ -573,6 +624,7 @@ export class Lob {
     this.heldOk = this.farOk = this.farBarred = false;
     this.latchUntil = this.ranFrom = -1;
     this.parkedAt = -1;
+    this.presses = 0;
     this.stats.fired++;
   }
 

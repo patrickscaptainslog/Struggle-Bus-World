@@ -18,6 +18,7 @@ import { CrewBus } from './game/crewBus';
 import { FACTION_RAINBOW, paintAsOf } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
+import { clearReturn, flushReturn, noteReturn, notesReturn, OPENING_SEEN_KEY, readReturn, returnTune, type ReturnInput, type ReturnStart } from './game/Return';
 import { ownerOf } from './game/factions';
 import { arrival, blastRadiusFor, blobFlight, groundDeadline, LAYOUT_BANDS, makeBlastSpec } from './game/blastLayout';
 import { Input, inputTune } from './game/Input';
@@ -45,7 +46,7 @@ import { clamp } from './game/springs';
 import { tunableGroups } from './ui/tunables';
 import { SuperSplat } from './game/SuperSplat';
 import { Holds } from './game/Hold';
-import { Hose } from './game/Hose';
+import { Hose, hoseOn } from './game/Hose';
 import { Bomb } from './game/Bomb';
 import { Boom, boomOn, boomTune } from './game/Boom';
 import { Falls } from './fx/Falls';
@@ -75,8 +76,6 @@ type Manifest = CityManifest & { regions: Array<[number, number, number]>; regio
 /** What the street sign says when a landmark is hit. */
 const LANDMARK_NAMES: Record<string, string> = { sutro: 'Sutro Tower', transamerica: 'Transamerica', ggb: 'Golden Gate Bridge', baybridge: 'Bay Bridge' };
 
-/** The opening was seen through once on this device: a tap skips it from then on. */
-const OPENING_SEEN_KEY = 'strugglebus.opening.v1';
 /** The opening's low shot holds while the bus is nearer the Golden Gate's gap than this along its heading (m), with nobody steering or near the bridge, and comes back for a bus pointing back there. */
 const OPENING_LOW_ALONG = 180;
 /** ?swerve: the tag a computer bus's blast carries when its module barfs it with none (a soaked rival's landing, a ram's half: the player's paint, a tap's
@@ -280,6 +279,21 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     params.set('lat', '');
     params.set('skipintro', '');
   }
+  // a return visit (game/Return.ts): from the bus's pose at its last shot that bloomed a building, the paint ahead, held still under the fog (returnHold)
+  // and lifted over the roofs as they land, with no Golden Gate. Not on a page that boots somewhere of its own, a link that says where, or a first visit
+  const returnStart: ReturnStart = readReturn({ slug: manifest.slug, params, elsewhere: !!moon || !!land || !!resumed || earthFly || liftPlaced, manifest: manifest as unknown as ReturnInput['manifest'], paint: city.paint });
+  const returned = returnStart.pose !== null;
+  /** the paint a return start faces, and the start's own height (the hold works from it each frame, as the tiles land) */
+  const returnP = returnStart.pose ? returnStart.p : null;
+  const returnY = returnStart.pose ? returnStart.pose.y : 0;
+  if (returnStart.pose) {
+    flight.x = returnStart.pose.x;
+    flight.z = returnStart.pose.z;
+    flight.y = returnStart.pose.y;
+    flight.heading = returnStart.pose.heading;
+  }
+  /** the return start's hold: flight.step waits until the opening's fog is done (or the skip tap's), and the bus stands at its pose */
+  let returnHold = returned;
   if (moon) {
     flight.y = moon.startY + 30;
     if (land) moon.far!.alloc();
@@ -292,7 +306,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
   let gateOpened = false;
   // (not on ?earth&resume: the bus comes home from the Moon, wherever the trip brings it down, and the opening's gate and low shot are the first flight's. Review four, 6)
-  if (!params.has('lat') && !liftPlaced && !resumed && start.opening === 'golden-gate' && ggb?.points) {
+  if (!params.has('lat') && !liftPlaced && !resumed && !returned && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
     const [, t1, t2] = ggb.points;
@@ -869,6 +883,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // where it came down, for its sign: open ground (a park, a plaza, a street, a canal) when the breath
       // landed on the ground, not on a roof or a wall
       lastBlast.open = b.pos.y < city.groundAt(b.pos.x, b.pos.z) + 1;
+      // (every shot's impact but the Hose's light ones, a Comet's, a Lob's and a far Bomb's with no hit-stop too: ?fps times its worst frame, Perf.hit)
+      if (!b.hose) perf.hit();
       // (&boom's ring: its own landing, src/game/Boom.ts)
       if (b.super?.kind === 'boom') return boomImpact(b);
       // (&falls: a tower struck 40 m up or more runs)
@@ -1054,8 +1070,32 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // hovering over the roofs with no pole). Nothing farther along its sightline (a tower, a landmark up
   // the hill) may hide any of the blade either: no sign beats half a blade.
   const pendingSigns: Array<{ ref: BuildingRef | null; text: string; from: string; hue: number; cx: number; cz: number; r: number; at: number; tries: number; plain?: boolean }> = [];
-  /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). */
-  const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number) => {
+  /** the bus's pose as it breathed its last shot (breatheNow): a return visit starts from it (game/Return.ts) */
+  const breathPose = { x: 0, y: 0, z: 0, heading: 0 };
+  let breathed = false;
+  /** QA: every shot's breath and each Hose pour as it opens, the last SHOT_LOG in a ring written in place (nothing made per shot or per frame), read by
+   *  window.__game.shots(): { t (game s), kind (tap, comet, lob, cloud, or a super's: mega, bomb, ...; hose), bodyDeg (the bus's body as it fired, Flight.pitch),
+   *  angleDeg (what it threw at: a Lob's latched body, at most config.lob.most; else the body) }. tools/flight5.mjs asks of each that a touch meant it
+   *  (bodyDeg was a Lob's angle before: a Lob read 25 or more whatever the bus was doing, r3) */
+  const SHOT_LOG = 256;
+  const shotLog = Array.from({ length: SHOT_LOG }, () => ({ t: 0, kind: '', bodyDeg: 0, angleDeg: 0 }));
+  let shotsLogged = 0;
+  const logShot = (kind: string, body: number, angle = body) => {
+    const e = shotLog[shotsLogged++ % SHOT_LOG];
+    e.t = simTime;
+    e.kind = kind;
+    e.bodyDeg = Math.round(THREE.MathUtils.radToDeg(body) * 10) / 10;
+    e.angleDeg = Math.round(THREE.MathUtils.radToDeg(angle) * 10) / 10;
+  };
+  let hoseWasPouring = false;
+  /** paint here is the saved city's, so where it lands is kept for the next visit: not the Moon, not a city that saves none, not the Lift's staged paint, not recess or swerve */
+  const keepsReturn = !moon && city.paint.saves && !liftedOn && notesReturn(params);
+  // (the record goes out only after a save of the paint it points at went through: the paint's own debounce, pagehide and a hidden page)
+  if (keepsReturn) city.paint.afterSave = () => void flushReturn();
+  /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). bus: where the shot left from */
+  const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number, bus: { x: number; y: number; z: number; heading: number } | null = breathed ? breathPose : null) => {
+    // (where you last painted: a building's, by the pose the shot left from. A landmark's id isn't a building's, and keeps the record it had)
+    if (ref && bus && keepsReturn && ref.stableId >= 0) noteReturn(manifest.slug, manifest.origin, bus, { x: cx, z: cz }, ref.stableId);
     // (?moon: what names a place is the map of the Moon, and a named crater painted says so)
     const [text, from] = moon ? [moon.paint.signFor(cx, cz), 'place'] : signName(ref, cx, cz, lastBlast.open);
     pendingSigns.push({ ref, text: text.toUpperCase(), from, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
@@ -1352,10 +1392,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
 
   // ---- input
   const input = shared?.input ?? new Input(canvas);
-  // (hold to aim, SHOTS.md: the street's; the Moon has no Hose yet, so a still finger off the lane rests there as it always did)
-  input.aimOn = !moon;
+  // (hold to aim, SHOTS.md: the street's, with ?hose (game/Hose.ts, hoseOn): the Hose is the only thing on the plain link that takes a hold, so without it
+  // a still finger off the lane rests there as it always did, and the first run's hint has no HOLD HIGH UP TO AIM. The Moon has no Hose yet. ?life's lock-on
+  // and ?recess's duel take their holds from the aim (src/life/Lock.ts, src/recess/Duel.ts), so it's on with them, the Hose with it, as the one link had it)
+  input.aimOn = !moon && (hoseOn || lifeOn || recessOn);
   /** ?moonland: what the flight's loop has the thumb doing: everything below takes its place, and gives it back until the bus comes down. */
-  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false, swipeOn: false };
+  const flightHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: false, bombOn: false, swipeOn: false };
   const tuner = new Tuner();
   // (the ODbL credit, then the other sources' own: ESA WorldCover's CC BY for where the trees stand)
   const dataCredits = [manifest.attribution ? (moon ? `Data ${manifest.attribution}` : `Map data ${manifest.attribution} (ODbL)`) : '', ...Object.values(manifest.credits ?? {}),
@@ -1368,6 +1410,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (name === 'close') audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
   };
   tuner.onResetPaint = () => {
+    clearReturn(manifest.slug);
     city.paint.resetAll();
     city.ground.resetAll();
     moon?.paint.reset();
@@ -1398,9 +1441,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     controls.firstGesture();
   };
   input.onPress = () => {
-    aimer.press();
+    aimer.press(input.presses);
     moonPaint?.latch(simTime);
   };
+  input.onUnpress = (n) => aimer.unpress(n);
   /** A breath leaves now: anticipation (the bus squashes on this very frame, inhales, then the jet leaves), then the shot. */
   const breatheNow = (shot: Shot, mega?: MegaBreath): number => {
     pose.squash = mega ? 0.72 : 0.8;
@@ -1410,6 +1454,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const tgt = shot.target;
     const iy = shot.y ?? (tgt ? city.roofAtPart(tgt, shot.x, shot.z, flight.y) + 0.5 : city.groundAt(shot.x, shot.z));
     lastShot = { t: simTime, aim: [shot.x, iy, shot.z], travel: config.splat.inhale + shot.travel, drop: shot.drop, busY: flight.y, wall: shot.exact, target: tgt ? { index: tgt.index, cx: tgt.cx, cz: tgt.cz, roofY: tgt.roofY } : null, mega: mega?.radius, comet: shot.comet ? { ...shot.comet, target: tgt ? tgt.index : null } : null };
+    breathPose.x = flight.x;
+    breathPose.y = flight.y;
+    breathPose.z = flight.z;
+    breathPose.heading = flight.heading;
+    breathed = true;
+    logShot(mega ? mega.tag.kind : (shot.comet?.kind ?? (shot.comet ? 'comet' : 'tap')), flight.pitch, shot.comet?.kind === 'lob' ? (shot.comet.angle ?? flight.pitch) : flight.pitch);
     const hue = splatter.hueNext;
     const landsAt = breathe(shot, mega);
     // (a Comet: its streak leaves the mouth after the inhale, and lands with its blast. A Bomb's at Comet range plays the full show, every time)
@@ -1441,6 +1491,20 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (openingSeen && !openingSkip && opening < config.fog.openingDuration) {
       openingSkip = true;
       controls.hud.clearToast();
+      // (a return visit at the Golden Gate: the skip opens the gate too (CORE.md 3.6). In the fog it skips, the bus jumps on along its heading to just past
+      // where the gate opens, the lens and its look with it by the same step (the Moon's map slide), clear of the cables; under the deck it would rise through them.
+      // Not on ?earth, whose opening stays as it was: its tools' call)
+      if (openingBridge && !earthFly) {
+        const along = (flight.x - openingBridge[0]) * flight.fx + (flight.z - openingBridge[1]) * flight.fz;
+        if (along < config.camera.openingClimbAfter) {
+          const d = config.camera.openingClimbAfter + 10 - along, dx = flight.fx * d, dz = flight.fz * d;
+          flight.x += dx;
+          flight.z += dz;
+          rig.slide(-dx, -dz);
+          camera.position.x += dx;
+          camera.position.z += dz;
+        }
+      }
       return;
     }
     // (a lock life or Recess holds takes the tap: its next shot homes, Holds.tap)
@@ -1540,7 +1604,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       flashPos.copy(at).project(camera);
       pipeline.flash(flashPos.x * 0.5 + 0.5, flashPos.y * 0.5 + 0.5, frames, strength);
     },
-    sign: queueSign,
+    // (the Hose has no breath: its stream is short, the bus near, so the flight's pose as the sign is queued)
+    sign: (ref, hue, cx, cz, r) => queueSign(ref, hue, cx, cz, r, flight),
   });
   holds.add(hose, { last: true });
   input.onAimStart = () => {
@@ -1831,7 +1896,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   }
   exposeQA();
   /** ?moonland: what the thumb does down here, until it is down here. (?swerve's long swipe is the low game's: off while the flight has the thumb) */
-  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
+  const groundHands = { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
   // (and ?earth&resume: the flight has the bus while the street boots behind it)
   if (land || resumed) {
     Object.assign(input, flightHands);
@@ -1867,7 +1932,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   fogGround = city.lowGround();
   updateSun();
   globals.uFogBank.value = config.fog.openingBank;
-  rig.openingPull = 140;
+  // (the lens comes in 140 m as the fog thins; not on a return start, where it came in through the towers round the paint and stood inside a painted
+  // spire, r3's look: there it starts at the chase)
+  const openingPull = returned ? 0 : 140;
+  rig.openingPull = openingPull;
 
   // ---- the loop
   let last = performance.now();
@@ -2025,7 +2093,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       opening = loaded ? opening + step : Math.min(opening + step, config.fog.openingDuration * 0.15);
       const k = clamp(opening / config.fog.openingDuration, 0, 1);
       globals.uFogBank.value = 1 + (config.fog.openingBank - 1) * Math.pow(1 - k, 2);
-      rig.openingPull = 140 * Math.pow(1 - k, 2);
+      rig.openingPull = openingPull * Math.pow(1 - k, 2);
     } else {
       globals.uFogBank.value = 1;
       rig.openingPull = 0;
@@ -2101,7 +2169,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     rivals?.pre();
     const hard = gateShut || leaving || !!land?.arriving ? NaN : st.hard;
     if (curbFlight?.rolling) curbFlight.roll(dt, curbStick);
-    if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x, hard, skid: st.skid, side: st.side, hardTop: st.hardTop, frame: dt }, city);
+    // (a return start: held at its pose until the fog is done, and each held frame over the highest roof at the bus and 30 m ahead and to each side, so a
+    // start that was low is above the tiles landing round it while the fog still hides it, and one from high up no more than returnTune.over over the
+    // paint's roof, where the lens still frames it: from its own height each frame, so a roof that lands late under P moves it, unseen. Then it flies
+    // as any ?lat start does)
+    if (returnHold && opening >= config.fog.openingDuration) returnHold = false;
+    if (returnHold) {
+      const ax = flight.fx * 30, az = flight.fz * 30;
+      const top = Math.max(city.obstacleAt(flight.x, flight.z), city.obstacleAt(flight.x + ax, flight.z + az), city.obstacleAt(flight.x - az, flight.z + ax), city.obstacleAt(flight.x + az, flight.z - ax));
+      const most = returnP ? city.obstacleAt(returnP.x, returnP.z) + returnTune.over : Infinity;
+      flight.y = Math.max(Math.min(returnY, most), top + config.flight.clearance);
+    } else if (!curbFlight?.rolling) for (let i = 0; i < steps; i++) flight.step(dt / steps, { sx, sy, dragging: dragging || leaving || sx !== st.stretch.x, hard, skid: st.skid, side: st.side, hardTop: st.hardTop, frame: dt }, city);
     swerve?.post(dt);
     curbFlight?.watch(dt, curbStick);
     streetCam?.hold(flight, city);
@@ -2370,6 +2448,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     hose.bombing = input.state.bomb.on;
     holds.frame(dt);
     hose.update(dt);
+    if (hose.pouring && !hoseWasPouring) logShot('hose', flight.pitch);
+    hoseWasPouring = hose.pouring;
     splatter.update(dt);
     boom.update(dt);
     falls.update(simTime);
@@ -2605,6 +2685,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     lift?.lens(camera.position);
     pipeline.render(scene);
     framesDrawn++;
+    // (the loading page, index.html's #sb-load: gone with the first frame drawn, and the canvas shown, in the same paint)
+    if (framesDrawn === 1) {
+      document.getElementById('sb-load')?.remove();
+      document.documentElement.classList.add('drawn');
+    }
     // (a tap in the grey has skipped it already)
     if (framesDrawn === 2 && openingSeen && !openingSkip && opening < config.fog.openingDuration) controls.hud.toast(['TAP TO SKIP'], 2.2);
     // a deferred landmark (one per frame, early in the opening) when the warm-up didn't leave time for them all
@@ -2635,6 +2720,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const ready = !covered && cityIn && (opening >= config.fog.openingDuration || params.has('openingshot'));
     if (ready && !everReady) {
       audio.prepare();
+      // (?fps's max from here, past the fog: the fog's frames are not flight's)
+      perf.peaksFrom();
       if (!params.has('skipintro') && !params.has('lat')) {
         try {
           localStorage.setItem(OPENING_SEEN_KEY, '1');
@@ -2656,7 +2743,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     earthBooting = true;
     if (resumed) skyHands = resumed.hands;
     // (the street's own: on ?earth&resume the flight's are on the thumb by now, so they're the ones kept from before it. The first account's review, 2026-11-04: the street took the flight's for good)
-    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
+    streetHands = resumed ? groundHands : { onTap: input.onTap, onTurbo: input.onTurbo, onTripleFinger: input.onTripleFinger, onFirstGesture: input.onFirstGesture, onPress: input.onPress, onUnpress: input.onUnpress, onChargeStart: input.onChargeStart, onChargeEnd: input.onChargeEnd, onAimStart: input.onAimStart, onAimEnd: input.onAimEnd, aimOn: input.aimOn, swipeOn: input.swipeOn };
     const world: StreetWorld = {
       origin: [manifest.origin[0], manifest.origin[1]],
       // (?life: the movers the flight's loop draws while it has the bus, CONTRACT.md O4)
@@ -2844,6 +2931,12 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         pipeline.render(scene);
       },
       lastShot: () => lastShot,
+      /** QA: the shot log, oldest first (a copy) */
+      shots: () => Array.from({ length: Math.min(shotsLogged, SHOT_LOG) }, (_, i) => ({ ...shotLog[(shotsLogged - Math.min(shotsLogged, SHOT_LOG) + i) % SHOT_LOG] })),
+      /** QA: the return start this load chose ({ pose, which, p, id }, or { pose: null, why }), whether its hold still holds, and the opening's gap under the Golden Gate (null: no gate) */
+      returnStart: () => returnStart,
+      returnHold: () => returnHold,
+      openingBridge: () => openingBridge,
       /** QA: the last street sign raised: { text, x, z, from: 'street' | 'hoodAt' | 'building hood' | 'nearest label' | 'landmark', t } */
       lastSign: () => lastSign,
       /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */
@@ -2996,11 +3089,13 @@ async function bootEarthResumed() {
   const street = laterStreet();
   const join = (await bootMoonrun({ pipeline, scene: new THREE.Scene(), warm, land: shared, earth: street.world, clock: skyClock })) as EarthLanding | null;
   const i = shared.input;
-  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
+  const hands: Partial<Input> = { onTap: i.onTap, onTurbo: i.onTurbo, onTripleFinger: i.onTripleFinger, onFirstGesture: i.onFirstGesture, onPress: i.onPress, onUnpress: i.onUnpress, onChargeStart: i.onChargeStart, onChargeEnd: i.onChargeEnd, onAimStart: i.onAimStart, onAimEnd: i.onAimEnd, aimOn: false, bombOn: false };
   if (join) await boot(undefined, shared, { join, hands, attach: street.attach });
 }
 
 (moonLand ? bootLanding() : moonrun ? bootSpace() : earthResume ? bootEarthResumed() : earthFly ? bootEarth() : boot()).catch((e) => {
   console.error(e);
+  // (the loading page goes, or its bus bobs on over the error as if still loading)
+  document.getElementById('sb-load')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;font:12px monospace;padding:12px;background:#0008">${String(e)}</pre>`);
 });
