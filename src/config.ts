@@ -986,14 +986,14 @@ export const config = {
    *  lagged the landing a fast gear closes on, and from 1 km at Jet to Turbo 3 the hit was 0.06-0.07 of the half height under `low` at the impact
    *  (s_lob --high). And its landing is taken where the lens will see it `lead` s on, the bus's travel ahead: an ease lags a target that keeps moving by
    *  about 1/rate, and from 1 km at Turbo 2 the hit was still 0.06 under `low` at the impact. A look takes it back. Where the bus's limit leaves the
-   *  landing under `floor` (8 % of the height over the frame's bottom), the view dips on to it while the bus is under busMax (CameraRig.ts's shotFloor):
+   *  landing under `floor` (5 % of the height over the frame's bottom), the view dips on to it while the bus is under busMax (CameraRig.ts's shotFloor):
    *  from 10 and 14 km at Turbo 3 the hit came down under the frame. */
   shotView: {
     hold: 0.6,
     rate: 5,
     lead: 0.2,
     low: -0.2,
-    floor: -0.84,
+    floor: -0.9,
     busMax: 0.3,
     swing: 25,
     most: 30,
