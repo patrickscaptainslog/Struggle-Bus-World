@@ -568,6 +568,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     if (!g || g.cov < 0.5 || lift?.refuses(t.x, t.z, g.faction)) return;
     tf.setPaint(i, g.hue, restoreLevel(t.x, t.z), RESTORED, g.faction);
   }
+  /** A live blast's paint on a tree (paintTrees, treesDue). A restored tree already at the blast's level isn't re-popped and kept the restored
+   *  mark, so a neighbour tile coming in later took it for untouched and lowered it in front of the player: it takes another start, still long
+   *  ago (no pop), and keeps the level this visit's blasts gave it. */
+  const blastTree = (tf: TreeField, i: number, hue: number, level: number, start: number, faction: number) => {
+    tf.setPaint(i, hue, level, start, faction);
+    if (tf.paintStart(i) === RESTORED) tf.setPaintStart(i, RESTORED + 1);
+  };
   /** A tile's buildings came in: a tree beside it restored before they were (its own tile's paint shown first) took its level without them.
    *  Each restored tree on the loaded tiles around, within 25 m of one of this tile's buildings, takes the level the rule gives with this tile
    *  in, up or down: by load order alone a farther house painted higher could have raised it past a nearer one painted lower. A tree painted
@@ -602,8 +609,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
           const want = restoreLevel(t.x, t.z);
           if (want === lv) continue;
           const g = city.ground.sample(t.x, t.z);
-          // (?lift: a tree on a seeded square takes no paint but its owner's, down as well as up, B4.3)
-          if (g && lift?.refuses(t.x, t.z, g.faction)) continue;
+          // (?lift: a tree on a seeded square takes no paint but its owner's, down as well as up, B4.3; with no ground sample to ask by, it stays)
+          if (lift && (!g || lift.refuses(t.x, t.z, g.faction))) continue;
           if (want < lv) tf.setLevel(i, want);
           else if (g && g.cov >= 0.5) tf.setPaint(i, g.hue, want, RESTORED, g.faction);
         }
@@ -858,7 +865,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
             if (wide) treesDue.push({ key, tf, i, x: t.x, z: t.z, at: b.t + arrival(d, r), jump: b.jump });
             continue;
           }
-          tf.setPaint(i, g.hue, Math.min(3, tf.paintLevel(i) + b.jump), b.t + arrival(d, r), g.faction);
+          blastTree(tf, i, g.hue, Math.min(3, tf.paintLevel(i) + b.jump), b.t + arrival(d, r), g.faction);
         }
       }
   };
@@ -874,7 +881,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
       if (treeFields.get(q.key) !== q.tf) continue;
       const g = city.ground.sample(q.x, q.z);
-      if (g && g.cov >= 0.5) q.tf.setPaint(q.i, g.hue, Math.min(3, q.tf.paintLevel(q.i) + q.jump), q.at, g.faction);
+      if (g && g.cov >= 0.5) blastTree(q.tf, q.i, g.hue, Math.min(3, q.tf.paintLevel(q.i) + q.jump), q.at, g.faction);
     }
     treesDue.length = k;
   };

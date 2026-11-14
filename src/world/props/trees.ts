@@ -771,6 +771,14 @@ export class TreeField {
     this.color.needsUpdate = true;
   }
 
+  /** A painted tree's paint start moved, nothing else changed (no pop if it is still long ago). For main.ts: a restored tree a live blast reached
+   *  at its own level (setPaint's no-re-pop) takes another start, so a later tile's re-level knows it was painted in this visit. Grey stays grey. */
+  setPaintStart(index: number, startTime: number): void {
+    if (this.paintLevel(index) === 0) return;
+    this.data[index * 3 + 2] = startTime;
+    this.color.needsUpdate = true;
+  }
+
   /** Paint level of a tree (0 = grey, 1..3). */
   paintLevel(index: number): number {
     if (this.disposed || index < 0 || index >= this.mesh.count) return 0;
