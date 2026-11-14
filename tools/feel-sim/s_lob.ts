@@ -38,7 +38,7 @@ import { Bomb } from '@src/game/Bomb';
 import { Aimer, tapOpts } from '@src/game/Aim';
 import { bodyOf, lobFlight, lobRange, lobRadius } from '@src/game/Lob';
 import { Comet, shotReach } from '@src/game/Comet';
-import { shotTip } from '@src/game/CameraRig';
+import { shotFloor, shotTip } from '@src/game/CameraRig';
 import { makeGoldenGate, bridgeObstacles, paintBridge } from '@src/world/Bridges';
 import * as THREE from 'three';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -304,6 +304,8 @@ async function run(c: Case, dt: number, slot = true) {
     const v = new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse);
     return v.z >= 0 ? -Infinity : v.applyMatrix4(cam.projectionMatrix).y;
   };
+  // (where the bus was when the rig last set the lens: shotFloor reads the bus there, as main.ts's busAtLens)
+  const busLens = new THREE.Vector3(f.x, f.y, f.z);
   const frame = async (inp: { sx: number; sy: number; dragging: boolean }) => {
     if (k++ % 10 === 0) await pump(city, f.x, f.z, f.lift, f.fx, f.fz);
     g.frame(dt, inp);
@@ -311,6 +313,7 @@ async function run(c: Case, dt: number, slot = true) {
     rig.zone = drive.below === SCHOOL_ZONE ? 1 : 0;
     pre?.();
     rig.update(cam, focus, f, dt);
+    busLens.set(f.x, f.y, f.z);
     const lf = lensFov(SW, SH, rig.hfov);
     cam.fov = lf.fov;
     cam.aspect = lf.aspect;
@@ -481,6 +484,7 @@ async function run(c: Case, dt: number, slot = true) {
         const arcUp = (w: number) => upDeg(plan.x0 + (plan.x - plan.x0) * w, plan.y0 + (plan.y - plan.y0) * w + plan.arc * 4 * w * (1 - w), plan.z0 + (plan.z - plan.z0) * w);
         const fly = u >= 0 && u < 1 ? Math.max(arcUp(u), arcUp(Math.max(u, top))) : NaN;
         rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap, 0, fly);
+        rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, upDeg(busLens.x, busLens.y, busLens.z), half, liftAtTap, fly);
         // (the view's limits, for the star's count: under the climbing star the bus's and the rig's own tip up, at most half the field less 6 degrees
         // (CameraRig.update); and the dip's own without it, the bus at busMax or the swing)
         flyBound = (Number.isFinite(fly) && (upDeg(f.x, f.y, f.z) + half * config.lob.tipBus < fly - half + config.lob.tipTop || rig.skyLiftTarget > half - 6)) || shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap) > landUp - (Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG) + 0.5;

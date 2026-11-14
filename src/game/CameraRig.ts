@@ -90,6 +90,19 @@ export function shotTip(starUp: number, busUp: number, half: number, climbing: b
   return Number.isFinite(flyUp) ? Math.max(T, Math.min(flyUp - half + L.tipTop, busUp + half * L.tipBus)) : T;
 }
 
+/**
+ * A far shot's floor, over shotTip's target (main.ts, and the sims as main.ts does): where that target leaves its landing (starUp, as shotTip's) under
+ * config.shotView.floor of the half height, the view dips on until it shows there, but never so far the bus (busUp, read where the lens last drawn had
+ * it: shotTip's own, read a frame of travel on, holds the dip short of busMax at speed) is over busMax, past the swing, nor over the climbing star's rule.
+ * A target that already shows the landing over the floor is returned as it is. From 10 and 14 km at Turbo 3 the hit came down under the frame.
+ */
+export function shotFloor(target: number, starUp: number, busUp: number, half: number, liftAtTap = 0, flyUp = NaN): number {
+  const V = config.shotView, L = config.lob, t = Math.tan(THREE.MathUtils.degToRad(half)), deg = THREE.MathUtils.radToDeg;
+  const F = Math.max(busUp - deg(Math.atan(V.busMax * t)), starUp - deg(Math.atan(V.floor * t)), liftAtTap - V.swing);
+  if (F >= target) return target;
+  return Number.isFinite(flyUp) ? Math.max(F, Math.min(flyUp - half + L.tipTop, busUp + half * L.tipBus)) : F;
+}
+
 /** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
 export function lookDeg(px: number): number {
   const { a, b } = lookCurve();

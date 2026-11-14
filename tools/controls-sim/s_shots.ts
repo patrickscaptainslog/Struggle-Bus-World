@@ -32,7 +32,7 @@
 // throws (kind 'lob') is the Lob's, not the baseline's.
 import { newCity, pump, ll, makeGame } from '../feel-sim/lib';
 import { config } from '@src/config';
-import { CameraRig, shotTip } from '@src/game/CameraRig';
+import { CameraRig, shotFloor, shotTip } from '@src/game/CameraRig';
 import { shotReach } from '@src/game/Comet';
 import { cometAt } from '@src/fx/CometFx';
 import { EXPRESS, JET, NONSTOP, SCHOOL_ZONE, TurboDrive, driveSpeed } from '@src/game/Turbo';
@@ -198,6 +198,8 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
   // where a climbed player's lens gives one. The classic aim reads no lens)
   if (typeof pose.h === 'number') rig.settleAt(Math.max(0, f.y - city.groundAt(f.x, f.z)));
   let pre: (() => void) | null = null;
+  // (where the bus was when the rig last set the lens: shotFloor reads the bus there, as main.ts's busAtLens)
+  const busLens = new THREE.Vector3(f.x, f.y, f.z);
   const cometOf = (g.aimer as any).comet;
   if (cometOf) cometOf.lens = cam;
   if (g.aimer.lob) g.aimer.lob.lens = cam;
@@ -223,6 +225,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
     rig.zone = drive.below === SCHOOL_ZONE ? 1 : 0;
     pre?.();
     rig.update(cam, focus, f, dt);
+    busLens.set(f.x, f.y, f.z);
     const lf = lensFov(SW, SH, rig.hfov);
     cam.fov = lf.fov;
     cam.aspect = lf.aspect;
@@ -286,6 +289,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
         const arcUp = (w: number) => { const q = cometAt(from0, to0, comet.arc, comet.bow ?? 0, w, v3b); return upDeg(q.x, q.y, q.z); };
         const fly = u >= 0 && u < 1 ? Math.max(arcUp(u), arcUp(Math.max(u, top))) : NaN;
         rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap, 0, fly);
+        rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, upDeg(busLens.x, busLens.y, busLens.z), half, liftAtTap, fly);
         // (bound: where the bus's limit, the swing or the climbing star holds the view over what the hit wants)
         boundNow = rig.skyLiftTarget > landUp - Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG + 0.5;
         rig.skyLiftRate = config.shotView.rate;

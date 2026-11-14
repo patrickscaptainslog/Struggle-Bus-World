@@ -10,7 +10,7 @@ import { liftUniforms, paintUniforms, setFacadeView } from './world/buildingMate
 import { Ground, type CityManifest } from './world/tiles';
 import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
-import { CameraRig, looksAway, shotTip, turnedAway } from './game/CameraRig';
+import { CameraRig, looksAway, shotFloor, shotTip, turnedAway } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
@@ -1697,6 +1697,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const lobSeen = new THREE.Vector3(), lobBusSeen = new THREE.Vector3(), shotSeen = new THREE.Vector3(), shotFly = new THREE.Vector3(), shotFlyTop = new THREE.Vector3();
   /** the far shot the view dips after (CometFx.shotFrame's count), the lift the view had at its tap, and the far shot a look took the view back from */
   let farWas = 0, farLift = 0, farLooked = 0;
+  /** where the bus was when the rig last set the lens (each frame after rig.update): the lens the far dip reads is the one last drawn, from before this frame's
+   *  flight step, so there the bus is where that lens had it (shotFloor). shotTip reads it where it is now, a frame of travel ahead, and its bus limit holds
+   *  the dip 1.3 degrees (Nonstop) to 5 (Turbo 3) short of busMax at 20 fps, a third of that at 60 */
+  const busAtLens = new THREE.Vector3();
   /** how far over the lens's middle a point shows (degrees, the sky lift's own taken off: where it would be with the view untipped); p is moved into the lens's space */
   const lobUpDeg = (p: THREE.Vector3) => (p.applyMatrix4(camera.matrixWorldInverse), (Math.atan2(p.y, -p.z) * 180) / Math.PI + rig.skyLift);
 
@@ -2366,7 +2370,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       shotSeen.set(shotSeen.x - flight.fx * flight.ground * ld, shotSeen.y - flight.vy * ld, shotSeen.z - flight.fz * flight.ground * ld);
       // (and its star while it climbs kept in the frame: shotTip's flyUp)
       const fly = cometFx.shotStar(simTime, shotFly, shotFlyTop) ? Math.max(lobUpDeg(shotFly), lobUpDeg(shotFlyTop)) : NaN;
-      rig.skyLiftTarget = shotTip(lobUpDeg(shotSeen), lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift, 0, fly);
+      const landUp = lobUpDeg(shotSeen);
+      rig.skyLiftTarget = shotTip(landUp, lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift, 0, fly);
+      // (and never with the landing under config.shotView.floor while the bus has room under busMax: from 10 km up at Turbo 3 the hit came down under the
+      // frame, the far Comet's hit in the frame)
+      rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, lobUpDeg(lobBusSeen.copy(busAtLens)), camera.fov / 2, farLift, fly);
       rig.skyLiftRate = config.shotView.rate;
       rig.skyDipMost = config.shotView.most;
       // (?swerve: a landing a quick turn or a hard one has left behind the lens or past the frame's side, as lobUpDeg put it in the lens's space, is looked away
@@ -2388,6 +2396,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       }
     }
     rig.update(camera, focus, flight, dt);
+    busAtLens.set(flight.x, flight.y, flight.z);
     // (the plans' lens: the dip turned back)
     if (rig.skyLift < 0) {
       // (its place, its turn and its projection: Object3D.copy would also copy userData through JSON, a frame)
