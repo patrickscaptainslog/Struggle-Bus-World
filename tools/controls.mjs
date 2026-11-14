@@ -50,6 +50,12 @@
 //            (another build's moonhigh.json) the same shots as that build's                                             -> moonhigh.json
 //   stills   the stills for the producer's calls 4 and 5 (not in the default list): a far Comet's hit from 5 and 14 km three ways, the far Lob's ring
 //            and beacon capped and uncapped, a low Comet's bow at Turbo 3                                               -> stills-*.png
+//   rest     the Lob's latch beside a resting thumb (not in the default list), by real CDP touches with the loop held and stepped a frame at a time (fixed
+//            0.05 s), the touches stamped: a pull held in the lane, lifted; (lane) the same thumb back down on the lane a frame before the lift's latch ends,
+//            and two frames on, past it, the other thumb's tap 290-350 ms into the rest, before it commits (stillTapMs): a plain splat, the bus level;
+//            (bus, &bomb) the same with the thumb back down on the bus, a Bomb charging short of its first tier; (none) the same tap, no thumb down: a plain
+//            splat; (live) the pull held, the other thumb's tap: a Lob at the body as it is; (one) one thumb, its tap 0.3 s after the lift: a Lob at the
+//            body as it lifted. Each SB_REPS times (3); a leg whose window wasn't hit runs again, twice at most. Exits 1 when a leg fails  -> rest.json
 //   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 and 300 m over the Western Addition and 150 over
 //            downtown, a real flick into Turbo 3, in Rainbow, Atlantis, Hyperglow and Inferno (&paintas). Each: one crack, the hoop threaded, a ring, every
 //            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
@@ -2281,6 +2287,202 @@ if (modes.has('stills')) {
   console.log(`stills: ${written.filter((p) => existsSync(p)).length} of 9 written; page errors ${errors}`);
   await page.close();
   if (!all || errors > 0) process.exitCode = 1;
+}
+
+if (modes.has('rest')) {
+  const R = { rows: [], verdicts: [] };
+  const ok = (c, m) => R.verdicts.push(`${c ? 'ok' : 'FAIL'}: ${m}`);
+  const REPS = Number(process.env.SB_REPS ?? 3);
+  const FROM = 25; // config.lob.from
+  // (lane, none, live, one on the plain page; bus with &bomb, where a thumb landing on the bus charges)
+  const pages = [
+    ['plain', Q, ['lane', 'none', 'live', 'one']],
+    ['bomb', Q + '&bomb', ['bus']],
+  ];
+  for (const [where, query, legs] of pages) {
+    const page = await open(query);
+    const cdp = await page.context().newCDPSession(page);
+    const H = hand(page, cdp);
+    // (a touch stamped `ts` (s, the CDP clock): Input reads the event's own time, so the windows are the row's whatever the round trips cost. A touchEnd
+    // lists the point that lifts; empty, all of them)
+    const touch = (type, pts, ts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([id, x, y]) => ({ id, x, y, radiusX: 4, radiusY: 4, force: 1 })), ...(ts !== undefined ? { timestamp: ts } : {}) });
+    const till = async (ts) => {
+      const w = ts * 1000 - Date.now();
+      if (w > 0) await wall(w + 2);
+    };
+    // (n frames more with the loop held, then held again: each a fixed 0.05 s of the game clock)
+    const step = async (n) => {
+      await page.evaluate((n) => (window.__qa = { holdFrames: n, held: false }), n);
+      await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 60000, polling: 'raf' });
+    };
+    const st = () => page.evaluate(() => {
+      const g = window.__game, fly = g.input.fly;
+      return { t: g.clock(), until: g.aimer.lob.latchUntil, body: +((g.flight.pitch * 180) / Math.PI).toFixed(1), thumb: g.input.state.thumb, bus: fly ? { onBus: !!fly.onBus, from: fly.bombFrom, tier: fly.bombTier } : null, bomb: g.input.state.bomb.tier };
+    });
+    const to = async (t) => {
+      const s = await st(), n = Math.round((t - s.t) / 0.05);
+      if (n > 0) await step(n);
+      return st();
+    };
+    const shotsFrom = (t0) => page.evaluate((t0) => window.__game.shots().filter((s) => s.t >= t0 && s.kind !== 'hose'), t0);
+    await wall(1300);
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.flight.glideSpeed = 0;
+      g.audio.unlock();
+    });
+    await runFor(page, 2);
+    // (the page's first touch runs a long task in its touchstart: one in the lane first)
+    await H.down(1, 196, 780);
+    await wall(60);
+    await H.up(1);
+    await runFor(page, 1);
+    const leg1 = async (leg) => {
+      await page.evaluate(() => {
+        const g = window.__game;
+        while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
+        // (over the Western Addition heading east at the roofs, held while the city streams in, as the lob rows)
+        const o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4352 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7763 - o[0]) * r * 6378137;
+        const y = g.city.obstacleAt(x, z) + 12;
+        window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
+        Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
+      });
+      await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
+      await page.evaluate(() => (window.__qa = null));
+      await runFor(page, 1.2);
+      await page.waitForFunction(() => window.__game.flight.barfT < 0, null, { timeout: 20000, polling: 50 });
+      await page.evaluate(() => window.__game.forceReady());
+      await runFor(page, 0.3);
+      const t0 = await page.evaluate(() => window.__game.clock());
+      const c = { leg };
+      // the pull: a thumb down in the lane under the bus, drawn 60 px down, held 1.8 s on the game's clock
+      await H.down(1, 196, 690);
+      for (let i = 1; i <= 6; i++) {
+        await wall(25);
+        await H.move(1, 196, 690 + i * 10);
+      }
+      await runFor(page, 1.8);
+      if (leg === 'live') {
+        // (live) the pull held, committed and steering, and the other thumb's tap: a Lob at the body as it is
+        const s = await st();
+        c.body = s.body;
+        c.thumb = s.thumb;
+        await H.down(2, 300, 300);
+        await wall(60);
+        await H.up(2);
+        await runFor(page, 0.3);
+        await H.up(1);
+      } else {
+        // the lift with the loop held, and one frame: the Aimer latches the body as the thumb lifted, to `until`
+        await step(0);
+        c.bodyLift = (await st()).body;
+        await H.up(1);
+        await step(1);
+        const s0 = await st();
+        const U = s0.until;
+        c.liftAt = +s0.t.toFixed(2);
+        c.latch = +(U - s0.t).toFixed(2);
+        if (leg === 'one') {
+          // (one) one thumb, its tap 0.3 s after the lift, inside the latch: a Lob at the body as the thumb lifted
+          const s = await to(U - 0.5);
+          c.tapAt = +(s.t - s0.t).toFixed(2);
+          c.bodyTap = s.body;
+          await touch('touchStart', [[2, 300, 300]]);
+          await wall(60);
+          await touch('touchEnd', []);
+        } else {
+          // (lane, bus) the same thumb back down a frame before the latch ends, on the lane or on the bus; two frames on, past the lift's latch and well
+          // inside stillTapMs, the other thumb taps: down 290 ms and up 350 ms after the rest's landing by the events' own clock, the thumb past tapMs,
+          // so the tap is answered at its lift; the Bomb's first tier (aimHoldMs) never comes, the loop held. (none) the same tap with no thumb down
+          const sR = await to(U - 0.05);
+          c.restAt = +(sR.t - s0.t).toFixed(2);
+          let pt = null, T = 0;
+          if (leg !== 'none') {
+            pt = leg === 'bus'
+              ? await page.evaluate(() => {
+                const b = window.__game.input.busBox;
+                return b ? [Math.round((b.x0 + b.x1) / 2), Math.round((b.y0 + b.y1) / 2)] : null;
+              })
+              : [196, 690];
+            if (!pt) {
+              await page.evaluate(() => (window.__qa = null));
+              return { ...c, miss: 'no bus box', shots: [] };
+            }
+            c.restPt = pt;
+            c.look = await page.evaluate(([x, y]) => {
+              const inp = window.__game.input;
+              return inp.inLookZone(x - inp.rectL, y - inp.rectT);
+            }, pt);
+            T = Date.now() / 1000;
+            await touch('touchStart', [[1, pt[0], pt[1]]], T);
+            const s1 = await st();
+            c.ranTo = +(s1.until - s0.t).toFixed(2);
+          }
+          await step(2);
+          const s2 = await st();
+          c.tapAt = +(s2.t - s0.t).toFixed(2);
+          c.bodyTap = s2.body;
+          c.thumb = s2.thumb;
+          if (pt) {
+            c.restMs = Math.round((Date.now() / 1000 - T) * 1000);
+            c.charge = s2.bus;
+            c.tier = s2.bomb;
+            await till(T + 0.29);
+            await touch('touchStart', [[1, pt[0], pt[1]], [2, 300, 300]], T + 0.29);
+            await till(T + 0.35);
+            await touch('touchEnd', [[2, 300, 300]], T + 0.35);
+            c.tapMs = [290, 350];
+            await till(T + 0.4);
+            await touch('touchEnd', [], T + 0.4);
+          } else {
+            await touch('touchStart', [[2, 300, 300]]);
+            await wall(60);
+            await touch('touchEnd', []);
+          }
+          // (the window as the row means it, or it isn't the case: then the leg runs again)
+          const hit = U > s0.t && sR.t < U - 0.01 && s2.t > U + 0.01 && (!pt || (!s2.thumb && c.ranTo > c.latch + 0.3 && c.look === false && (leg !== 'bus' || (s2.bus?.onBus && s2.bus.from > 0 && s2.bus.tier === 0 && s2.bomb === 0))));
+          if (!hit) c.miss = 'the window was not hit';
+        }
+        await page.evaluate(() => (window.__qa = null));
+      }
+      await runFor(page, 1.5);
+      c.shots = await shotsFrom(t0);
+      return c;
+    };
+    for (const leg of legs) {
+      for (let rep = 1; rep <= REPS; rep++) {
+        let c = null;
+        for (let k = 0; k < 3 && (!c || c.miss); k++) {
+          if (c) console.log('rest: (again)', JSON.stringify(c));
+          c = await leg1(leg);
+        }
+        const key = `${where}-${leg}-${rep}`;
+        const s = c.shots.length === 1 ? c.shots[0] : null;
+        const thrown = s ? `${s.kind}, the body ${s.bodyDeg} as it fired, thrown at ${s.angleDeg}` : `${c.shots.length} shots ${JSON.stringify(c.shots)}`;
+        R.rows.push({ key, ...c });
+        console.log('rest:', key, JSON.stringify(c));
+        if (c.miss) {
+          ok(false, `${key}: ${c.miss} (${JSON.stringify(c)})`);
+          continue;
+        }
+        if (leg === 'lane' || leg === 'bus' || leg === 'none') {
+          const what = leg === 'lane' ? 'a thumb back down resting on the lane' : leg === 'bus' ? 'a thumb back down charging a Bomb on the bus (tier 0)' : 'no thumb down';
+          ok(s && s.kind === 'tap' && s.bodyDeg < FROM, `${key}: ${what}, the other thumb's tap ${c.tapAt} s after the lift (latch ${c.latch} s${leg !== 'none' ? `, run on to ${c.ranTo} s by the landing at ${c.restAt} s, the tap ${c.tapMs.join('-')} ms into it` : ''}): a plain splat, the bus level (${thrown}; the body ${c.bodyLift} at the lift)`);
+        } else if (leg === 'live') {
+          ok(s && s.kind === 'lob' && c.thumb && Math.abs(s.angleDeg - Math.min(70, c.body)) <= 2, `${key}: the pull held and steering, the other thumb's tap: a Lob at the body as it is (${thrown}; the body ${c.body} before the tap)`);
+        } else {
+          ok(s && s.kind === 'lob' && Math.abs(s.angleDeg - Math.min(70, c.bodyLift)) <= 1.5, `${key}: one thumb, its tap ${c.tapAt} s after the lift, inside the latch: a Lob at the body as the thumb lifted (${thrown}; the body ${c.bodyLift} at the lift)`);
+        }
+      }
+    }
+    await page.close();
+  }
+  res.rest = R;
+  const bad = R.verdicts.filter((v) => v.startsWith('FAIL'));
+  console.log('rest:', R.verdicts.join('\n  '));
+  console.log(bad.length ? `rest: FAILED ${bad.length} of ${R.verdicts.length}` : `rest: all ${R.verdicts.length} passed`);
+  writeFileSync(`${out}/rest.json`, JSON.stringify(R, null, 1));
+  if (bad.length) process.exitCode = 1;
 }
 
 if (modes.has('boom') || modes.has('falls')) {

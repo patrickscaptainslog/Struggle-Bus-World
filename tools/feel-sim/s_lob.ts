@@ -14,6 +14,8 @@
 // whose middle is within 0.8 of its circle takes a level, up to the blast's cap.
 // After the Lob review (M90, the latch never had to end): a flick up a gear 0.5 s after the lift with the tap 1.2 s after it, and taps mashed every 0.3 s
 // after a Lob at Express until the belly is full, and three looks' landings 0.5, 1 and 1.4 s after the lift with the tap at 1.7 s: each a plain splat.
+// And the same thumb back down after the lift, resting on the lane or charging a Bomb on the bus, the other thumb's tap past the latch: a plain splat, the
+// rest's press given back and aimer.refresh before fire, as Input's answer() and main.ts's tapSplat call them.
 // --street (the Lob's merge with feat/shots): only Curb's street, aimer.street set as main.ts sets it while Curb rolls, a pull and a tap there nose up at
 // Cruise and Express, one thumb and two: never a Lob, no plan in the pull, nothing planned (Curb's street front is the tap's, before the Lob's slot).
 // --high (the Lob from any height, DESIGN's lob-high): over the Western Addition heading east and downtown, placed 1, 1.5, 2, 5, 10 and 14 km over the
@@ -71,7 +73,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0], t2: [JET, 2], t3: [JET, 3] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far' | 'high'; mode?: 'flick' | 'dive' | 'bomb' | 'street' | 'ceil' | 'climb'; body?: number; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look' | 'look-flick' | 'look-held' | 'bomb-still'; gap?: number; dur?: number; pin?: boolean }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far' | 'high'; mode?: 'flick' | 'dive' | 'bomb' | 'street' | 'ceil' | 'climb'; body?: number; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look' | 'look-flick' | 'look-held' | 'bomb-still' | 'rest'; rest?: number; gap?: number; dur?: number; pin?: boolean }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -136,6 +138,15 @@ CASES.push({ key: 'wa-floor/cruise/p1/1t/look-held-late', place: 'wa', h: 'floor
 // latch on and the Bomb (Aimer.fire's bomb, no Lob) leaves it so. The tap's finger at 1.2 s: no Lob, because the Bomb's recharge outlasts the latch's cap.
 // The tap's line prints what fire() chose, so a Lob carried by the latch shows even where the belly refuses it)
 CASES.push({ key: 'wa-floor/cruise/p1/1t/after-bomb', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'bomb-still' });
+// (the same thumb back down c.rest s after the lift, resting on the lane (rest-a, rest-b) or charging a Bomb on the bus short of its first tier (rest-bomb),
+// its landing a press that runs the latch on, and no thumb frames: the Aimer counts it only once it commits at stillTapMs, past the tap. The other thumb's
+// finger lands at c.gap, past the lift's own latch, and presses nothing, a thumb being down; its tap is answered with the thumb past tapMs. Input's answer()
+// gives the rest's press back before onTap, and main.ts's tapSplat calls aimer.refresh before fire: the body as it is, a plain splat. Before, the tap threw
+// the lift's body with the bus level. rest-ctl: the same tap with no thumb back down, a plain splat)
+CASES.push({ key: 'wa-floor/cruise/p1/1t/rest-a', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'rest', rest: 0.5, gap: 0.85, dur: 0.07 });
+CASES.push({ key: 'wa-floor/cruise/p1/1t/rest-b', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'rest', rest: 0.7, gap: 0.95, dur: 0.1 });
+CASES.push({ key: 'wa-floor/cruise/p1/1t/rest-bomb', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'rest', rest: 0.6, gap: 0.82, dur: 0.08 });
+CASES.push({ key: 'wa-floor/cruise/p1/1t/rest-ctl', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', gap: 0.85, dur: 0.07 });
 // (--high: the Lob from any height in their place)
 if (HIGH) {
   CASES.length = 0;
@@ -353,7 +364,7 @@ async function run(c: Case, dt: number, slot = true) {
   const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG, liftT = g.t;
   // ---- the tap: one thumb, the lift, a finger down 0.1 s later and up 0.08 s after; two thumbs, a finger down and up while the other pulls
   const fps = Math.round(1 / dt);
-  let ringAtPress = false, first: string | null = null;
+  let ringAtPress = false, first: string | null = null, rest = -1;
   const steps = (s: number) => Math.max(1, Math.round(s / dt));
   if (c.after === 'flick') {
     // (the flick's landing a press, as Input gives every flying thumb's)
@@ -403,14 +414,19 @@ async function run(c: Case, dt: number, slot = true) {
     // (late: the finger lands 28/60 s after the lift, its tap's lift 0.53 s after it; slid: it slides past the tap slop from its second frame, a steering thumb
     // committed, and lifts as a quick tap, the stick still centred)
     // (look-held: the look lands 0.2 s before the tap's finger and lifts 0.05 s after it)
+    // (rest: the thumb back down c.rest s after the lift, a press; the tap's finger presses nothing)
     let look = -1;
     if (c.after === 'look-held') {
       for (let j = 0; j < steps(0.4); j++) await frame(idle);
       look = g.press();
     }
-    for (let j = 0; j < steps(c.gap ?? (c.tap === 'late' ? 28 / 60 : 0.1)) - (look >= 0 ? steps(0.4) : 0); j++) await frame(idle);
+    if (c.after === 'rest') {
+      for (let j = 0; j < steps(c.rest!); j++) await frame(idle);
+      rest = g.press();
+    }
+    for (let j = 0; j < steps(c.gap ?? (c.tap === 'late' ? 28 / 60 : 0.1)) - (look >= 0 ? steps(0.4) : 0) - (rest >= 0 ? steps(c.rest!) : 0); j++) await frame(idle);
     ringAtPress = g.aimer.lobPlan !== null;
-    g.press();
+    if (rest < 0) g.press();
     for (let j = 0; j < steps(c.dur ?? 1 / 15); j++) {
       if (look >= 0 && j === steps(0.05)) g.unpress(look);
       await frame(c.tap === 'slid' && j >= 1 ? { sx: 0, sy: 0, dragging: true } : idle);
@@ -433,7 +449,14 @@ async function run(c: Case, dt: number, slot = true) {
   if (c.mode === 'bomb') {
     const s = bombShot(g);
     res = { fired: !!s, shot: s ?? { comet: null, x: f.x, z: f.z }, target: s?.target ?? null, landing: s ? { x: s.x, y: s.y ?? (s.target ? city.roofAtPart(s.target, s.x, s.z, f.y) + 0.5 : city.groundAt(s.x, s.z)), z: s.z } : { x: f.x, y: f.y, z: f.z }, wall: !!s?.exact };
-  } else res = g.tap();
+  } else {
+    // (rest: Input's answer() gives the rest's press back before onTap, and main.ts's tapSplat calls aimer.refresh before fire)
+    if (rest >= 0) {
+      g.unpress(rest);
+      g.aimer.refresh(f);
+    }
+    res = g.tap();
+  }
   const plan = res.shot.comet ?? null;
   const lob = plan?.kind === 'lob';
   if (c.after === 'bomb-still') console.log(`[${c.key}@${fps}] the tap ${res.fired ? 'fired' : 'was refused'}; fire() chose ${plan?.kind ?? 'the aim'} ${Math.round((g.t - liftT) * 100) / 100} s after the lift (the body ${r1(bodyLift)} at the lift, ${r1(bodyTap)} at the tap), the belly ${f.fullness.toFixed(2)}`);

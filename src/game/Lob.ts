@@ -223,11 +223,11 @@ export class Lob {
   /** The finger whose landing was press `n` (latch's keep) lifted as no tap, a look's or a flick's: the latch is as if it had never landed, the presses
    *  after it run again from the end before the first (one that ran on what only that press had run on latches nothing now: the tap reads the body live).
    *  A look landing 0.5 s after the lift ran the lift's latch on to 1.3 s, the tap's finger at 1.2 s ran it on again to the cap, and the tap threw the body
-   *  of the lift with the bus long level (r3's look case, the fault M90's fix left) */
-  unpress(n: number): void {
+   *  of the lift with the bus long level (r3's look case, the fault M90's fix left). Whether the latch held that press: one it let go of changes nothing */
+  unpress(n: number): boolean {
     let i = 0;
     while (i < this.presses && this.pressN[i] !== n) i++;
-    if (i >= this.presses) return;
+    if (i >= this.presses) return false;
     for (let j = i + 1; j < this.presses; j++) {
       this.pressN[j - 1] = this.pressN[j];
       this.pressT[j - 1] = this.pressT[j];
@@ -248,6 +248,7 @@ export class Lob {
     }
     this.latchUntil = end;
     this.ranFrom = from;
+    return true;
   }
 
   /** A latch parked by a stroke that may still be a quick tap. */
