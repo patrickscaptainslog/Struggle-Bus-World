@@ -52,8 +52,10 @@ flags are a mat4.
   `texSubImage2D` a dirty slot a frame, straight from the tile's array (`uploadRectFrom` in `src/render/upload.ts`, no copy). The region
   texture is made with no data (three.js allocates it with `texStorage2D`, which WebGL fills with zeros). A mask made just now, all zeros,
   into a slot never written sends nothing; a mask that already holds paint goes up whole once as it's linked; saved paint decoded onto a
-  mask in a region marks its whole rect. In a region's slot the dirty rect is every texel the blast can write (its rows' reach and each of its
-  dots'); a tile's own texture keeps today's box, so `?rmask=0` is today's to the texel.
+  mask in a region marks its whole rect. The dirty rect is every texel the blast can write (its rows' reach and each of its dots'), in a
+  region's slot and in a tile's own texture alike. Today's box, kept for own textures at first, missed a dab's edge texels: they were saved
+  and not shown until the tile's next whole upload (second review, R2-4). So `?rmask=0` is 4f33648's picture except where today's box
+  missed texels a blast wrote, which on the rows' pages is Curb's dabs (`?life`) alone (below).
 - *The draw.* The region's ground gets a per-vertex tile slot (`aTile`, 4 x u8). The terrain shader (`terrainMaterial.ts`) and the Moon's
   (`moonMaterial.ts`) compute each fragment's tile uv by exactly the arithmetic a split tile's own ground used, from the same vertices, so a
   painted tile in a coarse region is drawn as its split self was: its class lookup and its paint clamped to its own square, as before. A

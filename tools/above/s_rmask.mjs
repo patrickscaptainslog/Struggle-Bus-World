@@ -186,6 +186,32 @@ check('a settled blast: equal', taken());
 both((g) => { for (let k = 0; k < 20; k++) g.dab(makeBlastSpec(100 + k * 3, 900, 2.2, 5, 99 + k)); });
 frame(2);
 check('Curb\'s dabs: equal', taken());
+// 4b. writers on tiles whose masks and own textures are up already (a partial upload each): every own texture on the GPU equals its array, and every
+// region slot. A dab writes texels past p's box (review 2, R2-4)
+{
+  const off = (g) => {
+    let n = 0;
+    for (const m of g.masks.values()) {
+      if (!m.tex) continue;
+      const T = R.properties.get(m.tex).__webglTexture;
+      if (!T) continue;
+      for (let o = 0; o < m.data.length; o++) if (T.data[o] !== m.data[o]) n++;
+    }
+    return n;
+  };
+  // (each on a tile of its own, up since the rows above: the dabs (0, 3), the settled blast (2, 3), the tap (1, 1))
+  const by = {};
+  both((g) => { for (let k = 0; k < 20; k++) g.dab(makeBlastSpec(101 + k * 3, 905, 2.2, 5, 300 + k)); });
+  frame(2);
+  by.dabs = off(B);
+  both((g) => g.blast(makeBlastSpec(712, 806, tap, 2, 4321), -100));
+  frame(2);
+  by.settled = off(B) - by.dabs;
+  live(makeBlastSpec(310, 430, tap, 1, nextSeed()));
+  by.tap = off(B) - by.dabs - by.settled;
+  const h = held(A), hb = held(A, B);
+  row('writers on tiles already up: each own texture on the GPU equals its array, each region slot too', Object.values(by).every((v) => v === 0) && h.diff === 0 && hb.gpuDiff === 0, { ownBytesOff: by, regionDiff: h.diff, vsOwn: hb.gpuDiff, ...taken() });
+}
 // 5. a stale serial's clear: 255 blasts on, the first one's serial comes round and its tiles' masks are cleared of it, a whole tile each
 both((g) => { for (let k = 0; k < 255; k++) g.blast(makeBlastSpec(1800 + (k % 10) * 6, 700 + Math.floor(k / 10) * 6, 8, k % 6, 500 + k), globals.uTime.value); });
 frame(1);

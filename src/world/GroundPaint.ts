@@ -1749,10 +1749,10 @@ export class GroundPaint {
   /** Grow the tile's dirty rect by everything this blast can touch on it (dots fly past the splat). */
   private markDirty(m: TileMask, p: Prepared) {
     const cs = this.cell;
-    // (in a region's mask, every texel the blast writes: its splat's rows and its dots reach past p's box, a dab's most of all, and a region slot is sent only
-    // what's dirty, where a tile's own texture went up whole once. Today's box for a tile of its own, so ?rmask=0 is today's to the texel. Review 1)
-    const b = m.reg ? this.writeBox(p) : null;
-    const minX = b ? b[0] : p.minX, minZ = b ? b[1] : p.minZ, maxX = b ? b[2] : p.maxX, maxZ = b ? b[3] : p.maxZ;
+    // (every texel the blast writes: its splat's rows and its dots reach past p's box, a dab's most of all. A region slot is sent only what's dirty, and so is
+    // a tile's own texture once it's up: with p's box a dab's edge texels were saved and not shown till the next whole upload. Reviews 1 and 2)
+    const b = this.writeBox(p);
+    const minX = b[0], minZ = b[1], maxX = b[2], maxZ = b[3];
     const x0 = Math.max(0, Math.floor((minX - m.ox) / cs)), x1 = Math.min(GROUND_N - 1, Math.floor((maxX - m.ox) / cs));
     const z0 = Math.max(0, Math.floor((minZ - m.oz) / cs)), z1 = Math.min(GROUND_N - 1, Math.floor((maxZ - m.oz) / cs));
     if (x0 > x1 || z0 > z1) return;
