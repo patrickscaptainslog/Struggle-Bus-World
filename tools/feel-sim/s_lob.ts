@@ -71,7 +71,7 @@ type Place = keyof typeof PLACES;
 const RUNGS: Record<string, [number, number]> = { zone: [-1, 0], cruise: [0, 0], express: [EXPRESS, 0], nonstop: [NONSTOP, 0], jet: [JET, 0], t2: [JET, 2], t3: [JET, 3] };
 /** a case: where, how high ('floor': the rung's own; m over the ground), the rung, the pull (0-1 of the stick past its dead band) held `hold` s, one thumb or
  *  two, and what it should be: a Lob, none, or a Lob's miss in the water. mode: a flick's stroke (the whole pull for 0.15 s), out of a dive, a Bomb after */
-interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far' | 'high'; mode?: 'flick' | 'dive' | 'bomb' | 'street' | 'ceil' | 'climb'; body?: number; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look' | 'look-flick' | 'look-held'; gap?: number; dur?: number; pin?: boolean }
+interface Case { key: string; place: Place; h: number | 'floor'; rung: string; pull: number; thumbs: 1 | 2; want: 'lob' | 'none' | 'miss' | 'longer' | 'wall' | 'far' | 'high'; mode?: 'flick' | 'dive' | 'bomb' | 'street' | 'ceil' | 'climb'; body?: number; hold?: number; tap?: 'late' | 'slid'; after?: 'flick' | 'mash' | 'look' | 'look-flick' | 'look-held' | 'bomb-still'; gap?: number; dur?: number; pin?: boolean }
 const CASES: Case[] = [];
 for (const place of ['wa'] as const)
   for (const h of ['floor', 300] as const)
@@ -131,6 +131,11 @@ CASES.push({ key: 'wa-floor/cruise/p1/1t/look-held', place: 'wa', h: 'floor', ru
 // (and the tap's finger landing at 1 s, inside only the look's run-on, the look lifting at 1.05 s and the tap at 1.3 s: without the look it would have found
 // the latch ended, so it reads the body live, a plain splat)
 CASES.push({ key: 'wa-floor/cruise/p1/1t/look-held-late', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'look-held', gap: 1, dur: 0.3 });
+// (a Bomb charge's landing on the bus 0.5 s after the lift, held still and let go 0.43 s later as a Bomb: a gift's tier, or a full bank's, shows at 0.42 s,
+// before stillTapMs commits the thumb, so there are no thumb frames to unlatch, and a flying thumb's landing has no turn for onUnpress. Its press runs the
+// latch on and the Bomb (Aimer.fire's bomb, no Lob) leaves it so. The tap's finger at 1.2 s: no Lob, because the Bomb's recharge outlasts the latch's cap.
+// The tap's line prints what fire() chose, so a Lob carried by the latch shows even where the belly refuses it)
+CASES.push({ key: 'wa-floor/cruise/p1/1t/after-bomb', place: 'wa', h: 'floor', rung: 'cruise', pull: 1, thumbs: 1, want: 'none', after: 'bomb-still' });
 // (--high: the Lob from any height in their place)
 if (HIGH) {
   CASES.length = 0;
@@ -345,7 +350,7 @@ async function run(c: Case, dt: number, slot = true) {
     }
   }
   const pulled = { sx: 0, sy: c.mode === 'dive' ? stick(1) : sy, dragging: true };
-  const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG;
+  const bodyLift = f.pitch / DEG, noseLift = f.nose / DEG, liftT = g.t;
   // ---- the tap: one thumb, the lift, a finger down 0.1 s later and up 0.08 s after; two thumbs, a finger down and up while the other pulls
   const fps = Math.round(1 / dt);
   let ringAtPress = false, first: string | null = null;
@@ -371,6 +376,13 @@ async function run(c: Case, dt: number, slot = true) {
     for (let j = 0; j < steps(0.085); j++) await frame(idle);
     g.unpress(n);
     for (let j = 0; j < steps(0.515); j++) await frame(idle);
+  } else if (c.after === 'bomb-still') {
+    for (let j = 0; j < steps(0.5); j++) await frame(idle);
+    g.press();
+    for (let j = 0; j < steps(0.43); j++) await frame(idle);
+    bombShot(g);
+    console.log(`[${c.key}@${fps}] after the Bomb the latch runs to ${Math.round(((g.aimer.lob as any).latchUntil - liftT) * 100) / 100} s after the lift`);
+    for (let j = 0; j < steps(0.17); j++) await frame(idle);
   } else if (c.after === 'mash') {
     // (the Lob, then a tap every 0.3 s on the empty belly; the row's tap is the first with it full again)
     for (let j = 0; j < steps(0.1); j++) await frame(idle);
@@ -424,6 +436,7 @@ async function run(c: Case, dt: number, slot = true) {
   } else res = g.tap();
   const plan = res.shot.comet ?? null;
   const lob = plan?.kind === 'lob';
+  if (c.after === 'bomb-still') console.log(`[${c.key}@${fps}] the tap ${res.fired ? 'fired' : 'was refused'}; fire() chose ${plan?.kind ?? 'the aim'} ${Math.round((g.t - liftT) * 100) / 100} s after the lift (the body ${r1(bodyLift)} at the lift, ${r1(bodyTap)} at the tap), the belly ${f.fullness.toFixed(2)}`);
   const l4 = plan?.far ? Math.min(config.lob.flightHigh, lobFlight(plan.angle ?? 0) + (config.lob.fallPerKm * Math.max(0, aglTap - config.lob.highFrom)) / 1000, table.timeTo(vt, reachAtTap - config.lob.aheadMin - config.lob.stretch) - config.splat.inhale) : null;
   // (after a far one the view dips as main.ts dips it: toward the landing until config.shotView.hold after the impact, then back)
   const upDeg = (x: number, y: number, z: number) => {
