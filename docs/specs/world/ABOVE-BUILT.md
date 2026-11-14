@@ -10,7 +10,8 @@ the build, an A15 at 30 frames a second is the floor.
 painted downtown seen from 14.9 km held 60 degrees down is 85 draws where it was 239, and 72 at 5 km where it was 192. Every street view
 the rows shoot is 4f33648's to the pixel. What is still over the ruling is section "Still over the ruling". Nothing here has run on an
 A15 or in Safari. The fixes after the review (e219ee0 to e598ddc) are code written after a review: they get a review of their own before
-the merge.
+the merge. After the second review and a check of its fixes, the src changes stand; what changed after 325573d is tools, comments and this
+doc. One pixel row, draws-paint, still exits 1 on its own floor runs, on load noise both pages share (section "What the pixel rows say").
 
 ## 1c. Far boxes in chunks of 8 tiles
 
@@ -53,9 +54,9 @@ flags are a mat4.
   texture is made with no data (three.js allocates it with `texStorage2D`, which WebGL fills with zeros). A mask made just now, all zeros,
   into a slot never written sends nothing; a mask that already holds paint goes up whole once as it's linked; saved paint decoded onto a
   mask in a region marks its whole rect. The dirty rect is every texel the blast can write (its rows' reach and each of its dots'), in a
-  region's slot and in a tile's own texture alike. Today's box, kept for own textures at first, missed a dab's edge texels: they were saved
-  and not shown until the tile's next whole upload (second review, R2-4). So `?rmask=0` is 4f33648's picture except where today's box
-  missed texels a blast wrote, which on the rows' pages is Curb's dabs (`?life`) alone (below).
+  region's slot and in a tile's own texture alike. Today's box, kept for own textures at first, missed the edge texels of a dab-sized blast
+  with spatter (s_rmask's): they were saved and not shown until the tile's next whole upload (second review, R2-4). Curb's dab as main.ts
+  makes it (no dots or blobs) and taps did not miss any in Node, so `?rmask=0` matches 4f33648 on every writer a page reaches (below).
 - *The draw.* The region's ground gets a per-vertex tile slot (`aTile`, 4 x u8). The terrain shader (`terrainMaterial.ts`) and the Moon's
   (`moonMaterial.ts`) compute each fragment's tile uv by exactly the arithmetic a split tile's own ground used, from the same vertices, so a
   painted tile in a coarse region is drawn as its split self was: its class lookup and its paint clamped to its own square, as before. A
@@ -79,8 +80,9 @@ flags are a mat4.
 
 **The switch.** `config.city.regionPaint` (true), and `?rmask=0` on the page: the split ground as it was, pixel for pixel (proven against
 4f33648's build, below), but for one fix that is on both ways: a blast's dirty rect on a tile's own texture now covers every texel it
-writes (R2-4), so where 4f33648 left a dab's edge texels off the GPU until the next whole upload, this branch shows them at once. Only those
-edges can differ, and of the writers only Curb's dab (`?life`) was found to leave any. `?rmask=1` turns it on where the config is off. QA only: `?rmask=nofill` (region masks made, never filled) and
+writes (R2-4), so where 4f33648 left a small blast's spatter edge texels off the GPU until the next whole upload, this branch shows them at
+once. No writer a page reaches was found to leave any: s_rmask's dab-sized blast with spatter did; Curb's dab as main.ts makes it and taps did
+not (the third check, in Node). `?rmask=1` turns it on where the config is off. QA only: `?rmask=nofill` (region masks made, never filled) and
 `?rmask=noclamp` (every tile read over the whole region), the broken variants the rows' proofs run.
 
 **QA hooks** (`main.ts`'s `__game.city.ground`): `regionStats()`, `regionSlot(tx, tz)`, `uploadQa` (calls and bytes in the last flush).
@@ -162,50 +164,65 @@ step: 0 bytes differing, every time (up to 18 regions and 288 slots in one read,
 ## What ran, and what it printed
 
 Every row ran alone through the suite's gate script (sb-checks/world/above/a on the laptop), the browser rows one at a time under the
-machine's one GPU lock. B is this branch's build after the second review's fixes (`main-Bmv32K1C.js`, made at c308a3e's tree: the commits
-after it change tools and docs only). R is 4f33648's build. A row's exit decides. The runs after the first review are in the suite's
-NOTE-fix.md; these are the runs after the second (NOTE-fix2.md).
+machine's one GPU lock. B is this branch's build at the head after the check of the second review's fixes (`main-Bmv32K1C.js`: the src
+change after c308a3e is comments only, and the build's main chunk keeps its name). R is 4f33648's build. A row's exit decides. The
+runs after the first review are in the suite's NOTE-fix.md; these are the runs at the head (NOTE-fix2.md, its third pass).
 
 **Node** (this branch):
 
 | Row | Exit | What it printed |
 |---|---|---|
 | tsc | 0 | nothing |
-| s_rmask | 0 | "s_rmask: all passed": 21 rows. New: "fillBytes added by the attach equals what the first flush sends to the slots it queued whole" (1,728 KiB counted, 1,728 KiB sent to those 27 slots); "writers on tiles already up: each own texture on the GPU equals its array" (dabs, a settled blast, a tap: 0 bytes off each) |
-| s_rmask's proofs (scratch edits, put back) | 1, 1 | without R2-1's count: "fillKiB 0, slots 0, flushKiB 1978.1"; without R2-4's box on own textures: "ownBytesOff dabs 4, settled 0, tap 0" |
+| s_rmask | 0 | "s_rmask: all passed": 22 rows, among them "fillBytes added by the attach equals what the first flush sends to the slots it queued whole" (1,728 KiB both) and, new, "Curb's dabs as main.ts makes them, on tiles already up" ("ownBytesOff 0, offByTheDabs 0") |
+| s_rmask on 702bb35's GroundPaint (a scratch copy, deleted after) | 1 | the spatter row "ownBytesOff dabs 4"; the Curb row fails only on what the spatter rows left: "ownBytesOff 2, offByTheDabs 0" |
 | farchunk-check | 0 | "farchunk: every box the same in chunks of 4 and 8" |
 | marks-proof | 0 | "exits: on 0 (0 wanted), off 1 (1 wanted), round 2's blast 1 (1 wanted)" |
-| marks-doctor (13 doctored copies of the kept json) | 0 | "every case as wanted (13)": a missing marked pose, field or pose list, a renamed pose, a listed cell one triangle or draw worse, a pose over 1.5 M, net geometry in the blast: each exit 1 |
-| moon-programs (moon-above's json) | 0 | "programs at ready 33", 33 at every pose with the region ground drawn (5, 10, 4 and 23 draws), "blast: programs made 0" |
+| marks-doctor (15 doctored copies of the kept json) | 0 | "every case as wanted (15)"; its two new cases, a pose at 201 draws and the roofs at 999, exit 0 on 325573d's marks.mjs ("MARKS-DOCTOR FAILED: 2") |
+| moon-programs, moon-programs-proof | 0, 0 | "moon-programs: no program after ready" with "blast: programs made 0"; on the json with its blast deleted, "FAIL  blast: none in the json", "exit 1 (1 wanted)" |
 
 **Browser** (B unless named):
 
 | Row | Exit | What it printed |
 |---|---|---|
 | build, iosfloor | 0, 0 | vite's chunk-size warning only; "iOS 15.0 parses every chunk" |
-| det-skyoff, det-golden (the eight street views, R against B, the mask on) | 0, 0 | 8 of 8 each |
-| rmask-off (the eight views, `?rmask=0&farchunk=4`, against R) | 0 | "det-cmp: 8 of 8 views pass": R2-4's box changes no street frame |
-| det-street, det-street-0 (paintstreet, R against B, the mask on and off) | 0, 0 | 1 of 1 each |
-| paint-above (downtown: on, on2, `?rmask=0` twice; its blast, a lost context; marks) | 1 | on vs off at the plan's limits, each side floored by its own repeat: "7 of 7 poses pass" (2 px at 5 km 60 deg, 0 elsewhere, nothing in the floor); off vs again "7 of 7" (0 px everywhere); **on vs on2 "6 of 7": 300 m, 19 px, cluster 9**; marks all pass, the blast's "geometries made, net 0" among them; the blast's worst frame 155 KiB against `?rmask=0`'s 167 |
-| draws-paint (the Sunset's houses: on, on2, `?rmask=0` twice; marks) | 1, 1 | two runs. on vs off "7 of 7" both times (0 to 2 px; at 300 m the 5 px the review saw are in the mask-on page's own floor); off vs again "7 of 7", 0 px, both times; **on vs on2: 300 m 37 px (cluster 32) and 1 km 20 px the first time, 300 m 5 px (cluster 5) the second**; "marks: houses on: all passed" |
-| diag-particles (houses 300 m and 1 km, on and on2, the particles hidden) | 0 | "0 game px differ" at both poses |
-| moon-above (`?moon&site=TYCHO`: on, `?rmask=0` twice, a blast) | 0 | "paintview: passed", "paintcmp moon: 4 of 4 poses pass"; the blast: 2 region masks made, 258 KiB, "read back after: 18 regions 0 bytes differ" |
-| writers | 0 | "writers: passed"; the swap's 160 tiles equal the page with no swap |
+| det-skyoff, det-golden (the eight street views, R against B, the mask on) | 0, 0 | "det-cmp: 8 of 8 views pass" each |
+| det-street (paintstreet, R against B) | 0 | "det-cmp: 1 of 1 views pass" |
+| paint-above (downtown: on, on2, `?rmask=0` twice; its blast, a lost context; marks) | 0 | "exits: paintview 0, on vs off 0, off vs again 0, on vs on2 0, marks 0": on vs off 7 of 7 (1 px at 5 km 60 deg, 0 elsewhere), each page against its own repeat 7 of 7 (0 to 2 px); the blast's worst frame 56 draws, 155 KiB against `?rmask=0`'s 90 draws, 167 KiB; "marks: downtown on: all passed" |
+| draws-paint (the Sunset's houses: on, on2, `?rmask=0` twice; marks) | 1 | "exits: paintview 0, on vs off 0, off vs again 1, on vs on2 1, marks 0": on vs off 7 of 7 (0 to 1 px); **the floors: roofs 452 px (cluster 452, round the bus) on both pages' repeats, and 300 m 32 px on `?rmask=0`'s (the grey tree)**; "marks: houses on: all passed", every pose at most 200 draws |
+| floors-nobus (draws-paint's and paint-above's kept frames, the floors with the bus box left out; a report) | 0 | the houses' roofs still 14 px just outside the bus box on both repeats, 300 m 32 px on `?rmask=0`'s; downtown 7 of 7 |
+| diag-particles-3 (three runs of two mask-on loads, the particles hidden) | 1 | "2 of 6 pairs not equal": the houses at 300 m, 83 px, in runs 2 and 3 |
+| diag-roofs (the same at the roofs, particles hidden; a report) | 0 | 5 of 6 pairs equal; the 6th, on `?rmask=0`, 452 px at the bus: a second particle mesh's attributes and two meshes' uniforms differ, the camera doesn't |
+| diag-dump (two loads of each page held draw by draw; a report) | 0 | before the settled pin, 6 of 32 pairs had the camera apart ("camera: largest difference 0.0013"); after it 0 of 12; a grey tree on painted ground in 3 of the 64 loads that counted the trees, on either page |
+| writers | 0 | "writers: passed" |
+| moon-above (`?moon&site=TYCHO`: on, `?rmask=0` twice, a blast) | 0 | "paintview: passed", "paintcmp moon: 4 of 4 poses pass" twice; the blast's worst frame 29 draws, 258 KiB (`?rmask=0`: 60, 258 KiB) |
 | warm-plain | 0 | "warmcheck: passed" |
-| warm-moon, warm-moon-R | 1, 1 | the same output on B and R: warmcheck.mjs throws at `centre('mega')` (`[data-hud="mega"]` has no box) in the Moon's script, after "its report never counted every program the renderer has" |
 
 **What the pixel rows say.** At the plan's limits (cluster 4, none outside the paint's box) and with each side floored by its own repeat,
-the mask draws the painted downtown and houses as `?rmask=0` does at every pose: 0 to 2 game pixels, never a cluster over 2. The rows still
-exit 1, on their own floor run: the mask-on page, loaded twice, differs from itself at 300 m in all three runs (and once at 1 km), in
-clusters of 5 to 32 game pixels, while the `?rmask=0` page repeats to the pixel every time. The pixels are grey on one load where the
-other shows paint or a lighter grey, at the same screen spots in both places (game x 180 to 240, y 400 to 460 at 300 m), and with the
-particles hidden the two mask-on loads are equal (diag-particles). So it is the bus's particles: they take Math.random after every
-object made, and on the mask-on page what is made before them varies between loads. Why it varies there and not on the split ground is
-not known. The review's 5 px at 300 m are that noise: on a detailed tile 80 m from its nearest seam (paintview's `--at`), not a seam of
-the merged ground, so not the producer's call 2. The limits stay the plan's; a row can't pass until the particles repeat or are left out.
+the mask draws the painted downtown and houses as `?rmask=0` does at every pose: 0 to 3 game pixels, never a cluster over 2. Before the
+third check the rows exited 1 on their own floor runs, and that was blamed on the mask-on page and on the bus's particles. Neither holds:
+with the particles hidden two mask-on loads still differed (2 of 6 pairs), and the `?rmask=0` page differs from itself too once it is
+loaded often enough. Holding two loads draw by draw (`paintview --dump`) found three causes, none of them 1a's:
+
+- The camera, about a millimetre apart (83 game pixels at 300 m, two outcomes). The broad ground under the bus, its nose and the chase
+  camera's spring ease, and what they eased from depended on when the tiles round the start landed during the load. `pinAt` now settles
+  them (9e000fe): 6 of 32 pairs had it before, 0 of 12 after.
+- A tree standing in saved paint by a tile seam comes back grey on some loads (31 game pixels at 300 m, one tree at the Sunset), on the
+  `?rmask=0` page as on the mask-on page. Its trace, in both grey loads caught: the tile's `onTileReady` fired before its neighbour across the seam
+  was shown; main.ts paints a tile's trees once, on its own tile's ready, from the ground sampled under each tree. That is today's code
+  (4f33648's too), and a player can meet it: a tree by a seam stays grey after a reload. The tree itself is not pinned. Not fixed here (call 4).
+- At the roofs pose, something at the bus itself differs between loads of either page (452 game pixels round the bus, 14 of them just
+  outside its box). With `--noparticles` (the game's main particles hidden) it still came in 1 of 6 pairs, on `?rmask=0`: the draws that
+  differ are a second particle mesh at the bus (its attributes) and two meshes' uniforms. Particles draw Math.random, and what else takes
+  it in a frame (three.js takes it for every object made) varies with the load. Not proven further.
+
+So the rows still exit 1 (draws-paint, on its floors), on noise that both pages share. The limits stay the plan's.
 
 ## What did not run
 
+- At the head, the rows outside the final list: rmask-off, det-street-0, the paintup and paintfar rows, their proofs, warm-moon and
+  warm-moon-R, moon-keep, the budgets. They ran on this same build (`main-Bmv32K1C.js`) after the second review (NOTE-fix2.md); the
+  tools those rows use did not change since, except `pinAt`, which none of them calls.
+- A fix for the grey tree by a seam (call 4): today's code, outside 1a, so not touched here.
 - An A15, Safari, Safari's GPU memory, Metal's pipelines, frame times. Nothing here can stand in for them (ABOVE.md section 8). Laptop ms
   are printed by the rows as reports only.
 - A frame of the bridges' paint: it is building paint, which 1a doesn't touch.
@@ -250,9 +267,10 @@ With the mask on, the painted downtown from above is inside the ruling at every 
   brings its own grids.
 - Nothing marks a region stale with the mask on, so a twin is never made again for paint. `uGroundSq` is GroundPaint's, set for every tile
   with a mask, and City ORs in its tiles of their own (`flagRegionTile`).
-- A twin's first fill: its painted tiles' slots, 64 KB each, up to 16 calls in one flush; `GroundPaint.fillBytes` counts every whole slot
-  queued (a mask linked to a slot written before, saved paint decoded onto a slot, the Moon's copy put on one: `wholeSlot`), and a twin
-  adoption adds it to its byte budget the same way. Fresh masks send nothing now. (Between e219ee0 and the second review's fix the decoded
+- A twin's first fill: its painted tiles' slots, 64 KB each, up to 16 calls in one flush; `GroundPaint.fillBytes` counts the whole slots
+  that attaching and linking queue (a mask linked to a slot written before, saved paint decoded onto a slot, the Moon's copy put on one as it
+  attaches: `wholeSlot`), what an adoption adds, and a twin adoption adds it to its byte budget the same way. Whole slots queued outside an
+  adoption aren't in it: a Moon copy arriving for a tile already shown, a stale serial's clear, a wide blast's bands. Fresh masks send nothing now. (Between e219ee0 and the second review's fix the decoded
   paint and the Moon's copies went up uncounted: R2-1.)
 - Dropping one tile's region view while its region lives leaves its slot flagged in `uGroundSq` and its paint in the region texture: nothing
   sets a flag back to 0 (second review, R2-7; Node: after `detachRegion(1, 1)` the flag is still 1 and 4,427 painted texels stay, the region
@@ -296,12 +314,24 @@ A review of the fixes (seven findings: no blocker, one major). A second engineer
 | Finding | What became of it |
 |---|---|
 | R2-1 major: saved paint decoded onto a region slot, and the Moon's copies, went up whole without adding to `fillBytes`, so the adoption budget missed up to 1 MiB a region | fixed: `GroundPaint.wholeSlot` counts each whole slot where it is queued (the link, the decode, `attachGeo`), the same bytes sent. s_rmask's new row: what the attach adds equals what the first flush sends to those slots (it fails without the fix). `attachGeo`'s count is by reading: Node has no GeoPaint |
-| R2-2 minor: the pixel rows ran at loosened limits, the floor was one side's and unbounded | fixed in the tool and the rows: each side floored by its own repeat, the plan's limits, a floor over 0.05 % of the frame fails, the floor runs keep their exits. They now exit 1 on the mask-on page's own repeat (particles; "What the pixel rows say", above). The review's 5 px are that noise, not a seam |
+| R2-2 minor: the pixel rows ran at loosened limits, the floor was one side's and unbounded | fixed in the tool and the rows: each side floored by its own repeat, the plan's limits, a floor over 0.05 % of the frame fails, the floor runs keep their exits. They exit 1 on load noise both pages share, not 1a's ("What the pixel rows say", above). The review's 5 px at 300 m are that noise, on a detailed tile 80 m from its nearest seam, not a seam of the merged ground |
 | R2-3 minor: marks.mjs passed on missing poses and fields, allowed 2 %, dropped "no geometry made" | fixed: missing poses and fields fail, no slack (two runs of one build read the same numbers), every pose held to 1.5 M, net geometry in the blast fails; marks-doctor proves each. The Moon's "geometries net 4" are four roof sprouts' meshes made 7.95 s into the blast, on the mask-on page and on `?rmask=0` alike: not ground paint's |
-| R2-4 minor: a dab's edge texels missed the GPU on own textures | fixed: every dirty rect is the blast's write box. Of the writers through it (a landed blast that isn't wide, replays, Curb's dab, the Waterfall's pool) only the dab was found to miss texels; a plain page makes no dab. The street's rows against R hold, mask on and off |
+| R2-4 minor: a dab's edge texels missed the GPU on own textures | fixed: every dirty rect is the blast's write box. Of the writers through it (a landed blast that isn't wide, replays, Curb's dab, the Waterfall's pool) only s_rmask's dab-sized blast with spatter was found to miss texels; Curb's dab as main.ts makes it (no dots or blobs) does not (the third check; s_rmask's new row with main.ts's spec). The street's rows against R hold, mask on and off |
 | R2-5 minor: writers compares no frame | not done: "What did not run" |
 | R2-6 minor: claims no run supported | corrected above: `fillBytes`, the houses at 300 m (now "Still over the ruling", with its cause and a mark), the warm-up on the Moon (unproven), the blast that shows R1's fix (the Moon's), s_rmask's rows, the read back's largest, the Moon blast's marks, the probe's draws |
 | R2-7 minor, for 1b: one tile's region view dropped while its region lives keeps its slot flagged and painted | in "What 1b will need from 1a" |
+
+## The check of the fixes, and what became of it
+
+A check of 702bb35..325573d: the src changes sound, no blocker; one major for the lead and four minors.
+
+| Finding | What became of it |
+|---|---|
+| major: paint-above and draws-paint exit 1 on their own mask-on floor runs; the particles were blamed on one equal run | the particles were not it (three runs with them hidden: 2 of 6 pairs differed). The causes found are shared by both pages and none is 1a's: the camera's eased state (fixed in the tool, 9e000fe), a tree by a tile seam that comes back grey (today's code, call 4), and something at the bus at the roofs pose ("What the pixel rows say"). paint-above now passes; draws-paint still exits 1 on its floors |
+| minor: marks.mjs checks draws only at the two marked poses | fixed, 224540d: every pose at most the ruling's 200 draws. marks-doctor's two new cases (300 m at 201 draws, the roofs at 999) exit 0 on the old marks.mjs |
+| minor: Curb's dab named as the writer the old box missed | it wasn't: s_rmask's dab is a dab-sized blast with the config's spatter; main.ts's dab has none. Reworded here and in GroundPaint (f9867f7), and s_rmask has a row with main.ts's own dab spec: on 702bb35's GroundPaint the dabs leave no texel off ("offByTheDabs 0"), while the spatter row fails there |
+| minor: fillBytes' wording claims every whole slot | reworded (f9867f7): it counts what attaching and linking queue, what an adoption adds; later copies, clears and a wide blast's bands aren't in it, and none runs inside the adoption |
+| minor: moon-programs passes with no blast | fixed in the suite's tool: a missing blast fails (its proof row, on the kept json with its blast deleted, exits 1) |
 
 ## Calls for the producer, with the studio's pick
 
@@ -316,6 +346,12 @@ A review of the fixes (seven findings: no blocker, one major). A second engineer
 
 Each is invisible at phone size in the outside look. The phone decides.
 
+4. **A tree by a tile seam can come back grey after a reload** (found by the third check; today's code, 4f33648 included, not 1a). A
+   tile's trees take saved paint once, when that tile's paint is shown, from the ground under each tree; when the neighbour across the
+   seam isn't shown yet, the trace says a tree there stays grey (the tree itself not pinned). Seen in 3 of the 64 loads that counted the trees at the Sunset, on either page. Studio's pick: fix it
+   in a small change of its own after this branch's review (on a tile's ready, look again at the grey trees of its neighbours by the
+   seam), since paint that doesn't come back is a broken promise to the player. The other way: leave it, one tree on some loads.
+
 ## ASK for the second account
 
 - `GroundPaint` has region views: a tile can be loaded with no ground of its own. Code that reads `city.ground` only through `sample`,
@@ -326,11 +362,16 @@ Each is invisible at phone size in the outside look. The phone decides.
   `aTile` (`makeMoonGround`'s `ground` may carry `uTileM` and `uGroundSq`).
 - Paint lands in a coarse region without splitting it: anything that waited for a tile ground to appear to know a tile was painted should
   ask GroundPaint (`has`, `regionSlot`).
+- `onTileReady(tx, tz)` fires when a tile's saved paint is shown, and a neighbour across the seam may not be shown yet (call 4: a tree
+  there stays grey on some loads). Anything of life's that takes saved paint on it, ground sampled near a seam, can meet the same.
+- `pinAt` in tools/above/pvpage.mjs now settles the bus's broad ground, nose and chase camera at a pin; a tool of yours that
+  pins the bus and compares two loads may want the same.
 
 ## UNKNOWN
 
 - Everything on an A15 or in Safari: frame times, Metal's pipelines for the `aTile` layout, GPU memory for the region masks.
-- Why the bus's particles differ between two loads of the mask-on page and not of the split ground (the pixel rows' own floor runs).
+- Which particle mesh differs at the bus at the roofs pose, and why its random draws differ between two loads; and which tree the seam
+  race leaves grey (its two tiles are known, the tree is not).
 - Whether R4's three pixels come from the split tile's grid being meshed again on the main thread (the likely cause, by reading
   `City.takeGrid`); not proven.
 - Whether the region masks for unpainted tiles a blast reached matter for memory in long sessions on a phone (each region 1 MiB).
