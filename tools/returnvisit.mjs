@@ -393,11 +393,8 @@ if (budget) {
     L = await load(page, Q);
     R.deck = { record: onDeck, start: L.start, m: deck.m };
     ok(!L.start.pose && L.start.why === 'bridge' && L.first.gate, `(10) a record on the Golden Gate's deck: no start, why "bridge" (${L.start.why}), the Golden Gate (${L.first.gate})`);
-    await setRec(page, good);
-    for (const flag of ['recess', 'swerve']) {
-      L = await load(page, `?${flag}${T}`);
-      ok(!L.start.pose && L.start.why === flag, `(14) ?${flag} with a good record: no start (${L.start.why})`);
-    }
+    // ((12) before (14): the store's key is read on a plain page. On the one link a ?swerve page's paint keeps to the session (main.ts, its slug
+    // sf~swerve has no id scheme), so its city.paint.key is null, and the store it was to empty was left whole)
     await page.evaluate(HELPERS);
     const paint = await page.evaluate(() => {
       const k = window.__game.city.paint.key, v = localStorage.getItem(k);
@@ -408,6 +405,13 @@ if (budget) {
     L = await load(page, Q);
     ok(!L.start.pose && L.start.why === 'paint not saved' && L.first.gate, `(12) the building's paint gone from the store: the Golden Gate (${L.start.why})`);
     await page.evaluate(({ k, v }) => v && localStorage.setItem(k, v), paint);
+    await setRec(page, good);
+    // (?recess on the one link boots its arena before the return start and gives it its own lat and skipintro (docs/specs/core/STAGE1.md): no start, the
+    // first flag the start finds being lat)
+    for (const flag of ['recess', 'swerve']) {
+      L = await load(page, `?${flag}${T}`);
+      ok(!L.start.pose && (L.start.why === flag || (flag === 'recess' && L.start.why === 'lat')), `(14) ?${flag} with a good record: no start (${L.start.why})`);
+    }
     await setRec(page, good);
   }
 
