@@ -238,7 +238,8 @@ interface Slot {
   ownsPress: boolean;
   /** It landed in the look zone, as the zone was then (the bus's lane moves with the bus). */
   inLook: boolean;
-  /** Its landing was press number pressN (Input.presses) with nobody flying: lifted as no tap, onUnpress. 0: it pressed nothing. */
+  /** Its landing was press number pressN (Input.presses), with nobody flying or the flying thumb not yet committed: lifted as no tap, onUnpress. 0: it
+   *  pressed nothing. */
   pressN: number;
   /** It is the aim hold (state.aim): held still off the lane for aimHoldMs. armed: a frame has seen it past aimHoldMs (the next one starts it). */
   aiming: boolean;
@@ -299,8 +300,9 @@ export class Input {
   onPress: (() => void) | null = null;
   /** Every press so far (onPress's), in order. */
   presses = 0;
-  /** A finger whose landing pressed with nobody flying (a look zone's) lifted as no tap: a look, a flick, a rest, or lost. n: its press's turn. A flying
-   *  thumb's never does: it steered, and the stroke gives its own back (Aimer.update), but for another thumb's tap answered before it commits (answer). */
+  /** A finger whose landing pressed (Slot.pressN: a look zone's, or one beside a flying thumb not yet committed) lifted as no tap: a look, a flick, a rest,
+   *  or lost. n: its press's turn. A flying thumb's never does: it steered, and the stroke gives its own back (Aimer.update), but for another thumb's tap
+   *  answered before it commits (answer). */
   onUnpress: ((n: number) => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
@@ -716,7 +718,10 @@ export class Input {
           return;
         }
       }
-      if (!this.fly) slot.pressN = this.press();
+      // (and beside a flying thumb that hasn't committed: the Aimer can't see that thumb yet, so to it this landing is a lone finger's, and runs the Lob's
+      // latch on as one. A tap that lifted inside the lift's latch, fired once the rest committed with the rest's landing given back (answer), threw a plain
+      // splat: the review of the resting thumb's fix, 2)
+      if (!this.fly || !this.pointerDragging) slot.pressN = this.press();
       return;
     }
 
