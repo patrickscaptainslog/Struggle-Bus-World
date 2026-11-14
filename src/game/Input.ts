@@ -373,6 +373,8 @@ export class Input {
   private gPendingTap = false;
   /** The flying thumb's landing was press number flyPress (0: none): another thumb's tap answered before it commits gives it back (answer). */
   private flyPress = 0;
+  /** ...given back at MEGA's tap while the thumb was down (giveBackOthers): lifted as a tap of its own, put back first (onRepress). 0: none */
+  private flyGiven = 0;
   /** The flying thumb committed to a drag at some point. */
   private gSteered = false;
   private pointerDragging = false;
@@ -475,7 +477,7 @@ export class Input {
     if (down) {
       this.fireFirstGesture();
       if (this.pressBegin(Src.Button, now)) this.press();
-      else this.onTap?.(); // another press is held (Space): this one is a tap of its own
+      else this.tapOther(); // another press is held (Space): this one is a tap of its own
     } else this.pressEnd(Src.Button, now, cancelled);
   }
 
@@ -653,7 +655,7 @@ export class Input {
         this.onChargeStart?.();
         this.state.chargeHeld = 0;
         this.onChargeEnd?.(held, false);
-      } else this.onTap?.();
+      } else this.tapOther();
     }
   }
 
@@ -807,6 +809,8 @@ export class Input {
       // check of the resting thumb's fix, 3). Once committed the Aimer has let go of the latch, and this is nothing)
       if ((cancelled || !quick) && this.flyPress) this.onUnpress?.(this.flyPress);
       this.flyPress = 0;
+      const flyGiven = this.flyGiven;
+      this.flyGiven = 0;
       // A charge MEGA's finger carried off ends here, and only here.
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
       else if (dir) {
@@ -816,6 +820,7 @@ export class Input {
       // The everyday tap: one finger, short and still -> fire on the up. Beside a finger that landed with it, it waits: two fingers tapped together
       // are one tap at the last lift, and if the other turns out to be no tap (it looks, rests or flicks), this one was a tap of its own (update).
       else if (quick && !this.gAnswered) {
+        if (flyGiven && !cancelled) this.onRepress?.(flyGiven);
         if (this.gMulti) this.gPendingTap = true;
         else {
           this.giveBackRests();
@@ -879,7 +884,7 @@ export class Input {
     // to fly starts a new gesture, which forgot it, so a tap and the same thumb back down to steer beside a resting or looking thumb splatted nothing)
     if (this.gPendingTap && !this.gAnswered) this.answer();
     this.fly = slot;
-    this.flyPress = 0;
+    this.flyPress = this.flyGiven = 0;
     this.beginGesture(now);
     this.pointerDragging = false;
     // Show where the bungee is pinned right away; it only steers once committed.
@@ -931,7 +936,7 @@ export class Input {
     if (pressN) this.onUnpress?.(pressN);
     if (role === Role.Fly) {
       this.fly = null;
-      this.flyPress = 0;
+      this.flyPress = this.flyGiven = 0;
       this.endSteering();
       // (a lost touch never leaves a charge running)
       if (s.ownsPress) this.pressEnd(Src.Button, performance.now(), true);
@@ -1016,6 +1021,19 @@ export class Input {
     this.giveBackRests();
     this.gAnswered = true;
     this.gPendingTap = false;
+    this.onTap?.();
+  }
+
+  /** MEGA's tap, and Space's: another finger's tap, so as answer() and giveBackRests do, the flying thumb's landing not yet committed and every finger's
+   *  press down are given back first: a rest on the lane or in the look zone kept its landing, and MEGA threw the lift's Lob, the bus level (the check of
+   *  the resting thumb's fix, 2). The flying thumb lifting as a tap of its own puts its press back (flyGiven) */
+  private tapOther() {
+    if (this.fly && this.flyPress) {
+      this.onUnpress?.(this.flyPress);
+      this.flyGiven = this.flyPress;
+      this.flyPress = 0;
+    }
+    this.giveBackRests();
     this.onTap?.();
   }
 
@@ -1331,7 +1349,7 @@ export class Input {
           this.fireFirstGesture();
           if (!e.repeat) {
             if (this.pressBegin(Src.Key, evTime(e))) this.press();
-            else this.onTap?.();
+            else this.tapOther();
           }
         } else this.pressEnd(Src.Key, evTime(e), false);
         break;
