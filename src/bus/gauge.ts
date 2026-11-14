@@ -6,8 +6,8 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 // palette row and a lift: how many steps of its row a lit slice climbs over a plain one's (step 4 of 0-7; a lift of 1/7 is one step). A stop lit to step 6
 // rides a step lower in the full wave's trough, so its crest stays at 6: step 7 is the sparkle's. An unlit slice is its row's plain dark, or the dark of the
 // stop's own empty row where its row's dark would read as another crew's (`dark`), so empty still reads as empty, and full reads as each crew's run lit.
-// Under a super's charge each stop races a step over its lit one, to step 6 at most (`top`), so the race keeps the crew's colours and the white-hot (step 7
-// of GLOW_WHITE) is still a change. Rainbow's run is the six hues with no lift, no empty row and a top of 1: the band it always had.
+// Under a super's charge each stop races at a step over its lit one, to step 6 at most and never onto its body's sunlit steps (`top`), so the race keeps the
+// crew's colours and the white-hot (step 7 of GLOW_WHITE) is still a change. Rainbow's run is the six hues with no lift, no empty row and a top of 1: the band it always had.
 //
 // Each run is the crew's paint (render/factionLook.ts: the rows its shots and gardens use), dark to bright, and it stands off its body (FACTIONS' `bus`):
 // a crimson band on a crimson body says nothing. Where a crew's only paint for the run's start is its body's row (the sea and the forest are TEAL's and
@@ -30,9 +30,16 @@ export type GaugeRun = readonly GaugeStop[];
 
 /** a step of lift, in glow (BusModel's band: a lit slice glows 0.6, its row's step 4 of 0-7, at 4.2 of 7) */
 const STEP = 1 / 7;
-/** the charge's top for a stop lit `steps` over step 4: a step over that, to 6 at most, 0.2 into the step as a lit slice is */
-const topOf = (steps: number) => (Math.min(6, 4 + steps + 1) + 0.2) / 7;
-const run = (...s: [number, number, number?][]): GaugeRun => s.map(([ramp, steps, dark = 0]) => ({ ramp, lift: steps * STEP, dark, top: topOf(steps) }));
+/** the charge's top for a stop of `ramp` lit `steps` over step 4, on a bus whose body is `body`: a step over that, to 6 at most, but never onto the steps
+ *  the body's sunlit faces show (4 and 5) in the body's own row; 0.2 into the step, as a lit slice is */
+const topOf = (ramp: number, steps: number, body: number) => {
+  const lit = 4 + steps, up = Math.min(6, lit + 1);
+  return ((ramp === body && (up === 4 || up === 5) ? lit : up) + 0.2) / 7;
+};
+const run = (faction: number, ...s: [number, number, number?][]): GaugeRun => {
+  const body = Ramp[FACTIONS.find((c) => c.id === faction)!.bus];
+  return s.map(([ramp, steps, dark = 0]) => ({ ramp, lift: steps * STEP, dark, top: topOf(ramp, steps, body) }));
+};
 
 const { TEAL, MOSS, YELLOW, CYAN, CHROME, OBSIDIAN, ORANGE } = Ramp;
 
@@ -42,10 +49,10 @@ export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0,
 /** By faction number (none, or a later build's, is Rainbow's). */
 const GAUGES: Record<number, GaugeRun> = {
   [FACTION_RAINBOW]: RAINBOW_GAUGE,
-  [FACTION_ATLANTIS]: run([TEAL, -2], [TEAL, -2], [TEAL, -1], [TEAL, -1], [TEAL, 2], [TEAL, 2]),
-  [FACTION_ELDERWOOD]: run([MOSS, -1], [MOSS, -1], [MOSS, 2], [MOSS, 2], [YELLOW, 1, MOSS], [YELLOW, 2, MOSS]),
-  [FACTION_HYPERGLOW]: run([CHROME, -2], [CYAN, 0], [CHROME, -1], [CYAN, 1], [CHROME, 0], [CYAN, 2]),
-  [FACTION_INFERNO]: run([OBSIDIAN, 1], [ORANGE, -1], [ORANGE, 0], [ORANGE, 1], [YELLOW, 1], [YELLOW, 2]),
+  [FACTION_ATLANTIS]: run(FACTION_ATLANTIS, [TEAL, -2], [TEAL, -2], [TEAL, -1], [TEAL, -1], [TEAL, 2], [TEAL, 2]),
+  [FACTION_ELDERWOOD]: run(FACTION_ELDERWOOD, [MOSS, -1], [MOSS, -1], [MOSS, 2], [MOSS, 2], [YELLOW, 1, MOSS], [YELLOW, 2, MOSS]),
+  [FACTION_HYPERGLOW]: run(FACTION_HYPERGLOW, [CHROME, -2], [CYAN, 0], [CHROME, -1], [CYAN, 1], [CHROME, 0], [CYAN, 2]),
+  [FACTION_INFERNO]: run(FACTION_INFERNO, [OBSIDIAN, 1], [ORANGE, -1], [ORANGE, 0], [ORANGE, 1], [YELLOW, 1], [YELLOW, 2]),
 };
 
 /** A crew's run: Rainbow's for none or a later build's. */
