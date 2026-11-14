@@ -1903,7 +1903,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let skyAsked = !live;
   let firstFrameAt = -1;
 
-  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; camAt?: { lat?: number; lon?: number; x?: number; z?: number; h: number; lookLat?: number; lookLon?: number; lookX?: number; lookZ?: number; lookH: number; hfov?: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean };
+  type QA = { sx?: number; sy?: number; holdAt?: number; holdFrames?: number; held?: boolean; topDown?: { lat: number; lon: number; height: number } | null; camAt?: { lat?: number; lon?: number; x?: number; z?: number; h: number; lookLat?: number; lookLon?: number; lookX?: number; lookZ?: number; lookH: number; hfov?: number } | null; pin?: { x: number; y: number; z: number; heading: number } | null; noSlide?: boolean; busFx?: { charge?: number; spent?: number; pulse?: number } | null };
   /** ?moonland: the view the flight left the bus in, for the moments the rig takes to come over from it. */
   let fromSky: (LandEnter & { t: number }) | null = null;
   // ?earth (docs/specs/earth/EARTHFLIGHT.md, E2): the flight's loop, booted behind the street once it's up, and the join between them (sky/EarthLanding.ts). Until it's up the street pumps its own frames
@@ -2146,6 +2146,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     controls.pose(pose);
     swerve?.pose(pose);
     superSplat.pose(pose, superPose);
+    // QA: the bus's super charge, spent or heartbeat held where they are, for a look at the gauge under them (tools/factions/crew-bus.mjs)
+    if (qa?.busFx) Object.assign(superPose, qa.busFx);
     bomb.pose(superPose);
     bus.update(dt, simTime, superPose);
     // (?swerve: in a skid the nose is off the way the bus is going, by its slip, and the bus leans out of it; the long swipe's brake stands it on its tail a little)

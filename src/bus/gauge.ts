@@ -3,8 +3,11 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 
 // The gauge wears the crew. The belly band's 24 slices and the rear bar's six cells are the game's only gauge (BusModel): how full the belly is. On a bus
 // that wears a crew other than Rainbow they run through that crew's own paint, six stops from the rear (the bar: from the left, seen from behind), each a
-// palette row and a lift: how many steps of its row a lit slice climbs over a plain one's (a lift of 0.15 is one step). An unlit slice is its row's plain
-// dark, so empty still reads as empty, and full reads as each crew's run lit. Rainbow's run is the six hues with no lift: the band it always had.
+// palette row and a lift: how many steps of its row a lit slice climbs over a plain one's (step 4 of 0-7; a lift of 1/7 is one step). A stop lit to step 6
+// rides a step lower in the full wave's trough, so its crest stays at 6: step 7 is the sparkle's. An unlit slice is its row's plain dark, or the dark of the
+// stop's own empty row where its row's dark would read as another crew's (`dark`), so empty still reads as empty, and full reads as each crew's run lit.
+// Under a super's charge each stop races a step over its lit one, to step 6 at most (`top`), so the race keeps the crew's colours and the white-hot (step 7
+// of GLOW_WHITE) is still a change. Rainbow's run is the six hues with no lift, no empty row and a top of 1: the band it always had.
 //
 // Each run is the crew's paint (render/factionLook.ts: the rows its shots and gardens use), dark to bright, and it never starts on its body's row (FACTIONS'
 // `bus`), so the band stands off the body from the first slice: a crimson band on a crimson body says nothing. Where a body's row comes back further up a
@@ -18,17 +21,23 @@ import { HUE_RAMPS, Ramp } from '../render/palette';
 export interface GaugeStop {
   readonly ramp: number;
   readonly lift: number;
+  /** the row an unlit slice shows: 0 for its own (BusModel keeps it in the band's `glow`, which the band never read) */
+  readonly dark: number;
+  /** the glow a slice races at under a super's charge (1 on Rainbow's: step 7) */
+  readonly top: number;
 }
 export type GaugeRun = readonly GaugeStop[];
 
-/** a step of lift, in glow (BusModel's band: a lit slice glows 0.6, its row's step 4 of 0-7) */
-const STEP = 0.15;
-const run = (...s: [number, number][]): GaugeRun => s.map(([ramp, steps]) => ({ ramp, lift: steps * STEP }));
+/** a step of lift, in glow (BusModel's band: a lit slice glows 0.6, its row's step 4 of 0-7, at 4.2 of 7) */
+const STEP = 1 / 7;
+/** the charge's top for a stop lit `steps` over step 4: a step over that, to 6 at most, 0.2 into the step as a lit slice is */
+const topOf = (steps: number) => (Math.min(6, 4 + steps + 1) + 0.2) / 7;
+const run = (...s: [number, number, number?][]): GaugeRun => s.map(([ramp, steps, dark = 0]) => ({ ramp, lift: steps * STEP, dark, top: topOf(steps) }));
 
 const { PEARL, TEAL, VIOLET, MOSS, YELLOW, CYAN, CHROME, OBSIDIAN, RED, ORANGE } = Ramp;
 
 /** Rainbow's: the six hues, no lift (the band as it always was). */
-export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0 }));
+export const RAINBOW_GAUGE: GaugeRun = HUE_RAMPS.map((ramp) => ({ ramp, lift: 0, dark: 0, top: 1 }));
 
 /** By faction number (none, or a later build's, is Rainbow's). */
 const GAUGES: Record<number, GaugeRun> = {

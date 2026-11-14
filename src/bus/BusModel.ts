@@ -198,6 +198,8 @@ const VERTEX_CHUNK = /* glsl */ `
   float bT = uAnim.x;
   float bFull = clamp(uPose.w, 0.0, 1.0);
   float bReady = smoothstep(0.985, 1.0, bFull);
+  // (the gauge's race under a charge stops at its stop's top: 1, none, on every part but a crew's band)
+  float bCap = 1.0;
   float bMouth = clamp(uPose2.x, 0.0, 1.0);
   float bEye = clamp(uPose2.y, 0.0, 1.0);
   float bWide = smoothstep(0.72, 1.0, bEye);
@@ -262,12 +264,16 @@ const VERTEX_CHUNK = /* glsl */ `
     // (the crew's run: the slice's row is its stop's, and the stop's lift rides on its lit glow, in the lightOffset the band never read: 0 on Rainbow's)
     float bLift = lightOffset + 0.5;
     float g = uBand.x * (1.0 + uFx2.w * bReady * (wave - 0.35)) + bLift;
+    // (a stop lit so high its full wave's crest would pass step 6 rides lower when full, by as much: step 7 is the sparkle's. 0 on Rainbow's)
+    g -= bReady * max(0.0, bLift + uBand.x * (1.0 + 0.65 * uFx2.w) - ${f(6.2 / 7)});
     float fr = (bFull - bPar) * ${f(D.bandSlices)};
     g += 0.3 * exp(-fr * fr) * (1.0 - bReady);
     float sp = sbHash11(bPar * 131.0 + floor(bT * 9.0) * 7.31);
     if (sp > 1.0 - uFx3.x * bReady) g = 1.0;
     bGlow = g * lit;
     bLo = mix(uBand.y, uBand.z + bLift, lit);
+    // (an unlit slice of a stop with an empty row of its own, kept in the glow the band never read (0 on Rainbow's), shows that row's dark)
+    if (glow > 0.5 && lit < 0.5) bRamp = glow;
     // super splat charge: every slice races through the crew's run (uGauge: Rainbow's is the rainbow), faster and brighter, then white-hot
     float bCh = uFx5.y;
     if (bCh > 0.001) {
@@ -276,7 +282,10 @@ const VERTEX_CHUNK = /* glsl */ `
       float hot = smoothstep(0.62, 0.9, bCh);
       bool white = sbHash11(floor(bT * 18.0) * 3.7 + bPar * 41.0) < hot;
       bRamp = white ? ${f(Ramp.GLOW_WHITE)} : uGauge[int(hue)];
-      bGlow = mix(max(bGlow, 0.55), 1.0, smoothstep(0.0, 0.6, bCh));
+      // (each stop races to its own top, uGaugeTop: 1 on Rainbow's, and on the white-hot's)
+      float bTop = white ? 1.0 : uGaugeTop[int(hue)];
+      bGlow = mix(max(bGlow, 0.55), bTop, smoothstep(0.0, 0.6, bCh));
+      if (bTop < 1.0) bCap = mix(1.0, bTop, smoothstep(0.0, 0.6, bCh));
       bLo = mix(bLo, 0.42, smoothstep(0.0, 0.5, bCh));
     }
     // spent: the band goes dim
@@ -371,6 +380,10 @@ const VERTEX_CHUNK = /* glsl */ `
       bGlow = 1.0;
     }
   }
+  if (bCap < 1.0 && abs(bRamp - ${f(Ramp.GLOW_WHITE)}) > 0.5) {
+    bTgt = min(bTgt, bCap);
+    bGlow = min(bGlow, bCap);
+  }
   bLo = bTgt - bRaw;
 #define ramp bRamp
 #define lightOffset bLo
@@ -418,8 +431,9 @@ export class BusModel {
   private readonly uFx3 = new THREE.Vector4(); // sparkle, sun soften, gulp, light trim
   private readonly uFx4 = new THREE.Vector4(); // light snap, shadow mul, inhale, exhale
   private readonly uFx5 = new THREE.Vector4(); // hero light, super charge, spent, heartbeat pulse
-  /** the gauge's six rows, rear to front, which a super's charge races through (Rainbow's: its hues) */
+  /** the gauge's six rows, rear to front, which a super's charge races through (Rainbow's: its hues), and the glow each races at (Rainbow's: 1) */
   private readonly uGauge = Float32Array.from(RAINBOW_GAUGE, (s) => s.ramp);
+  private readonly uGaugeTop = Float32Array.from(RAINBOW_GAUGE, (s) => s.top);
 
   /**
    * Set where the faction button is (main.ts): every bus whose gauge nobody else drives (`ownGauge`), the rival crews' buses among them, wears the run
@@ -478,10 +492,11 @@ export class BusModel {
         uFx4: { value: this.uFx4 },
         uFx5: { value: this.uFx5 },
         uGauge: { value: this.uGauge },
+        uGaugeTop: { value: this.uGaugeTop },
       },
     });
     // declare the custom uniforms in the vertex stage
-    this.mat.vertexShader = 'uniform vec4 uPose, uPose2, uAnim, uBand, uShape, uFx, uFx2, uFx3, uFx4, uFx5;\nuniform float uGauge[6];\n' + this.mat.vertexShader;
+    this.mat.vertexShader = 'uniform vec4 uPose, uPose2, uAnim, uBand, uShape, uFx, uFx2, uFx3, uFx4, uFx5;\nuniform float uGauge[6], uGaugeTop[6];\n' + this.mat.vertexShader;
     this.mesh = new THREE.Mesh(geo, this.mat);
     this.mesh.scale.setScalar(scale);
     this.mesh.name = 'StruggleBus';
@@ -514,42 +529,50 @@ export class BusModel {
   }
 
   /**
-   * The gauge wears a crew's run (gauge.ts): its parts at z <= `zTo` (all of them by default) take their stop's row and lift, and a super's charge races
-   * through its rows from now on. Only the values of the model's own attributes and a uniform change: nothing compiles. True if a part changed.
+   * The gauge wears a crew's run (gauge.ts): its parts at z <= `zTo` (all of them by default) take their stop's row, lift and empty row, and a super's charge
+   * races through its rows, each to its top, from now on. Only the values of the model's own attributes and uniforms change: nothing compiles. True if a
+   * part changed.
    */
   paintGauge(run: GaugeRun, zTo = Infinity): boolean {
     const geo = this.mesh.geometry;
-    const ra = geo.getAttribute('ramp') as THREE.BufferAttribute, la = geo.getAttribute('lightOffset') as THREE.BufferAttribute;
+    const ra = geo.getAttribute('ramp') as THREE.BufferAttribute, la = geo.getAttribute('lightOffset') as THREE.BufferAttribute, ga = geo.getAttribute('glow') as THREE.BufferAttribute;
     const { idx, stop, z } = this.gauge;
     let wrote = false;
     for (let j = 0; j < idx.length; j++) {
       if (z[j] > zTo) continue;
       const i = idx[j], s = run[stop[j]], lo = s.lift - 0.5;
-      if (ra.getX(i) === s.ramp && la.getX(i) === Math.fround(lo)) continue;
+      if (ra.getX(i) === s.ramp && la.getX(i) === Math.fround(lo) && ga.getX(i) === s.dark) continue;
       ra.setX(i, s.ramp);
       la.setX(i, lo);
+      ga.setX(i, s.dark);
       wrote = true;
     }
     if (wrote) {
       ra.needsUpdate = true;
       la.needsUpdate = true;
+      ga.needsUpdate = true;
     }
-    if (zTo === Infinity) for (let k = 0; k < 6; k++) this.uGauge[k] = run[k].ramp;
+    if (zTo === Infinity)
+      for (let k = 0; k < 6; k++) {
+        this.uGauge[k] = run[k].ramp;
+        this.uGaugeTop[k] = run[k].top;
+      }
     return wrote;
   }
 
-  /** QA: the gauge's rows and lifts as its parts hold them, by stop (the first part of each), and the charge's rows */
-  gaugeQa(): { rows: number[]; lifts: number[]; charge: number[] } {
+  /** QA: the gauge's rows, lifts and empty rows as its parts hold them, by stop (the first part of each), and the charge's rows and tops */
+  gaugeQa(): { rows: number[]; lifts: number[]; darks: number[]; charge: number[]; tops: number[] } {
     const geo = this.mesh.geometry;
-    const ra = geo.getAttribute('ramp') as THREE.BufferAttribute, la = geo.getAttribute('lightOffset') as THREE.BufferAttribute;
-    const rows: number[] = [], lifts: number[] = [];
+    const ra = geo.getAttribute('ramp') as THREE.BufferAttribute, la = geo.getAttribute('lightOffset') as THREE.BufferAttribute, ga = geo.getAttribute('glow') as THREE.BufferAttribute;
+    const rows: number[] = [], lifts: number[] = [], darks: number[] = [];
     for (let j = 0; j < this.gauge.idx.length; j++) {
       const s = this.gauge.stop[j];
       if (rows[s] !== undefined) continue;
       rows[s] = ra.getX(this.gauge.idx[j]);
       lifts[s] = +(la.getX(this.gauge.idx[j]) + 0.5).toFixed(3);
+      darks[s] = ga.getX(this.gauge.idx[j]);
     }
-    return { rows, lifts, charge: Array.from(this.uGauge) };
+    return { rows, lifts, darks, charge: Array.from(this.uGauge), tops: Array.from(this.uGaugeTop, (t) => +t.toFixed(3)) };
   }
 
   private rand(): number {
