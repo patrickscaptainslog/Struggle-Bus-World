@@ -28,9 +28,10 @@
 // --boom: the url has &boom: after the blasts (and the modes before it), Sonic Boom (src/game/Boom.ts): at Turbo 2 over the Western Addition a real flick into
 //   Turbo 3, its crack, the hoop landing as the ring and its crown; with --crew in each of the five factions, switched on the crest.
 // --falls: the url has &falls: the Waterfall (src/fx/Falls.ts): a tap on a Financial District tower's roof, its runs, drops and pool; with --crew in each faction.
-// --return with ?show or ?swerve in the url (the one link): Return.ts stores no record there and makes no return start (NO_NOTE, NO_START), but the paint is
-//   kept. The painting visit must store no record, the reload must be the opening's, and at the blasts' place (Alamo Square, before their first blast) every
-//   saved building loaded must show its kept paint; exit 1 if not.
+// --return with ?show or ?swerve in the url (the one link): there the session's paint keeps to itself (main.ts: its slug, sf~swerve, has no id scheme, so
+//   no building paint is read or written), and Return.ts stores no record and makes no return start (NO_NOTE, NO_START). A plain visit paints first
+//   (?noreturn at Alamo Square, its paint saved); the showcase's visit then paints there: it must store no record and leave the saved store as the plain
+//   visit left it; then the url loads: no return start, the store still as it was; exit 1 if not.
 // --curb: the url is a street with ?life (?lat=37.736181&lon=-122.426973&heading=227&life&skipintro, GEARS.md's arterial): Curb with real touches, on and off.
 // Wall clock, real GPU (tools/browser.mjs): meaningful on a laptop, not in the cloud's SwiftShader.
 // `lamps` in the report: when the street lamps' list was asked for and landed, ms after ready (a dusk with them in flight: ?t=2026-11-07T00:01:00Z&rate=120).
@@ -115,7 +116,30 @@ await page.addInitScript(() => {
 });
 
 const showcase = !!opt.return && /[?&](show|swerve)(=|&|$)/.test(new URL(url).search);
-let keptIds = [];
+let seed = null;
+if (showcase) {
+  // (the plain city's own paint first: what the showcase must leave as it was. A tap at Alamo Square, as the visit below makes it, and the paint saved)
+  const p0 = new URL(url);
+  p0.search = '?lat=37.77628&lon=-122.4352&heading=88&skipintro&noreturn';
+  await page.goto(p0.href, { waitUntil: 'domcontentloaded', timeout: 300000 });
+  await page.waitForFunction(() => window.__shotReady === true, null, { timeout: 300000, polling: 100 });
+  seed = await page.evaluate(async () => {
+    const g = window.__game;
+    for (let i = 0; i < 40 && !g.glintNow(); i++) await new Promise((r) => requestAnimationFrame(r));
+    g.forceReady();
+    g.tapSplat();
+    const s = g.lastShot();
+    const until = (s?.t ?? 0) + (s?.travel ?? 0) + 0.5;
+    while (g.clock() < until) await new Promise((r) => requestAnimationFrame(r));
+    g.city.paint.persist();
+    return { key: g.city.paint.key, v: g.city.paint.key ? localStorage.getItem(g.city.paint.key) : null };
+  });
+  console.log(`return: the plain city's paint saved first, ${Object.keys(JSON.parse(seed.v ?? '{}')).length} buildings under ${seed.key}`);
+  if (!seed.v) {
+    console.log('FAIL: the plain visit saved no paint');
+    process.exit(1);
+  }
+}
 if (opt.return) {
   // a visit that paints (Alamo Square by ?lat, its opening marked seen), a real tap on a building, the paint saved and the record with it; then the url
   // below loads into the return start (it must: exit 1 if not), and the phases run from there
@@ -137,10 +161,10 @@ if (opt.return) {
   });
   console.log('return: the record after a tap at Alamo Square:', rec);
   if (showcase) {
-    keptIds = await page.evaluate(() => Object.keys(window.__game.city.paint.saved));
-    console.log(`return: the showcase's paint saved, ${keptIds.length} buildings`);
-    if (rec || !keptIds.length) {
-      console.log(`FAIL: the showcase ${rec ? 'stored a return record' : 'saved no paint'}`);
+    const same = (await page.evaluate((k) => localStorage.getItem(k), seed.key)) === seed.v;
+    console.log(`return: after the showcase's tap the saved store is ${same ? 'as the plain visit left it' : 'CHANGED'}`);
+    if (rec || !same) {
+      console.log(`FAIL: the showcase ${rec ? 'stored a return record' : 'wrote into the saved store'}`);
       process.exit(1);
     }
   } else if (!rec) {
@@ -151,14 +175,18 @@ if (opt.return) {
 const t0 = Date.now();
 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 300000 });
 if (opt.return) {
-  await page.waitForFunction(() => !!window.__game?.returnStart, null, { timeout: 300000, polling: 100 });
-  const rs = await page.evaluate(() => window.__game.returnStart());
+  // (the showcase's: a build from before the return visit has no returnStart, and starts as it always did)
+  await page.waitForFunction((sc) => !!window.__game?.returnStart || (sc && window.__shotReady === true), showcase, { timeout: 300000, polling: 100 });
+  const rs = await page.evaluate(() => window.__game.returnStart?.() ?? { pose: null, why: 'no returnStart on this build' });
   console.log('return: the start', JSON.stringify(rs));
-  if (showcase && rs.pose) {
-    console.log("FAIL: the showcase's reload started over the paint");
-    process.exit(1);
-  }
-  if (!showcase && !rs.pose) {
+  if (showcase) {
+    const same = (await page.evaluate((k) => localStorage.getItem(k), seed.key)) === seed.v;
+    console.log(`return: the showcase's reload: ${rs.pose ? 'a return start' : 'no return start'}, the saved store ${same ? 'as it was' : 'CHANGED'}`);
+    if (rs.pose || !same) {
+      console.log(`FAIL: the showcase's reload ${rs.pose ? 'started over the paint' : 'changed the saved store'}`);
+      process.exit(1);
+    }
+  } else if (!rs.pose) {
     console.log('FAIL: the reload did not start over the paint');
     process.exit(1);
   }
@@ -384,22 +412,6 @@ await run(4);
 await phase('blasts');
 await place(37.77615, -122.4352, 60, Math.PI / 2);
 await settle();
-if (showcase) {
-  // (--return on the one link: the kept paint, drawn where it was)
-  const kept = await page.evaluate((ids) => {
-    const p = window.__game.city.paint;
-    return ids.map((id) => {
-      const i = p.stableToIndex.get(Number(id)) ?? p.stableToIndex.get(id);
-      return i === undefined ? null : p.level(i);
-    });
-  }, keptIds);
-  const loaded = kept.filter((l) => l !== null), bare = loaded.filter((l) => !(l > 0));
-  console.log(`return: the kept paint at Alamo Square: ${loaded.length} of ${kept.length} saved buildings loaded, ${bare.length} of them unpainted`);
-  if (!loaded.length || bare.length) {
-    console.log('FAIL: the kept paint is not drawn where it was');
-    process.exit(1);
-  }
-}
 await run(1.5);
 for (let i = 0; i < 3; i++) {
   await page.evaluate(() => window.__game.barfAtLatLon(37.7762, -122.43262));
