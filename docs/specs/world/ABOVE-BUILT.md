@@ -1,7 +1,8 @@
 # Release A, parts 1c and 1a: as built
 
 The plan is `docs/specs/world/ABOVE.md` on the docs branch (section 4, "Release A"). This branch, `feat/above`, holds its parts 1c and 1a and
-nothing else: 1b, the gear's twin, is the next job. Cut at 4f33648. Not pushed, not merged, not flown on a phone.
+nothing else: 1b, the gear's twin, is the next job. Cut at 4f33648. Pushed 2026-11-14, after its whole table ran at the head ("The
+whole table at the head", below). Not merged, not flown on a phone.
 
 The ruling this serves (CLAUDE.md, "Numbers"): 120-200 draws and 1.0-1.5 M triangles a frame, nothing compiles in flight, Safari 15 parses
 the build, an A15 at 30 frames a second is the floor.
@@ -28,8 +29,9 @@ doc. One pixel row, draws-paint, still exits 1 on its own floor runs, on load no
   and 300 m a chunk of 8 is up by 1 or 2 draws where 4's were hidden, up to +0.017 M. Those frames are over the ruling for the gear's held
   detail, which is 1b's.
 - **Its look.** Not pixel for pixel. Inside one instanced chunk the boxes draw in the instance's order, where three.js sorted the old chunks
-  of 4 by depth between them. Where two boxes tie in depth one wins on one build and the other on the other: 9 game pixels in the `paintup`
-  view. With `&farchunk=4` that view is 4f33648's to the pixel. The default street views are equal. This is a studio call (below).
+  of 4 by depth between them. Where two boxes tie in depth one wins on one build and the other on the other: one game pixel in the `paintup`
+  view (det-cmp's "9 px" are the frame's at 3x, one 3 by 3 block at game pixel 275, 276; this doc said nine game pixels before the whole
+  table). With `&farchunk=4` that view is 4f33648's to the pixel. The default street views are equal. This is a studio call (below).
 
 ## 1a. One paint mask per coarse region
 
@@ -217,11 +219,29 @@ loaded often enough. Holding two loads draw by draw (`paintview --dump`) found t
 
 So the rows still exit 1 (draws-paint, on its floors), on noise that both pages share. The limits stay the plan's.
 
+## The whole table at the head
+
+All 64 rows of the suite ran in one go on the build of 80a886e (built again from the head: `main-Bmv32K1C.js`, the same bundle as after
+the second review), the browser rows one at a time. 45 exit 0. The 19 that do not were red before this table too, and none is new:
+
+| Rows | What they printed | Why |
+|---|---|---|
+| det-far-nofill-proof, det-street-nofill-proof, det-far-noclamp-proof, writers-proof | "DIFFERENT: 12654 px", "2241 px", "9 px"; "WRITERS FAILED: 7" | proofs: each must fail, and does (noclamp against the mask's own frame: one game pixel, at 247, 421) |
+| det-up-off, det-up-on, det-up-noclamp-proof, det-up-nofill-proof | "DIFFERENT: 9 px" each, against 4f33648's frame | 1c's tie pixel (call 1), one game pixel. The four frames are equal to each other (by hand, 0 px), and det-up-4 and det-up-0 (`&farchunk=4`) are 4f33648's to the pixel. That view has no painted coarse ground in frame, so its two proofs prove nothing (round 1 said so) |
+| det-far-off | "DIFFERENT: 27 px" | the three seam pixels (call 2). det-far-on and det-far-0 pass |
+| det-far, det-far4, det-far-rr | "DIFFERENT: 1287 px" each, downtown alone of the six views | 4f33648's first shoot of that view is the odd one: its bus stood 3.3 mm higher (stats.json: y 518.4395 against 518.4362). Shot again in this table (det-far-rr), 4f33648's build gives this build's frame to the pixel (by hand, 0 px), as in round 1 |
+| draws-paint | exit 1 on its floors | load noise both pages share ("What the pixel rows say") |
+| diag-particles-3 | "2 of 6 pairs not equal" | a diagnostic of that noise, not a gate |
+| warm-moon, warm-moon-R | a throw in warmcheck's Moon script | the tool, on 4f33648's build the same |
+| moon-keep, moon-keep-R | "1 FAIL", the heavy row: "painted 1000, back 0" | the same row the same way on 4f33648's build |
+| moon-keep-R-orig | module not found | a stale row: the temporary tool it ran is gone |
+
+A det row that shoots one side fresh against a side kept from an earlier shoot holds only where the bus's height is the same at both
+shots. In that one shoot of downtown it was not (why, not looked into). `pinAt` (9e000fe) settles the bus for the paint rows;
+`tools/shots.mjs --det` does not call it.
+
 ## What did not run
 
-- At the head, the rows outside the final list: rmask-off, det-street-0, the paintup and paintfar rows, their proofs, warm-moon and
-  warm-moon-R, moon-keep, the budgets. They ran on this same build (`main-Bmv32K1C.js`) after the second review (NOTE-fix2.md); the
-  tools those rows use did not change since, except `pinAt`, which none of them calls.
 - A fix for the grey tree by a seam (call 4): today's code, outside 1a, so not touched here.
 - An A15, Safari, Safari's GPU memory, Metal's pipelines, frame times. Nothing here can stand in for them (ABOVE.md section 8). Laptop ms
   are printed by the rows as reports only.
@@ -336,7 +356,7 @@ A check of 702bb35..325573d: the src changes sound, no blocker; one major for th
 ## Calls for the producer, with the studio's pick
 
 1. **1c's few tie pixels.** Inside one chunk of 8 the far boxes draw in their instance order, so where two far boxes tie in depth the
-   other one wins: 9 game pixels in one view from above, none in the street views. Studio's pick: accept them. The other way keeps chunks of
+   other one wins: one game pixel in one view from above, none in the street views. Studio's pick: accept it. The other way keeps chunks of
    4 near the loaded edge and 8 beyond, for about half the saving.
 2. **Three seam pixels on unpainted ground from 400 m** (R4): a painted coarse region's ground is now its merged mesh, where today a
    touched tile was meshed again on its own; at three G-buffer pixels on tile seams in one view the shade differs by a step. Studio's pick:
