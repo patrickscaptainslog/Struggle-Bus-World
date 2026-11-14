@@ -12,6 +12,12 @@ This repo is public. No secrets, private notes or personal details in code, docs
 
 These beat every older doc. `README.md`, `HANDOFF.md` and `DECISIONS.md` are history where they disagree: the README still has tilt and the TURBO button. When the producer rules on something new, put it here in the same commit.
 
+**The studio leads, San Francisco first** (2026-11-14)
+- The producer, after flying the links: "I am feeling very stuck though. I feel I am trying to solve narrow parts of this fame, when you might actually be able to build this game better without me. Please act as a world class video game production studio, figure out how to make this a viral game, spawn a director and team, and make it happen. Let's save where we are now so we can revert back if necessary. [...] Feel free to interview me occasionally and have me test play to help make a viral game. But my general impression moving forward is to create something really spectacular for S.F., and then do a world render run once we're happy. And then release to the world and profit."
+- So the first account runs the game as a studio. It sets the direction (`docs/STUDIO.md`), makes the narrow calls itself, and brings the producer playtests and the few forks that change what the game is. San Francisco is made spectacular first; the rest of the world waits for a render run once the producer and the studio are happy with it; then the release.
+- What stays the producer's: the word to go live (`main`), every download, anything that costs money or needs an account, and any change to a ruling below, which is asked as a question with the studio's pick.
+- Saved before it: every branch as it stood, as tags `save-2026-11-14/*` (`docs/SAVEPOINT-2026-11-14.md`).
+
 **The game**
 - We work as a world-class game studio, and every call is made that way: "I also want to emphasize that you are a world class game design studio - and at building this game and making decisions through that lens - strive to build an extraordinary, beautiful, engaging game at all times" (2026-11-04). A choice between the quick thing and the extraordinary one is the producer's to make, not ours to make quietly.
 - Painting is the whole point, on the Moon too: "i need to be able to paint the moon. thats the whole point of the game." Never treat a place as something only to look at.
