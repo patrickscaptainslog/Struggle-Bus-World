@@ -26,7 +26,8 @@ globalThis.localStorage = {
 };
 const { GroundPaint } = await import('../../src/world/GroundPaint.ts');
 const { globals } = await import('../../src/render/materials.ts');
-const { makeBlastSpec, blastRadiusFor, groundDeadline, LAYOUT_RING } = await import('../../src/game/blastLayout.ts');
+const { makeBlastSpec, blastRadiusFor, groundDeadline, LAYOUT_RING, LAYOUT_BANDS } = await import('../../src/game/blastLayout.ts');
+const { config } = await import('../../src/config.ts');
 
 const NOFILL = process.argv.includes('--nofill');
 const TS = 256, N = 128, RS = 4;
@@ -179,15 +180,16 @@ check('a tap: the region mask equals its tiles, and today\'s own textures', { r:
   live(s);
   check('a Sonic Boom\'s ring: equal', taken());
 }
-// 4. a settled blast (the QA seed's), and Curb's dabs, a few texels each
+// 4. a settled blast (the QA seed's), and dab-sized blasts (Curb's 2.2 m) with the config's spatter (dots, blobs, rays), a few texels each: not Curb's
+// own dab, which has none (4c)
 both((g) => g.blast(makeBlastSpec(700, 800, tap, 3, 1234), -100));
 frame(2);
 check('a settled blast: equal', taken());
 both((g) => { for (let k = 0; k < 20; k++) g.dab(makeBlastSpec(100 + k * 3, 900, 2.2, 5, 99 + k)); });
 frame(2);
-check('Curb\'s dabs: equal', taken());
+check('dab-sized blasts with spatter: equal', taken());
 // 4b. writers on tiles whose masks and own textures are up already (a partial upload each): every own texture on the GPU equals its array, and every
-// region slot. A dab writes texels past p's box (review 2, R2-4)
+// region slot. A dab-sized blast with spatter writes texels past p's box (review 2, R2-4)
 {
   const off = (g) => {
     let n = 0;
@@ -211,6 +213,34 @@ check('Curb\'s dabs: equal', taken());
   by.tap = off(B) - by.dabs - by.settled;
   const h = held(A), hb = held(A, B);
   row('writers on tiles already up: each own texture on the GPU equals its array, each region slot too', Object.values(by).every((v) => v === 0) && h.diff === 0 && hb.gpuDiff === 0, { ownBytesOff: by, regionDiff: h.diff, vsOwn: hb.gpuDiff, ...taken() });
+}
+// 4c. Curb's dab as main.ts makes it (rings round the landing, no rays, dots or blobs), 1 to 3 a frame on a tile already up: own textures and region
+// slots equal
+/** main.ts's Curb dab: the lane's spec, landed at (ox, oz) */
+const curbDab = (x, z, ox, oz, seed) => {
+  const s = makeBlastSpec(x, z, config.curb.dabR, 5, seed);
+  Object.assign(s, { layout: LAYOUT_BANDS, ring: config.curb.dabRing, ox, oz, rays: 0, rayLen: 0, dots: 0, blobs: 0 });
+  return s;
+};
+{
+  // (each own texture's bytes that differ from its array, by mask and offset: the dabs' own are the ones not off before them)
+  const offs = (g) => {
+    const s = new Set();
+    for (const [key, m] of g.masks) {
+      if (!m.tex) continue;
+      const T = R.properties.get(m.tex).__webglTexture;
+      if (T) for (let o = 0; o < m.data.length; o++) if (T.data[o] !== m.data[o]) s.add(`${key}:${o}`);
+    }
+    return s;
+  };
+  const was = offs(B);
+  for (let f = 0; f < 40; f++) {
+    both((g) => { for (let k = 0; k < 1 + (f % 3); k++) g.dab(curbDab(102 + f * 1.5 + k * 0.5, 903 + (k % 2), 95, 900, 700 + f * 3 + k)); });
+    frame(1);
+  }
+  frame(1);
+  const now = offs(B), made = [...now].filter((k) => !was.has(k)).length, h = held(A), hb = held(A, B);
+  row('Curb\'s dabs as main.ts makes them, on tiles already up: each own texture on the GPU equals its array, each region slot too', now.size === 0 && h.diff === 0 && h.unflagged === 0 && hb.gpuDiff === 0 && hb.arrayDiff === 0, { ownBytesOff: now.size, offByTheDabs: made, regionDiff: h.diff, vsOwn: { gpu: hb.gpuDiff, arrays: hb.arrayDiff }, ...taken() });
 }
 // 5. a stale serial's clear: 255 blasts on, the first one's serial comes round and its tiles' masks are cleared of it, a whole tile each
 both((g) => { for (let k = 0; k < 255; k++) g.blast(makeBlastSpec(1800 + (k % 10) * 6, 700 + Math.floor(k / 10) * 6, 8, k % 6, 500 + k), globals.uTime.value); });

@@ -330,9 +330,10 @@ export class GroundPaint {
   regionNoFill = false;
   /** QA: paint uploads in the last flush, to tiles' own textures and to region masks: calls and bytes */
   readonly uploadQa = { calls: 0, bytes: 0, regionCalls: 0, regionBytes: 0 };
-  /** Release A, 1a: whole tile slots queued for region masks since the start, in bytes (a tile shown in a region goes up whole once: linked to a slot written before, its saved paint decoded onto it, or the Moon's
-   *  copy put on it; wholeSlot): the city counts what an
-   *  adoption adds to it in that frame's upload budget */
+  /** Release A, 1a: whole tile slots that attaching and linking queued for region masks since the start, in bytes (a tile shown in a region goes up whole once:
+   *  linked to a slot written before, its saved paint decoded onto it, or the Moon's copy put on it as it attaches; wholeSlot): the city counts what an
+   *  adoption adds to it in that frame's upload budget. Whole slots queued outside an adoption aren't in it: a Moon copy for a tile already shown
+   *  (paintCopied), a stale serial's clear, a wide blast's bands */
   fillBytes = 0;
   /** writeBox's, a blast's */
   private boxes = new WeakMap<Prepared, number[]>();
@@ -1749,8 +1750,9 @@ export class GroundPaint {
   /** Grow the tile's dirty rect by everything this blast can touch on it (dots fly past the splat). */
   private markDirty(m: TileMask, p: Prepared) {
     const cs = this.cell;
-    // (every texel the blast writes: its splat's rows and its dots reach past p's box, a dab's most of all. A region slot is sent only what's dirty, and so is
-    // a tile's own texture once it's up: with p's box a dab's edge texels were saved and not shown till the next whole upload. Reviews 1 and 2)
+    // (every texel the blast writes: its splat's rows and its dots reach past p's box, a small blast's with spatter most of all. A region slot is sent only
+    // what's dirty, and so is a tile's own texture once it's up: with p's box a dab-sized blast with spatter left edge texels saved and not shown till the
+    // next whole upload. Curb's own dab, with no dots or blobs, stays inside p's box. Reviews 1 and 2)
     const b = this.writeBox(p);
     const minX = b[0], minZ = b[1], maxX = b[2], maxZ = b[3];
     const x0 = Math.max(0, Math.floor((minX - m.ox) / cs)), x1 = Math.min(GROUND_N - 1, Math.floor((maxX - m.ox) / cs));
