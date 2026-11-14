@@ -56,7 +56,9 @@
 //            (bus, &bomb) the same with the thumb back down on the bus, a Bomb charging short of its first tier; (look) a finger still in the look zone
 //            instead, the tap on the lane, 290-350 ms into it, younger than its tap window (stillTapMs, nobody flying); (none) the same tap, no thumb down: a plain
 //            splat; (live) the pull held, the other thumb's tap: a Lob at the body as it is; (one) one thumb, its tap 0.3 s after the lift: a Lob at the
-//            body as it lifted. Each SB_REPS times (3); a leg whose window wasn't hit runs again, twice at most. Exits 1 when a leg fails  -> rest.json
+//            body as it lifted. Each SB_REPS times (3); a leg whose window wasn't hit runs again, twice at most. Exits 1 when a leg fails. On a page
+//            with a Lift (?lift, ?show) the row holds its ground: the legs pinned clear of the Lift's rect by more than a leg's travel, a floating house
+//            over the climb ahead or a rival's shell taking the tap a set-up miss ("set-up: ..."), run again as the window's, never a wrong shot -> rest.json
 //   boom     Sonic Boom (&boom; src/game/Boom.ts; not in the default list): at Turbo 2's 720 m/s, 150 and 300 m over the Western Addition and 150 over
 //            downtown, a real flick into Turbo 3, in Rainbow, Atlantis, Hyperglow and Inferno (&paintas). Each: one crack, the hoop threaded, a ring, every
 //            building it raised one level up, the bus over its hole, the frame's draws, triangles and live particles each frame through it (at most 200, 1.5 M
@@ -2316,10 +2318,24 @@ if (modes.has('rest')) {
       await page.evaluate((n) => (window.__qa = { holdFrames: n, held: false }), n);
       await page.waitForFunction(() => window.__qa?.held === true, null, { timeout: 60000, polling: 'raf' });
     };
-    const st = () => page.evaluate(() => {
-      const g = window.__game, fly = g.input.fly;
-      return { t: g.clock(), until: g.aimer.lob.latchUntil, body: +((g.flight.pitch * 180) / Math.PI).toFixed(1), thumb: g.input.state.thumb, bus: fly ? { onBus: !!fly.onBus, from: fly.bombFrom, tier: fly.bombTier } : null, bomb: g.input.state.bomb.tier };
+    // (a Lift on the page (?lift, ?show): its rect, its height (the highest house's overshoot and heave over its ground, City.liftShadow) and the near
+    // Lob's farthest landing; null without one, and the row is as it always was)
+    const lift = await page.evaluate(() => {
+      const g = window.__game, L = g.lift;
+      return L ? { rect: [...L.rect], top: g.city.liftShadow?.grow ?? 120, reach: g.config.lob.reach } : null;
     });
+    // (a leg's travel: lift-red's probe on ?show had the bus 145-165 m from the pin at a leg's end and a planned Lob landing 1.2-1.65 km ahead of it,
+    // so the clearance is the near Lob's reach and 250 m; each leg's own is measured below and must stay inside it)
+    const CLEAR = lift ? lift.reach + 250 : 0;
+    const L = lift ? { n: 0, went: 0, lobAt: 0, misses: {} } : null;
+    const st = () => page.evaluate((withRiv) => {
+      const g = window.__game, fly = g.input.fly, r = window.__rivals;
+      // (with a Lift, the rivals as a tap meets them: one picked in front, the shells thrown, and the belly the splat needs)
+      // (and the Lob planned, where it lands: the leg's reach, Aimer.lobLast, gone once it is thrown)
+      const ll = withRiv ? g.aimer.lobLast : null;
+      const riv = withRiv ? { riv: { pick: !!r?.pick, shell: r ? r.counts.shell ?? 0 : null, full: +g.flight.fullness.toFixed(3), barf: +g.flight.barfT.toFixed(2), lob: ll ? [Math.round(ll.x), Math.round(ll.z)] : null } } : {};
+      return { t: g.clock(), until: g.aimer.lob.latchUntil, body: +((g.flight.pitch * 180) / Math.PI).toFixed(1), thumb: g.input.state.thumb, bus: fly ? { onBus: !!fly.onBus, from: fly.bombFrom, tier: fly.bombTier } : null, bomb: g.input.state.bomb.tier, ...riv };
+    }, !!lift);
     const to = async (t) => {
       const s = await st(), n = Math.round((t - s.t) / 0.05);
       if (n > 0) await step(n);
@@ -2339,15 +2355,23 @@ if (modes.has('rest')) {
     await H.up(1);
     await runFor(page, 1);
     const leg1 = async (leg) => {
-      await page.evaluate(() => {
+      const pin = await page.evaluate((clear) => {
         const g = window.__game;
         while (g.controls.turbo.gear > 0) g.controls.turbo.shift(-1, g.flight);
         // (over the Western Addition heading east at the roofs, held while the city streams in, as the lob rows)
-        const o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4352 - o[1]) * r * 6378137 * Math.cos(o[0] * r), z = -(37.7763 - o[0]) * r * 6378137;
+        const o = g.city.manifest.origin, r = Math.PI / 180, x = (-122.4352 - o[1]) * r * 6378137 * Math.cos(o[0] * r);
+        let z = -(37.7763 - o[0]) * r * 6378137;
+        // (a Lift within the clearance (?show's is Alamo Square's, 36 m off): north of its rect by the clearance, heading east as ever, so the leg's
+        // taps never take a square it then flies under, lift-red)
+        if (clear) {
+          const [x0, z0, x1, z1] = g.lift.rect;
+          if (Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(z0 - z, 0, z - z1)) <= clear) z = z0 - clear - 1;
+        }
         const y = g.city.obstacleAt(x, z) + 12;
         window.__qa = { pin: { x, z, heading: Math.PI / 2, y } };
         Object.assign(g.flight, { x, z, heading: Math.PI / 2, y, holdY: -Infinity, targetY: y, vy: 0, mode: 0 });
-      });
+        return { x, z, y };
+      }, CLEAR);
       await page.waitForFunction(() => !window.__game.city.busy, null, { timeout: 120000, polling: 100 });
       await page.evaluate(() => (window.__qa = null));
       await runFor(page, 1.2);
@@ -2356,6 +2380,20 @@ if (modes.has('rest')) {
       await runFor(page, 0.3);
       const t0 = await page.evaluate(() => window.__game.clock());
       const c = { leg };
+      let before = null;
+      // (a Lift: what is overhead along the climb ahead, out to the leg's travel and up to the Lift's height over the bus. A floating house there holds
+      // the climb under it and takes the Lob (LIFT.md): the leg isn't the case, and runs again)
+      if (lift) {
+        const over = await page.evaluate(({ clear, top }) => {
+          const g = window.__game, f = g.flight;
+          for (let d = 0; d <= clear; d += 8) {
+            const o = g.city.overheadAt(f.x + f.fx * d, f.z + f.fz * d, f.y - 2);
+            if (o < f.y + top) return { d, up: +(o - f.y).toFixed(1) };
+          }
+          return null;
+        }, { clear: CLEAR, top: lift.top });
+        if (over) return { ...c, miss: `set-up: a floating house over the climb, ${over.d} m ahead and ${over.up} m over the bus`, shots: [] };
+      }
       // the pull: a thumb down in the lane under the bus, drawn 60 px down, held 1.8 s on the game's clock
       await H.down(1, 196, 690);
       for (let i = 1; i <= 6; i++) {
@@ -2368,6 +2406,7 @@ if (modes.has('rest')) {
         const s = await st();
         c.body = s.body;
         c.thumb = s.thumb;
+        before = s.riv;
         await H.down(2, 300, 300);
         await wall(60);
         await H.up(2);
@@ -2388,6 +2427,7 @@ if (modes.has('rest')) {
           const s = await to(U - 0.5);
           c.tapAt = +(s.t - s0.t).toFixed(2);
           c.bodyTap = s.body;
+          before = s.riv;
           await touch('touchStart', [[2, 300, 300]]);
           await wall(60);
           await touch('touchEnd', []);
@@ -2426,6 +2466,7 @@ if (modes.has('rest')) {
           c.tapAt = +(s2.t - s0.t).toFixed(2);
           c.bodyTap = s2.body;
           c.thumb = s2.thumb;
+          before = s2.riv;
           const tp = leg === 'look' ? [196, 690] : [300, 300];
           if (pt) {
             c.restMs = Math.round((Date.now() / 1000 - T) * 1000);
@@ -2451,6 +2492,29 @@ if (modes.has('rest')) {
       }
       await runFor(page, 1.5);
       c.shots = await shotsFrom(t0);
+      if (lift) {
+        // (a Lift: the leg's travel, the bus from the pin at its end and the last planned Lob's landing from the pin, inside the clearance or the leg
+        // isn't the case; and what took a tap that threw nothing: a rival's shell (?swerve, rivals.tap) is a set-up miss, anything else stays a fail
+        // with what the page showed written in the leg's line)
+        const e = await page.evaluate((p) => {
+          const g = window.__game, f = g.flight, r = window.__rivals;
+          return { went: Math.round(Math.hypot(f.x - p.x, f.z - p.z)), shell: r ? r.counts.shell ?? 0 : null };
+        }, pin);
+        e.lobAt = before?.lob ? Math.round(Math.hypot(before.lob[0] - pin.x, before.lob[1] - pin.z)) : null;
+        c.went = e.went;
+        c.lobAt = e.lobAt;
+        L.pin = [Math.round(pin.x), Math.round(pin.z)];
+        L.n++;
+        L.went = Math.max(L.went, e.went);
+        L.lobAt = Math.max(L.lobAt, e.lobAt ?? 0);
+        const shell = before && before.shell !== null && e.shell !== null ? e.shell - before.shell : 0;
+        if (shell) c.shell = shell;
+        if (!c.miss) {
+          if (!c.shots.length && shell > 0) c.miss = `set-up: a rival's bus in front took the tap as its shell (picked ${before.pick}, shells ${before.shell} to ${e.shell})`;
+          else if (e.went >= CLEAR || (e.lobAt ?? 0) >= CLEAR) c.miss = `set-up: the leg went past its clearance from the Lift (${e.went} m, a Lob's landing ${e.lobAt} m, the clearance ${CLEAR} m)`;
+          else if (!c.shots.length) c.noShot = { ...before, shellAfter: e.shell };
+        }
+      }
       return c;
     };
     for (const leg of legs) {
@@ -2458,7 +2522,14 @@ if (modes.has('rest')) {
         let c = null;
         for (let k = 0; k < 3 && (!c || c.miss); k++) {
           if (c) console.log('rest: (again)', JSON.stringify(c));
+          // (a shell the row's tap threw has the rival it went for hunt the bus for rivals.ts's huntFor, 22 s, the bus in front of it: the next try
+          // waits that out, or it meets the same rival)
+          if (L && c?.miss.startsWith("set-up: a rival's")) await runFor(page, 25);
           c = await leg1(leg);
+          if (L && c.miss) {
+            const why = c.miss.split(/[,(]/)[0].trim();
+            L.misses[why] = (L.misses[why] ?? 0) + 1;
+          }
         }
         const key = `${where}-${leg}-${rep}`;
         const s = c.shots.length === 1 ? c.shots[0] : null;
@@ -2478,6 +2549,11 @@ if (modes.has('rest')) {
           ok(s && s.kind === 'lob' && Math.abs(s.angleDeg - Math.min(70, c.bodyLift)) <= 1.5, `${key}: one thumb, its tap ${c.tapAt} s after the lift, inside the latch: a Lob at the body as the thumb lifted (${thrown}; the body ${c.bodyLift} at the lift)`);
         }
       }
+    }
+    if (lift) {
+      R.lift = R.lift ?? [];
+      R.lift.push({ where, rect: lift.rect.map(Math.round), clear: CLEAR, ...L });
+      console.log(`rest: ${where}: a Lift on the page (rect ${lift.rect.map(Math.round).join(', ')}): the legs pinned at ${L.pin} (x, z), ${CLEAR} m clear of it at least; ${L.n} legs went at most ${L.went} m (the bus from the pin) and ${L.lobAt} m (a Lob's landing); set-up misses ${JSON.stringify(L.misses)}`);
     }
     await page.close();
   }
