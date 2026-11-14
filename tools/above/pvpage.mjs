@@ -88,7 +88,7 @@ export async function openPv(browser, view, url, entries = null) {
     const coarse = (tx, tz) => c.regionLod.get(`${Math.floor(tx / c.regionSize)},${Math.floor(tz / c.regionSize)}`) === 1;
     const rbd = r.renderBufferDirect;
     r.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
-      const info = r.info.render, c0 = info.calls;
+      const info = r.info.render, c0 = info.calls, t0 = info.triangles;
       rbd.call(this, camera, scene, geometry, material, object, group);
       // (while A.geo is set: a geometry drawn that no scene held when the watch began, and what draws it. Second review, R2-3)
       if (A.geo) {
@@ -115,14 +115,16 @@ export async function openPv(browser, view, url, entries = null) {
       }
       if (!A.sets.has(object)) return;
       const lt = A.sets.get(object);
-      if (!lt) k.regionGround += n;
-      else k[coarse(lt.tx, lt.tz) ? 'ownCoarse' : 'ownDetailed'] += n;
+      const kind = !lt ? 'regionGround' : coarse(lt.tx, lt.tz) ? 'ownCoarse' : 'ownDetailed';
+      k[kind] += n;
+      // (and their triangles: where a pose's triangles go between the region grounds and tiles' own. Second review, R2-6)
+      k[kind + 'Tris'] += info.triangles - t0;
     };
     const perf = g.perf, frame = perf.frame.bind(perf);
     perf.frame = (dt, work) => {
       frame(dt, work);
       if (A.on && A.cur) A.frames.push({ ...A.cur, calls: perf.calls, tris: perf.tris });
-      A.cur = { regionGround: 0, ownCoarse: 0, ownDetailed: 0, linked: 0, linkedWhole: 0, freshWhole: 0, decodedWhole: 0 };
+      A.cur = { regionGround: 0, ownCoarse: 0, ownDetailed: 0, regionGroundTris: 0, ownCoarseTris: 0, ownDetailedTris: 0, linked: 0, linkedWhole: 0, freshWhole: 0, decodedWhole: 0 };
       A.sets = null;
     };
     // (why a region slot goes up whole: a mask linked to its slot (fresh: made just now, all zeros; sent whole: regAll), or saved paint decoded onto it)
@@ -192,7 +194,27 @@ export async function openPv(browser, view, url, entries = null) {
         }
       }
       gl.deleteFramebuffer(fb);
-      return { regions, slots, diff, painted };
+      // (with the mask on: a painted tile of a drawn coarse region not shown in its mask (no region view, no mask, or its flag clear), and a region ground whose
+      // material reads another flag set or texture than its region's. Second review: paint a page shows on one load and not on its repeat)
+      let unshown = 0, stale = 0;
+      const unshownAt = [];
+      if (c.rmask) {
+        const rs = c.regionSize;
+        for (const [key, rm] of c.regionMeshes) {
+          const t = rm.terrain;
+          if (!t || c.regionLod.get(key) !== 1) continue;
+          const [rx, rz] = key.split(',').map(Number), rg = gp.regions.get(key), mu = t.material.uniforms;
+          if (rg && mu && (mu.uGroundSq?.value !== rg.uniforms.uGroundSq.value || (rg.tex && mu.tGround?.value !== rg.tex))) stale++;
+          for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
+            for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
+              if (!c.tiles.get(`${tx},${tz}`)?.terrainData) continue;
+              if (!(gp.has(tx, tz) || gp.store.has(`${tx},${tz}`))) continue;
+              const s = gp.regionSlot(tx, tz);
+              if (!s || !s.data || !s.flag) (unshown++, unshownAt.length < 6 && unshownAt.push(`${tx},${tz}:${!s ? 'no view' : !s.data ? 'no mask' : 'flag 0'}`));
+            }
+        }
+      }
+      return { regions, slots, diff, painted, unshown, unshownAt, stale };
     };
   });
   pv.settle = settle;

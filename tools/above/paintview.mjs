@@ -11,6 +11,8 @@
 // region within 1.6 km, every frame for 4 s: draws, triangles, paint upload calls and bytes, regions' ground made again, textures and programs made, ms.
 // tools/above/paintcmp.py compares the frames of two tags.
 // --lose: then the GL context lost at 1 km and given back, and every region mask read back again.
+// Each pose also says how many of the drawn region grounds' tiles lie out of the view (their triangles drawn all the same: a merged ground is culled whole)
+// and --at=x,y;x,y (CSS px) where each of those screen points meets the ground: world x, z, its tile and how far it is from the tile's nearest seam.
 // Exit 1 on a page error, a region mask that isn't its tiles' arrays, a program made after the page was ready, or a tag whose name starts with "on" drawing a
 // tile's own ground in a coarse region.
 import { chromium } from 'playwright-core';
@@ -71,6 +73,9 @@ for (const [tag, tq] of tags) {
   const q = [...base0, tq].filter(Boolean).join('&');
   const pv = await openPv(browser, view, `${base}?${q}`, saved?.entries);
   const { page, settle, run } = pv;
+  // (--noparticles: the particles hidden on every page, a diagnosis: the bus's breath and sparkles take Math.random after every object made)
+  if ('noparticles' in opt) await page.evaluate(() => (window.__game.particles.object.visible = false));
+  if (opt.at) await page.evaluate((a) => (window.__pvAt = a), opt.at.split(';').map((p) => p.split(',').map(Number)));
   const programs0 = await page.evaluate(() => window.__pv.programs0);
   const row = { query: q, programsAtReady: programs0, poses: {} };
   R.tags[tag] = row;
@@ -107,7 +112,56 @@ for (const [tag, tq] of tags) {
         const sx = ((v.x + 1) / 2) * innerWidth, sy = ((1 - v.y) / 2) * innerHeight;
         bb = bb ? { x0: Math.min(bb.x0, sx), x1: Math.max(bb.x1, sx), y0: Math.min(bb.y0, sy), y1: Math.max(bb.y1, sy) } : { x0: sx, x1: sx, y0: sy, y1: sy };
       }
-      return { frame: f, memory: A.memory(), readBack: A.readBack(), bus: bb, clock: +g.clock().toFixed(3), agl: Math.round(g.flight.y - c.groundAt(g.flight.x, g.flight.z)), regions: lod, ownGround: c.ownGround.size };
+      // (the region grounds drawn: their tiles out of the view, a tile's box against the camera's clip space)
+      const P = cam.projectionMatrix.elements, V = cam.matrixWorldInverse.elements, ts = c.manifest.tileSize, rs = c.regionSize;
+      const clip = (x, y, z) => {
+        const ex = V[0] * x + V[4] * y + V[8] * z + V[12], ey = V[1] * x + V[5] * y + V[9] * z + V[13], ez = V[2] * x + V[6] * y + V[10] * z + V[14], ew = V[3] * x + V[7] * y + V[11] * z + V[15];
+        return [0, 1, 2, 3].map((i) => P[i] * ex + P[4 + i] * ey + P[8 + i] * ez + P[12 + i] * ew);
+      };
+      const outOfView = (x0, y0, z0, x1, y1, z1) => {
+        const q = [];
+        for (let i = 0; i < 8; i++) q.push(clip(i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0));
+        for (let a = 0; a < 3; a++) if (q.every((p) => p[a] < -p[3]) || q.every((p) => p[a] > p[3])) return true;
+        return false;
+      };
+      const cull = { grounds: 0, tiles: 0, out: 0, outTris: 0 };
+      for (const [key, rm] of c.regionMeshes) {
+        const t = rm.terrain;
+        if (!t || !t.visible || !t.geometry.index || c.regionLod.get(key) !== 1) continue;
+        const [rx, rz] = key.split(',').map(Number);
+        // (each tile's box from its own heights: the merged grid's arrays are dropped once they're up)
+        const tiles = [];
+        let lo = Infinity, hi = -Infinity;
+        for (let tz = rz * rs; tz < (rz + 1) * rs; tz++)
+          for (let tx = rx * rs; tx < (rx + 1) * rs; tx++) {
+            const tr = c.tiles.get(`${tx},${tz}`)?.terrainData;
+            if (!tr) continue;
+            let a = Infinity, b = -Infinity;
+            for (const h of tr.heights) (a = Math.min(a, h)), (b = Math.max(b, h));
+            tiles.push([tx, tz, a + t.position.y, b + t.position.y]);
+            (lo = Math.min(lo, a + t.position.y)), (hi = Math.max(hi, b + t.position.y));
+          }
+        if (!tiles.length || outOfView(rx * rs * ts, lo, rz * rs * ts, (rx + 1) * rs * ts, hi, (rz + 1) * rs * ts)) continue;
+        const per = t.geometry.index.count / 3 / tiles.length;
+        cull.grounds++;
+        for (const [tx, tz, a, b] of tiles) {
+          cull.tiles++;
+          if (outOfView(tx * ts, a, tz * ts, (tx + 1) * ts, b, (tz + 1) * ts)) (cull.out++, (cull.outTris += per));
+        }
+      }
+      cull.outTris = Math.round(cull.outTris);
+      // (--at: each screen point down its ray to the ground, in 2 m steps then halved)
+      const at = [];
+      for (const [px, py] of window.__pvAt ?? []) {
+        const o = cam.position, d = new cam.position.constructor((px / innerWidth) * 2 - 1, 1 - (py / innerHeight) * 2, 0.5).unproject(cam).sub(o).normalize();
+        let s0 = 0, s1 = 0;
+        for (let s = 2; s < 60000; s += 2) if (o.y + d.y * s < c.groundAt(o.x + d.x * s, o.z + d.z * s)) { s1 = s; s0 = s - 2; break; }
+        if (!s1) { at.push({ px, py, hit: false }); continue; }
+        for (let k = 0; k < 20; k++) { const m = (s0 + s1) / 2; if (o.y + d.y * m < c.groundAt(o.x + d.x * m, o.z + d.z * m)) s1 = m; else s0 = m; }
+        const x = o.x + d.x * s1, z = o.z + d.z * s1, tx = Math.floor(x / ts), tz = Math.floor(z / ts), fx = x / ts - tx, fz = z / ts - tz;
+        at.push({ px, py, x: +x.toFixed(1), z: +z.toFixed(1), tile: [tx, tz], seam: +(Math.min(fx, 1 - fx, fz, 1 - fz) * ts).toFixed(1), coarse: c.regionLod.get(`${Math.floor(tx / rs)},${Math.floor(tz / rs)}`) === 1, painted: c.ground.has(tx, tz) || c.ground.store.has(`${tx},${tz}`) });
+      }
+      return { frame: f, cull, at, memory: A.memory(), readBack: A.readBack(), bus: bb, clock: +g.clock().toFixed(3), agl: Math.round(g.flight.y - c.groundAt(g.flight.x, g.flight.z)), regions: lod, ownGround: c.ownGround.size };
     });
     await page.screenshot({ path: `${out}/${name}.png` });
     return st;
@@ -121,8 +175,12 @@ for (const [tag, tq] of tags) {
     const st = await shoot(`${place}-${h}-${tag}`);
     row.poses[h] = st;
     const f = st.frame ?? {}, m = st.memory, b = st.readBack;
+    console.log(`${tag} ${h}: ground triangles: region grounds ${f.regionGroundTris}, own in coarse ${f.ownCoarseTris}, own detailed ${f.ownDetailedTris} | region grounds in view ${st.cull.grounds}, their tiles ${st.cull.tiles}, out of the view ${st.cull.out} (${st.cull.outTris} triangles)`);
+    for (const p of st.at) console.log(`${tag} ${h}: at (${p.px}, ${p.py}) ` + (p.hit === false ? 'no ground' : `x ${p.x} z ${p.z}, tile (${p.tile}), ${p.seam} m from its nearest seam, ${p.coarse ? 'coarse' : 'detailed'}, ${p.painted ? 'painted' : 'unpainted'}`));
     console.log(`${tag} ${h}: clock ${st.clock} agl ${st.agl} | ${f.calls} draws ${(f.tris / 1e6).toFixed(3)} M | ground draws: regions ${f.regionGround}, own in coarse ${f.ownCoarse}, own detailed ${f.ownDetailed} | lod0 ${st.regions[0]} lod1 ${st.regions[1]} | region masks ${m.regionMasks} (${(m.regionMaskBytes / 1048576).toFixed(2)} MiB, ${m.regionTiles} tiles), own mask textures ${m.ownMaskTextures} (${(m.ownMaskBytes / 1048576).toFixed(2)} MiB), own grounds in coarse ${m.ownGroundsInCoarse} (${(m.ownGroundBytesInCoarse / 1024).toFixed(0)} KiB), painted tiles ${m.paintedTiles} | textures ${m.textures} programs ${m.programs} | read back: ${b.regions} regions ${b.slots} slots, ${b.diff} bytes differ, ${b.painted} painted texels`);
     if (b.diff) fail(`${tag} ${h}: a region mask differs from its tiles' arrays by ${b.diff} bytes`);
+    if (b.unshown) fail(`${tag} ${h}: ${b.unshown} painted tiles of drawn coarse regions not shown in their masks (${b.unshownAt.join(' ')})`);
+    if (b.stale) fail(`${tag} ${h}: ${b.stale} region grounds read another flag set or texture than their region's`);
     if (tag.startsWith('on') && f.ownCoarse) fail(`${tag} ${h}: ${f.ownCoarse} draws of tiles' own ground in coarse regions`);
   }
   if ('blast' in opt) {
