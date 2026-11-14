@@ -289,7 +289,7 @@ async function run(rung: [string, number, number], pose: Pose, dt: number, tier:
         const arcUp = (w: number) => { const q = cometAt(from0, to0, comet.arc, comet.bow ?? 0, w, v3b); return upDeg(q.x, q.y, q.z); };
         const fly = u >= 0 && u < 1 ? Math.max(arcUp(u), arcUp(Math.max(u, top))) : NaN;
         rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap, 0, fly);
-        rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, upDeg(busLens.x, busLens.y, busLens.z), half, liftAtTap, fly);
+        rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, upDeg(busLens.x, busLens.y, busLens.z), upDeg(f.x, f.y, f.z), half, liftAtTap, fly);
         // (bound: where the bus's limit, the swing or the climbing star holds the view over what the hit wants)
         boundNow = rig.skyLiftTarget > landUp - Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG + 0.5;
         rig.skyLiftRate = config.shotView.rate;

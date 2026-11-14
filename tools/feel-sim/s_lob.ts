@@ -484,7 +484,7 @@ async function run(c: Case, dt: number, slot = true) {
         const arcUp = (w: number) => upDeg(plan.x0 + (plan.x - plan.x0) * w, plan.y0 + (plan.y - plan.y0) * w + plan.arc * 4 * w * (1 - w), plan.z0 + (plan.z - plan.z0) * w);
         const fly = u >= 0 && u < 1 ? Math.max(arcUp(u), arcUp(Math.max(u, top))) : NaN;
         rig.skyLiftTarget = shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap, 0, fly);
-        rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, upDeg(busLens.x, busLens.y, busLens.z), half, liftAtTap, fly);
+        rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, upDeg(busLens.x, busLens.y, busLens.z), upDeg(f.x, f.y, f.z), half, liftAtTap, fly);
         // (the view's limits, for the star's count: under the climbing star the bus's and the rig's own tip up, at most half the field less 6 degrees
         // (CameraRig.update); and the dip's own without it, the bus at busMax or the swing)
         flyBound = (Number.isFinite(fly) && (upDeg(f.x, f.y, f.z) + half * config.lob.tipBus < fly - half + config.lob.tipTop || rig.skyLiftTarget > half - 6)) || shotTip(landUp, upDeg(f.x, f.y, f.z), half, false, true, liftAtTap) > landUp - (Math.atan(config.shotView.low * Math.tan(half * DEG)) / DEG) + 0.5;

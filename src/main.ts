@@ -2370,11 +2370,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       shotSeen.set(shotSeen.x - flight.fx * flight.ground * ld, shotSeen.y - flight.vy * ld, shotSeen.z - flight.fz * flight.ground * ld);
       // (and its star while it climbs kept in the frame: shotTip's flyUp)
       const fly = cometFx.shotStar(simTime, shotFly, shotFlyTop) ? Math.max(lobUpDeg(shotFly), lobUpDeg(shotFlyTop)) : NaN;
-      const landUp = lobUpDeg(shotSeen);
-      rig.skyLiftTarget = shotTip(landUp, lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z)), camera.fov / 2, false, true, farLift, 0, fly);
-      // (and never with the landing under config.shotView.floor while the bus has room under busMax: from 10 km up at Turbo 3 the hit came down under the
+      const landUp = lobUpDeg(shotSeen), busNow = lobUpDeg(lobBusSeen.set(flight.x, flight.y, flight.z));
+      rig.skyLiftTarget = shotTip(landUp, busNow, camera.fov / 2, false, true, farLift, 0, fly);
+      // (and never with the landing under config.shotView.floor while the bus has room under busMax: from 14 km up at Turbo 3 the hit came down under the
       // frame, the far Comet's hit in the frame)
-      rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, lobUpDeg(lobBusSeen.copy(busAtLens)), camera.fov / 2, farLift, fly);
+      rig.skyLiftTarget = shotFloor(rig.skyLiftTarget, landUp, lobUpDeg(lobBusSeen.copy(busAtLens)), busNow, camera.fov / 2, farLift, fly);
       rig.skyLiftRate = config.shotView.rate;
       rig.skyDipMost = config.shotView.most;
       // (?swerve: a landing a quick turn or a hard one has left behind the lens or past the frame's side, as lobUpDeg put it in the lens's space, is looked away

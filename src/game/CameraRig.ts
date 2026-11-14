@@ -93,14 +93,16 @@ export function shotTip(starUp: number, busUp: number, half: number, climbing: b
 /**
  * A far shot's floor, over shotTip's target (main.ts, and the sims as main.ts does): where that target leaves its landing (starUp, as shotTip's) under
  * config.shotView.floor of the half height, the view dips on until it shows there, but never so far the bus (busUp, read where the lens last drawn had
- * it: shotTip's own, read a frame of travel on, holds the dip short of busMax at speed) is over busMax, past the swing, nor over the climbing star's rule.
- * A target that already shows the landing over the floor is returned as it is. From 10 and 14 km at Turbo 3 the hit came down under the frame.
+ * it: shotTip's own, busNow, read a frame of travel on, holds the dip short of busMax at speed) comes within 0.02 of busMax (the lens moves on after the
+ * read: from 14 km at Turbo 3 at 60 fps the bus came to +0.307 in s_lob --high), past the swing, nor under shotTip's own rule for a star in the air (with
+ * busNow, as shotTip has it: with busUp the star left the top from 1.5 km at Turbo 3). A target that already shows the landing over the floor is returned
+ * as it is. From 14 km at Turbo 3 the hit came down under the frame.
  */
-export function shotFloor(target: number, starUp: number, busUp: number, half: number, liftAtTap = 0, flyUp = NaN): number {
+export function shotFloor(target: number, starUp: number, busUp: number, busNow: number, half: number, liftAtTap = 0, flyUp = NaN): number {
   const V = config.shotView, L = config.lob, t = Math.tan(THREE.MathUtils.degToRad(half)), deg = THREE.MathUtils.radToDeg;
-  const F = Math.max(busUp - deg(Math.atan(V.busMax * t)), starUp - deg(Math.atan(V.floor * t)), liftAtTap - V.swing);
+  const F = Math.max(busUp - deg(Math.atan((V.busMax - 0.02) * t)), starUp - deg(Math.atan(V.floor * t)), liftAtTap - V.swing);
   if (F >= target) return target;
-  return Number.isFinite(flyUp) ? Math.max(F, Math.min(flyUp - half + L.tipTop, busUp + half * L.tipBus)) : F;
+  return Number.isFinite(flyUp) ? Math.max(F, Math.min(flyUp - half + L.tipTop, busNow + half * L.tipBus)) : F;
 }
 
 /** The look's angle (deg) for a thumb's offset from where it landed (px): a small nudge is a small look, and the look behind is still there. */
