@@ -28,8 +28,12 @@ const { Input, inputTune } = await import('@src/game/Input');
 const DEG = Math.PI / 180, SW = 393, SH = 852;
 const r1 = (x: number) => Math.round(x * 10) / 10;
 
-type Ev = { t: number; k: 'down' | 'up' | 'move' | 'cancel'; who: 'R' | 'O' | 'Q'; dy?: number };
-interface Case { key: string; want: 'lob' | 'none' | 'twin'; twin?: 'R' | 'Q'; second?: 'R' | 'O'; eatBefore?: number; aim?: boolean; why: string; evs: Ev[] }
+// M: the HUD's MEGA (mega-down/-up: input.splatButton, as Hud calls it)
+type Who = 'R' | 'O' | 'Q' | 'M';
+type Ev = { t: number; k: 'down' | 'up' | 'move' | 'cancel' | 'mega-down' | 'mega-up'; who: Who; dy?: number };
+// twin, second: the fingers left out of the twin (one, or several); fps: the rates the case runs at, in place of --fps's
+interface Case { key: string; want: 'lob' | 'none' | 'twin'; twin?: Who | Who[]; second?: Who | Who[]; eatBefore?: number; aim?: boolean; fps?: number[]; why: string; evs: Ev[] }
+const whos = (w: Who | Who[]) => (Array.isArray(w) ? w : [w]);
 const R = { x: 196, y: 700 }, O = { x: 70, y: 330 }, Q = { x: 330, y: 300 };
 const CASES: Case[] = [
   // (the baseline: the other finger's tap inside the lift's latch, nobody down: a Lob)
@@ -68,6 +72,20 @@ const CASES: Case[] = [
   // on, as alone. The first tap is taken without a breath before 0.95 s, as main.ts's onTap lets Holds.tap or the opening's skip take one: a breath empties
   // the belly, and the second tap 70 ms on throws nothing whatever the latch)
   { key: 'young/drum', aim: false, twin: 'Q', second: 'R', eatBefore: 0.95, want: 'twin', why: 'a finger still in the look zone from 0.60 s, the tap on the lane 0.86-0.91 s, the look finger lifted as a tap at 0.98 s', evs: [{ t: 0.6, k: 'down', who: 'Q' }, { t: 0.86, k: 'down', who: 'R' }, { t: 0.91, k: 'up', who: 'R' }, { t: 0.98, k: 'up', who: 'Q' }] },
+  // (the put-back's parts, by an adversarial check that took each out: what young/drum alone didn't catch. The plain page (aim: false), at 120 fps too.)
+  // ran: O rests in the look zone from 0.50 s (runs the lift's latch on to 1.30), Q lands at 1.00 inside O's run-on only (its press ran on), R taps on the
+  // lane 1.25-1.30 without a breath, giving O and Q back; Q lifts as a tap at 1.36. Q alone reads the body live: its landing ran on what only O's press had
+  // run on. Put back as if it had latched afresh (its ran-on flag lost), Q's press runs the lift's latch on, and Q throws the lift's body with the bus level
+  { key: 'put/ran', aim: false, fps: [60, 30, 120], twin: 'Q', second: 'R', eatBefore: 1.32, want: 'twin', why: 'O resting in the look zone from 0.50 s, Q from 1.00 s, the tap on the lane 1.25-1.30 s (no breath), Q lifted as a tap at 1.36 s', evs: [{ t: 0.5, k: 'down', who: 'O' }, { t: 1.0, k: 'down', who: 'Q' }, { t: 1.25, k: 'down', who: 'R' }, { t: 1.3, k: 'up', who: 'R' }, { t: 1.36, k: 'up', who: 'Q' }, { t: 2.2, k: 'up', who: 'O' }] },
+  // fly: the flying thumb's put-back. R lands on the lane at 0.60 (runs the latch on to 1.40), MEGA is tapped 0.90-0.94 without a breath (R's landing given
+  // back; MEGA's own press ran on R's run-on only), R lifts at 1.00 as a tap of its own, before it commits. R alone Lobs at the lift's body; with R's press
+  // not put back, MEGA's keeps nothing and R throws the body live
+  { key: 'put/fly', aim: false, fps: [60, 30, 120], twin: 'R', second: 'M', eatBefore: 0.96, want: 'twin', why: 'R on the lane from 0.60 s, MEGA tapped 0.90-0.94 s (no breath), R lifted as a tap at 1.00 s', evs: [{ t: 0.6, k: 'down', who: 'R' }, { t: 0.9, k: 'mega-down', who: 'M' }, { t: 0.94, k: 'mega-up', who: 'M' }, { t: 1.0, k: 'up', who: 'R' }] },
+  // body-o: the put-back over a latch made afresh while its press was out. Q rests in the look zone from 0.60 (the lift's latch on to 1.40), R taps on the
+  // lane 0.86-0.91 without a breath (Q given back; R's press, run on Q's alone, latches nothing), O lands in the look zone at 0.95, finds no latch and
+  // latches afresh with the body as it is (the bus level), and rests; Q lifts as a tap at 1.00 and is put back: the chain Q, R runs to 1.66 again, and
+  // its body must be the lift's, not O's (Lob.rerun). Q alone Lobs at the lift's body. 30 fps passed before the fix too
+  { key: 'put/body-o', aim: false, fps: [60, 30, 120], twin: 'Q', second: ['R', 'O'], eatBefore: 0.93, want: 'twin', why: 'Q in the look zone from 0.60 s, R taps 0.86-0.91 s (no breath), O down at 0.95 s and resting, Q lifted as a tap at 1.00 s', evs: [{ t: 0.6, k: 'down', who: 'Q' }, { t: 0.86, k: 'down', who: 'R' }, { t: 0.91, k: 'up', who: 'R' }, { t: 0.95, k: 'down', who: 'O' }, { t: 1.0, k: 'up', who: 'Q' }, { t: 2.2, k: 'up', who: 'O' }] },
   // (one thumb: the lift, the same thumb's tap at 0.5-0.6 s: the Lob)
   { key: 'keep/one', want: 'lob', why: 'the same thumb taps 0.5-0.6 s', evs: [{ t: 0.5, k: 'down', who: 'R' }, { t: 0.6, k: 'up', who: 'R' }] },
 ];
@@ -161,7 +179,7 @@ async function run(c: Case, fps: number) {
   };
   for (let j = 0; j < Math.round(lead / dt); j++) await frame();
   // ---- the pull: a real thumb on the lane, dragged down 140 px over three frames, held 2 s, lifted at L (5 ms after a frame)
-  const ids = { R: newId(), O: newId(), Q: newId(), P: newId() };
+  const ids = { R: newId(), O: newId(), Q: newId(), M: newId(), P: newId() };
   const P0 = { x: 196, y: 600 };
   el.dispatch('pointerdown', ptr('pointerdown', ids.P, P0.x, P0.y, true));
   for (const dy of [40, 90, 140]) {
@@ -176,13 +194,14 @@ async function run(c: Case, fps: number) {
   L = clock.ms;
   el.dispatch('pointerup', ptr('pointerup', ids.P, P0.x, P0.y + 140, true));
   // ---- the case's touches
-  const at = { R: { ...R }, O: { ...O }, Q: { ...Q } };
+  const at = { R: { ...R }, O: { ...O }, Q: { ...Q }, M: { x: 0, y: 0 } };
   const evs = [...c.evs].sort((a, b) => a.t - b.t);
   const down = new Set<string>();
   for (const e of evs) {
     await until(L + e.t * 1000);
     const p = at[e.who], id = ids[e.who];
-    if (e.k === 'move') {
+    if (e.k === 'mega-down' || e.k === 'mega-up') input.splatButton(e.k === 'mega-down', false, clock.ms);
+    else if (e.k === 'move') {
       p.y += e.dy ?? 0;
       el.dispatch('pointermove', ptr('pointermove', id, p.x, p.y, down.size === 1));
     } else if (e.k === 'down') {
@@ -202,7 +221,7 @@ let bad = 0, n = 0;
 const say = (t: { lob: boolean; angle: number } | undefined) => (!t ? 'no tap' : t.lob ? `lob ${t.angle}` : 'splat');
 for (const c of CASES) {
   if (ONLY && !ONLY.split(',').some((o) => c.key.includes(o))) continue;
-  for (const fps of FPS) {
+  for (const fps of c.fps ?? FPS) {
     const r = await run(c, fps);
     const t = r.taps[0];
     const facts = `tap at ${t ? t.at.toFixed(3) : '-'} s, given back first ${t ? t.given : '-'}, ring the frame before ${t ? t.ring : '-'}, body ${r.bodyLift} at the lift ${t ? t.body : '-'} at the tap`;
@@ -213,15 +232,15 @@ for (const c of CASES) {
       console.log(`${ok ? 'pass' : 'FAIL'}  ${`${c.key}@${fps}`.padEnd(26)} want ${c.want.padEnd(4)} got ${say(t).padEnd(9)} ${facts}; ${c.why} [${r.log.join('; ')}]`);
     }
     if (c.twin) {
-      const w = await run({ ...c, evs: c.evs.filter((e) => e.who !== c.twin) }, fps);
+      const w = await run({ ...c, evs: c.evs.filter((e) => !whos(c.twin!).includes(e.who)) }, fps);
       const tw = w.taps[0];
       let ok = r.taps.length === (c.second ? 2 : 1) && w.taps.length === 1 && t.lob === tw.lob;
       let more = '';
       if (c.second) {
-        const w2 = await run({ ...c, evs: c.evs.filter((e) => e.who !== c.second) }, fps);
+        const w2 = await run({ ...c, evs: c.evs.filter((e) => !whos(c.second!).includes(e.who)) }, fps);
         const t2 = r.taps[1], tw2 = w2.taps[0];
         ok &&= w2.taps.length === 1 && !!t2 && t2.lob === tw2.lob;
-        more = ` second tap with ${c.second} ${say(t2)}, without ${say(tw2)};`;
+        more = ` second tap with ${whos(c.second).join('+')} ${say(t2)}, without ${say(tw2)} (at ${t2 ? t2.at.toFixed(3) : '-'} s, body ${t2 ? t2.body : '-'});`;
       }
       n++;
       if (!ok) bad++;
