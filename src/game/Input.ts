@@ -301,8 +301,8 @@ export class Input {
   /** Every press so far (onPress's), in order. */
   presses = 0;
   /** A finger whose landing pressed (Slot.pressN: a look zone's, or one beside a flying thumb not yet committed) lifted as no tap: a look, a flick, a rest,
-   *  or lost. n: its press's turn. A flying thumb's never does: it steered, and the stroke gives its own back (Aimer.update), but for another thumb's tap
-   *  answered before it commits (answer). */
+   *  or lost, or still down and no longer a tap when a tap fires (giveBackRests). n: its press's turn. A flying thumb's never does: it steered, and the
+   *  stroke gives its own back (Aimer.update), but for another thumb's tap answered before it commits (answer), or its touch cancelled or lost before. */
   onUnpress: ((n: number) => void) | null = null;
   onTripleFinger: (() => void) | null = null;
   onFirstGesture: (() => void) | null = null;
@@ -797,6 +797,9 @@ export class Input {
     if (role === Role.Fly) {
       this.fly = null;
       this.endSteering();
+      // (a touch taken before it committed, iOS's: its landing ran the Lob's latch on, and no tap of its own follows. Given back)
+      if (cancelled && this.flyPress) this.onUnpress?.(this.flyPress);
+      this.flyPress = 0;
       // A charge MEGA's finger carried off ends here, and only here.
       if (ownsPress) this.pressEnd(Src.Button, now, cancelled);
       else if (dir) {
@@ -807,14 +810,20 @@ export class Input {
       // are one tap at the last lift, and if the other turns out to be no tap (it looks, rests or flicks), this one was a tap of its own (update).
       else if (quick && !this.gAnswered) {
         if (this.gMulti) this.gPendingTap = true;
-        else this.onTap?.();
+        else {
+          this.giveBackRests(now);
+          this.onTap?.();
+        }
       }
     } else if (dir) this.onTurbo?.(dir, false);
     else if (tap) {
       if (this.primarySteering(now)) this.answer();
       // Landed before the thumb committed to steering: still the player's tap, as soon as it commits (or when the gesture ends).
       else if (this.fly || (this.gMulti && !this.gAnswered)) this.gPendingTap = true;
-      else this.onTap?.();
+      else {
+        this.giveBackRests(now);
+        this.onTap?.();
+      }
     }
     if (pressN && !tap) this.onUnpress?.(pressN);
 
@@ -906,10 +915,13 @@ export class Input {
 
   /** Forget a pointer without any tap (stale / lost). */
   private drop(s: Slot) {
-    const role = s.role;
+    const role = s.role, pressN = role === Role.Fly ? this.flyPress : s.pressN;
     this.free(s);
+    // (a lost finger is no tap: what its landing ran the Lob's latch on to is given back, as a cancelled one's)
+    if (pressN) this.onUnpress?.(pressN);
     if (role === Role.Fly) {
       this.fly = null;
+      this.flyPress = 0;
       this.endSteering();
       // (a lost touch never leaves a charge running)
       if (s.ownsPress) this.pressEnd(Src.Button, performance.now(), true);
@@ -991,9 +1003,21 @@ export class Input {
     // bus level. Given back, the latch is as if it never landed. Once the Aimer has seen the thumb down it has let go of the latch, and this is nothing)
     if (this.fly && this.flyPress) this.onUnpress?.(this.flyPress);
     this.flyPress = 0;
+    this.giveBackRests(performance.now());
     this.gAnswered = true;
     this.gPendingTap = false;
     this.onTap?.();
+  }
+
+  /** Before a tap fires: a finger still down whose landing pressed, and that can no longer be a tap (resting, or looking), gives that press back now and
+   *  not at its lift: the tap read the Lob's latch its landing ran on, the lift's body with the bus level (a finger resting in the look zone, the tap on the
+   *  lane: the review of the resting thumb's fix, 3) */
+  private giveBackRests(now: number) {
+    for (const s of this.slots) {
+      if (s.role !== Role.Second || !s.pressN || this.secondTap(s, now)) continue;
+      this.onUnpress?.(s.pressN);
+      s.pressN = 0;
+    }
   }
 
   /** Three fingers: the tuner. Everything down is swallowed until it lifts. */
