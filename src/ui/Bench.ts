@@ -56,6 +56,9 @@ export interface LegSum {
   workMed: number;
   /** the page went hidden during the leg: its numbers are not a phone's */
   hidden: boolean;
+  /** the page's first frame, when the leg had it (no interval: the door's): its draws and triangles, on a line of their own, out of the columns (-1 none) */
+  firstDraws: number;
+  firstTris: number;
 }
 
 /** Page 1's numbers, carried to page 2 in the address's # */
@@ -91,13 +94,21 @@ class Leg {
   readonly work = new Float32Array(MAX);
   readonly calls = new Float32Array(MAX);
   readonly tris = new Float32Array(MAX);
-  /** frames timed (an interval since the one before), and frames counted for draws (the page's first frame too, which has no interval) */
+  /** frames timed (an interval since the one before), and frames counted for draws; the page's first frame, which has no interval, is kept apart: it was
+   *  the door's worst draws, so the column reported the first frame and not the flight (the review of M1a, m8) */
   n = 0;
   nd = 0;
   t0 = 0;
   t1 = 0;
   hidden = false;
+  firstCalls = -1;
+  firstTris = -1;
   add(ms: number, calls: number, tris: number, work: number) {
+    if (ms <= 0 && this.nd === 0) {
+      this.firstCalls = calls;
+      this.firstTris = tris;
+      return;
+    }
     if (ms > 0 && this.n < MAX) {
       this.ms[this.n] = ms;
       this.work[this.n] = work;
@@ -135,6 +146,8 @@ class Leg {
       trisMax: top(tris),
       workMed: r1(at(work, 0.5)),
       hidden: this.hidden,
+      firstDraws: this.firstCalls,
+      firstTris: this.firstTris,
     };
   }
 }
@@ -444,6 +457,7 @@ export class Bench {
       ...rows,
       `frames: ${LEGS.map((k) => `${k} ${legs[k]?.frames ?? 0}`).join(' · ')}`,
       `cpu ms (median): ${LEGS.map((k) => `${k} ${L(legs[k]?.workMed ?? NaN)}`).join(' · ')}`,
+      `first frame: ${LEGS.filter((k) => (legs[k]?.firstDraws ?? -1) >= 0).map((k) => `${k} ${legs[k]!.firstDraws} draws ${M(legs[k]!.firstTris)} M tris`).join(' · ') || '--'}`,
       `tap to first frame ${sec(one?.firstFrameMs)} · to first paint ${sec(one?.firstPaintMs)}`,
       `door: ${one ? (one.door ? 'yes' : 'NO') : '--'} · crowned ${one && one.crownS >= 0 ? one.crownS.toFixed(1) + ' s' : '--'} after the first frame · ${one?.taps ?? '--'} taps`,
       cap
@@ -456,7 +470,8 @@ export class Bench {
       `browser ${navigator.userAgent}`,
     ];
     const text = lines.join('\n');
-    const ok = LEGS.every((k) => legs[k]?.ran);
+    // (a leg the page went hidden in, a phone locking, or a blank capture: the numbers aren't a phone's, and the screen says so in red. The review's m7)
+    const ok = LEGS.every((k) => legs[k]?.ran && !legs[k]?.hidden) && !!cap && !cap.blank;
     (window as unknown as { __bench?: unknown }).__bench = { done: true, ok, legs, one, liftWaveS: this.liftWaveS, liftNear: Math.round(this.liftNear), gpu, text, build: build() };
     this.label?.remove();
     void this.wake?.release().catch(() => {});
