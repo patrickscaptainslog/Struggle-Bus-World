@@ -63,8 +63,10 @@ function readHoods(file) {
  *  name without the word). */
 const key = (name) =>
   name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter((w) => w && !['the', 'district', 'island', 'neighborhood', 'neighbourhood'].includes(w)).join(' ');
-const ROAD = /\b(rd|ave|st|blvd|dr|hwy|ln|trl|pkwy|road|avenue|street|boulevard|drive|highway|lane|trail|parkway)\.?$/i;
-const PLAQUE = /\b(landmark|memorial|monument|plaque|marker|duel|historic(al)? site)\b/i;
+// (the names a neighbourhood may not have: one list, which tools/bake/hoodnames.py takes out of a baked file)
+const RULES = JSON.parse(readFileSync(new URL('../bake/hoodnames.json', import.meta.url), 'utf8'));
+const ROAD = new RegExp(RULES.road, 'i');
+const PLAQUE = new RegExp(RULES.plaque, 'i');
 const COMPASS = /^(.*?)\s+(north|south|east|west|central)$/i;
 
 let bad = 0;

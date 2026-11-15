@@ -1317,6 +1317,10 @@ class Hoods:
             log(f'hearts: no room for {len(joins)}, joined: {"; ".join(joins)}')
         self.rings()
         self.write(time.time() - t0)
+        # the names' pass, last (M1 task 11; hoodnames.py has the rules): strips the map labels as one place are one again, one
+        # name each, no road's name and no plaque's. It rewrites hoods.bin and city.json's count; --json's rows are from before it
+        import hoodnames
+        hoodnames.clean_city(self.out, log=log)
 
     def name(self, ti):
         """Its own name, and the biggest it took in by a merge ("Western Addition / Japantown"): two at most, so a sign

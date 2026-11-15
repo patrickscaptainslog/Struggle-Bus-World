@@ -1,0 +1,7 @@
+{
+  "about": "Names a neighbourhood may not have (M1 task 11). tools/bake/hoodnames.py takes them out of a baked hoods.bin; tools/world/hoodnames-check.mjs fails a file that still has one. Regular expressions, case ignored.",
+  "road": "\\b(rd|ave|st|blvd|dr|hwy|ln|trl|pkwy|road|avenue|street|boulevard|drive|highway|lane|trail|parkway)\\.?$",
+  "plaque": "\\b(landmark|memorial|monument|plaque|marker|duel|historic(al)? site)\\b",
+  "strip": "^(.*?)\\s+(central north|central south|central west|central east|north|south|east|west|central|[0-9]+)$",
+  "whole": 274
+}
