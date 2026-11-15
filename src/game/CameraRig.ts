@@ -38,6 +38,22 @@ const RIGHT = new THREE.Vector3(1, 0, 0);
 /** (rad) a look arrives exactly from here: under a tenth of a game pixel, where a tail would only swim the frame */
 const LOOK_HOME = 1e-4;
 /** (m) Curb: how far apart the lens's sight line to the bus is tried for what's solid, and how far either side of it */
+/** A bridge as the chase keeps clear of it (src/world/Bridges.ts, BridgeKeep): whether a line's box comes near it, how far along a line from the bus a
+ *  tower or a curtain of cable first stands (a fraction of it, Infinity if none; grown by `grow` m over a cable's top, past a curtain's ends and over
+ *  a tower, `side` m beside a curtain or a tower), and whether a point is in its outline (grown the same). */
+export interface CameraKeep {
+  near(ax: number, ay: number, az: number, bx: number, by: number, bz: number, grow: number): boolean;
+  hit(ax: number, ay: number, az: number, bx: number, by: number, bz: number, grow: number, side: number): number;
+  inside(x: number, y: number, z: number, grow: number, side: number): boolean;
+}
+
+/** A bridge: the step (m) the lens is walked in along its arm to find where it leaves an outline, then halved this many times */
+const BRIDGE_STEP = 4;
+const BRIDGE_HALVINGS = 4;
+/** ...and the turn of the arm round the bus it tries where the arm can come in no nearer, a step at a time either way, up to the most (rad) */
+const BRIDGE_TURN_STEP = (4 * Math.PI) / 180;
+const BRIDGE_TURN_MAX = (150 * Math.PI) / 180;
+
 const CURB_STEP = 0.5;
 const CURB_WIDE = 0.5;
 
@@ -183,6 +199,18 @@ export class CameraRig {
   curbBlock: ((x: number, z: number, y: number) => boolean) | null = null;
   /** how far in from where it would stand the lens is pulled (m): at once to clear what's in the way, eased back out */
   private curbPull = 0;
+  /** The bridges the chase keeps clear of (main.ts: one BridgeKeep each, src/world/Bridges.ts): never a tower or a curtain of cable between the lens and the bus, never the lens in one */
+  bridges: CameraKeep[] = [];
+  /** how far in from where it would stand the lens is pulled for a bridge (m): eased in, eased out */
+  bridgePull = 0;
+  /** how far the arm is turned round the bus for a bridge where it can come in no nearer (rad, about the up axis): eased in, eased out */
+  bridgeSwing = 0;
+  private readonly bridgeV = new THREE.Vector3();
+  private readonly bridgeAheadV = new THREE.Vector3();
+  /** the frames the bridge's hard stop moved the lens in more than half a metre past where the easing had it: a pop, counted for the checks */
+  bridgeSnaps = 0;
+  /** the frames the arm's floor (config.camera.bridgeArmMin) left a bridge between the lens and the bus: counted for the checks */
+  bridgeShort = 0;
   /** how much of a look's swing round the bus the street leaves it (0..1): taken back at once, given back eased */
   private curbSwing = 1;
   private readonly curbTry = new THREE.Vector3();
@@ -459,6 +487,136 @@ export class CameraRig {
       if (this.floorAt) cam.position.y = Math.max(cam.position.y, this.floorAt(cam.position.x, cam.position.z) + 4);
       cam.position.y = this.liftClamp(cam.position.x, cam.position.z, cam.position.y, this.openingLow);
     }
+    if (this.bridges.length && !this.street) this.bridgeClear(cam, bus, dt);
+  }
+
+  /**
+   * A bridge, on the finished pose (the look's and the kerb's included): when a tower or a curtain of cable and suspenders would stand between the
+   * lens and the bus, or the lens in the bridge's outline, the lens comes in along its arm to config.camera.bridgeGap m short of it, and back out
+   * once the way is clear. Both eased: it starts in while the line is still bridgeLead m under a cable's top, past a curtain's end or over a tower
+   * (bridgeSide m beside a curtain or a tower), so a tower the line swings onto, or a cable it dips under, is met already on the way in; a hard stop
+   * on the true shapes takes what the easing hasn't (and counts it, bridgeSnaps). The pull is along the line to the bus, so the bus stays where it
+   * stands in the frame (curbClear's way). It eases in no nearer than bridgeKeep of the arm: the bus no bigger than a player takes for a camera's
+   * move. Where that isn't clear (the door's bus is 26 m off the Golden Gate's curtain: a turn away from it swings the lens to the far side) the
+   * arm, at that length, turns round the bus the least way that is, eased the same, against the yaw's own turn, so the lens keeps to the bus's side
+   * of the bridge until the bus has flown clear. The hard stop comes in along the arm as it is turned, down to bridgeArmMin, before it moves the
+   * turn. No bridge within reach and none pulled or turned: nothing here touches the pose.
+   */
+  private bridgeClear(cam: THREE.PerspectiveCamera, bus: THREE.Vector3, dt: number) {
+    const C = config.camera, p = cam.position;
+    let near = false;
+    for (const b of this.bridges) if (b.near(bus.x, bus.y, bus.z, p.x, p.y, p.z, C.bridgeLead)) near = true;
+    if (!near && this.bridgePull === 0 && this.bridgeSwing === 0) return;
+    const v = this.lookV.copy(p).sub(bus), len = v.length();
+    if (len < 1e-3) return;
+    // (the bus in an outline, a deck it flies under aside, has no way out along the arm: nothing to keep then)
+    for (const b of this.bridges)
+      if (b.inside(bus.x, bus.y, bus.z, 0, 0)) {
+        this.bridgePull = this.bridgeSwing = 0;
+        return;
+      }
+    const floor = Math.min(len, Math.max(C.bridgeArmMin, len * C.bridgeKeep));
+    // where it would stand: short of the first crossing, grown, and out of the grown outline; at the floor, turned as little as clears it
+    let grown = near ? this.bridgeArm(bus, v, len, C.bridgeLead, C.bridgeSide) : len;
+    // (and where the arm will be bridgeAhead s on, at the rate the yaw's spring turns it: a turn sweeps the line onto a tower or a curtain fastest)
+    if (near && grown > floor && Math.abs(this.yawVel) > 0.01) grown = Math.min(grown, this.bridgeArm(bus, this.bridgeAheadV.copy(v).applyAxisAngle(UP, -this.yawVel * C.bridgeAhead), len, C.bridgeLead, C.bridgeSide));
+    const want = len - Math.max(floor, grown);
+    this.bridgePull += (want - this.bridgePull) * (1 - Math.exp(-(want > this.bridgePull ? C.bridgeIn : C.bridgeOut) * dt));
+    if (want === 0 && this.bridgePull < 1e-3) this.bridgePull = 0;
+    let arm = Math.max(floor, len - this.bridgePull);
+    const turnWant = near && grown < floor ? this.bridgeTurn(bus, v, floor, C.bridgeLead, C.bridgeSide, this.bridgeSwing) : 0;
+    const sw = this.bridgeSwing;
+    this.bridgeSwing += (turnWant - sw) * (1 - Math.exp(-(Math.abs(turnWant) > Math.abs(sw) || turnWant * sw < 0 ? C.bridgeIn : C.bridgeOut) * dt));
+    if (turnWant === 0 && Math.abs(this.bridgeSwing) < 1e-4) this.bridgeSwing = 0;
+    // the hard stop, on the true shapes
+    if (near) {
+      // (along the arm as it is turned first, past bridgeKeep if it must, down to bridgeArmMin: a move along the line to the bus never jumps round
+      // it; only short of that does the turn move, as little as clears it)
+      const M = C.bridgeMargin, MO = C.bridgeMarginOver, least = Math.min(len, C.bridgeArmMin), w = this.bridgeV.copy(v);
+      if (this.bridgeSwing !== 0) w.applyAxisAngle(UP, this.bridgeSwing);
+      const hard = this.bridgeArm(bus, w, arm, MO, M);
+      if (hard < arm) {
+        if (hard >= least) {
+          if (arm - hard > 0.5) this.bridgeSnaps++;
+          arm = hard;
+        } else {
+          const need = this.bridgeTurn(bus, v, arm, MO, M, this.bridgeSwing, true);
+          if (need !== 0) {
+            if (Math.abs(need - this.bridgeSwing) > 0.02) this.bridgeSnaps++;
+            this.bridgeSwing = need;
+          } else {
+            arm = Math.max(least, hard);
+            this.bridgeShort++;
+          }
+        }
+        this.bridgePull = len - arm;
+      }
+    }
+    if (arm < len || this.bridgeSwing !== 0) {
+      p.copy(bus).addScaledVector(v, arm / len);
+      this.distance = arm;
+      if (this.bridgeSwing !== 0) {
+        // (the whole pose, about the bus, as a look's swing: the bus stands where it stood in the frame)
+        const q = this.lookQ.setFromAxisAngle(UP, this.bridgeSwing);
+        p.sub(bus).applyQuaternion(q).add(bus);
+        cam.quaternion.premultiply(q);
+      }
+    }
+  }
+
+  /**
+   * A bridge: the least turn of the arm round the bus (rad, about the up axis) that leaves `arm` m of it clear (bridgeArm, grown by `grow` m over
+   * and `side` m beside), tried every BRIDGE_TURN_STEP, all the way one way first: the way it is turned already (`prefer`), so a turn never flips
+   * to the other side of the bus in a frame, or from none the way that holds the lens back against the yaw's own turn (so it unwinds as the bus
+   * comes round, never winds on round it); either way in turn with the yaw still. `nearest`: the one nearest `prefer` instead (the hard stop's,
+   * which moves the turn as little as it can). 0 when none up to BRIDGE_TURN_MAX does.
+   */
+  private bridgeTurn(bus: THREE.Vector3, v: THREE.Vector3, arm: number, grow: number, side: number, prefer: number, nearest = false): number {
+    const len = v.length(), w = this.bridgeV, n = Math.round(BRIDGE_TURN_MAX / BRIDGE_TURN_STEP);
+    const one = prefer !== 0 || Math.abs(this.yawVel) > 0.05, s0 = prefer !== 0 ? Math.sign(prefer) : this.yawVel < 0 ? -1 : 1;
+    for (let i = 0; i < 2 * n; i++) {
+      const ang = nearest
+        ? prefer + (i & 1 ? s0 : -s0) * ((i >> 1) + 1) * BRIDGE_TURN_STEP
+        : one
+          ? (i < n ? s0 : -s0) * ((i % n) + 1) * BRIDGE_TURN_STEP
+          : (i & 1 ? -1 : 1) * ((i >> 1) + 1) * BRIDGE_TURN_STEP;
+      if (ang === 0 || Math.abs(ang) > BRIDGE_TURN_MAX + 1e-6) continue;
+      w.copy(v).multiplyScalar(arm / len).applyAxisAngle(UP, ang);
+      if (this.bridgeArm(bus, w, arm, grow, side) >= arm) return ang;
+    }
+    return 0;
+  }
+
+  /**
+   * A bridge: how far out along v from the bus the lens may stand, at most `upTo` m: bridgeGap short of the first tower or curtain on the line and
+   * out of every outline, each grown by `grow` m over and `side` m beside (Bridges.ts, BridgeKeep); `upTo` itself when nothing is in the way.
+   */
+  private bridgeArm(bus: THREE.Vector3, v: THREE.Vector3, upTo: number, grow: number, side: number): number {
+    const C = config.camera, len = v.length(), ex = bus.x + (v.x * upTo) / len, ey = bus.y + (v.y * upTo) / len, ez = bus.z + (v.z * upTo) / len;
+    let arm = upTo;
+    for (const b of this.bridges) {
+      if (!b.near(bus.x, bus.y, bus.z, ex, ey, ez, grow)) continue;
+      const t = b.hit(bus.x, bus.y, bus.z, ex, ey, ez, grow, side);
+      if (t <= 1) arm = Math.min(arm, t * upTo - C.bridgeGap);
+    }
+    arm = Math.max(0, arm);
+    // (in an outline: walked in a step at a time to the first place out of it, then halved to it, and bridgeGap more)
+    const inAny = (d: number) => {
+      const x = bus.x + (v.x * d) / len, y = bus.y + (v.y * d) / len, z = bus.z + (v.z * d) / len;
+      for (const b of this.bridges) if (b.inside(x, y, z, grow, side)) return true;
+      return false;
+    };
+    if (!inAny(arm)) return arm;
+    let out = arm;
+    while (out > 0 && inAny(out)) out -= BRIDGE_STEP;
+    if (out <= 0) return 0;
+    let lo = out, hi = out + BRIDGE_STEP;
+    for (let i = 0; i < BRIDGE_HALVINGS; i++) {
+      const mid = (lo + hi) / 2;
+      if (inAny(mid)) hi = mid;
+      else lo = mid;
+    }
+    return Math.max(0, lo - C.bridgeGap);
   }
 
   /**

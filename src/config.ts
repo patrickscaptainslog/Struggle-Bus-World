@@ -336,6 +336,23 @@ export const config = {
     openingClimbAfter: 230,
     /** ...nor fly lower than this until then (m ASL): the height it holds over the strait where the data has no tile. */
     openingGlide: 24.5,
+    /** A bridge (CameraRig.bridgeClear): when a tower or a curtain of cable and suspenders would stand between the lens and the bus, or the lens
+     *  in the bridge's outline, the lens comes in along its arm to `bridgeGap` m short of it. It starts coming in while the line is still within
+     *  `bridgeLead` m under a cable's top, past a curtain's end or over a tower, `bridgeSide` m beside a curtain or a tower, at `bridgeIn` (1/s),
+     *  and goes back out at `bridgeOut` (1/s) once clear, and as soon for where the arm will be `bridgeAhead` s on at the rate it turns. It comes
+     *  in no nearer than `bridgeKeep` of the arm (`bridgeArmMin` m at least); short of that, the arm turns round the bus instead, at the same
+     *  rates. Its hard stop keeps `bridgeMargin` m beside the true shapes and `bridgeMarginOver` m over a cable or a tower (under the flight's own
+     *  5 m over a cable, so a bus skimming a cable is never taken for one). */
+    bridgeLead: 18,
+    bridgeSide: 5,
+    bridgeAhead: 0.6,
+    bridgeMargin: 2,
+    bridgeMarginOver: 4,
+    bridgeGap: 3,
+    bridgeIn: 4,
+    bridgeOut: 1.1,
+    bridgeKeep: 0.5,
+    bridgeArmMin: 22,
   },
 
   flight: {

@@ -40,7 +40,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights, paintBridge, deckTopAt, BRIDGE_RUN } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeKeep, bridgeLights, paintBridge, deckTopAt, BRIDGE_RUN } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
@@ -698,6 +698,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the bridges, made paintable after every other landmark (slots are handed out in call order: theirs come last) */
   const bridges: Array<{ kind: 'ggb' | 'baybridge'; obj: THREE.Object3D; group: number }> = [];
   let spans = 0;
+  // (the chase keeps clear of every bridge: CameraRig.bridgeClear)
+  rig.bridges = [];
   for (const lm of manifest.landmarks) {
     const pts = (lm as { points?: Array<[number, number]> }).points;
     const deck = lm.deck;
@@ -707,11 +709,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       scene.add(obj);
       bridges.push({ kind: 'ggb', obj, group });
       city.addObstacles(bridgeObstacles('ggb', pts, deck, lm.supports));
+      rig.bridges.push(bridgeKeep('ggb', pts, deck));
       if (hour) spanLit('ggb', pts, deck, group);
     } else if (lm.kind === 'baybridge' && pts && deck && lm.supports) {
       const { supports } = lm;
       const group = ++spans;
       city.addObstacles(bridgeObstacles('baybridge', pts, deck, supports));
+      rig.bridges.push(bridgeKeep('baybridge', pts, deck));
       later.push(() => {
         const obj = makeBayBridgeWest(pts, deck, supports);
         scene.add(obj);

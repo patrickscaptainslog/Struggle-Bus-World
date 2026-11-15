@@ -995,6 +995,193 @@ export function bridgeObstacles(kind: 'ggb' | 'baybridge', pts: P2[], deck: Deck
   return out;
 }
 
+/** One span of a bridge's cable as the chase camera keeps clear of it: its line from tower to tower (or end), the cable over it, the deck's stations under it. */
+interface KeepSpan {
+  ax: number;
+  az: number;
+  /** unit along it, its length (m), and its curtains' planes: `off` m either side of it, along nx, nz */
+  ux: number;
+  uz: number;
+  L: number;
+  nx: number;
+  nz: number;
+  off: number;
+  y0: number;
+  y1: number;
+  sagY: number;
+  s0: number;
+  s1: number;
+}
+
+/** A tower (or the block a run of cable lands on in the middle) as a box: its centre, unit along the bridge, half sizes along and across (m), its top. */
+interface KeepTower {
+  x: number;
+  z: number;
+  ux: number;
+  uz: number;
+  along: number;
+  across: number;
+  top: number;
+}
+
+/**
+ * A bridge as the chase camera keeps clear of it (CameraRig.bridges), from the same deck, cable runs and sizes its mesh and its collision posts
+ * read, so every bridge in the data has one: its towers, its curtains of cable and suspenders (a vertical plane over each edge of the deck, from
+ * the roadway up to the cable), and its outline (a tower, the deck, or between a span's two curtains from under the deck up to its cable).
+ * The deck itself is no curtain: a line under it or through it is the flight under a deck, as players fly it.
+ */
+export class BridgeKeep {
+  readonly min: P2 = [Infinity, Infinity];
+  readonly max: P2 = [-Infinity, -Infinity];
+  readonly top: number;
+  /** scratch for the deck's frame */
+  private readonly fr = [0, 0];
+
+  constructor(
+    private readonly deck: Deck,
+    private readonly spans: KeepSpan[],
+    private readonly towers: KeepTower[],
+    private readonly half: number,
+    private readonly thick: number,
+  ) {
+    const grow = (x: number, z: number, r: number) => {
+      this.min[0] = Math.min(this.min[0], x - r);
+      this.min[1] = Math.min(this.min[1], z - r);
+      this.max[0] = Math.max(this.max[0], x + r);
+      this.max[1] = Math.max(this.max[1], z + r);
+    };
+    for (const p of deck.pts) grow(p[0], p[1], half + 2);
+    for (const c of spans) grow(c.ax, c.az, c.off + 2), grow(c.ax + c.ux * c.L, c.az + c.uz * c.L, c.off + 2);
+    for (const t of towers) grow(t.x, t.z, Math.hypot(t.along, t.across));
+    this.top = Math.max(...towers.map((t) => t.top), ...spans.map((c) => Math.max(c.y0, c.y1)), ...deck.pts.map((p) => p[2] + 2));
+  }
+
+  /** Whether the box round the line from a to b, `grow` m wider, meets this bridge's box at all. */
+  near(ax: number, ay: number, az: number, bx: number, by: number, bz: number, grow: number): boolean {
+    return (
+      Math.max(ax, bx) + grow >= this.min[0] && Math.min(ax, bx) - grow <= this.max[0] && Math.max(az, bz) + grow >= this.min[1] && Math.min(az, bz) - grow <= this.max[1] && Math.min(ay, by) - grow <= this.top
+    );
+  }
+
+  /** The station of (x, z) on a span, kept to its ends: the deck's, as the collision posts read the cable over them (cableOver). */
+  private stationOn(c: KeepSpan, x: number, z: number): number {
+    this.deck.toFrame(x, z, this.fr);
+    return Math.min(c.s1, Math.max(c.s0, this.fr[0]));
+  }
+
+  /** The cable's height over a span at (x, z). */
+  private cableAt(c: KeepSpan, x: number, z: number): number {
+    return cableY(c.y0, c.y1, c.sagY, (this.stationOn(c, x, z) - c.s0) / (c.s1 - c.s0));
+  }
+
+  /** The roadway's height under a span at (x, z). */
+  private roadAt(c: KeepSpan, x: number, z: number): number {
+    return this.deck.at(this.stationOn(c, x, z))[2];
+  }
+
+  /**
+   * How far along the line from a (the bus) to b (the camera), as a fraction of it, the line first meets a tower or a curtain, each grown by
+   * `grow` m over a tower and over a curtain's cable and past its ends, and `side` m along and across a tower and either side of a curtain, never
+   * so far that it takes in a: 2 m short of it at most. Infinity if it meets none. A few sums a span and a tower.
+   */
+  hit(ax: number, ay: number, az: number, bx: number, by: number, bz: number, grow: number, side: number): number {
+    let best = Infinity;
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    for (const t of this.towers) {
+      // (slabs along, across and under its top: the line's way in is the last of the three ways in)
+      const px = ax - t.x, pz = az - t.z;
+      const au = px * t.ux + pz * t.uz, an = -px * t.uz + pz * t.ux, du = dx * t.ux + dz * t.uz, dn = -dx * t.uz + dz * t.ux;
+      const out = Math.max(Math.abs(au) - t.along, Math.abs(an) - t.across, ay - t.top);
+      if (out <= 0) continue;
+      const g = Math.max(0, Math.min(grow, out - 2)), gs = Math.max(0, Math.min(side, out - 2));
+      let t0 = 0, t1 = 1;
+      for (let k = 0; k < 2; k++) {
+        const p = k ? an : au, d = k ? dn : du, h = (k ? t.across : t.along) + gs;
+        if (Math.abs(d) < 1e-9) {
+          if (Math.abs(p) > h) t0 = 2;
+          continue;
+        }
+        const e0 = (-h - p) / d, e1 = (h - p) / d;
+        t0 = Math.max(t0, Math.min(e0, e1));
+        t1 = Math.min(t1, Math.max(e0, e1));
+      }
+      const ty = t.top + g - ay;
+      if (dy > 1e-9) t1 = Math.min(t1, ty / dy);
+      else if (dy < -1e-9) t0 = Math.max(t0, ty / dy);
+      else if (ty < 0) t0 = 2;
+      if (t0 <= t1 && t0 < best) best = t0;
+    }
+    for (const c of this.spans) {
+      const px = ax - c.ax, pz = az - c.az;
+      const au = px * c.ux + pz * c.uz, an = px * c.nx + pz * c.nz, du = dx * c.ux + dz * c.uz, dn = dx * c.nx + dz * c.nz;
+      // (over its cable where the bus is, the bus is never taken in by the growth over it)
+      const over = ay - this.cableAt(c, ax, az);
+      const gv = au >= -grow && au <= c.L + grow && over > 0 ? Math.max(0, Math.min(grow, over - 2)) : grow;
+      for (let sgn = -1; sgn <= 1; sgn += 2) {
+        const da = an - sgn * c.off;
+        const g = Math.max(0, Math.min(side, Math.abs(da) - 2));
+        if (Math.abs(dn) < 1e-9) continue;
+        // (the stretch of the line within g of the plane; looked at where it comes in, where it crosses and where it leaves)
+        const e0 = (-g - da) / dn, e1 = (g - da) / dn, tin = Math.max(0, Math.min(e0, e1)), tout = Math.min(1, Math.max(e0, e1));
+        if (tin > tout || tin >= best) continue;
+        const tx = -da / dn;
+        for (let k = 0; k < 3; k++) {
+          const tt = k === 0 ? tin : k === 1 ? tx : tout;
+          if (tt < tin || tt > tout) continue;
+          const u = au + du * tt, y = ay + dy * tt, x = ax + dx * tt, z = az + dz * tt;
+          if (u < -grow || u > c.L + grow) continue;
+          if (y <= this.cableAt(c, x, z) + gv && y >= this.roadAt(c, x, z)) {
+            best = tin;
+            break;
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Whether (x, y, z) is inside the outline: a tower, the deck, or between a span's two curtains from under the deck up to its cable; `grow` m more over the cable and a tower, `side` m round a tower, the curtains and the deck. */
+  inside(x: number, y: number, z: number, grow: number, side: number): boolean {
+    for (const t of this.towers) {
+      const px = x - t.x, pz = z - t.z;
+      if (Math.abs(px * t.ux + pz * t.uz) <= t.along + side && Math.abs(-px * t.uz + pz * t.ux) <= t.across + side && y <= t.top + grow) return true;
+    }
+    for (const c of this.spans) {
+      const px = x - c.ax, pz = z - c.az, u = px * c.ux + pz * c.uz;
+      if (u < 0 || u > c.L || Math.abs(px * c.nx + pz * c.nz) > c.off + side) continue;
+      if (y <= this.cableAt(c, x, z) + grow && y >= this.roadAt(c, x, z) - this.thick - 1) return true;
+    }
+    if (y > this.top + grow) return false;
+    const fr = this.fr;
+    this.deck.toFrame(x, z, fr);
+    if (fr[0] < 0 || fr[0] > this.deck.length || Math.abs(fr[1]) > this.half + side) return false;
+    const road = this.deck.at(fr[0])[2];
+    return y <= road + 1.5 && y >= road - this.thick - 1;
+  }
+}
+
+/** The chase camera's keep for a bridge (CameraRig.bridges): the deck, cables and towers its mesh is built from, as BridgeKeep says. */
+export function bridgeKeep(kind: 'ggb' | 'baybridge', pts: P2[], deck: DeckPoint[]): BridgeKeep {
+  const d = new Deck(deck);
+  const gg = kind === 'ggb';
+  const f = frame(pts[0], pts[pts.length - 1]);
+  const off = gg ? GGB.half + 0.5 : (BAY.half + 2) * 0.84;
+  const spans: KeepSpan[] = [];
+  for (const c of gg ? ggCables(d, pts) : bayCables(d, pts)) {
+    const [ax, az] = pts[c.a], [bx, bz] = pts[c.b], L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L;
+    // (its curtains stand off the frame's across, as the mesh hangs them: off m along f.a, so off x (f.a . n) along the span's own normal)
+    const nx = -uz, nz = ux;
+    spans.push({ ax, az, ux, uz, L, nx, nz, off: off * Math.abs(f.ax * nx + f.az * nz), y0: c.y0, y1: c.y1, sagY: c.sagY, s0: c.s0, s1: c.s1 });
+  }
+  const tower = (p: P2, along: number, across: number, top: number): KeepTower => ({ x: p[0], z: p[1], ux: f.ux, uz: f.uz, along, across, top });
+  // (as wide as the outline the landmark's ring draws there: the pier's footprint, the legs inside it, legOff out, the saddles and crowns over the
+  // top: the Golden Gate's pier 30 m along and 44 m across, the Bay Bridge's 26 and 36; and its center anchorage, where both runs of cable land)
+  const towers = gg
+    ? [pts[1], pts[2]].map((p) => tower(p, 15.5, 22.5, GGB.towerH + 8))
+    : [...BAY.towers.map((i) => tower(pts[i], 13.5, 18.5, BAY.towerH + 4)), tower(pts[3], 34.5, 20.5, BAY.anchorTop + 4)];
+  return new BridgeKeep(d, spans, towers, gg ? GGB.half : BAY.half, gg ? GGB.thick : BAY.thick);
+}
+
 /**
  * A span's lights (SKY.md 4.4), x, y, z a light, from the one deck list and the sizes above: every `spacing` m along the roadway at deck height, on both sides just past its
  * edge, so they show from over and under it, and one on each tower top: on both its legs, seen from the side one hides what stands on the strut between them. Only the held hour asks.
