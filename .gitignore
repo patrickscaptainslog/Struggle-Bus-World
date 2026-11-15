@@ -11,6 +11,7 @@ tools/moon/.out
 tools/world/.out
 tools/factions/.out
 tools/life/.out
+tools/link/.out
 tools/bake/.data
 .vercel
 .env*
