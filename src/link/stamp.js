@@ -152,6 +152,9 @@ function sbwStamp(href) {
 
 function sbwLastCard(text) {
   var line, notes, i, n, best = null;
+  var whole = function (v, lo, hi) {
+    return typeof v === 'number' && Math.floor(v) === v && v >= lo && v <= hi;
+  };
   if (typeof text !== 'string') return null;
   line = text.split('\n');
   if (line[0] !== 'SBW2') return null;
@@ -163,9 +166,12 @@ function sbwLastCard(text) {
   if (Object.prototype.toString.call(notes) !== '[object Array]') return null;
   for (i = 0; i < notes.length; i++) {
     n = notes[i];
-    // (a note as save.ts writes one: id, id30, sent or opened, the card's text, when, generation, page name, ...)
+    // (a note as save.ts writes one, held to what save.ts's parseSave takes: id, id30, sent or opened, the card's text, when, generation, page name,
+    // its square, the sender's crew, when it was taken, what it answers)
     if (Object.prototype.toString.call(n) !== '[object Array]' || n.length !== 11 || n[2] !== 1) continue;
-    if (typeof n[0] !== 'string' || typeof n[3] !== 'string' || typeof n[4] !== 'number' || typeof n[5] !== 'number' || typeof n[6] !== 'string') continue;
+    if (typeof n[0] !== 'string' || !n[0] || typeof n[3] !== 'string' || typeof n[6] !== 'string') continue;
+    if (!whole(n[1], 0, 1073741823) || !whole(n[4], 0, 4294967295) || !whole(n[5], 0, 99) || !whole(n[7], 0, 4294967295) || !whole(n[8], 1, 15)) continue;
+    if (!whole(n[9], 0, 4294967295) || !whole(n[10], -1, 1073741823)) continue;
     if (!best || n[4] > best[4] || (n[4] === best[4] && n[0] > best[0])) best = n;
   }
   return best ? { text: best[3], at: best[4], place: best[6], gen: best[5] } : null;
