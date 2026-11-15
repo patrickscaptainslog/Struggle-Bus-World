@@ -1191,9 +1191,16 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (the record goes out only after a save of the paint it points at went through: the paint's own debounce, pagehide and a hidden page)
   if (keepsReturn) city.paint.afterSave = () => void flushReturn();
   /** ref: what the blast hit first, null when nothing blooms (it stands by the spot it hit, no front to fall back on). bus: where the shot left from */
+  /** the landmarks that can be crowned which have signed their name this visit (by ref index) */
+  const signedSpots = new Set<number>();
   const queueSign = (ref: BuildingRef | null, hue: number, cx: number, cz: number, r: number, bus: { x: number; y: number; z: number; heading: number } | null = breathed ? breathPose : null) => {
     // (where you last painted: a building's, by the pose the shot left from. A landmark's id isn't a building's, and keeps the record it had)
     if (ref && bus && keepsReturn && ref.stableId >= 0) noteReturn(manifest.slug, manifest.origin, bus, { x: cx, z: cz }, ref.stableId);
+    // (a landmark that can be crowned signs its name once a visit: every hit on it put up another copy, one standing over the bus. The look of M1a, 7)
+    if (ref && crowns.spotOf(ref)) {
+      if (signedSpots.has(ref.index)) return;
+      signedSpots.add(ref.index);
+    }
     // (?moon: what names a place is the map of the Moon, and a named crater painted says so)
     const [text, from] = moon ? [moon.paint.signFor(cx, cz), 'place'] : signName(ref, cx, cz, lastBlast.open);
     pendingSigns.push({ ref, text: text.toUpperCase(), from, hue, cx, cz, r, at: simTime + arrival(r, r) + signTune.showDelay, tries: 0 });
@@ -1413,9 +1420,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** when the last crown landed (game s; -1 none yet), and how long its name holds the toast's slot before FLICK UP may take it (s) */
   let crownedAt = -1;
   const CROWN_BANNER = 3.2;
+  /** the crown's banner: the crown whose name waits for the toast's slot (another toast up), and when the last one took it (game s; -1 none yet) */
+  let bannerDue: CrownSpot | null = null;
+  let bannerAt = -1;
+  /** the door's FLICK UP comes this long into the visit (game s) with no crown yet: a player who never crowns the bridge is still taught (the review's M3) */
+  const DOOR_FLICK = 35;
   /** A landmark crowned (Crown.ts): its towers flare in the crew's colours (Rainbow's six with none), its lights run along it and up its towers, a flash
-   *  over the frame, a camera punch, the bell, and its name, on the toast's slot and its street sign. Every beat reads with the sound off. Particles, the
-   *  flash and the HUD only: nothing here needs a program the warm-up hasn't made */
+   *  over the frame, a camera punch, the bell, its name and CROWNED in the toast's slot, and the HUD's four pips all lit while they hold. Every beat
+   *  reads with the sound off. Particles, the flash and the HUD only: nothing here needs a program the warm-up hasn't made */
   const crown = (s: CrownSpot) => {
     const D = config.door, hues = [0, 1, 2, 3, 4, 5], spray = lookOf(splatter.faction).spray;
     const palette0 = particles.palette;
@@ -1435,8 +1447,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     pipeline.flash(0.5, 0.55, 10, 1, D.flash);
     rig.kick(D.kick);
     audio.bombTier(3);
-    controls.hud.toast([s.name.toUpperCase()], CROWN_BANNER);
-    queueSign(s.ref, splatter.hueNext, s.ref.cx, s.ref.cz, config.splat.blastRadius, null);
+    // (the banner takes the toast's slot in the frame loop, as soon as nothing else holds it: a hint up isn't cut. The review's m6)
+    bannerDue = s;
     crownedAt = simTime;
   };
   const aimer = new Aimer(city, splatter);
@@ -2469,9 +2481,24 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // the landmarks' crowns (src/game/Crown.ts): a fourth counted hit has landed; the ring and its pips while the one last hit climbs, near it
     const crowned = crowns.take(simTime);
     if (crowned) crown(crowned);
+    if (bannerDue && !controls.hud.toastUp) {
+      controls.hud.toast([bannerDue.name.toUpperCase(), 'CROWNED'], CROWN_BANNER);
+      bannerDue = null;
+      bannerAt = simTime;
+    }
+    const bannerUp = bannerAt >= 0 && simTime < bannerAt + CROWN_BANNER;
+    // (the pips: the stage while it climbs, all four lit while the crown's banner holds, then gone)
     const cl = crowns.last, crownNear = !!cl && simTime >= cl.at && city.edgeDistance(cl.spot.ref, flight.x, flight.z) < 700;
-    controls.hud.setCrown(crownNear ? crowns.stage(cl!.spot) : 0, crownNear ? crowns.wait(cl!.spot, simTime) : 0);
-    controls.crowned = crownedAt >= 0 && simTime > crownedAt + CROWN_BANNER;
+    const pips = crownNear ? crowns.stage(cl!.spot) : 0;
+    controls.hud.setCrown(pips < 4 || bannerUp ? pips : 0, crownNear ? crowns.wait(cl!.spot, simTime) : 0);
+    // (the door: its pull while its bridge waits for its crown and the bus is near it (the review's m4); FLICK UP's moment once the crown's banner has
+    // gone, or at once for a crown kept from an earlier visit, or with no crown 35 s into the visit or with the bus 700 m from the bridge (M3))
+    const doorSpot = door ? crowns.byKey('lm:ggb') : undefined;
+    if (doorSpot) {
+      const kept = crowns.isCrowned(doorSpot), far = city.edgeDistance(doorSpot.ref, flight.x, flight.z) > 700;
+      crowns.magnetOn = !kept && !far;
+      controls.crowned = kept ? crownedAt < 0 || (bannerAt >= 0 && !bannerUp) : far || simTime > DOOR_FLICK;
+    } else controls.crowned = bannerAt >= 0 && !bannerUp;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
     // (the Lob's hint: its ring shows)
     controls.lobRing = aimer.lobPlan !== null;
@@ -3136,7 +3163,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       /** QA: the door (docs/specs/sf/DOOR.md) and a landmark's crown (default the Golden Gate's): its stage 0-4, its ring's wait 0-1, its paint's index, when its last crown landed */
       crown: (key = 'lm:ggb') => {
         const c = crowns.byKey(key);
-        return { door, crownedAt, tapsDenied, ...(c ? { stage: crowns.stage(c), wait: crowns.wait(c, simTime), index: c.ref.index } : {}) };
+        return { door, crownedAt, bannerAt, tapsDenied, tapsMerged, magnet: crowns.magnetOn, ...(c ? { stage: crowns.stage(c), wait: crowns.wait(c, simTime), index: c.ref.index } : {}) };
       },
       /** QA: the last street sign raised: { text, x, z, from: 'street' | 'hoodAt' | 'building hood' | 'nearest label' | 'landmark', t } */
       lastSign: () => lastSign,

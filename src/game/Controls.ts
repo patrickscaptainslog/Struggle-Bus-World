@@ -17,7 +17,7 @@ import { Balloons } from '../fx/Balloons';
 import { balloonPop, balloonSqueak } from '../audio/balloonSfx';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { AIM_LINE, BOMB_LINES, Coach, FLICK_LINE, hintLines, LOB_LINES, TAUGHT, type CoachFrame } from '../ui/Coach';
+import { AIM_LINE, BOMB_LINES, Coach, FLICK_LINE, hintLines, LOB_LINES, restLines, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the first run, the settings
@@ -207,7 +207,7 @@ export class Controls {
 
   /** The door is this page's start (main.ts): the cues come at their moments (Coach.ts) */
   door = false;
-  /** ...and its landmark is crowned, the crown's banner gone: FLICK UP's moment */
+  /** ...and FLICK UP's moment: its landmark crowned and the crown's banner gone, or no crown and 35 s in or the bus far from it (main.ts) */
   crowned = false;
 
   /** A breath left (main.ts). */
@@ -422,6 +422,9 @@ export class Controls {
       } else if (c.flickDue) {
         this.hintLeft = 3;
         hud.toast([FLICK_LINE], 3);
+      } else if (c.restDue) {
+        this.hintLeft = 3.5;
+        hud.toast(restLines(input.aimOn), 3.5);
       }
     }
     if (c?.dirty) {

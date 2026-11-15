@@ -15,7 +15,8 @@
 //   third splat, then the first Lob's ring with a full belly, the nose up   TAP TO LOB IT / INTO THE RING, once (a Lob thrown first teaches it)
 //
 // The door (a bare link's first visit beside the Golden Gate, docs/specs/sf/DOOR.md) teaches each gesture at its moment instead: TAP TO PAINT from
-// the first glint (the fog lifting or not), DRAG after the first paint, and FLICK UP FOR GEARS once the bridge is crowned, in place of the hint
+// the first glint (the fog lifting or not), DRAG after the first paint, and FLICK UP TO GO FASTER once the bridge is crowned (or 35 s in, or far from
+// it, without a crown: main.ts), then the hint's other lines, the lane and the look, a while after, in place of the hint
 // (which it marks taught: the three lines never show on a first visit).
 //
 // The flicks and the look are hidden on purpose: the hint is all the teaching
@@ -26,7 +27,7 @@
 
 /** (curb: Curb's one-time hint, the first time the bus is low over a road, Controls.curbHint: not a first-run cue, so ?skipintro shows it. 128, between
  *  the aim's 64 and the Bomb's 256: on one bit, learning HOLD TO AIM would hide LAND ON THE STREET in every saved profile) */
-export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, curb: 128, bomb: 256, lob: 1024 } as const;
+export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, curb: 128, bomb: 256, lob: 1024, flick: 2048 } as const;
 
 /** The first run's one mention of the flicks and the look: the gestures are hidden, and this is all the teaching they get. Any thumb flicks, so that comes first; then the bus's lane (Input.busZone):
  *  a touch near the bus or anywhere under it flies it, and one high over it looks (or beside it, which the hint leaves to the thumb to find): just over
@@ -34,8 +35,12 @@ export const TAUGHT = { tap: 1, drag: 2, mega: 8, thumbs: 32, aim: 64, curb: 128
  *  Hold to aim is the same place held still (SHOTS.md: "The first-run hint adds HOLD TO AIM"), and its line is the fourth: four lines fill the toast's 44 px slot. */
 export const hintLines = (aim: boolean): string[] => (aim ? ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG HIGH UP TO LOOK', AIM_LINE] : ['FLICK UP FOR GEARS', 'STEER BELOW THE BUS', 'DRAG HIGH UP TO LOOK']);
 export const AIM_LINE = 'HOLD HIGH UP TO AIM';
-/** The door's lesson after the crown (docs/specs/sf/DOOR.md): the flicks, the hint's first line, on its own. */
-export const FLICK_LINE = 'FLICK UP FOR GEARS';
+/** The door's lesson after the crown (docs/specs/sf/DOOR.md): the flicks, on their own, in words that say what they do (a gear means nothing to a
+ *  newcomer: the look of M1a, 8). Then the hint's other lines, a while after: the lane and the look (and hold to aim, with the Hose). */
+export const FLICK_LINE = 'FLICK UP TO GO FASTER';
+export const restLines = (aim: boolean): string[] => hintLines(aim).slice(1);
+/** The door's lane and look lines come this long after FLICK UP (s), when no other toast is up. */
+const REST_AFTER = 12;
 /** The Bomb's one hint (SHOTS.md: "before the first Bomb"), in the toast's slot, when a painted building glints, where a Bomb's jump means most. */
 export const BOMB_LINES = ['HOLD THE BUS STILL', 'LIFT TO BOMB'];
 /** The Lob's one hint (src/game/Lob.ts), when its dotted ring first shows: the nose is up already, and a tap now throws it there. */
@@ -66,7 +71,7 @@ export interface CoachFrame {
   lobbed?: boolean;
   /** a toast is on screen (the HUD's): a hint of the Bomb's or the Lob's waits for it */
   toastUp?: boolean;
-  /** the door is this page's start; and the landmark it opens on is crowned (the crown's banner gone) */
+  /** the door is this page's start; and FLICK UP's moment (main.ts: its landmark crowned and the banner gone, or no crown 35 s in or far from it) */
   door?: boolean;
   crowned?: boolean;
 }
@@ -85,8 +90,11 @@ export class Coach {
   bombHintDue = false;
   /** the same, the Lob's (LOB_LINES), once ever */
   lobHintDue = false;
-  /** the same, the door's FLICK UP after the crown, once ever (it is the hint's: TAUGHT.thumbs) */
+  /** the same, the door's FLICK UP after the crown, once ever (TAUGHT.flick), and its lane and look lines after it (restLines: then the hint is taught,
+   *  TAUGHT.thumbs). A save that had the hint already gets neither */
   flickDue = false;
+  restDue = false;
+  private restT = 0;
   /** a bit changed: Controls saves */
   dirty = false;
   private dragT = 0;
@@ -120,6 +128,7 @@ export class Coach {
     this.bombHintDue = false;
     this.lobHintDue = false;
     this.flickDue = false;
+    this.restDue = false;
     if (f.lobbed) this.learn(TAUGHT.lob);
     if (f.thumb) this.learn(TAUGHT.drag);
     if (f.bombed) this.learn(TAUGHT.bomb);
@@ -142,9 +151,22 @@ export class Coach {
     this.cue = cue;
 
     if (f.door) {
-      if (f.crowned && !this.has(TAUGHT.thumbs)) {
-        this.learn(TAUGHT.thumbs);
-        this.flickDue = true;
+      if (this.has(TAUGHT.thumbs)) {
+        // (the hint, or the door's lines, seen already)
+      } else if (!this.has(TAUGHT.flick)) {
+        // (past the fog: a crown kept from an earlier visit is FLICK UP's moment from the first frame)
+        if (f.crowned && f.openingOver) {
+          this.learn(TAUGHT.flick);
+          this.flickDue = true;
+        }
+      } else {
+        // (a visit after FLICK UP's, or the same one REST_AFTER s on: the lane and the look, when the slot is free)
+        this.restT += dt;
+        if (this.restT >= REST_AFTER && !f.toastUp) {
+          this.learn(TAUGHT.thumbs);
+          if (this.aim) this.learn(TAUGHT.aim);
+          this.restDue = true;
+        }
       }
     } else if (f.openingOver && !f.gated && (!this.has(TAUGHT.thumbs) || (this.aim && !this.has(TAUGHT.aim)))) {
       this.hintT += dt;
@@ -163,7 +185,7 @@ export class Coach {
     }
     // (the Bomb's and the Lob's hints wait while another is due or a toast is up: shown over it, one replaced it, and two due in a frame lost the second for
     // good, learned but never shown)
-    const busy = !!f.toastUp || this.hintDue || this.aimHintDue || this.flickDue;
+    const busy = !!f.toastUp || this.hintDue || this.aimHintDue || this.flickDue || this.restDue;
     // (after three taps, the first time a painted building glints with a full belly under 300 m: a Bomb there jumps it two or three stages)
     if (this.bomb && !this.has(TAUGHT.bomb) && f.openingOver && !f.gated && f.splats >= 3 && f.bombGlint && !busy) {
       this.learn(TAUGHT.bomb);

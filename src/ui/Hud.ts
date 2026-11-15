@@ -249,9 +249,10 @@ export class Hud {
     this.cueWrap.append(this.cueCanvas.el);
     this.cueWrap.dataset.hud = 'cue';
     root.append(this.cueWrap);
-    // ---- a landmark's crown (src/game/Crown.ts): four pips for its stages in a thin ring that fills while the next counted hit waits (passes everything through)
+    // ---- a landmark's crown (src/game/Crown.ts): four pips in a row for its stages over a thin bar that fills while the next counted hit waits (passes
+    // everything through). A ring of them read as a reticle or a d-pad, not as progress (the look of M1a, 9)
     this.crownWrap = div({ position: 'absolute', display: 'none', left: '50%', transform: 'translateX(-50%)' });
-    this.crownCanvas = new PixelCanvas(21, 21, S);
+    this.crownCanvas = new PixelCanvas(31, 11, S);
     this.crownWrap.append(this.crownCanvas.el);
     this.crownWrap.dataset.hud = 'crown';
     root.append(this.crownWrap);
@@ -544,41 +545,32 @@ export class Hud {
   }
 
   /**
-   * A landmark's crown (src/game/Crown.ts): `stage` 1 to 3 lit pips of four (and the fourth on the crown), the ring filled by `wait` (0 just counted, 1 the next
-   * hit counts: the ring whole and bright). Stage 0 or 4 and over: hidden. Drawn only when it changes.
+   * A landmark's crown (src/game/Crown.ts): `stage` 1 to 4 lit pips of four in a row (4: the crown, all lit and the bar bright), the bar under them filled by
+   * `wait` (0 just counted, 1 the next hit counts: the bar whole and bright). Stage 0 or over 4: hidden. Drawn only when it changes.
    */
   setCrown(stage: number, wait: number) {
-    const on = stage >= 1 && stage <= 3;
+    const on = stage >= 1 && stage <= 4;
     this.show(this.crownWrap, on);
     if (!on) {
       this.crownKey = -1;
       return;
     }
-    const fill = Math.round(Math.max(0, Math.min(1, wait)) * 32);
+    const fill = stage >= 4 ? 32 : Math.round(Math.max(0, Math.min(1, wait)) * 32);
     const key = stage * 64 + fill;
     if (key === this.crownKey) return;
     this.crownKey = key;
     const p = this.crownCanvas;
     p.clear();
-    const c = 10.5, ready = fill >= 32;
-    // (the ring: one pixel thin, filled clockwise from the top as the wait runs out, with an ink edge each side so it reads over sky and paint)
-    for (let j = 0; j < p.h; j++)
-      for (let i = 0; i < p.w; i++) {
-        const dx = i + 0.5 - c, dy = j + 0.5 - c, d = Math.hypot(dx, dy);
-        if (d > 10.4 || d < 7.6) continue;
-        if (d > 9.6 || d < 8.4) {
-          p.set(i, j, C.ink);
-          continue;
-        }
-        const a = (Math.atan2(dx, -dy) / (2 * Math.PI) + 1) % 1;
-        p.set(i, j, ready ? C.yellowHi : a * 32 < fill ? C.cream : C.dim);
-      }
-    // (the four stages: deck, cables, towers, lights, from the top clockwise)
+    const ready = fill >= 32;
+    // (the four stages, deck, cables, towers, lights, left to right: 5 px pips in an ink edge, 3 px apart)
     for (let k = 0; k < 4; k++) {
-      const x = Math.round(c + [0, 4, 0, -4][k] - 1), y = Math.round(c + [-4, 0, 4, 0][k] - 1);
-      p.rect(x - 1, y - 1, 4, 4, C.ink);
-      p.rect(x, y, 2, 2, k < stage ? C.yellowHi : C.dim);
+      const x = 1 + k * 8;
+      p.rect(x - 1, 0, 7, 7, C.ink);
+      p.rect(x, 1, 5, 5, k < stage ? C.yellowHi : C.dim);
     }
+    // (the wait: a bar under them, filled left to right as it runs out, bright when the next hit counts, an ink edge round it)
+    p.rect(0, 8, p.w, 3, C.ink);
+    for (let i = 1; i < p.w - 1; i++) p.set(i, 9, ready ? C.yellowHi : ((i - 1) / (p.w - 2)) * 32 < fill ? C.cream : C.dim);
     p.flush();
   }
 
@@ -595,6 +587,8 @@ export class Hud {
     c.flush();
     const wrap = div({ position: 'absolute', left: '50%', top: `${this.L.toast.y}px`, transform: 'translateX(-50%)' });
     wrap.dataset.hud = 'toast';
+    // (its words, for the tools: the canvas has no text of its own)
+    wrap.dataset.text = lines.map((l) => l.toUpperCase()).join(' / ');
     wrap.append(c.el);
     this.root.append(wrap);
     this.toastEl = wrap;
