@@ -1000,6 +1000,26 @@ export const config = {
     pitchMax: 85,
   },
 
+  /** The door and a landmark's crown (docs/specs/sf/DOOR.md; src/game/Crown.ts): a bare link's first visit starts beside the Golden Gate's deck. */
+  door: {
+    /** The door's fog (s): the opening's, cut short. */
+    fog: 2.4,
+    /** The bus's start: this far past the north tower along the main span (m), this far to the bay side of the deck's line (m), this high over the deck (m), this fast (m/s). */
+    along: 160,
+    side: 40,
+    over: 24,
+    speed: 40,
+    /** One counted hit a landmark at most this often (s): each moves it one stage of four. Between them every hit still paints and blooms. */
+    gap: 5,
+    /** During the door, a tap that would land on nothing this near an uncrowned landmark's outline takes it (m). */
+    reach: 85,
+    /** The crown's flash, its camera punch, and how many sparkles flare off each tower top and run along each of its slices. */
+    flash: 1.6,
+    kick: 0.9,
+    flare: 90,
+    lights: 24,
+  },
+
   /** The Bomb (docs/specs/shots/SHOTS.md, "The modes"; src/game/Bomb.ts), behind &bomb: a still hold on the bus, then the lift. "2" is Bomb II's, "3" Bomb III's. */
   bomb: {
     /** The tiers (s from the charge's start, the still hold on the bus with a full belly): each shows inputTune.aimLagMs later, on a frame. */

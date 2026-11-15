@@ -685,6 +685,11 @@ export function makeBayBridgeWest(pts: P2[], deck: DeckPoint[], supports: Suppor
   return bridgeGroup(k, wires, look, { deck: d, towers: BAY.towers.map((i) => pts[i]), towerH, half });
 }
 
+/** The deck's top under (x, z), from the manifest's deck list (the door's start: main.ts). */
+export function deckTopAt(deck: DeckPoint[], x: number, z: number): number {
+  return new Deck(deck).topAt([x, z]);
+}
+
 /** How fast a bridge's paint runs out along it from where the breath hit (m/s): the Golden Gate's 2.7 km in about 3 s. */
 export const BRIDGE_RUN = 520;
 
@@ -703,7 +708,10 @@ interface BridgeShape {
 /** The bridge's two meshes (the cables cast no shadow): the crowns on the solid one, the bunting on the cables'. */
 function bridgeGroup(k: Kit, wires: Kit, look: LandmarkLook, shape: BridgeShape): THREE.Group {
   const g = new THREE.Group();
-  g.add(k.build(true, { ...look, bunting: undefined }), wires.build(false, { ...look, domes: undefined }));
+  const cables = wires.build(false, { ...look, domes: undefined });
+  // (the crown's second stage is the cables: their bunting strings out from level 2, the towers' gold crowns from level 3. src/game/Crown.ts)
+  cables.geometry.userData.lmAccentLevel = 2;
+  g.add(k.build(true, { ...look, bunting: undefined }), cables);
   g.userData.bridge = { ...shape, solids: k.solids };
   return g;
 }

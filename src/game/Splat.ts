@@ -7,6 +7,7 @@ import { blastUniforms, ringHue, type GroundJob } from '../world/GroundPaint';
 import type { CometPlan } from './Comet';
 import { arrival, blastCap, blastRadiusFor, groundDeadline, LAYOUT_BANDS, LAYOUT_RING, layoutHue, makeBlastSpec, waveMax, wrapHue, type BlastDot, type BlastSpec } from './blastLayout';
 import { setPogo } from '../world/pogo';
+import type { Crowns } from './Crown';
 import { lookOf } from '../render/factionLook';
 
 // The barf -> blast -> bloom pipeline. Dragon breath: the bus blasts a
@@ -324,6 +325,9 @@ export class Splatter {
   /** per building (dense index): the last pour (BarfOpts.pour) that raised it */
   private pourOf: Int32Array | null = null;
 
+  /** The landmarks' crowns (main.ts sets it): their stages, and the door's pull. Null: every hit climbs a level, as ever */
+  crowns: Crowns | null = null;
+
   constructor(private city: City, private fx: SplatFx) {}
 
   /** How far from the aim point the breath snaps onto a building (m): config.splat.snapRadius, more from
@@ -341,7 +345,8 @@ export class Splatter {
    */
   pick(x: number, z: number, radius = config.splat.snapRadius, fromY = Infinity): BuildingRef | null {
     // (?lift: a house on a square that won't take a counted hit now counts farther, so the glint pulls to one that will. Without the flag the City has no Lift)
-    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY, true);
+    // (the door: a tap that would land on nothing near an uncrowned bridge takes it, so a newcomer's first tap never splashes in the bay: Crown.ts)
+    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY, true) ?? this.crowns?.magnet(x, z, fromY) ?? null;
   }
 
   /** Blast radius for a barf from `drop` meters above the impact (m). */
@@ -474,7 +479,9 @@ export class Splatter {
       const was = lv > 0.5;
       // (a Bomb's jump is a stage at a time, each its own pop: the first with the wave, as a tap's level, the rest after it)
       const base = was ? Math.round(lv) : 0;
-      const level = Math.min(3, base + 1), last = Math.min(3, base + jump);
+      // (a landmark that can be crowned climbs a stage only on a counted hit, one at most every config.door.gap s; any other hit re-pops it where it is: Crown.ts)
+      const crown = this.crowns ? this.crowns.level(ref, lv, tImpact) : -1;
+      const level = crown >= 0 ? crown : Math.min(3, base + 1), last = crown >= 0 ? crown : Math.min(3, base + jump);
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
       const h = solo !== undefined ? solo : was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;
       maxLevel = Math.max(maxLevel, last);

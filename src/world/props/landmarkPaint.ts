@@ -504,14 +504,15 @@ export function bindLandmarkPaint(obj: THREE.Object3D, ref: BuildingRef, opts: {
     (mat.uniforms.uLmBox.value as THREE.Vector4).set(bb.max.y, bb.min.y, ref.index % 7, opts.ride ? 1 : 0);
     mat.uniforms.uLmBase.value = ref.baseY;
     mats.push(mat);
-    // level-3 accents (the geometry after lmAccentStart) are drawn only while it is painted that far
+    // level-3 accents (the geometry after lmAccentStart) are drawn only while it is painted that far (a bridge's cables from level 2: lmAccentLevel)
     const start = m.geometry.userData.lmAccentStart as number | undefined;
     if (start !== undefined) {
       const geo = m.geometry;
       const idx = ref.index * 4 + 1;
+      const from = ((m.geometry.userData.lmAccentLevel as number | undefined) ?? 3) - 0.5;
       m.onBeforeRender = () => {
         const d = (paintUniforms.uPaint.value as THREE.DataTexture | null)?.image.data as Float32Array | undefined;
-        geo.drawRange.count = d && d[idx] > 2.5 ? Infinity : start;
+        geo.drawRange.count = d && d[idx] > from ? Infinity : start;
       };
     }
   });
