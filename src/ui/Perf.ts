@@ -224,6 +224,14 @@ export class Perf {
     (window as unknown as { __stats?: PerfSnapshot }).__stats = this.snapshot();
   }
 
+  /** The last frame's draws and triangles, every pass (read after frame(): ?bench, ui/Bench.ts). */
+  get frameCalls(): number {
+    return this.calls;
+  }
+  get frameTris(): number {
+    return this.tris;
+  }
+
   /** The resolve's link and first draw (ms) as the warm-up timed them, and the hour the frame is under. */
   setBuild(linkMs: number, drawMs: number, hour: string): void {
     this.resolveLink = linkMs;

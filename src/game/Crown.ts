@@ -18,7 +18,8 @@ export interface CrownSpot {
   tops: ReadonlyArray<readonly [number, number, number]>;
 }
 
-const crownKey = (slug: string): string => `strugglebus.crowns.v1:${slug}`;
+/** a city's crowns' localStorage key (?bench clears its own: ui/Bench.ts) */
+export const crownKey = (slug: string): string => `strugglebus.crowns.v1:${slug}`;
 
 export class Crowns {
   private readonly spots: CrownSpot[] = [];

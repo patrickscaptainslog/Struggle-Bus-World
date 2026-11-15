@@ -12,7 +12,7 @@ import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig, looksAway, shotFloor, shotTip, turnedAway } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
-import { Crowns, type CrownSpot } from './game/Crown';
+import { crownKey, Crowns, type CrownSpot } from './game/Crown';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
 import { CrewBus } from './game/crewBus';
@@ -84,6 +84,8 @@ const OPENING_LOW_ALONG = 180;
 const RIVAL_LOUD = { rivals: 'loud' } as const;
 
 const params = new URLSearchParams(location.search);
+/** ?bench: the phone bench (ui/Bench.ts) */
+const benchOn = params.has('bench');
 if (params.has('fog')) config.fog.enabled = true;
 if (params.has('px')) config.render.pixelWidth = Math.min(1200, Math.max(120, Number(params.get('px')) || config.render.pixelWidth));
 applySavedTuning();
@@ -197,6 +199,17 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     manifest.slug = `${manifest.slug}~swerve`;
     try {
       localStorage.removeItem(landmarkStoreKey(manifest.slug));
+    } catch {
+      /* storage blocked: nothing to clear */
+    }
+  }
+  // (?bench, ui/Bench.ts: the phone bench's minute keeps its paint to itself under a slug of its own, as a match's does, and starts afresh each time: the
+  // door's bridge grey and uncrowned, and no return start, since paint under a slug with no id scheme is never saved. The saved city is left as it was)
+  if (benchOn && !moon) {
+    manifest.slug = `${manifest.slug}~bench`;
+    try {
+      localStorage.removeItem(landmarkStoreKey(manifest.slug));
+      localStorage.removeItem(crownKey(manifest.slug));
     } catch {
       /* storage blocked: nothing to clear */
     }
@@ -1518,6 +1531,27 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   tuner.credits = dataCredits.join('; ');
   const perf = new Perf(renderer);
   perf.setVisible(params.has('fps'));
+  // ?bench (ui/Bench.ts): the scripted minute a borrowed phone flies by itself, and its one screen. On the street's page alone
+  const bench =
+    benchOn && !moon && !earthFly && !resumed
+      ? new (await import('./ui/Bench')).Bench(
+          {
+            canvas,
+            perf,
+            door,
+            bridgeLevel: () => {
+              const c = crowns.byKey('lm:ggb');
+              return c ? city.paint.level(c.ref.index) : -1;
+            },
+            crownedAt: () => crownedAt,
+            toLocal: (lat, lon) => latLonToLocal(lat, lon, manifest.origin) as [number, number],
+            groundAt: (x, z) => city.groundAt(x, z),
+            flight,
+            lift,
+          },
+          params,
+        )
+      : null;
   tuner.onAction = (name) => {
     if (name === 'close') audio.setVolumes(moon ? { ...config.audio, ambience: 0 } : config.audio);
   };
@@ -2848,6 +2882,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     superMeter.update(realDt, superView);
     controls.hud.setMega(superView.phase);
     perf.frame(dt * 1000, performance.now() - t0);
+    bench?.frame(now, performance.now() - t0);
     const cityIn = city.loadedRegionCount() > 0 && !city.loading && !later.length;
     // (the lamps' list once the city's first tiles are in, and only with the Sun low enough that they light soon: Lamps.ask. ?hour=blue's night is always low)
     hour?.lamps.ask(cityIn, live ? live.sunEl : -90);
