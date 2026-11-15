@@ -372,7 +372,7 @@ export async function linkRows(R, L, stamp) {
       if (!c) empty++;
     }
     const said = [['Martin Luther King Jr Dr & John F Kennedy Dr', 'MARTIN LUTHER KING JR & JOHN F KENNEDY'], ['Guerrero St & 24th St', 'GUERRERO ST & 24TH ST'], ["O'Farrell St", "O'FARRELL ST"], ['www.evil.com/free', 'WWW EVIL COM FREE'], ['Café Düsseldorf + Ñandú', 'CAFÉ DÜSSELDORF & ÑANDÚ'], ['  spaced   out  ', 'SPACED OUT']];
-    said.push(['Guerrero St &', 'GUERRERO ST'], ['& Valencia &', 'VALENCIA'], ['Reka Lodz'.replace('R', '\u0158').replace('L', '\u0141').replace('o', '\u00f3').replace('z', '\u017a'), 'REKA L\u00d3DZ'], ['Stra\u00dfe', 'STRASSE'], ['Dolores+Park', 'DOLORES & PARK']);
+    said.push(['pi\u03a9neer park', 'PINEER PARK'], ['ABCDEFGHIJKLMNOPQRSTUVWXYZ ABCDEFGHIJ ST', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ABCDEFGHIJ ST'], ['Guerrero St &', 'GUERRERO ST'], ['& Valencia &', 'VALENCIA'], ['Reka Lodz'.replace('R', '\u0158').replace('L', '\u0141').replace('o', '\u00f3').replace('z', '\u017a'), 'REKA L\u00d3DZ'], ['Stra\u00dfe', 'STRASSE'], ['Dolores+Park', 'DOLORES & PARK']);
     for (const long of ['A VERY LONG NAME OF A PARK THAT RUNS ON THE & X', 'SAN FRANCISCO MARITIME NATIONAL PARK & AQUATIC', 'W'.repeat(60), 'AB '.repeat(30) + '&']) {
       const c = L.captionFrom(long);
       need(c.length <= 40 && c.length >= 20 && !c.endsWith('&') && !c.endsWith(' ') && long.startsWith(c.replace(/ &$/, '')), `captionFrom(${JSON.stringify(long)}) gave ${JSON.stringify(c)}`);
@@ -393,11 +393,23 @@ export async function linkRows(R, L, stamp) {
       [`${ORIGIN}/s/tt1`, 'source', '', 0, 'tt1'], [`${ORIGIN}/s/TikTok-Bio`, 'source', '', 0, 'tiktok-bio'], [`${ORIGIN}/s/${'a'.repeat(17)}`, 'door', '', 0, ''], [`${ORIGIN}/s/`, 'door', '', 0, ''],
       [`${ORIGIN}/p/mission-dolores/3#${t}`, 'card', 'mission-dolores', 3, ''], [`${ORIGIN}/s/tt1#${t}`, 'card', '', 0, 'tt1'], [`${ORIGIN}/#${t}`, 'card', '', 0, ''],
       [`${ORIGIN}/p/mission-dolores/3#garbage`, 'place', 'mission-dolores', 3, ''], [`${ORIGIN}/p/mission-dolores/3#${t.slice(0, 20)}`, 'place', 'mission-dolores', 3, ''],
-      [`${ORIGIN}/p/mission-dolores/3%23${t}`, 'card', 'mission-dolores', 3, ''], [`${ORIGIN}/p/mission-dolores/3%2523${t}`, 'card', 'mission-dolores', 3, ''], [`${ORIGIN}/p/mission-dolores/3%25`, 'place', 'mission-dolores', 3, ''],
+      [`${ORIGIN}/p/mission-dolores/3%23${t}`, 'card', 'mission-dolores', 3, ''], [`${ORIGIN}/p/mission-dolores.`, 'place', 'mission-dolores', 0, ''], [`${ORIGIN}/p/mission-dolores)`, 'place', 'mission-dolores', 0, ''],
+      [`${ORIGIN}/p/mission-/3`, 'door', '', 0, ''], [`${ORIGIN}/p/mission-/3#${t}`, 'card', '', 0, ''], [`${ORIGIN}/p/mission-dolores/3%2523${t}`, 'card', 'mission-dolores', 3, ''], [`${ORIGIN}/p/mission-dolores/3%25`, 'place', 'mission-dolores', 3, ''],
     ];
     for (const [href, kind, place, gen, tag] of cases) {
       const v = P(keep(href));
       need(v.kind === kind && v.place === place && v.gen === gen && v.tag === tag, () => `${href.replace(ORIGIN, '')} read as ${v.kind} ${v.place}/${v.gen} ${v.tag}, not ${kind} ${place}/${gen} ${tag}`);
+    }
+    // two cards in one address: the fragment's stands over the path's, and the path's over the query's
+    const t2 = GOLDEN.mark;
+    for (const [href, want] of [[`${ORIGIN}/p/x/0%23${t2}#${t}`, t], [`${ORIGIN}/p/x/0%23${t}?q=%23${t2}`, t], [`${ORIGIN}/p/x/0?q=%23${t2}#${t}`, t], [`${ORIGIN}/p/x/0%2523${t2}?q=%23${t}`, t2]]) {
+      const v = P(keep(href));
+      need(v.link.canon === want, `two cards in ${href.replace(ORIGIN, '').slice(0, 40)}: the wrong one stood`);
+    }
+    for (const sender of [6, 9, 15]) {
+      const got = new Set();
+      for (let s = 0; s < 200; s++) got.add(L.dealCrew(s * 7919, sender));
+      need(got.size === 5, `a later build's crew ${sender} dealt only ${[...got]}`);
     }
     // where the path and the card disagree, the card is where the bus lands: the path is only ever the fallback
     const v = P(`${ORIGIN}/p/sunset/5#${t}`);
@@ -405,7 +417,7 @@ export async function linkRows(R, L, stamp) {
     for (const junk of [undefined, null, 5, {}, [], '\ud800', '%', '%%%', '%E0%A4%A', '#', '##', '?', '/p', '/p/', '/p//', '//p/x/1']) {
       for (const args of [[junk, junk, junk], ['/p/x/1', junk, junk], [junk, '', `#${t}`]]) L.parseLocation(...args);
     }
-    const slugs = [["Fisherman's Wharf", 'fishermans-wharf'], ['Tenderloin / Little Saigon', 'tenderloin-little-saigon'], ['Mission Dolores', 'mission-dolores'], ['Noe Valley', 'noe-valley'], ['Café Düsseldorf', 'cafe-dusseldorf'], ['Bayview & Hunters Point', 'bayview-and-hunters-point'], ['  ', ''], ['ggb', 'ggb'], ['24th St. Mission', '24th-st-mission']];
+    const slugs = [['\u0141\u00f3d\u017a', 'lodz'], ['\u00c6r\u00f8', 'aero'], ['Stra\u00dfe', 'strasse'], ['\u0110akovo', 'dakovo'], ['\u00deingvellir', 'thingvellir'], ['\u0152uvre', 'oeuvre'], ["Fisherman's Wharf", 'fishermans-wharf'], ['Tenderloin / Little Saigon', 'tenderloin-little-saigon'], ['Mission Dolores', 'mission-dolores'], ['Noe Valley', 'noe-valley'], ['Café Düsseldorf', 'cafe-dusseldorf'], ['Bayview & Hunters Point', 'bayview-and-hunters-point'], ['  ', ''], ['ggb', 'ggb'], ['24th St. Mission', '24th-st-mission']];
     for (const [name, want] of slugs) need(L.slugOf(name) === want, () => `slugOf(${JSON.stringify(name)}) is ${JSON.stringify(L.slugOf(name))}, not ${JSON.stringify(want)}`);
     const rnd = dice(8);
     for (let i = 0; i < 20000; i++) {
@@ -480,10 +492,11 @@ export async function linkRows(R, L, stamp) {
 
   await row('stamp', () => {
     // addresses of this row's own, so it holds when run alone: cards under every kind of path, and the path's own edges
-    const rnd = dice(9), paths = ['/', '/p/mission-dolores/3', '/p/x/250', '/p/x/99', '/p/x/100', '/p/x/007', `/p/${'a'.repeat(48)}/1`, `/p/${'a'.repeat(49)}/1`, '/p/Mission/3.', '/p/mission--dolores/3', '/p/x/3/extra/more/yet', '/s/tt1', '/s/TikTok-Bio', '/p/x', '/p//3', '/index.html', '/p/x/12abc', '/p/x/-3'];
+    const rnd = dice(9), paths = ['/', '/p/mission-/3', '/p/mission-dolores.', '/p/mission-dolores/3', '/p/x/250', '/p/x/99', '/p/x/100', '/p/x/007', `/p/${'a'.repeat(48)}/1`, `/p/${'a'.repeat(49)}/1`, '/p/Mission/3.', '/p/mission--dolores/3', '/p/x/3/extra/more/yet', '/s/tt1', '/s/TikTok-Bio', '/p/x', '/p//3', '/index.html', '/p/x/12abc', '/p/x/-3'];
     for (let i = 0; i < 4000; i++) {
       const t = L.encode(randCard(L, rnd)).text, path = rnd.pick(paths);
-      for (const href of [`${ORIGIN}${path}#${t}`, `${ORIGIN}${path}%23${t}`, `${ORIGIN}${path}%2523${t}`, `${ORIGIN}${path}?a=b%23${t}`, `${ORIGIN}${path}?a=b%2523${t}`, `${ORIGIN}${path}%23junk#${t}`, `${ORIGIN}${path}%23${t}#junk`, `${ORIGIN}${path}?q=%23${t}#junk`, `${ORIGIN}${path}%23${t}?after#`, `${ORIGIN}${path}#${t.slice(0, rnd.int(0, t.length))}`, `${ORIGIN}${path}?x=%zz%23${t}`, `${ORIGIN}${path}`]) keep(href);
+      const k = rnd.int(1, t.length - 1), t2 = L.encode(randCard(L, rnd)).text;
+      for (const href of [`${ORIGIN}${path}#${t.slice(0, k)}%C0%80${t.slice(k)}`, `${ORIGIN}${path}#${t.slice(0, k)}%ED%A0%80${t.slice(k)}`, `${ORIGIN}${path}%23${t2}#${t}`, `${ORIGIN}${path}%23${t}?q=%23${t2}`, `${ORIGIN}${path}#${t}`, `${ORIGIN}${path}%23${t}`, `${ORIGIN}${path}%2523${t}`, `${ORIGIN}${path}?a=b%23${t}`, `${ORIGIN}${path}?a=b%2523${t}`, `${ORIGIN}${path}%23junk#${t}`, `${ORIGIN}${path}%23${t}#junk`, `${ORIGIN}${path}?q=%23${t}#junk`, `${ORIGIN}${path}%23${t}?after#`, `${ORIGIN}${path}#${t.slice(0, rnd.int(0, t.length))}`, `${ORIGIN}${path}?x=%zz%23${t}`, `${ORIGIN}${path}`]) keep(href);
     }
     // and heads of its own that no honest card has: bits turned with the check made right again, padding that is not zero, a crew of 0
     const { Writer: W, section, checkOf, CAPV } = L.forTests;

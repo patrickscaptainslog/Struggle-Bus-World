@@ -20,7 +20,7 @@ export const saveTune = {
   /** the cards a phone remembers whole: ones it sent, and ones it opened */
   sent: 192,
   opened: 64,
-  /** and the short ids of this many more (8 bytes each), so that a card whose note has been let go still never lands twice */
+  /** and the short ids of this many more (9 bytes each), so that a card whose note has been let go still never lands twice */
   seen: 1024,
   /** the climbs it keeps for a card's order */
   climbs: 512,
@@ -478,6 +478,8 @@ export function rewear(save: Save, now?: unknown, crews: number = linkTune.crews
     if (r.guest && r.owner === mine) {
       const rec: Rec = { ...r, owner: wornBy(r.owner, mine, crews), rev: nextRev(r, now) };
       save.squares.set(r.key, rec);
+      // (whose it is changed: a climb, as every other change of owner notes one, so a card's order made later knows when)
+      noteClimb(save, now, rec.key, rec.owner, rec.stage);
       out.push(rec);
     }
   return out;
@@ -660,7 +662,8 @@ export interface Frame {
 
 /**
  * A city's frame from its two small files: city.json's slug, bounds ([x0, z0, x1, z1], m) and landmarks, and hoods.bin's table (src/world/hoods.ts).
- * `top` is the engine's own word on a square's top stage where the host has one (areas.ts's `topOf`): the frame and the engine must not disagree.
+ * `top` is the engine's own word on a square's top stage where the host has one (areas.ts's `topOf`), so that the frame and the engine never
+ * disagree; it is held to the frame's own, which is 0 off the neighbourhoods' squares (water, off the map), where the engine says 4.
  */
 export function frameFrom(
   city: { slug: string; bounds: readonly number[]; landmarks?: readonly { kind: string; x: number; z: number }[] },
@@ -687,7 +690,10 @@ export function frameFrom(
       const x = squareIx(key) * 128, z = squareIz(key) * 128;
       return x + 128 > x0 && x < x1 && z + 128 > z0 && z < z1;
     },
-    top: opts.top ?? ((key) => (page.has(key) ? (tagged.has(key) ? 3 : linkTune.top) : 0)),
+    top: (key) => {
+      const own = page.has(key) ? (tagged.has(key) ? 3 : linkTune.top) : 0;
+      return own && opts.top ? Math.max(0, Math.min(own, opts.top(key))) : own;
+    },
     place: (slug) => places.get(slug) ?? -1,
     pageOf: (key) => page.get(key) ?? '',
     mark: (key) => marks.get(key) ?? -1,

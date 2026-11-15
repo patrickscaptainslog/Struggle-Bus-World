@@ -239,7 +239,7 @@ It has no order in it: a joined with b is b joined with a; three saves joined ei
 
 ### 5.4 As text, and where
 
-`saveText(save)` is the save as one text of seven lines: `SBW2`; the squares (24 bytes each, by key, in base64: 32 characters a square, no padding); the landmarks; the notes; `[crew, when, forgot]`; the climbs (15 bytes, 20 characters each); the cards known (9 bytes, 12 characters each). The same save is always the same text. `parseSave` reads any text, never throws, and loses only what it can't read: one bad character costs the one square it is in.
+`saveText(save)` is the save as one text of seven lines: `SBW2`; the squares (24 bytes each, by key, in base64: 32 characters a square, no padding); the landmarks; the notes; `[crew, when, forgot]`; the climbs (15 bytes, 20 characters each); the cards known (9 bytes, 12 characters each). The same save is always the same text. `parseSave` reads any text, never throws, and loses only what it can't read: a changed character costs the one record it is in. A character dropped or added shifts the rest of its line: most of what follows is refused as nonsense, and now and then a shifted record reads as one that was never saved. Only a damaged store does that; the text is written whole by `saveText` and nothing else.
 
 - **M1**: one key a city in `localStorage`, `strugglebus.city.v2:<slug>` (`storageBackend`; `loadSave` reads it). A Storage that throws reads as empty and says the write failed. Something stored there that is no save is said (`lost` -1) and written over.
 - **The save before this** (`strugglebus.areas.v1:<slug>`, 16 bytes a square, written only under `?lift` and `?recess`): `fromAreasText` brings it across with `rev` 0, so anything newer stands over it; a square it can't read is left out and counted.
@@ -279,13 +279,13 @@ It has no order in it: a joined with b is b joined with a; three saves joined ei
 
 One thing the engine must keep to: it changes a square (`touch`) only while that square's tile is in. It does today, since a hit needs the tile's buildings. A change made before the tile would not know of old paint there.
 
-`frame` is the city as a landing needs it (`frameFrom(city, hoods, slugOf, { top })`): the map's number and bounds, each square's top stage, a page name's square, a square's page name, a landmark's square. All of it comes from `city.json` and `hoods.bin`, which a page has before any tile. `top` should be the engine's own (`areas.topOf`), so that the frame and the engine never disagree about a square.
+`frame` is the city as a landing needs it (`frameFrom(city, hoods, slugOf, { top })`): the map's number and bounds, each square's top stage, a page name's square, a square's page name, a landmark's square. All of it comes from `city.json` and `hoods.bin`, which a page has before any tile. `top` should be the engine's own (`areas.topOf`), so that the frame and the engine never disagree about a square. It is held to the frame's own, which is 0 off the neighbourhoods' squares (water, off the map), where the engine says 4.
 
 ## 7. The loading page, and the host
 
 **The stamp.** `index.html`'s scripts run before the game's code is in, so the stamp at 0 to 1 s can't call `link.ts`. `src/link/stamp.js` is two ES5 functions with nothing outside them, to be put in the page as they are:
 
-- `sbwStamp(location.href)` gives `{ map, ix, iz, crew, at, caption, place, gen }` or null. The `stamp` row runs its source against `link.ts` on every address the other rows make (591,889 of them, each read as text and as a browser's URL parser hands it over) and they agree on every one.
+- `sbwStamp(location.href)` gives `{ map, ix, iz, crew, at, caption, place, gen }` or null. The `stamp` row runs its source against `link.ts` on every address the other rows make (631,905 of them, each read as text and as a browser's URL parser hands it over) and they agree on every one.
 - `sbwLastCard(text)` reads the newest card this phone sent out of the save's text: `{ text, at, place, gen }` or null. It is what "the next visit's loading page offers the last card" reads; `sbwStamp('#' + text)` is then its stamp. The `last` row holds it to `save.ts`'s `lastSent`.
 
 To change one reader, change both.
@@ -296,7 +296,7 @@ To change one reader, change both.
 
 **The host.** These are the first account's, and a postcard link does not work until they are in. Checked against the files on `feat/handling` f9accb0:
 
-1. Under `/p/<place>/<gen>` every relative address breaks. `vite.config.ts` has `base: './'`, and the page builds addresses of its own from `./`: `index.html` lines 11, 12, 26 and 83 (`'./city/' + city`), `src/main.ts` 165, `moonrun.ts` 472, `moonBoot.ts` 98 (`new URL('.', location.href)`) and life's. All of them need to be absolute.
+1. Under `/p/<place>/<gen>` every relative address breaks. `vite.config.ts` has `base: './'`, and the page builds addresses of its own, from `./` or from `location.href`: `index.html` lines 11, 12, 26 and 83 (`'./city/' + city`); `src/main.ts` 165 (`./city/<slug>`, which `City.ts` 1237, `lifeBoot.ts` 34 to 36 and `Lamps.ts` 174 then resolve against `location.href`) and 2754 (`./sky`); `moonrun.ts` 471 and 472; `MoonSky.ts` 151; `moonBoot.ts` 98 to 103 (`./moon/places.json`, `./moon/names.json`, `./sky/moon.bin`). All of them need to be absolute; a `<base href="/">` fixes the fetches and `<link>`s but not `new URL('.', location.href)`. Before shipping, grep for `'./` and `location.href` once more. The workers' `new URL('./x.ts', import.meta.url)` are fine.
 2. `vercel.json` has no rewrites: it needs them to the game's page for `/p/:place`, `/p/:place/:gen` and `/s/:tag`, a last part that holds an escaped card included. `tools/sky/serve-dist.mjs` (what the rows serve a build with) and the dev server need the same, or task 7's row can't open a postcard link.
 3. `index.html` line 19 has an `og:url` of the bare site. On a place's page it must go, with any `rel=canonical`: Safari's share sheet sends a declared address in place of the real one, without the `#` (WebKit bug 250317).
 4. There is no page counter today. The day one is added it must not see the card: Vercel's script posts `location.href`, `#` and all, so its `beforeSend` must cut the address to the origin and `/p/<place>/<gen>` or `/s/<tag>`, with no query, no `#` and no `%23` tail.
@@ -326,7 +326,7 @@ const card = { v: 1 as const, map: frame.map, ix: squareIx(key), iz: squareIz(ke
   caption: captionFrom(streetName), body: null };   // for the crown: body: { form: 'mark', key: 'GGB', stage: 4, answers: null }
 const written = encode(card);
 if (written.ok) {
-  const place = frame.pageOf(key) || 'ggb', url = cardUrl(location.origin, place, 0, written.text);
+  const place = frame.pageOf(key) || 'sf', url = cardUrl(location.origin, place, 0, written.text);   // for the crown: 'ggb'
   noteSent(save, written, card, 0, place, Date.now());   // the settings sheet's stack is the notes with role 'out'; lastSent(save) is the newest
   save = flush(save, backend, Date.now()).save;
   share(url);                                           // the host's: the share sheet, inside the tap
@@ -356,7 +356,7 @@ Each is built one way so the rows can run. Changing any of them changes one func
 4. **TAKEN's moment** on the receiver's phone is the card's own square changing hands (rule 9), not every square of the card. *The studio's.* My pick: the own square; it fits the 30 to 60 s the direction asks for.
 5. **A forged caption** can stand on the loading page for a second or two over a real block. It can't be an address. *The producer's ("no name, ever" is a ruling).* My pick: show it.
 6. **"After the `#`" is private from our host only.** A link wrapper (a mail filter, Meta's redirect) carries the whole address to its own server. A card is never finer than a 128 m square.
-7. **A card proves nothing.** There is no server, so nothing signs a card. A friend can hand-make an answer and have their friend's phone say TAKEN without playing; a stranger's link can land 32 squares on whoever taps it. Rule 10 bounds it to one card a tap. *The studio's to weigh.* My pick: accept it among friends for format 1.
+7. **A card proves nothing.** There is no server, so nothing signs a card. A friend can hand-make an answer and have their friend's phone say TAKEN without playing; a stranger's link can land 32 squares on whoever taps it; and since a card's id30 is a CRC, anyone can make a card with a real card's id30, which, opened first on a phone, stops the real one ever landing there. Rule 10 bounds it to one card a tap. *The studio's to weigh.* My pick: accept it among friends for format 1.
 
 **Only a phone can say:**
 
@@ -365,7 +365,7 @@ Each is built one way so the rows can run. Changing any of them changes one func
 
 ## 10. What ran
 
-`node tools/link/fuzz.mjs` on this commit, all 24 rows, no browser ("link: all passed", about 80 s):
+`node tools/link/fuzz.mjs` on this commit, all 25 rows, no browser ("link: all passed", about 90 s):
 
 | Row | What it holds |
 |---|---|
@@ -380,14 +380,15 @@ Each is built one way so the rows can run. Changing any of them changes one func
 | `total` | 400,000 texts that are no honest card: none threw; every one that read whole is exactly the text its card is written as |
 | `refuse` | 52 cards that say what no card may, each refused for the right reason; 10 at the edge of what one may say written and read back |
 | `blocks`, `caption`, `path` | later builds' blocks, crews and kinds; 50,000 random captions; 30 addresses, `cardUrl`'s fallbacks, 20,000 page names, the deal and the wheel |
-| `speed` | 10 readers on 14 hostile megabytes each: the slowest 195 ms |
-| `stamp` | the loading page's reader agrees with `link.ts` on all 615,897 addresses the rows made (20,000 damaged heads of its own among them, so it holds run alone), as text and as a page gets them |
+| `speed` | 10 readers on 14 hostile megabytes each: the slowest 148 ms |
+| `stamp` | the loading page's reader agrees with `link.ts` on all 631,905 addresses the rows made (20,000 damaged heads of its own among them, two cards in one address, broken escapes inside a card, so it holds run alone), as text and as a page gets them |
 | `text`, `laws`, `clock` | 21,000 damaged saves, one bad character costing one square; 4,000 triples joined every way round; 18 broken clocks, climbs that keep their order under all of them, twenty seconds of taps that keep a square's `rev` with the clock, a record with a `rev` past 2100 refused |
 | `records` | 42 checks: one record and one small save pinned to their bytes and text; the save's key and a card's minute 0 pinned; 12 kinds of nonsense record refused; the later record, landmark and note stands, and the order a tie falls in is pinned; old paint on water makes no record; the cards known joined and held to their cap; the crown saved and read back |
 | `land` | 40,643 checks of rules 1 to 11, old paint first in a card's order, a card whose note was let go never landing again, a postcard of here, and the frame's squares and page names pinned |
 | `engine` | 400 games on the real `areas.ts`, hits four a second: the save's squares are what `Areas.encode` writes; the card's order is the true order in all 365 games that fit the kept climbs; the card lands on a friend's phone and the friend's own engine takes it back hit by hit, a same-crew friend included |
 | `tabs` | 300 runs of two tabs on one store: one save at the end, no later change lost, each flush naming exactly what the other tab changed; a newcomer with two cards in two tabs ends with one crew no card's square wears; a flush holds what it writes to the caps |
 | `last` | the page's reader of the last card sent agrees with `save.ts` on 5,000 saves |
+| `holes` | 39 checks, one for each change to the code a round of mutation testing made that no other row caught, and for the faults it found (section 11) |
 | `names` | today's 115 neighbourhood names and 4 landmarks make 119 page names, no two the same |
 
 M1's three: `round` and `saved`; `tiles`; `length`.
@@ -411,11 +412,15 @@ They found 59 faults and their checkers ten more; every one was confirmed. None 
 
 Then two more readers went through all 69, one by one, on the answering commit, each with a check of its own: 49 fixed, 7 fixed another way, 5 left and said here, 8 still there in part. Those 8 are answered in the commit after: every escaped space, not only the seven named; old paint's stages first in a card's order; a stored `rev` past 2100 refused; a square's `rev` kept with the clock under encores; the cards known kept by id30 past their notes; the order a tie falls in pinned; `squaresFor` for a postcard of here; and the `stamp` row's own damaged heads. Each of the six that had been a surviving change to the code was made again on the new code and is caught, by the row named for it, the `stamp` row run alone included.
 
+A last pair then went at that commit. One changed the code 96 ways, each a bug it could look like: 52 were caught, 10 changed nothing a player could meet, and 34 got past every row. The other attacked what the passes changed: 10 findings. Every one of the 44 was confirmed by a second reader, and none came out above minor. The faults, now fixed: a card's square moved round the wheel noted no climb, so a later card's order was wrong; section 8's `top` made water liftable (the frame now holds the engine's top to its own); the page's last-card reader took notes the save refuses; the host list missed six of the page's own `./` loads; the sketch filed a street card from the Bay Bridge under the Golden Gate. And for each of the 34 changes a check now fails: each was made again on this commit, and the whole fuzz run against it, 34 times, failed every time (most in the new `holes` row, the rest in `path`, `stamp` and `caption`).
+
 **Known limits, left as they are:**
 
 - **Two changes of one square in one second** (rare: the engine allows one a square every five seconds, so it takes a card landing in the same second as a hit) step `rev` one past the clock. Two tabs doing that to the same square: the later by `rev` stands, and a tie falls by the record's own fields, the same way on every phone.
 - **A damaged store** can hold a record whose `rev` is in the future (up to 2100). That record beats honest changes from another tab until the clock passes it; this phone's own later changes still count on from it. A store left unreadable is written over (`flush` says so with `lost` -1).
 - **Past 1,024 cards known**, the oldest card's id30 is let go. Its link would land again only on squares that no longer carry it.
+- **A record whose `rev` reaches 2100** can't be changed again on that phone (its next change ties and loses). Only a damaged store, a phone clock believed at exactly 2100-01-01, or some 2,300 million changes get it there.
+- **Climbs after a clock that was ahead.** A climb's time never goes back, so after a clock that ran ahead (but before 2100) and came right, this phone's climbs count on a millisecond each from the last; two tabs doing so at once order their climbs by count, not by the clock.
 - **The checks' promise stops at the length characters** (3.2).
 - **A card proves nothing** (section 9, call 7).
 
