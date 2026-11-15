@@ -5,9 +5,9 @@
 //   node tools/streets/build.mjs [city folder = public/city/sf] [--out <file>] [--dry]
 // What it does with a street's lines, which the tiles hold cut at each tile's edge and often twice (the two sides of a wide avenue):
 //   - joins the cuts end to end (ends within JOIN m) into the street's own graph, and of each connected part keeps its longest way through;
-//   - cuts a way that goes out along one side of an avenue and back along the other at its far end, drops a part that runs beside a longer one of the
-//     same name within BESIDE m for most of its length (the avenue's other side), and scraps
-//     shorter than SCRAP m where the street has a longer part;
+//   - cuts a way that goes out along one side of an avenue and back along the other at its far end, and leaves out a part that runs beside a longer one
+//     of the same name within BESIDE m (the avenue's other side), keeping what of either runs on farther off; and scraps beside a kept run;
+//   - puts the street's own runs first and a far-off namesake's after (another town's Pine St on the same map), so a search can tell them apart
 //   - simplifies each kept run to within SIMPLIFY m of the line.
 // Streets only (the tiles' rank 0): paths, plazas and the sidewalks some maps name are left out. A name's second form after a ';' is dropped, as the
 // street signs do (City.ts). Prints what it kept and the file's size; the same tiles always give the same bytes.
@@ -20,10 +20,13 @@ import { encodeStreets } from '../../src/world/streetIndex.ts';
 
 const args = process.argv.slice(2), flag = (n) => args.includes(n);
 const outAt = args.indexOf('--out');
-const dir = resolve(args.find((a, i) => !a.startsWith('--') && i !== outAt + 1) ?? 'public/city/sf');
+const dir = resolve(args.find((a, i) => !a.startsWith('--') && (outAt < 0 || i !== outAt + 1)) ?? 'public/city/sf');
 const out = outAt >= 0 ? resolve(args[outAt + 1]) : `${dir}/streets.bin`;
-/** m: cut ends that are one point; a part beside a longer one; a scrap; how far a run may stray from its line; the file's step */
-const JOIN = 6, BESIDE = 45, SCRAP = 40, SIMPLIFY = 5, QUANTUM = 4;
+/** m: cut ends that are one point; a part beside a longer one (a search's corner reaches 30 m, so what is dropped must be nearer than that); a scrap,
+ *  and how near a kept run it must be to be dropped; how far a run may stray from its line; the file's step */
+const JOIN = 6, BESIDE = 25, SCRAP = 40, SCRAP_NEAR = 60, SIMPLIFY = 5, QUANTUM = 4;
+/** a namesake: runs of one name this far (m) from the street's other runs are another place's; and how the map's middle is favoured in choosing the street */
+const APART = 700, MIDDLE = 6000;
 
 export function readStreets(cityDir) {
   const city = JSON.parse(readFileSync(`${cityDir}/city.json`, 'utf8'));
@@ -126,7 +129,6 @@ export function stitch(lines) {
     const l = len(p);
     if (!(l > 0)) continue;
     const a = nodeAt(p[0], p[1]), b = nodeAt(p[p.length - 2], p[p.length - 1]);
-    if (a === b && l < JOIN * 2) continue;
     const e = edges.length;
     edges.push({ a, b, p, l });
     nodes[a].edges.push(e);
@@ -233,45 +235,117 @@ function beside(p, q, d) {
   return all ? near / all : 1;
 }
 
-/** A run that goes out along one side of an avenue and back along the other (its two ends side by side) is cut at its far end: one side is the street. */
+/** The stretches of run p that lie more than `d` m from run q: [x, z, ...] runs, sampled every 10 m (a stretch under SCRAP m is no stretch). */
+function spansAway(p, q, d) {
+  const out = [];
+  let cur = [];
+  const close = () => {
+    if (cur.length >= 4 && len(cur) >= SCRAP) out.push(cur);
+    cur = [];
+  };
+  const far = (x, z) => {
+    for (let j = 2; j < q.length; j += 2) {
+      const ax = q[j - 2], az = q[j - 1], bx = q[j] - ax, bz = q[j + 1] - az, l2 = bx * bx + bz * bz;
+      const t = l2 > 0 ? Math.min(1, Math.max(0, ((x - ax) * bx + (z - az) * bz) / l2)) : 0;
+      if (Math.hypot(x - ax - bx * t, z - az - bz * t) <= d) return false;
+    }
+    return true;
+  };
+  for (let i = 2; i < p.length; i += 2) {
+    const l = Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]), steps = Math.max(1, Math.ceil(l / 10));
+    for (let s = i === 2 ? 0 : 1; s <= steps; s++) {
+      const x = p[i - 2] + ((p[i] - p[i - 2]) * s) / steps, z = p[i - 1] + ((p[i + 1] - p[i - 1]) * s) / steps;
+      if (far(x, z)) cur.push(x, z);
+      else close();
+    }
+  }
+  close();
+  return out;
+}
+
+/** A run that goes out along one side of an avenue and back along the other (its two ends side by side) is cut at its far end: one side is the street.
+ *  Where the far side runs on past the kept side (Geary Blvd's last blocks to Van Ness), that stretch is kept as a run of its own. */
 function unfold(r) {
   let far = 0, at = 0;
   for (let i = 0; i < r.length; i += 2) {
     const d = Math.hypot(r[i] - r[0], r[i + 1] - r[1]);
     if (d > far) [far, at] = [d, i];
   }
-  if (at < 4 || at > r.length - 6) return r;
-  const out = r.slice(0, at + 2);
-  return beside(r.slice(at), out, BESIDE) >= 0.7 ? out : r;
+  if (at < 4 || at > r.length - 6) return [r];
+  const out = r.slice(0, at + 2), back = r.slice(at);
+  return beside(back, out, BESIDE) >= 0.7 ? [out, ...spansAway(back, out, BESIDE)] : [r];
 }
 
-/** A city's streets for the index: [{ name, pieces }], by name. */
+/** How far run p's nearest point is from run q's (m), by their vertices and a sample every 50 m: for telling a namesake from a broken street. */
+function gap(p, q) {
+  let best = Infinity;
+  for (let i = 0; i < p.length; i += 2)
+    for (let j = 2; j < q.length; j += 2) {
+      const ax = q[j - 2], az = q[j - 1], bx = q[j] - ax, bz = q[j + 1] - az, l2 = bx * bx + bz * bz;
+      const t = l2 > 0 ? Math.min(1, Math.max(0, ((p[i] - ax) * bx + (p[i + 1] - az) * bz) / l2)) : 0;
+      best = Math.min(best, Math.hypot(p[i] - ax - bx * t, p[i + 1] - az - bz * t));
+    }
+  return best;
+}
+
+/** A street's runs in the file's order: the street itself first, then a namesake's. Runs within APART m of each other are one place; of several places
+ *  the street is the one with the most length, the map's middle favoured (a town at the map's edge has its own Pine St, and the map is of the city in
+ *  its middle). Returns { pieces, main }. */
+function ordered(runs) {
+  const group = runs.map((_, i) => i);
+  const find = (i) => (group[i] === i ? i : (group[i] = find(group[i])));
+  for (let i = 0; i < runs.length; i++)
+    for (let j = i + 1; j < runs.length; j++) if (find(i) !== find(j) && Math.min(gap(runs[i], runs[j]), gap(runs[j], runs[i])) <= APART) group[find(j)] = find(i);
+  const places = new Map();
+  runs.forEach((r, i) => {
+    const g = find(i), e = places.get(g) ?? { runs: [], length: 0, d: Infinity };
+    e.runs.push(r);
+    e.length += len(r);
+    for (let k = 0; k < r.length; k += 2) e.d = Math.min(e.d, Math.hypot(r[k], r[k + 1]));
+    places.set(g, e);
+  });
+  const weight = (e) => e.length / (1 + (e.d / MIDDLE) ** 2);
+  const list = [...places.values()].sort((a, b) => weight(b) - weight(a) || a.runs[0][0] - b.runs[0][0] || a.runs[0][1] - b.runs[0][1]);
+  const byLen = (p, q) => len(q) - len(p) || p[0] - q[0] || p[1] - q[1];
+  return { pieces: [...list[0].runs.sort(byLen), ...list.slice(1).flatMap((e) => e.runs).sort(byLen)], main: list[0].runs.length };
+}
+
+/** A city's streets for the index: [{ name, pieces, main }], by name. */
 export function buildStreets(byName) {
   const streets = [];
-  let cuts = 0, parts = 0, sides = 0, scraps = 0, verts = 0;
+  let cuts = 0, parts = 0, sides = 0, scraps = 0, verts = 0, namesakes = 0;
   for (const name of [...byName.keys()].sort()) {
     const lines = byName.get(name);
     cuts += lines.length;
-    const runs = stitch(lines).map(unfold).sort((p, q) => len(q) - len(p) || p[0] - q[0] || p[1] - q[1]);
+    const runs = stitch(lines).flatMap(unfold).sort((p, q) => len(q) - len(p) || p[0] - q[0] || p[1] - q[1]);
     parts += runs.length;
     const kept = [];
     for (const r of runs) {
-      if (kept.length && len(r) < SCRAP) {
+      // (a scrap beside the street it is part of; one far from the rest is a block of its own, the foot of the Filbert Steps)
+      if (kept.length && len(r) < SCRAP && kept.some((k) => gap(r, k) <= SCRAP_NEAR)) {
         scraps++;
         continue;
       }
-      if (kept.some((k) => beside(r, k, BESIDE) >= 0.7)) {
+      // (an avenue's other side: left out where it runs within BESIDE m of a kept run, and what of it runs farther off is kept)
+      const along = kept.find((k) => beside(r, k, BESIDE) >= 0.7);
+      if (along) {
         sides++;
+        let away = [r];
+        for (const k of kept) away = away.flatMap((a) => spansAway(a, k, BESIDE));
+        kept.push(...away);
         continue;
       }
       kept.push(r);
     }
-    const pieces = kept.map((r) => simplify(r, SIMPLIFY)).filter((r) => r.length >= 4);
-    if (!pieces.length) continue;
-    verts += pieces.reduce((a, p) => a + p.length / 2, 0);
-    streets.push({ name, pieces });
+    const simple = kept.map((r) => simplify(r, SIMPLIFY)).filter((r) => r.length >= 4);
+    // (a name whose every line is a few metres, a court's stub: its longest line, so the name still lands on its spot)
+    if (!simple.length) simple.push([...lines].sort((p, q) => len(q) - len(p) || p[0] - q[0])[0]);
+    const o = ordered(simple);
+    if (o.main < o.pieces.length) namesakes++;
+    verts += o.pieces.reduce((a, p) => a + p.length / 2, 0);
+    streets.push({ name, pieces: o.pieces, main: o.main });
   }
-  return { streets, cuts, parts, sides, scraps, verts };
+  return { streets, cuts, parts, sides, scraps, verts, namesakes };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -279,7 +353,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const b = buildStreets(byName);
   const bytes = encodeStreets(b.streets, QUANTUM);
   const pieces = b.streets.reduce((a, s) => a + s.pieces.length, 0);
-  console.log(`streets: ${tiles} tiles, ${b.cuts} lines of ${byName.size} names -> ${b.streets.length} streets in ${pieces} runs, ${b.verts} points (${b.parts} connected parts; ${b.sides} left out as an avenue's other side, ${b.scraps} as scraps)`);
+  console.log(`streets: ${tiles} tiles, ${b.cuts} lines of ${byName.size} names -> ${b.streets.length} streets in ${pieces} runs, ${b.verts} points (${b.parts} ways through; ${b.sides} an avenue's other side, left out where it runs within ${BESIDE} m; ${b.scraps} scraps; ${b.namesakes} streets with a far-off namesake)`);
   console.log(`streets: ${bytes.length} bytes (${(bytes.length / 1024).toFixed(1)} KB), ${(gzipSync(bytes).length / 1024).toFixed(1)} KB gzipped${flag('--dry') ? '; not written (--dry)' : ` -> ${out}`}`);
   if (!flag('--dry')) writeFileSync(out, bytes);
 }
