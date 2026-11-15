@@ -473,7 +473,7 @@ export async function saveRows(R, L, sf, lastCard) {
     });
     ok(frame.pageOf(water) === '' && frame.pageOf(off) === '' && same(L.cardKeys(cardOf([[open[3], 1], [open[4], 2]], 1, rnd)).sort()) === same([open[3], open[4]].sort()) && L.cardKeys({ v: 1, map: 0, ix: 0, iz: 0, crew: 1, at: 0, caption: '', body: null }).length === 0, 'pageOf, cardKeys');
     const custom = L.frameFrom({ slug: 'sf', bounds: sf.city.bounds, landmarks: sf.city.landmarks }, table, L.slugOf, { top: (k) => (k === water ? 2 : 0), crews: 3 });
-    ok(custom.top(water) === 2 && custom.top(open[0]) === 0 && custom.crews === 3, 'the engine\'s own word on a square\'s top');
+    ok(custom.top(water) === 0 && custom.top(open[0]) === 0 && custom.crews === 3, 'the engine\'s own word on a square\'s top, held to the frame\'s');
     return `${checks.toLocaleString('en')} checks of what a card does: a newcomer is dealt a crew that is not the sender's; every square the card names becomes the card's, the player's own and higher ones included, anchors kept; a same-crew card wears the next crew round the wheel; a god's square, water and a square the card has been on are left alone, a tagged square stops at 3; opened twice nothing changes; a torn card lands the same squares under the same id; a score, a landmark's card, a place alone, another city's card and one off the map write nothing; a sent card never lands at home; an answer and a take-back mark the right card taken, and only a card that lands on a sent card's own square answers it; a phone that painted before is Rainbow and a new one is dealt the same crew by a link whole or torn; a card's squares never wear the player's own crew, whatever crew is picked later; the frame's squares and page names are pinned`;
   });
 
@@ -904,7 +904,14 @@ export async function saveRows(R, L, sf, lastCard) {
     const rnd = dice(18);
     let some = 0, none = 0;
     for (let i = 0; i < 5000; i++) {
-      const s = randSave(rnd, [1, 2, 3], Array.from({ length: rnd.int(0, 8) }, (_, n) => `1c${i}x${n}`)), t = L.saveText(s), a = L.lastSent(s);
+      const s0 = randSave(rnd, [1, 2, 3], Array.from({ length: rnd.int(0, 8) }, (_, n) => `1c${i}x${n}`)), line = L.saveText(s0).split('\n');
+      // (now and then a note damaged as a broken store could hold it: both readers must pass it over)
+      if (rnd() < 0.4) {
+        const notes = JSON.parse(line[3]);
+        for (const n of notes) if (rnd() < 0.5) n[rnd.pick([1, 4, 5, 7, 8, 9, 10, 0])] = rnd.pick([0, 0.5, 2 ** 30, -2, 2 ** 33, '', null, 100]);
+        line[3] = JSON.stringify(notes);
+      }
+      const t = line.join('\n'), s = L.parseSave(t).save, a = L.lastSent(s);
       let b;
       try {
         b = lastCard(rnd() < 0.9 ? t : t.slice(0, rnd.int(0, t.length)));
@@ -916,6 +923,225 @@ export async function saveRows(R, L, sf, lastCard) {
     }
     for (const junk of [undefined, null, 5, {}, '', 'SBW2', 'SBW2\n\n\n', 'SBW2\n\n{}\n{"a":1}\n', 'SBW2\n\n{}\n[[1,2]]\n', 'SBW2\n\n{}\n[null,5,"x",[]]\n', 'SBW3\n\n{}\n[]\n']) need(lastCard(junk) === null, `the page's reader read a card from ${JSON.stringify(junk)}`);
     return `the loading page's reader of the last card sent (stamp.js's sbwLastCard, ES5, run from its source) agrees with save.ts on 5,000 random saves' texts (${some.toLocaleString('en')} with a sent card, ${none.toLocaleString('en')} with none), and reads nothing from what is no save`;
+  });
+
+  await row('holes', () => {
+    // one check for each change to the code the last mutation round made that no other row caught (S, K: its names for them), and for the faults it found
+    const rnd = dice(19), said = [];
+    let checks = 0;
+    const ok = (cond, what) => (checks++, need(cond, what));
+    const mem = () => {
+      let stored = null;
+      return { read: () => stored, write: (t) => ((stored = t), true) };
+    };
+    const rec = (key, o) => ({ key, owner: 2, stage: 1, cracks: 0, hits: 1, tended: NOW, ax: 0, az: 0, ay: L.NO_ANCHOR, rev: NOW, card: -1, guest: false, ...o });
+    const [kA, kB, kC, kD] = open.slice(400, 404).sort((a, b) => a - b);
+    // S17: the old save as areas.ts itself writes it, of 1 to 7 squares (btoa's padding of 0, 1 and 2)
+    for (const n of [1, 2, 3, 4, 7]) {
+      const areas = new L.Areas();
+      for (let i = 0; i < n; i++) areas.hit(...Object.values(L.squareCentre(open[500 + i])), 1 + (i % 5), 10 + i, { now: NOW });
+      const got = L.fromAreasText(areas.encode());
+      ok(got && got.lost === 0 && got.squares.size === n, `an old save of ${n} squares (${areas.encode().slice(-2)}) did not come across`);
+    }
+    said.push('old saves of 1 to 7 squares');
+    // S35: a card sent, then 200 more: the first, opened again on the phone that sent it, never lands
+    {
+      const s = L.emptySave(), b = mem();
+      s.crew = { value: 2, rev: 1 };
+      for (const k of [kA, kB]) s.squares.set(k, rec(k, { owner: 2, stage: 3 }));
+      const first = cardOf([[kA, 3], [kB, 3]], 2, rnd), e1 = text(first);
+      L.noteSent(s, e1, first, 0, 'x', NOW);
+      for (let i = 0; i < 200; i++) {
+        const c = { ...cardOf([[open[600 + (i % 50)], 1]], 2, rnd), at: L.cardMinute(NOW) + i + 1 };
+        L.noteSent(s, text(c), c, 0, 'x', NOW + i + 1);
+      }
+      const f = L.flush(s, b, NOW + 300).save, before = same([...f.squares.values()]);
+      ok(!f.notes.has(e1.id), 'the row needs the first sent card\'s note let go');
+      const l = L.openLink(f, visitOf(e1.text), frame, NOW + 400);
+      ok(l.kind === 'seen' && l.landed.length === 0 && same([...f.squares.values()]) === before, `the player's own old postcard, opened again after 200 more, was ${l.kind}`);
+    }
+    said.push('one\'s own old postcard after 200 more');
+    // S08: a crack, the clock put back ten minutes, the owner's heal: the heal stands at the next flush
+    {
+      const s = L.emptySave(), b = mem();
+      s.squares.set(kA, rec(kA, { owner: 2, stage: 4, hits: 8, rev: NOW - 3600 }));
+      L.touch(s, { key: kA, faction: 2, stage: 4, cracks: 1, hits: 8, tended: NOW - 3600 }, NOW);
+      let t = L.flush(s, b, NOW).save;
+      L.touch(t, { key: kA, faction: 2, stage: 4, cracks: 0, hits: 9, tended: NOW - 600 }, NOW - 600);
+      t = L.flush(t, b, NOW - 600).save;
+      ok(t.squares.get(kA).cracks === 0 && L.parseSave(b.read()).save.squares.get(kA).cracks === 0, 'a heal made with the clock put back was undone by the flush');
+      L.touch(t, { key: kA, faction: 2, stage: 4, cracks: 1, hits: 9, tended: NOW - 600 }, NOW - 700);
+      ok(L.flush(t, b, NOW - 700).save.squares.get(kA).cracks === 1, 'a crack made with the clock put back further was undone');
+    }
+    said.push('a heal and a crack with the clock put back');
+    // S38: the faction button with the clock behind, and in the same second as the deal
+    {
+      const s = L.emptySave(), b = mem();
+      s.crew = { value: 4, rev: NOW };
+      let t = L.flush(s, b, NOW).save;
+      L.setCrew(t, 2, NOW - 86400);
+      t = L.flush(t, b, NOW - 86400).save;
+      ok(t.crew.value === 2, `the faction button with the clock a day behind: crew ${t.crew.value}`);
+      const other = L.emptySave();
+      other.crew = { value: 2, rev: NOW };
+      const mine = L.emptySave();
+      mine.crew = { value: 2, rev: NOW };
+      L.setCrew(mine, 1, NOW);
+      ok(L.joinSave(mine, other).crew.value === 1 && L.joinSave(other, mine).crew.value === 1, 'a crew picked in the same second as the deal lost to it');
+    }
+    said.push('the faction button with the clock behind');
+    // S42, S03: clocks between 2100 and 2106 are not believed, in seconds or in ms, by a record's rev or by a climb
+    for (const c of [Date.UTC(2100, 5, 1), Date.UTC(2105, 0, 1)]) {
+      for (const t of [c / 1000, c]) {
+        ok(L.seconds(t) === 0 && L.nextRev(null, t) === 1 && L.nextRev({ rev: NOW }, t) === NOW + 1, `a clock at ${new Date(c).getUTCFullYear()} was believed`);
+        const s = L.emptySave();
+        L.noteClimb(s, NOW * 1000, kA, 1, 1);
+        L.noteClimb(s, t, kB, 1, 1);
+        ok(s.climbs[1][0] === NOW * 1000 + 1, `a climb on a clock at ${new Date(c).getUTCFullYear()} was dated by it`);
+      }
+    }
+    // S01: a clock in seconds dates a climb in ms
+    {
+      const s = L.emptySave();
+      L.noteClimb(s, NOW, kA, 1, 1);
+      ok(s.climbs[0][0] === NOW * 1000, `a climb at ${NOW} s was dated ${s.climbs[0][0]}`);
+    }
+    said.push('clocks past 2100 and a climb\'s ms');
+    // S45: a landmark stored with a rev past 2100 is no landmark
+    {
+      const t = L.saveText(L.emptySave()).split('\n');
+      t[2] = JSON.stringify({ ggb: [1, 4, 0, 4, NOW, L.CLOCK_TOP + 1, -1], sutro: [1, 4, 0, 4, NOW, L.CLOCK_TOP, -1] });
+      const p = L.parseSave(t.join('\n'));
+      ok(p.lost === 1 && !p.save.marks.has('ggb') && p.save.marks.has('sutro'), 'a landmark with a rev past 2100 was read');
+    }
+    // S13, S15: a ragged end of the squares' or the cards known's line is counted
+    {
+      const s = L.emptySave();
+      s.squares.set(kA, rec(kA));
+      s.seen.set(5, NOW);
+      const t = L.saveText(s).split('\n');
+      const a = t.slice(), b = t.slice();
+      a[1] += 'AAAA';
+      b[6] += 'AAAAAAAA';
+      ok(L.parseSave(a.join('\n')).lost === 1 && L.parseSave(b.join('\n')).lost === 1 && L.parseSave(t.join('\n')).lost === 0, 'a ragged end was not counted');
+    }
+    said.push('a landmark past 2100, ragged ends');
+    // S05, S10: old paint, an encore first, then lifts: old paint's stages first; two old-paint squares in the order of their keys
+    {
+      const s = L.emptySave();
+      s.crew = { value: 1, rev: 1 };
+      s.squares.set(kA, rec(kA, { owner: 1, stage: 2, rev: 0 }));
+      s.squares.set(kB, rec(kB, { owner: 1, stage: 1, rev: 0 }));
+      L.touch(s, { key: kA, faction: 1, stage: 2, cracks: 0, hits: 2, tended: NOW }, NOW);
+      ok(s.climbs.some((c) => c[0] === 0 && c[1] === kA), 'an encore first on old paint lost its long-ago climb');
+      L.touch(s, { key: kA, faction: 1, stage: 3, cracks: 0, hits: 3, tended: NOW }, NOW + 10);
+      L.touch(s, { key: kB, faction: 1, stage: 2, cracks: 0, hits: 2, tended: NOW }, NOW + 20);
+      const q = [sq(kA, 3), sq(kB, 2)].sort(bySquare), a = q.findIndex((x) => L.packSquare(x.ix, x.iz) === kA), b = 1 - a;
+      ok(same(L.orderFrom(s, q, 1)) === same([a, a, b, a, b]), () => `two old-paint squares: ${same(L.orderFrom(s, q, 1))}`);
+    }
+    // S10: with nothing let go, a Bomb's jump (grey to 3 at once) reaches its three stages where it happened, not long ago
+    {
+      const s = L.emptySave();
+      s.crew = { value: 1, rev: 1 };
+      L.touch(s, { key: kB, faction: 1, stage: 1, cracks: 0, hits: 1, tended: NOW }, NOW + 10);
+      L.touch(s, { key: kA, faction: 1, stage: 3, cracks: 0, hits: 1, tended: NOW }, NOW + 20);
+      const q = [sq(kA, 3), sq(kB, 1)].sort(bySquare), a = q.findIndex((x) => L.packSquare(x.ix, x.iz) === kA), b = 1 - a;
+      ok(s.forgot === 0 && same(L.orderFrom(s, q, 1)) === same([b, a, a, a]), () => `a Bomb's jump after another square's claim: ${same(L.orderFrom(s, q, 1))}`);
+    }
+    // S11: with older climbs let go, a square's first kept climb stays where it was kept
+    {
+      const s = L.emptySave();
+      s.forgot = 5;
+      s.climbs = [[NOW * 1000, kB, (1 << 4) | 1], [NOW * 1000 + 1, kA, (1 << 4) | 2]];
+      const q = [sq(kA, 2), sq(kB, 1)].sort(bySquare), a = q.findIndex((x) => L.packSquare(x.ix, x.iz) === kA), b = 1 - a;
+      ok(same(L.orderFrom(s, q, 1)) === same([a, b, a]), () => `a first kept climb after another square's: ${same(L.orderFrom(s, q, 1))}`);
+    }
+    said.push('old paint and forgotten climbs in a card\'s order');
+    // the faults the attack found: a card's square moved round the wheel is a climb; the engine's top held to the frame's; the page's last-card reader
+    {
+      const s = L.emptySave();
+      s.crew = { value: 1, rev: 1 };
+      const c = cardOf([[kC, 2]], 3, rnd);
+      L.openLink(s, visitOf(text(c).text), frame, NOW);
+      L.setCrew(s, 3, NOW + 1);
+      L.touch(s, { key: kA, faction: 3, stage: 1, cracks: 0, hits: 1, tended: NOW }, NOW + 10);
+      L.touch(s, { key: kC, faction: 3, stage: 1, cracks: 0, hits: 1, tended: NOW }, NOW + 20);
+      L.touch(s, { key: kA, faction: 3, stage: 2, cracks: 0, hits: 2, tended: NOW }, NOW + 30);
+      L.touch(s, { key: kC, faction: 3, stage: 2, cracks: 0, hits: 2, tended: NOW }, NOW + 40);
+      const q = [sq(kA, 2), sq(kC, 2)].sort(bySquare), a = q.findIndex((x) => L.packSquare(x.ix, x.iz) === kA), cc = 1 - a;
+      ok(same(L.orderFrom(s, q, 3)) === same([a, cc, a, cc]), () => `a card's square taken after the player took its crew: ${same(L.orderFrom(s, q, 3))}`);
+    }
+    {
+      let water = -1;
+      for (let i = -68; i < 44 && water < 0; i++) if (frame.inside(L.packSquare(i, 0)) && frame.top(L.packSquare(i, 0)) === 0) water = L.packSquare(i, 0);
+      const wired = L.frameFrom({ slug: 'sf', bounds: sf.city.bounds, landmarks: sf.city.landmarks }, table, L.slugOf, { top: () => 4 });
+      ok(wired.top(water) === 0 && wired.top(open[0]) === frame.top(open[0]), 'the engine\'s top made water liftable');
+      const s = L.emptySave();
+      L.landTile(s, [{ key: water, ax: 1, az: 1, ay: 9, old: 3 }], wired);
+      ok(!s.squares.has(water), 'old paint on water made a record through the engine\'s top');
+    }
+    // S25: a card whose square was taken back still carries it, and its note is kept over one carried nowhere
+    {
+      const s = L.emptySave();
+      for (let i = 0; i < 70; i++) s.notes.set(`1o${i}`, { id: `1o${i}`, id30: 100 + i, role: 'in', text: `1o${i}`, at: NOW + i, gen: 0, place: '', key: 0, crew: 2, taken: 0, answers: -1 });
+      s.squares.set(kA, rec(kA, { card: 100, guest: false }));
+      L.trim(s);
+      ok(s.notes.has('1o0') && s.notes.size === 64, 'the note of a card taken back was let go before one carried nowhere');
+    }
+    // S31, S54: a second answer leaves TAKEN's time; a card taken back no longer stands
+    {
+      const A = L.emptySave(), B = L.emptySave();
+      A.crew = { value: 2, rev: 1 }, B.crew = { value: 4, rev: 1 };
+      const x = cardOf([[kA, 2], [kB, 1]], 2, rnd), ex = text(x);
+      L.noteSent(A, ex, x, 0, 'x', NOW);
+      const lb = L.openLink(B, visitOf(ex.text), frame, NOW);
+      ok(L.wornNow(B, lb.note) === 2, 'a card standing');
+      const was = { ...B.squares.get(kA) };
+      L.touch(B, { key: kA, faction: 4, stage: 1, cracks: 0, hits: 1, tended: NOW }, NOW + 50);
+      L.noteTaken(B, kA, was, NOW + 50);
+      ok(L.wornNow(B, lb.note) === 0, 'a card taken back still read as standing');
+      L.openLink(A, visitOf(text(cardOf([[kA, 1]], 4, rnd, { answers: ex.id30 })).text), frame, NOW + 60);
+      L.openLink(A, visitOf(text({ ...cardOf([[kA, 2]], 4, rnd, { answers: ex.id30 }), at: L.cardMinute(NOW) + 5 }).text), frame, NOW + 90);
+      ok(A.notes.get(ex.id).taken === NOW + 60, `a second answer moved TAKEN to ${A.notes.get(ex.id).taken - NOW}`);
+    }
+    // S32: a card opened whole keeps its text against a look-alike
+    {
+      const B = L.emptySave(), c = cardOf([[kA, 2], [kB, 1]], 3, rnd), e = text(c);
+      L.openLink(B, visitOf(e.text), frame, NOW);
+      const { Writer: W, section, writeBlocks, bitsOf } = L.forTests, t = new W(), bits = L.indexBits(2);
+      for (const i of L.defaultOrder(c.body.squares, c.ix, c.iz)) t.u(i, bits);
+      writeBlocks(t, [[9, bitsOf((w) => w.u(0x3ff, 10))]]);
+      L.openLink(B, visitOf(section(e.id, t, 3)), frame, NOW + 5);
+      ok(B.notes.get(e.id).text === e.text, 'a look-alike rewrote the text of a card opened whole');
+    }
+    // S55, S58: a postcard of here reaches 7 squares and no further, and always makes a card; none from a god's square
+    {
+      const s = L.emptySave(), cx = L.squareIx(kD), cz = L.squareIz(kD);
+      for (const [dx, dz] of [[0, 0], [7, 0], [-7, 7], [8, 0], [0, -8]]) s.squares.set(L.packSquare(cx + dx, cz + dz), rec(L.packSquare(cx + dx, cz + dz), { owner: 1, stage: 2 }));
+      const got = L.squaresFor(s, kD, 1), c = { v: 1, map: 0, ix: cx, iz: cz, crew: 1, at: 0, caption: '', body: { form: 'squares', squares: got, order: L.orderFrom(s, got, 1), answers: null, score: null } };
+      ok(got.length === 3 && L.cardFault(c) === '', `a postcard of a sparse place: ${got.length} squares, ${L.cardFault(c)}`);
+      s.squares.get(kD).stage = 5;
+      ok(L.squaresFor(s, kD, 1).length === 0, 'a postcard of a god\'s square');
+    }
+    // S60: a change of anchor alone is a change another tab made
+    {
+      const a = L.emptySave(), b = L.emptySave();
+      a.squares.set(kA, rec(kA));
+      b.squares.set(kA, rec(kA, { ax: 3, az: 4, ay: 50 }));
+      ok(L.changedSquares(a, b).length === 1, 'a change of anchor alone was not told');
+    }
+    // S61, K13: a crewless phone opening a card it knows is dealt nothing; a landmark's card deals the same whole or torn
+    {
+      const s = L.emptySave(), c = cardOf([[kA, 2]], 3, rnd), e = text(c);
+      s.notes.set(e.id, { id: e.id, id30: e.id30, role: 'in', text: e.text, at: NOW, gen: 0, place: '', key: kA, crew: 3, taken: 0, answers: -1 });
+      const l = L.openLink(s, visitOf(e.text), frame, NOW);
+      ok(l.kind === 'seen' && l.dealt === 0 && s.crew.value === 0, `a crewless phone opening a card it knows: ${l.kind}, dealt ${l.dealt}`);
+      const ggb = { v: 1, map: 0, ix: -41, iz: -34, crew: 4, at: L.cardMinute(NOW), caption: 'GOLDEN GATE BRIDGE', body: { form: 'mark', key: 'GGB', stage: 4, answers: null } }, eg = text(ggb);
+      const deals = [eg.text, eg.text.slice(0, eg.id.length - 7)].map((t) => L.openLink(L.emptySave(), visitOf(t), frame, NOW).dealt);
+      ok(deals[0] === deals[1] && deals[0] !== 4 && deals[0] > 0, `a landmark's card dealt ${deals.join(' and ')} whole and torn`);
+    }
+    said.push('the rest: a card\'s square round the wheel, water under the engine\'s top, notes kept, TAKEN, a look-alike, a postcard of here, an anchor, the deal');
+    return `${checks} checks, each of a change to the code a round of mutation testing made and no row caught, or of a fault it found: ${said.join('; ')}`;
   });
 
   await row('names', () => {
