@@ -17,7 +17,7 @@ import { Balloons } from '../fx/Balloons';
 import { balloonPop, balloonSqueak } from '../audio/balloonSfx';
 import type { PixelPipeline } from '../render/PixelPipeline';
 import type { BusPose } from '../bus/BusModel';
-import { AIM_LINE, BOMB_LINES, Coach, hintLines, LOB_LINES, TAUGHT, type CoachFrame } from '../ui/Coach';
+import { AIM_LINE, BOMB_LINES, Coach, FLICK_LINE, hintLines, LOB_LINES, TAUGHT, type CoachFrame } from '../ui/Coach';
 import { Hud, type HudFrame } from '../ui/Hud';
 
 // The controls glue: the scheme (touch or keyboard), the first run, the settings
@@ -204,6 +204,11 @@ export class Controls {
     const kit = this.d.audio.voiceKit();
     if (kit && this.voice.attached) this.voice.detach(kit.ctx.currentTime + LOOKAHEAD + 0.3);
   }
+
+  /** The door is this page's start (main.ts): the cues come at their moments (Coach.ts) */
+  door = false;
+  /** ...and its landmark is crowned, the crown's banner gone: FLICK UP's moment */
+  crowned = false;
 
   /** A breath left (main.ts). */
   splatted() {
@@ -396,6 +401,8 @@ export class Controls {
       cf.lobRing = this.lobRing;
       cf.lobbed = this.lobbedOnce;
       cf.toastUp = hud.toastUp;
+      cf.door = this.door;
+      cf.crowned = this.crowned;
       c.frame(dt, cf);
       hud.setCue(c.cue);
       if (c.megaDue) hud.megaHoldCue();
@@ -412,6 +419,9 @@ export class Controls {
       } else if (c.lobHintDue) {
         this.hintLeft = 3;
         hud.toast(LOB_LINES, 3);
+      } else if (c.flickDue) {
+        this.hintLeft = 3;
+        hud.toast([FLICK_LINE], 3);
       }
     }
     if (c?.dirty) {

@@ -12,6 +12,7 @@ import { Flight } from './game/Flight';
 import { fadeEnd, floorPastMap, mapReach, nearPlane, snapReach } from './game/Ascent';
 import { CameraRig, looksAway, shotFloor, shotTip, turnedAway } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
+import { Crowns, type CrownSpot } from './game/Crown';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
 import { CrewBus } from './game/crewBus';
@@ -39,7 +40,7 @@ import { AudioEngine } from './audio/AudioEngine';
 import { TreeField, RoofSprouts, makeSutroTower, makeTransamerica, type TreeInstance } from './world/Props';
 import { paintLandmark, bindLandmarkPaint, landmarkHit, landmarkSparkles } from './world/props/landmarkPaint';
 import { Tuner, applySavedTuning } from './ui/Tuner';
-import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights, paintBridge, BRIDGE_RUN } from './world/Bridges';
+import { makeGoldenGate, makeBayBridgeWest, bridgeObstacles, bridgeLights, paintBridge, deckTopAt, BRIDGE_RUN } from './world/Bridges';
 import { heroLandmarks, SpireRide } from './world/props/landmarks';
 import { Perf } from './ui/Perf';
 import { clamp } from './game/springs';
@@ -302,12 +303,28 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   }
   // the opening: emerge from the fog bank west of the Golden Gate, glide under it
   const start = manifest.start as typeof manifest.start & { speed?: number; opening?: string };
-  const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]> } | undefined;
+  const ggb = manifest.landmarks.find((l) => l.kind === 'ggb') as { points?: Array<[number, number]>; deck?: Array<[number, number, number]> } | undefined;
   let openingBridge: [number, number] | null = null;
   /** the opening's gate has opened once: from then a carve shuts it again (it is along the heading) only where the low shot comes back */
   let gateOpened = false;
   // (not on ?earth&resume: the bus comes home from the Moon, wherever the trip brings it down, and the opening's gate and low shot are the first flight's. Review four, 6)
-  if (!params.has('lat') && !liftPlaced && !resumed && !returned && start.opening === 'golden-gate' && ggb?.points) {
+  /** the door (docs/specs/sf/DOOR.md): a bare link's visit that isn't a return starts beside the Golden Gate's main span, gliding along it over the deck
+   *  on the city's side, the bridge in reach of the first tap and nothing locked; the opening's short fog lifts round it. Not under ?skipintro (the tools'
+   *  Golden Gate, gate and all, as before), ?lift, ?earth or a page that boots anywhere of its own */
+  let door = false;
+  if (!params.has('lat') && !liftPlaced && !resumed && !returned && !params.has('skipintro') && !liftOn && !earthFly && !moon && start.opening === 'golden-gate' && ggb?.points && ggb.deck) {
+    const [, t1, t2] = ggb.points, D = config.door;
+    // (from the north tower toward the south one; the side toward the city's middle, the map's origin)
+    const L = Math.hypot(t1[0] - t2[0], t1[1] - t2[1]), ux = (t1[0] - t2[0]) / L, uz = (t1[1] - t2[1]) / L;
+    const side = -uz * (0 - t2[0]) + ux * (0 - t2[1]) >= 0 ? 1 : -1;
+    flight.x = t2[0] + ux * D.along - uz * D.side * side;
+    flight.z = t2[1] + uz * D.along + ux * D.side * side;
+    flight.heading = Math.atan2(ux, -uz);
+    flight.holdAt(deckTopAt(ggb.deck, flight.x, flight.z) + D.over);
+    flight.speed = flight.glideSpeed = D.speed;
+    door = true;
+  }
+  if (!door && !params.has('lat') && !liftPlaced && !resumed && !returned && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
     // narrow portrait lens as we glide under the deck
     const [, t1, t2] = ggb.points;
@@ -320,6 +337,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     flight.speed = start.speed ?? 60;
     flight.glideSpeed = start.speed ?? 60;
   }
+  // (the door's fog is the opening's, cut short)
+  if (door) config.fog.openingDuration = config.door.fog;
   const rig = shared?.rig ?? new CameraRig();
   if (openingBridge) rig.openingLow = 1;
   if (moon) rig.floorAt = (x, z) => city.groundAt(x, z);
@@ -640,6 +659,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // frame early in the opening (far from the gate, they are built long before the bus gets near).
   // Their materials are in the warm-up already (registerWarm in Bridges.ts, props/landmarks.ts).
   const later: Array<() => void> = [() => audio.warmBackend()];
+  /** the landmarks' crowns: every paintable bridge climbs four stages, one counted hit each (src/game/Crown.ts); during the door a tap near one takes it */
+  const crowns = new Crowns(city, manifest.slug);
+  crowns.magnetOn = door;
   /** a landmark becomes a first-class paintable building (its paint saved under its key); saved paint thins the fog again */
   const paintable = (key: string, obj: THREE.Object3D, name?: string) => {
     const ref = paintLandmark(city, key, obj, { name });
@@ -712,6 +734,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       later.push(() => {
         const ref = paintBridge(city, `lm:${b.kind}`, b.obj, LANDMARK_NAMES[b.kind]);
         if (!ref) return;
+        const shape = b.obj.userData.bridge as { towers: Array<[number, number]>; towerH: number };
+        crowns.add({ ref, key: `lm:${b.kind}`, name: LANDMARK_NAMES[b.kind], tops: shape.towers.map(([x, z]) => [x, shape.towerH, z] as const) });
         if (city.paint.level(ref.index) > 0.5) bumpPaint(ref.cx, ref.cz, 40);
         const mesh = b.obj.children[0] as THREE.Mesh;
         hour?.lamps.paintSpan(b.group, ref.index, (mesh.material as THREE.ShaderMaterial).uniforms.uLmHit.value as THREE.Vector4);
@@ -1368,6 +1392,36 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** What a super splat's mega blast adds to a breath (a Bomb's: the stages its buildings jump). */
   type MegaBreath = { radius: number; width: number; hitStop: number; tag: SuperTag; jump?: number };
   // Dragon breath aim (src/game/Aim.ts): the building that glints is the one a tap hits.
+  splatter.crowns = crowns;
+  /** when the last crown landed (game s; -1 none yet), and how long its name holds the toast's slot before FLICK UP may take it (s) */
+  let crownedAt = -1;
+  const CROWN_BANNER = 3.2;
+  /** A landmark crowned (Crown.ts): its towers flare in the crew's colours (Rainbow's six with none), its lights run along it and up its towers, a flash
+   *  over the frame, a camera punch, the bell, and its name, on the toast's slot and its street sign. Every beat reads with the sound off. Particles, the
+   *  flash and the HUD only: nothing here needs a program the warm-up hasn't made */
+  const crown = (s: CrownSpot) => {
+    const D = config.door, hues = [0, 1, 2, 3, 4, 5], spray = lookOf(splatter.faction).spray;
+    const palette0 = particles.palette;
+    particles.palette = spray;
+    for (const [x, y, z] of s.tops) {
+      const at = new THREE.Vector3(x, y + 8, z);
+      for (let k = 0; k < 3; k++) particles.burst(at, k * 2, 3, y - 80);
+      particles.sparkles(at, 20, 36, hues, D.flare);
+      // (the flare itself: big sparks thrown up and out off the top in the crew's ramps, big enough to read from a kilometre down the span)
+      for (let k = 0; k < D.flare; k++) {
+        const a = Math.random() * Math.PI * 2, up = 0.35 + 0.65 * Math.random(), v = 22 + 30 * Math.random(), c = Math.sqrt(1 - up * up);
+        particles.comet(at, Math.cos(a) * c * v, up * v, Math.sin(a) * c * v, spray[k % spray.length], 3 + 3 * Math.random(), 1.4 + 0.9 * Math.random());
+      }
+    }
+    for (const sl of landmarkSparkles(s.ref) ?? []) particles.sparkles(sl.center, sl.radius, sl.height, hues, D.lights);
+    particles.palette = palette0;
+    pipeline.flash(0.5, 0.55, 10, 1, D.flash);
+    rig.kick(D.kick);
+    audio.bombTier(3);
+    controls.hud.toast([s.name.toUpperCase()], CROWN_BANNER);
+    queueSign(s.ref, splatter.hueNext, s.ref.cx, s.ref.cz, config.splat.blastRadius, null);
+    crownedAt = simTime;
+  };
   const aimer = new Aimer(city, splatter);
   // the Comet (src/game/Comet.ts): with a gear at speed a tap flies ahead and lands in view of the lens the player sees (the camera as last drawn)
   const comet = new Comet(city, splatter);
@@ -1442,7 +1496,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   let openingSkip = false;
   let openingSeen = false;
   try {
-    openingSeen = localStorage.getItem(OPENING_SEEN_KEY) === '1';
+    // (the door has no skip: its first tap paints)
+    openingSeen = !door && localStorage.getItem(OPENING_SEEN_KEY) === '1';
   } catch {
     // (storage blocked: the opening plays in full)
   }
@@ -1490,6 +1545,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   // (the opening's gate is shut from the first touch, not from the first frame, which sets it each frame after: the grey before that frame takes touches, and
   // a flick there was a gear at once, which the gate never held, lifting the bus toward the deck under the low shot. The lane waits with it: a landing in the grey flies)
   controls.gearsLocked = !!openingBridge;
+  controls.door = door;
   input.lookOff = controls.gearsLocked;
   controls.hud.setCredits(dataCredits);
   input.onTripleFinger = () => tuner.toggle();
@@ -1536,13 +1592,25 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     aimer.refresh(flight);
     const shot = aimer.fire(flight);
     if (flight.tryBarf()) {
+      heldTap = -1;
       breatheNow(shot);
       controls.splatted();
     } else {
       aimer.unfire();
-      audio.denied();
+      // (the door: a tap the belly would have taken a moment later is held until it's full, never dead: a newcomer taps to the refill's own beat, and a
+      // frame's lag made every other one a wheeze. docs/specs/sf/DOOR.md)
+      if (door && flight.barfT < 0 && (1 - flight.fullness) * config.splat.recharge <= DOOR_HOLD) heldTap = simTime + DOOR_HOLD;
+      else {
+        audio.denied();
+        tapsDenied++;
+      }
     }
   };
+  /** the door's held tap: until when (game s), -1 none; and how early a tap may come and still be held (s) */
+  let heldTap = -1;
+  const DOOR_HOLD = 0.35;
+  /** QA: taps the belly refused (a wheeze, no paint) */
+  let tapsDenied = 0;
   input.onTap = () => {
     if (tuner.visible || superSplat.hosing || hose.tapWhilePouring()) return;
     // (the tap that skips the opening doesn't splat as well)
@@ -2344,6 +2412,21 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (the Lob's body reads the steering thumb itself: a second thumb's tap while it's down reads it live, its lift latches it)
     const glint = aimer.update(flight, simTime, steering, thumbDown);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
+    // (the door's held tap: it goes the frame the belly is full, or wheezes once its moment has passed)
+    if (heldTap >= 0) {
+      if (flight.fullness >= 0.999 && flight.barfT < 0) tapSplat();
+      else if (simTime > heldTap) {
+        heldTap = -1;
+        audio.denied();
+        tapsDenied++;
+      }
+    }
+    // the landmarks' crowns (src/game/Crown.ts): a fourth counted hit has landed; the ring and its pips while the one last hit climbs, near it
+    const crowned = crowns.take(simTime);
+    if (crowned) crown(crowned);
+    const cl = crowns.last, crownNear = !!cl && simTime >= cl.at && city.edgeDistance(cl.spot.ref, flight.x, flight.z) < 700;
+    controls.hud.setCrown(crownNear ? crowns.stage(cl!.spot) : 0, crownNear ? crowns.wait(cl!.spot, simTime) : 0);
+    controls.crowned = crownedAt >= 0 && simTime > crownedAt + CROWN_BANNER;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
     // (the Lob's hint: its ring shows)
     controls.lobRing = aimer.lobPlan !== null;
@@ -3004,6 +3087,11 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       returnStart: () => returnStart,
       returnHold: () => returnHold,
       openingBridge: () => openingBridge,
+      /** QA: the door (docs/specs/sf/DOOR.md) and a landmark's crown (default the Golden Gate's): its stage 0-4, its ring's wait 0-1, its paint's index, when its last crown landed */
+      crown: (key = 'lm:ggb') => {
+        const c = crowns.byKey(key);
+        return { door, crownedAt, tapsDenied, ...(c ? { stage: crowns.stage(c), wait: crowns.wait(c, simTime), index: c.ref.index } : {}) };
+      },
       /** QA: the last street sign raised: { text, x, z, from: 'street' | 'hoodAt' | 'building hood' | 'nearest label' | 'landmark', t } */
       lastSign: () => lastSign,
       /** QA: how much of the marine layer's seen-from-above fog is on (0 = the street-level fog exactly) */

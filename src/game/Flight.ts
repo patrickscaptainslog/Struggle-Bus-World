@@ -251,6 +251,12 @@ export class Flight {
     this.z -= dz;
   }
 
+  /** The bus starts holding this height (the door, main.ts: beside the Golden Gate's deck, not down on the water under it), as a yoke let go there holds it. */
+  holdAt(y: number) {
+    this.y = this.holdY = this.targetY = y;
+    this.mode = Yoke.Hold;
+  }
+
   /** The bus comes in from a height, flying (?moonland): on the path, at this speed along this way, with the yoke's altitude where it is. */
   takeOver(x: number, y: number, z: number, heading: number, speed: number, nose: number) {
     this.x = x;

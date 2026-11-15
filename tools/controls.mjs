@@ -73,7 +73,7 @@
 //   curb     Curb with real touches, ?life (docs/specs/shots/CURB.md; not in the default set): two flicks down onto GEARS.md's arterial (SB_CURB=lat,lon,heading
 //            moves it), a minute rolled beside the cars, the push, a look held left, a tap's drive-by, a flick up off it, School Zone's drift down onto
 //            it again, a pull held off it, and over the bay FIND A STREET, with stills, the draws, triangles and frame times on the street -> curb.json
-//   firstrun a first visit: no card, the cues in order (TAP, DRAG, HOLD)                         -> firstrun.json
+//   firstrun a first visit, the door's: the cues at their moments (TAP TO PAINT, DRAG, FLICK UP)  -> firstrun.json
 //   opening  flicks under the opening's gate: answered, taken back, firing at the gate; two of them. The low shot has no look, so a drag landing over
 //            the bus, out of the lane's half disc, flies until the gate and looks after it. A flick in the grey, before the first frame, waits for
 //            the gate too. Once open, a carve shuts it again only under the low shot's line. A lone flick down under it, nothing
@@ -3212,56 +3212,69 @@ if (modes.has('curb')) {
 }
 
 if (modes.has('firstrun')) {
-  // a first visit: no skipintro, no card, no hold; every cue in order, on the real clock of the game
+  // a first visit, the door's (docs/specs/sf/DOOR.md): no skipintro, no card, no hold; every cue at its moment, on the real clock of the game. TAP TO PAINT
+  // at the first glint (the fog lifting or not), no three-line hint, DRAG after the first paint, the crown's name then FLICK UP FOR GEARS, and none again
   mkdirSync(`${out}/firstrun`, { recursive: true });
   const FR = {};
-  // (&noreturn: the next visit below is the Golden Gate's, not a return start over this visit's splat: src/game/Return.ts)
+  // (&noreturn: the next visit below is the door's, not a return start over this visit's splat: src/game/Return.ts)
   const page = await open(`?fixeddt=0.05&noreturn${process.env.SB_Q ?? ''}`, null, base, { ready: 'window.__game && window.__game.city.loadedRegionCount() > 0' });
   const cdp = await page.context().newCDPSession(page);
   const H = hand(page, cdp);
   const ui = () => page.evaluate(() => {
-    const g = window.__game, s = g.controls.snapshot();
-    return { t: +g.clock().toFixed(1), opening: g.controls.opening, coach: s.coach, mega: getComputedStyle(document.querySelector('[data-hud="mega"]')).display, glint: g.glintNow()?.index ?? -1, prefs: s.prefs, bridge: g.openingBridge ? g.openingBridge() !== null : null };
+    const g = window.__game, s = g.controls.snapshot(), cue = document.querySelector('[data-hud="cue"]'), cr = g.crown ? g.crown() : null;
+    return { t: +g.clock().toFixed(1), opening: g.controls.opening, coach: s.coach, cueText: cue && getComputedStyle(cue).display !== 'none' ? cue.dataset.text ?? null : null, mega: getComputedStyle(document.querySelector('[data-hud="mega"]')).display, glint: g.glintNow()?.index ?? -1, prefs: s.prefs, bridge: g.openingBridge ? g.openingBridge() !== null : null, door: cr ? cr.door : null, stage: cr?.stage ?? null };
   });
-  await runFor(page, 0.5);
-  FR.frame0 = await ui();
-  await page.screenshot({ path: `${out}/firstrun/00-hero.png` });
-  await until(page, '!g.controls.opening', 60);
-  await runFor(page, 0.2);
-  FR.fogEnd = await ui();
-  await page.screenshot({ path: `${out}/firstrun/01-arrive.png` });
-  // the hint: a beat after the bridge, three lines in the toast's slot, and touches pass through it
-  const hint = () => page.evaluate(() => {
+  // (the toast: its lines, its place, and that touches pass through it)
+  const toast = () => page.evaluate(() => {
     const c = document.querySelector('[data-hud="toast"] canvas');
     if (!c) return null;
     const r = c.getBoundingClientRect();
     return { lines: (c.height - 4) / 10, top: r.top, bottom: r.bottom, width: r.width, passes: getComputedStyle(c).pointerEvents === 'none' };
   });
-  await until(page, '!g.controls.gearsLocked && document.querySelector(\'[data-hud="toast"]\') !== null', 60);
-  FR.hint = { ...(await ui()), toast: await hint() };
-  await page.screenshot({ path: `${out}/firstrun/01b-hint.png` });
-  // TAP: at the first glint
+  await runFor(page, 0.5);
+  FR.frame0 = { ...(await ui()), toast: await toast() };
+  await page.screenshot({ path: `${out}/firstrun/00-door.png` });
+  // TAP TO PAINT: at the first glint
   await page.evaluate(() => window.__game.forceReady());
-  await until(page, 'g.controls.snapshot().coach?.cue === "tap"', 120);
-  FR.tap = await ui();
-  await page.screenshot({ path: `${out}/firstrun/02-tap.png` });
+  await until(page, 'g.controls.snapshot().coach?.cue === "tap"', 60);
+  FR.tap = { ...(await ui()), toast: await toast() };
+  await page.screenshot({ path: `${out}/firstrun/01-tap.png` });
+  // the old hint's moment (a beat past the fog): no toast comes (the three lines never show on the door)
+  await until(page, '!g.controls.opening', 60);
+  await runFor(page, 1.5);
+  FR.noHint = { ...(await ui()), toast: await toast() };
   await H.down(1, 300, 600); await wall(90); await H.up(1);
-  await runFor(page, 0.4);
-  // DRAG: after the first splat, until a thumb commits
+  await runFor(page, 1.2);
+  // DRAG: after the first paint, until a thumb commits
   FR.afterSplat = await ui();
-  await page.screenshot({ path: `${out}/firstrun/03-drag.png` });
+  await page.screenshot({ path: `${out}/firstrun/02-drag.png` });
   // (a drag that flies lands in the bus's lane, under the bus; one anywhere else looks and teaches nothing)
   const fl = await page.evaluate(() => window.__game?.input?.busZone ?? null);
   const fx = fl ? Math.round(fl.x) : 300, fy = fl ? Math.round(Math.min(fl.y + 90, 780)) : 600;
-  await H.down(1, fx, fy); await H.move(1, fx + 40, fy); await runFor(page, 0.5); await H.up(1);
+  // (a steer right and back again: the bus keeps to its line along the deck for the crown's taps below)
+  await H.down(1, fx, fy); await H.move(1, fx + 40, fy); await runFor(page, 0.25); await H.move(1, fx - 40, fy); await runFor(page, 0.25); await H.move(1, fx, fy); await H.up(1);
   await runFor(page, 0.3);
   FR.afterDrag = await ui();
+  // the crown: taps every 2.6 s of the game's clock (the bus back on its glide over the deck: the drag above took it a little off), up to 40 s
+  for (let k = 0; k < 16; k++) {
+    if ((await ui()).stage === 4) break;
+    await page.evaluate(() => window.__game.forceReady());
+    await H.down(1, 300, 600); await wall(90); await H.up(1);
+    await runFor(page, 2.6);
+  }
+  FR.crown = { ...(await ui()), toast: await toast() };
+  await page.screenshot({ path: `${out}/firstrun/03-crown.png` });
+  // FLICK UP FOR GEARS: once the crown's name has had the slot
+  await until(page, 'g.controls.snapshot().coach !== null && (g.controls.snapshot().prefs.taught & 32) !== 0', 8);
+  await runFor(page, 0.2);
+  FR.flick = { ...(await ui()), toast: await toast() };
+  await page.screenshot({ path: `${out}/firstrun/04-flick.png` });
   // it never repeats: the same device, the next visit
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction('window.__game && window.__game.city.loadedRegionCount() > 0', null, { timeout: 400000 });
   await until(page, '!g.controls.opening', 60);
   await runFor(page, 3);
-  FR.nextVisit = { ...(await ui()), toast: await hint() };
+  FR.nextVisit = { ...(await ui()), toast: await toast() };
   res.firstrun = FR;
   for (const k in FR) console.log('firstrun', k, JSON.stringify(FR[k]));
   writeFileSync(`${out}/firstrun.json`, JSON.stringify(FR, null, 1));

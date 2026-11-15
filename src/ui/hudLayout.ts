@@ -97,7 +97,8 @@ export function layoutHud(w: number, h: number, insets: Insets, swap: boolean, c
   const meterCool = { x: megaX + (ms - 68) / 2, y: megaY + (ms - 68) / 2, w: 68, h: 86 };
 
   // the cue: low, centered, clear of the thumbs' rest
-  const cue = { x: Math.floor((w - 96) / 2), y: Math.round(0.64 * h), w: 96, h: 64 };
+  // (wide enough for TAP TO PAINT, the door's first words)
+  const cue = { x: Math.floor((w - 144) / 2), y: Math.round(0.64 * h), w: 144, h: 64 };
 
   const out: HudLayout = { w, h, compact, swap, settings, mega: { v: megaV, hit: megaHit }, crew, swatches, readout, toast, meterCharge, meterCool, cue };
   if (swap) {

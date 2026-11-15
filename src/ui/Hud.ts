@@ -128,6 +128,10 @@ export class Hud {
   private readonly megaWrap: HTMLDivElement;
   private readonly cueCanvas: PixelCanvas;
   private readonly cueWrap: HTMLDivElement;
+  private readonly crownCanvas: PixelCanvas;
+  private readonly crownWrap: HTMLDivElement;
+  /** the crown's ring as drawn: stage * 64 + its fill in 1/32s (-1 hidden) */
+  private crownKey = -1;
   private readonly superSlot: HTMLDivElement;
   // the faction crest (?crew) and its picker
   private readonly crest: PixelCanvas;
@@ -241,10 +245,16 @@ export class Hud {
 
     // ---- the first-run cue (passes everything through)
     this.cueWrap = div({ position: 'absolute', display: 'none' });
-    this.cueCanvas = new PixelCanvas(48, 32, S);
+    this.cueCanvas = new PixelCanvas(72, 32, S);
     this.cueWrap.append(this.cueCanvas.el);
     this.cueWrap.dataset.hud = 'cue';
     root.append(this.cueWrap);
+    // ---- a landmark's crown (src/game/Crown.ts): four pips for its stages in a thin ring that fills while the next counted hit waits (passes everything through)
+    this.crownWrap = div({ position: 'absolute', display: 'none', left: '50%', transform: 'translateX(-50%)' });
+    this.crownCanvas = new PixelCanvas(21, 21, S);
+    this.crownWrap.append(this.crownCanvas.el);
+    this.crownWrap.dataset.hud = 'crown';
+    root.append(this.crownWrap);
 
     // ---- the super splat's slot: the meter (68 x 86) mounts here; where it stands depends on the phase
     this.superSlot = div({ position: 'absolute', width: '68px', height: '86px', pointerEvents: 'none' });
@@ -376,6 +386,7 @@ export class Hud {
     this.lockedWrap.style.top = `${L.toast.y}px`;
     if (this.toastEl) this.toastEl.style.top = `${L.toast.y}px`;
     this.box(this.cueWrap, L.cue);
+    this.crownWrap.style.top = `${L.toast.y + L.toast.h + 4}px`;
     this.placeMeter();
   }
 
@@ -530,6 +541,45 @@ export class Hud {
       this.cueKey = key;
       this.drawCue(this.cue, step);
     }
+  }
+
+  /**
+   * A landmark's crown (src/game/Crown.ts): `stage` 1 to 3 lit pips of four (and the fourth on the crown), the ring filled by `wait` (0 just counted, 1 the next
+   * hit counts: the ring whole and bright). Stage 0 or 4 and over: hidden. Drawn only when it changes.
+   */
+  setCrown(stage: number, wait: number) {
+    const on = stage >= 1 && stage <= 3;
+    this.show(this.crownWrap, on);
+    if (!on) {
+      this.crownKey = -1;
+      return;
+    }
+    const fill = Math.round(Math.max(0, Math.min(1, wait)) * 32);
+    const key = stage * 64 + fill;
+    if (key === this.crownKey) return;
+    this.crownKey = key;
+    const p = this.crownCanvas;
+    p.clear();
+    const c = 10.5, ready = fill >= 32;
+    // (the ring: one pixel thin, filled clockwise from the top as the wait runs out, with an ink edge each side so it reads over sky and paint)
+    for (let j = 0; j < p.h; j++)
+      for (let i = 0; i < p.w; i++) {
+        const dx = i + 0.5 - c, dy = j + 0.5 - c, d = Math.hypot(dx, dy);
+        if (d > 10.4 || d < 7.6) continue;
+        if (d > 9.6 || d < 8.4) {
+          p.set(i, j, C.ink);
+          continue;
+        }
+        const a = (Math.atan2(dx, -dy) / (2 * Math.PI) + 1) % 1;
+        p.set(i, j, ready ? C.yellowHi : a * 32 < fill ? C.cream : C.dim);
+      }
+    // (the four stages: deck, cables, towers, lights, from the top clockwise)
+    for (let k = 0; k < 4; k++) {
+      const x = Math.round(c + [0, 4, 0, -4][k] - 1), y = Math.round(c + [-4, 0, 4, 0][k] - 1);
+      p.rect(x - 1, y - 1, 4, 4, C.ink);
+      p.rect(x, y, 2, 2, k < stage ? C.yellowHi : C.dim);
+    }
+    p.flush();
   }
 
   /** A short message (a line or two; the first run's hint has three) in the slot under the top row. */
@@ -925,7 +975,9 @@ export class Hud {
           p.rect(x - 1, y, 3, 1, C.yellowHi);
         }
     }
-    const t = c === 'tap' ? 'TAP' : 'DRAG';
+    // (the door's first words: what the tap does, not just the gesture. docs/specs/sf/DOOR.md)
+    const t = c === 'tap' ? 'TAP TO PAINT' : 'DRAG';
+    this.cueWrap.dataset.text = t;
     this.outlineOver(p, t, Math.round(cx - textWidth(t) / 2), 23, C.text);
     p.flush();
   }
