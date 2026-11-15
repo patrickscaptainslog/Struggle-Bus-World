@@ -677,7 +677,10 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   const later: Array<() => void> = [() => audio.warmBackend()];
   /** the landmarks' crowns: every paintable bridge climbs four stages, one counted hit each (src/game/Crown.ts); during the door a tap near one takes it */
   const crowns = new Crowns(city, manifest.slug);
-  crowns.magnetOn = door;
+  /** the door's helps (its pull and its held tap): from its first frame until its bridge is crowned or the bus is 700 m from it, whichever comes first,
+   *  and never again that visit: from then on a tap is the game's own everywhere */
+  let doorHelps = door;
+  crowns.magnetOn = doorHelps;
   crowns.from = flight;
   /** a landmark becomes a first-class paintable building (its paint saved under its key); saved paint thins the fog again */
   const paintable = (key: string, obj: THREE.Object3D, name?: string) => {
@@ -1653,7 +1656,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // beat, or as fast as a thumb goes, lost every other tap to a frame's lag (docs/specs/sf/DOOR.md; the review's m2). Any other refused tap wheezes at
       // once, there as everywhere: held for longer, it either breathed late, shots no touch meant (the check's B1), or was dropped unheard (the second
       // check's B2))
-      if (door && flight.fullIn <= DOOR_HOLD) {
+      if (doorHelps && flight.fullIn <= DOOR_HOLD) {
         if (heldTap >= 0) tapsMerged++;
         heldTap = simTime + DOOR_HOLD;
       } else refused();
@@ -2504,11 +2507,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const cl = crowns.last, crownNear = !!cl && simTime >= cl.at && city.edgeDistance(cl.spot.ref, flight.x, flight.z) < 700;
     const pips = crownNear ? crowns.stage(cl!.spot) : 0;
     controls.hud.setCrown(pips < 4 || bannerUp ? pips : 0, crownNear ? crowns.wait(cl!.spot, simTime) : 0);
-    // (the door: its pull while its bridge waits for its crown and the bus is near it (the review's m4); FLICK UP's moment once the crown's banner has
-    // gone, or at once for a crown kept from an earlier visit, or with no crown 35 s into the visit or with the bus 700 m from the bridge (M3))
+    // (the door: its helps until its bridge is crowned or the bus is 700 m from it, and not again once either comes (the review's m4; the lead's
+    // ruling after the second check); FLICK UP's moment once the crown's banner has gone, or at once for a crown kept from an earlier visit, or with no
+    // crown 35 s into the visit or with the bus 700 m from the bridge (M3))
     if (doorSpot) {
       const kept = crowns.isCrowned(doorSpot), far = city.edgeDistance(doorSpot.ref, flight.x, flight.z) > 700;
-      crowns.magnetOn = !kept && !far;
+      if (kept || far) doorHelps = false;
+      crowns.magnetOn = doorHelps;
       controls.crowned = kept ? crownedAt < 0 || (bannerAt >= 0 && !bannerUp) : far || simTime > DOOR_FLICK;
     } else controls.crowned = bannerAt >= 0 && !bannerUp;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
