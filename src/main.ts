@@ -1608,7 +1608,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   };
   /** the door's held tap: until when (game s), -1 none; and how early a tap may come and still be held (s) */
   let heldTap = -1;
-  const DOOR_HOLD = 0.35;
+  const DOOR_HOLD = 0.6;
   /** QA: taps the belly refused (a wheeze, no paint) */
   let tapsDenied = 0;
   input.onTap = () => {
