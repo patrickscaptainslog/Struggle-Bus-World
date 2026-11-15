@@ -1668,7 +1668,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     audio.denied();
     tapsDenied++;
     const p = mouthWorld();
-    for (let i = 0; i < 3; i++) particles.puff(p, refusedV.set((Math.random() - 0.5) * 2, 2.5 + Math.random() * 2, (Math.random() - 0.5) * 2), Ramp.GREY, 1.4);
+    // (carried along with the bus, and twice the exhaust's size: left behind at 40 m/s, 1.4 times its size, it was a dot behind the bus)
+    for (let i = 0; i < 4; i++) particles.puff(p, refusedV.copy(busVel()).add(velTmp.set((Math.random() - 0.5) * 2, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 2)), Ramp.GREY, 2.2);
   };
   /** the door's held tap: until when (game s), -1 none; and how soon the belly must be full for a refused tap to be held (s): within the half second a
    *  shot may follow the touch that meant it (tools/flight5.mjs's intents), and over the 0.4 s before full a newcomer's tap to the refill's beat comes */
