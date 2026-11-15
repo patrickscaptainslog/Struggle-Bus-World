@@ -4,3 +4,5 @@ export * from '../../src/link/save';
 export { Areas, squareCentre } from '../../src/factions/areas';
 export { Neighbourhoods } from '../../src/factions/neighbourhoods';
 export { parseHoods } from '../../src/world/hoods';
+export * from '../../src/link/flyby';
+export { CityAreas } from '../../src/factions/cityAreas';
