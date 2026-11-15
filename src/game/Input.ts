@@ -377,6 +377,8 @@ export function stickParts(travel: number, room: number, out: { hard: number; sk
 export class Input {
   readonly state: InputState = { dragging: false, thumb: false, stretch: { x: 0, y: 0 }, anchor: null, finger: null, chargeHeld: 0, look: { on: false, x: 0, y: 0 }, aim: { on: false, x: 0, y: 0, x0: 0, y0: 0, t0: 0, at: 0 }, bomb: { on: false, tier: 0, t0: 0, at: 0 }, hard: 0, skid: -Infinity, side: 0, hardTop: 1 };
   onTap: (() => void) | null = null;
+  /** The landing of the finger whose lift was read last (ms, the events' clock, evTime): what a tap onTap fires counts its half second from (main.ts, the door's held tap) */
+  tapDown = -Infinity;
   /** Hold to aim (state.aim): a still finger off the lane became an aim, and its lift (cancelled = lost, three fingers, focus gone). src/game/Hold.ts takes both. */
   onAimStart: (() => void) | null = null;
   onAimEnd: ((cancelled: boolean, late: boolean) => void) | null = null;
@@ -934,6 +936,7 @@ export class Input {
     if (!quick) this.gAllQuick = false;
     const tap = !cancelled && !aimed && this.secondTap(slot, now);
     const ownsPress = slot.ownsPress, t0 = slot.t0, pressN = slot.pressN, givenN = slot.givenN;
+    this.tapDown = t0;
     this.free(slot);
 
     if (role === Role.Fly) {

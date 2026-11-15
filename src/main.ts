@@ -1655,10 +1655,13 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       // (the door: a tap the belly will take within DOOR_HOLD is held, one at most, and goes the frame it is full: a newcomer tapping to the refill's own
       // beat, or as fast as a thumb goes, lost every other tap to a frame's lag (docs/specs/sf/DOOR.md; the review's m2). Any other refused tap wheezes at
       // once, there as everywhere: held for longer, it either breathed late, shots no touch meant (the check's B1), or was dropped unheard (the second
-      // check's B2))
-      if (doorHelps && flight.fullIn <= DOOR_HOLD) {
+      // check's B2)). The half second counts from the finger's landing, not its lift: held from the lift, a tap breathed up to its own length late
+      // (the third check's m1). A tap whose landing the events don't say (a key) counts from now
+      const down = (performance.now() - input.tapDown) / 1000;
+      const hold = DOOR_HOLD - (down >= 0 && down < 1 ? down : 0);
+      if (doorHelps && flight.fullIn <= hold) {
         if (heldTap >= 0) tapsMerged++;
-        heldTap = simTime + DOOR_HOLD;
+        heldTap = simTime + hold;
       } else refused();
     }
   };
