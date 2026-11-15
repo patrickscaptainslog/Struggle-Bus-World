@@ -189,6 +189,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     manifest.slug = `${manifest.slug}~recess`;
     try {
       localStorage.removeItem(landmarkStoreKey(manifest.slug));
+      // (and its crowns: a crown kept over a cleared bridge read it as crowned, grey and stuck at level 1. The review of M1a, M1)
+      localStorage.removeItem(crownKey(manifest.slug));
     } catch {
       /* storage blocked: nothing to clear */
     }
@@ -199,6 +201,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     manifest.slug = `${manifest.slug}~swerve`;
     try {
       localStorage.removeItem(landmarkStoreKey(manifest.slug));
+      localStorage.removeItem(crownKey(manifest.slug));
     } catch {
       /* storage blocked: nothing to clear */
     }
@@ -675,6 +678,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
   /** the landmarks' crowns: every paintable bridge climbs four stages, one counted hit each (src/game/Crown.ts); during the door a tap near one takes it */
   const crowns = new Crowns(city, manifest.slug);
   crowns.magnetOn = door;
+  crowns.from = flight;
   /** a landmark becomes a first-class paintable building (its paint saved under its key); saved paint thins the fog again */
   const paintable = (key: string, obj: THREE.Object3D, name?: string) => {
     const ref = paintLandmark(city, key, obj, { name });
@@ -1479,6 +1483,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const blocked = !ours && (!mover || block) && recess?.blocks(at.x, at.z, lands) ? { x: at.x, y: at.y ?? city.groundAt(at.x, at.z) + 2, z: at.z } : null;
       // (a tap's own barf, as the probe's (Aim.tapOpts), and what a mover, a mega and a crater add to it)
       const o = tapOpts(shot, flight.y);
+      // (the player's own: only it climbs a landmark's crown, and takes the door's pull. Crown.ts)
+      o.own = true;
       if (ours) Object.assign(o, { mover: ours, moverFresh: false });
       else if (blocked) Object.assign(o, { mover: blocked, moverFresh: false });
       else if (block) Object.assign(o, { target: null, y: at.y, exact: true, moverBlock: true });

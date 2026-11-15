@@ -133,6 +133,8 @@ export interface BarfOpts {
   solo?: number;
   /** whose blast it is when it isn't this splatter's own `faction` (?recess: a captain's bus) */
   faction?: number;
+  /** the player's own breath (main.ts: a tap, a Comet, a Lob, a Bomb): only it climbs a landmark's crown a stage, and only it takes the door's pull (Crown.ts) */
+  own?: boolean;
   /** ?life: a mover it hits (src/life): the blast is in the air at (x, opts.y, z), and paints no building and no ground; `moverFresh`, it took the breath's hue */
   mover?: { x: number; y: number; z: number };
   moverFresh?: boolean;
@@ -343,10 +345,11 @@ export class Splatter {
    * warehouse is hit wherever you aim into it, and a shot into the street snaps to the nearest wall). Seen
    * from fromY, the bus's height: a deck over it is no target.
    */
-  pick(x: number, z: number, radius = config.splat.snapRadius, fromY = Infinity): BuildingRef | null {
+  pick(x: number, z: number, radius = config.splat.snapRadius, fromY = Infinity, pull = true): BuildingRef | null {
     // (?lift: a house on a square that won't take a counted hit now counts farther, so the glint pulls to one that will. Without the flag the City has no Lift)
-    // (the door: a tap that would land on nothing near an uncrowned bridge takes it, so a newcomer's first tap never splashes in the bay: Crown.ts)
-    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY, true) ?? this.crowns?.magnet(x, z, fromY) ?? null;
+    // (the door: a tap that would land on nothing near an uncrowned bridge takes it, so a newcomer's first tap never splashes in the bay: Crown.ts. The
+    // player's shots only: `pull` false for a blast that isn't theirs)
+    return this.city.nearestBuilding(x, z, radius, config.splat.minTargetHeight, fromY, true) ?? (pull ? this.crowns?.magnet(x, z, fromY) : null) ?? null;
   }
 
   /** Blast radius for a barf from `drop` meters above the impact (m). */
@@ -373,7 +376,7 @@ export class Splatter {
     const paint = city.paint;
     const drop = opts?.drop ?? 0;
     const from = opts?.from ?? Infinity;
-    const primary = opts?.target !== undefined ? opts.target : this.pick(x, z, this.pickRadius(drop), from);
+    const primary = opts?.target !== undefined ? opts.target : this.pick(x, z, this.pickRadius(drop), from, !!opts?.own);
     const tImpact = this.t + (opts?.travel ?? S.impactDelay);
     const r = opts?.radius ?? blastRadiusFor(drop);
     const hose = !!opts?.hose;
@@ -480,7 +483,9 @@ export class Splatter {
       // (a Bomb's jump is a stage at a time, each its own pop: the first with the wave, as a tap's level, the rest after it)
       const base = was ? Math.round(lv) : 0;
       // (a landmark that can be crowned climbs a stage only on a counted hit, one at most every config.door.gap s; any other hit re-pops it where it is: Crown.ts)
-      const crown = this.crowns ? this.crowns.level(ref, lv, tImpact) : -1;
+      // (only the player's own breath counts; another crew's leaves a grey one out: -2)
+      const crown = this.crowns ? this.crowns.level(ref, lv, tImpact, !!opts?.own) : -1;
+      if (crown === -2) continue;
       const level = crown >= 0 ? crown : Math.min(3, base + 1), last = crown >= 0 ? crown : Math.min(3, base + jump);
       // escalating buildings keep their hue, the primary takes the blast's; the rest are dealt below
       const h = solo !== undefined ? solo : was ? wrapHue(paint.get(ref.index).color) : ref === primary ? hue : -1;

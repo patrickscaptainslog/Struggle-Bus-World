@@ -1011,8 +1011,10 @@ export const config = {
     speed: 40,
     /** One counted hit a landmark at most this often (s): each moves it one stage of four. Between them every hit still paints and blooms. */
     gap: 5,
-    /** During the door, a tap that would land on nothing this near an uncrowned landmark's outline takes it (m). */
+    /** During the door, a tap that would land on nothing this near an uncrowned landmark's outline takes it (m): near the line from the bus to the aim
+     *  point (its first `line` m from the bus) or near the aim point. */
     reach: 85,
+    line: 250,
     /** The crown's flash, its camera punch, and how many sparkles flare off each tower top and run along each of its slices. */
     flash: 1.6,
     kick: 0.9,

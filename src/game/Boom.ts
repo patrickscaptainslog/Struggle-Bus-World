@@ -387,7 +387,7 @@ export class Boom {
     p.land = this.t + B.travel;
     p.bloom = p.land + arrival(p.r * (1 + B.innerK) * 0.5, p.r);
     const tag: SuperTag = { kind: 'boom', charge: 1, id: ++this.serial, inner: p.inner };
-    this.splatter.barf(p.x, p.z, { target: null, exact: true, y: p.y + 0.5, drop: p.drop, radius: p.r, inner: p.inner, travel: B.travel, stream: true, hitStop: 0, super: tag });
+    this.splatter.barf(p.x, p.z, { target: null, exact: true, y: p.y + 0.5, drop: p.drop, radius: p.r, inner: p.inner, travel: B.travel, stream: true, hitStop: 0, super: tag, own: true });
     if (this.splatter.lastMiss) {
       p.kind = 'water';
       this.last = p.spent;

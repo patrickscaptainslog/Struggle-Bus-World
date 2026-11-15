@@ -444,7 +444,7 @@ export class Hose implements HoldHandler {
     const x = aim.p.x, z = aim.p.z, y = aim.p.y;
     // (seen from just over where it lands: a stream under a deck lands under it; the bus's height is the blast's `from`)
     const target = H.city.buildingAt(x, z, y + 2);
-    H.splatter.barf(x, z, { radius: r, travel: aim.travel, drop: aim.drop, target, y: y + 0.3, from: H.flight.y, exact: true, hose: true, pour: this.tag.id, super: this.tag, bands: this.bands });
+    H.splatter.barf(x, z, { radius: r, travel: aim.travel, drop: aim.drop, target, y: y + 0.3, from: H.flight.y, exact: true, hose: true, pour: this.tag.id, super: this.tag, bands: this.bands, own: true });
     this.stats.impacts++;
     if (H.splatter.lastMiss) this.stats.misses++;
   }

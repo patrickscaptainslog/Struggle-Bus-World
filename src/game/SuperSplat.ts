@@ -606,9 +606,9 @@ export class SuperSplat {
     const from = y + drop;
     const travel = Math.max(0.02, this.hT[best] - this.t);
     if (finale) {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, from, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag, bands: this.bands });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * S.firehoseFinale * grow, travel, drop, target, y: y + 0.3, from, exact: true, stream: true, hitStop: S.firehoseFinaleHitStop, super: this.closerTag, bands: this.bands, own: true });
     } else {
-      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, from, exact: true, hose: true, super: this.hoseTag, bands: this.bands });
+      h.splatter.barf(x, z, { radius: S.firehoseRadius * grow, travel, drop, target, y: y + 0.3, from, exact: true, hose: true, super: this.hoseTag, bands: this.bands, own: true });
       this.stats.impacts++;
       if (h.splatter.lastMiss) this.stats.misses++;
     }
