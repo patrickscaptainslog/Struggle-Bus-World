@@ -3213,7 +3213,8 @@ if (modes.has('curb')) {
 
 if (modes.has('firstrun')) {
   // a first visit, the door's (docs/specs/sf/DOOR.md): no skipintro, no card, no hold; every cue at its moment, on the real clock of the game. TAP TO PAINT
-  // at the first glint (the fog lifting or not), no three-line hint, DRAG after the first paint, the crown's name then FLICK UP FOR GEARS, and none again
+  // at the first glint (the fog lifting or not), no three-line hint, DRAG after the first paint, the crown's name then FLICK UP TO GO FASTER, the lane and
+  // the look's lines a while after it, and none again
   mkdirSync(`${out}/firstrun`, { recursive: true });
   const FR = {};
   // (&noreturn: the next visit below is the door's, not a return start over this visit's splat: src/game/Return.ts)
@@ -3264,11 +3265,16 @@ if (modes.has('firstrun')) {
   }
   FR.crown = { ...(await ui()), toast: await toast() };
   await page.screenshot({ path: `${out}/firstrun/03-crown.png` });
-  // FLICK UP FOR GEARS: once the crown's name has had the slot
-  await until(page, 'g.controls.snapshot().coach !== null && (g.controls.snapshot().prefs.taught & 32) !== 0', 8);
+  // FLICK UP TO GO FASTER: once the crown's name has had the slot (TAUGHT.flick, 2048)
+  await until(page, 'g.controls.snapshot().coach !== null && (g.controls.snapshot().prefs.taught & 2048) !== 0', 8);
   await runFor(page, 0.2);
   FR.flick = { ...(await ui()), toast: await toast() };
   await page.screenshot({ path: `${out}/firstrun/04-flick.png` });
+  // the lane and the look: the hint's other lines, a while after FLICK UP (then the hint is taught, 32)
+  await until(page, '(g.controls.snapshot().prefs.taught & 32) !== 0', 20);
+  await runFor(page, 0.2);
+  FR.rest = { ...(await ui()), toast: await toast() };
+  await page.screenshot({ path: `${out}/firstrun/05-rest.png` });
   // it never repeats: the same device, the next visit
   await page.reload({ waitUntil: 'load' });
   await page.waitForFunction('window.__game && window.__game.city.loadedRegionCount() > 0', null, { timeout: 400000 });
