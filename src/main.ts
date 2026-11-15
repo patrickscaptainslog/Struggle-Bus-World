@@ -2514,7 +2514,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       const kept = crowns.isCrowned(doorSpot), far = city.edgeDistance(doorSpot.ref, flight.x, flight.z) > 700;
       if (kept || far) doorHelps = false;
       crowns.magnetOn = doorHelps;
-      controls.crowned = kept ? crownedAt < 0 || (bannerAt >= 0 && !bannerUp) : far || simTime > DOOR_FLICK;
+      // (and never before the first paint: it came up 35 s in over TAP TO PAINT with nothing painted (the second check's m2))
+      controls.crowned = controls.splats > 0 && (kept ? crownedAt < 0 || (bannerAt >= 0 && !bannerUp) : far || simTime > DOOR_FLICK);
     } else controls.crowned = bannerAt >= 0 && !bannerUp;
     // (the Bomb's hint: a painted building glints, with a full belly, the bus under 300 m; on the Moon a painted crater)
     // (the Lob's hint: its ring shows)
