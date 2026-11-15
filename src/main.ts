@@ -1637,20 +1637,23 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       controls.splatted();
     } else {
       aimer.unfire();
-      // (the door: a tap the belly would have taken a moment later is held until it's full, never dead: a newcomer taps to the refill's own beat, and a
-      // frame's lag made every other one a wheeze. docs/specs/sf/DOOR.md)
-      if (door && flight.barfT < 0 && (1 - flight.fullness) * config.splat.recharge <= DOOR_HOLD) heldTap = simTime + DOOR_HOLD;
-      else {
+      // (the door: a tap the belly can't take yet is held, one at most, and goes the frame it is full, never dead and never a wheeze: a newcomer taps to the
+      // refill's own beat, or as fast as a thumb goes, and a frame's lag lost every other tap, or most of them. docs/specs/sf/DOOR.md; the review's m2)
+      if (door) {
+        if (heldTap >= 0) tapsMerged++;
+        else heldTap = simTime + DOOR_HOLD;
+      } else {
         audio.denied();
         tapsDenied++;
       }
     }
   };
-  /** the door's held tap: until when (game s), -1 none; and how early a tap may come and still be held (s) */
+  /** the door's held tap: until when (game s), -1 none; and how long one may wait for the belly at most (s): a breath and a whole refill */
   let heldTap = -1;
-  const DOOR_HOLD = 0.6;
-  /** QA: taps the belly refused (a wheeze, no paint) */
+  const DOOR_HOLD = config.splat.recharge + 1;
+  /** QA: taps the belly refused (no paint), and taps on the door that came while one was held already (the one held paints for them) */
   let tapsDenied = 0;
+  let tapsMerged = 0;
   input.onTap = () => {
     if (tuner.visible || superSplat.hosing || hose.tapWhilePouring()) return;
     // (the tap that skips the opening doesn't splat as well)
@@ -2452,12 +2455,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     // (the Lob's body reads the steering thumb itself: a second thumb's tap while it's down reads it live, its lift latches it)
     const glint = aimer.update(flight, simTime, steering, thumbDown);
     controls.glinting = glint !== null || !!moonPaint?.target || aimer.moverGlinting;
-    // (the door's held tap: it goes the frame the belly is full, or wheezes once its moment has passed)
+    // (the door's held tap: it goes the frame the belly is full, through the tap's own guards (the tuner, the hose, a hold, a rival's shell, as when it was
+    // made: the review's m5), or is dropped, unheard, if it never fills)
     if (heldTap >= 0) {
-      if (flight.fullness >= 0.999 && flight.barfT < 0) tapSplat();
-      else if (simTime > heldTap) {
+      if (flight.fullness >= 0.999 && flight.barfT < 0) {
         heldTap = -1;
-        audio.denied();
+        input.onTap?.();
+      } else if (simTime > heldTap) {
+        heldTap = -1;
         tapsDenied++;
       }
     }
