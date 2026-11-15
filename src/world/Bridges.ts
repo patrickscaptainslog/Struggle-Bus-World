@@ -333,6 +333,10 @@ function bridgeMaterial(look: LandmarkLook = {}): THREE.ShaderMaterial {
         } else if (L >= 3.0) {
           // the cables: six hues along their length, under the bunting
           o.ramp = lmHue(hue + floor(s / 48.0));
+        } else if (L >= 2.0) {
+          // at level 2, the crown's second stage (src/game/Crown.ts), the cables and hangers in the paint's opposite hue: lines across the whole frame.
+          // The bunting and the planted rails alone read on a phone as thin specks at the deck's edge (the look of M1a, 4)
+          o.ramp = lmHue(hue + 3.0);
         }
       }
       void main() {
@@ -502,9 +506,10 @@ function hangSpan(k: Kit, wires: Kit, d: Deck, c: CableSpan, pa: THREE.Vector3, 
   }
 }
 
-/** A span's bunting, its cable's own curve hung 1.4 m under it (the cable's sag is the bunting's): level 3's. */
+/** A span's bunting, its cable's own curve hung 1.4 m under it (the cable's sag is the bunting's): level 2's, the crown's second stage. Pennants about
+ *  8 m wide and 7 m deep, twice what they were: at 2.4 the stage read on a phone as thin green lines at the deck's edge (the look of M1a, 4). */
 function spanBunting(c: CableSpan, pa: THREE.Vector3, pb: THREE.Vector3): NonNullable<LandmarkLook['bunting']>[number] {
-  return { from: [pa.x, c.y0 - 1.4, pa.z], to: [pb.x, c.y1 - 1.4, pb.z], sag: (c.y0 + c.y1) / 2 - c.sagY, size: 2.4 };
+  return { from: [pa.x, c.y0 - 1.4, pa.z], to: [pb.x, c.y1 - 1.4, pb.z], sag: (c.y0 + c.y1) / 2 - c.sagY, size: 5 };
 }
 
 /** The height of the cable over a station, else -Infinity. */
