@@ -71,19 +71,24 @@ export class AudioEngine {
   }
 
   /**
-   * Boot, while nothing is on screen: the first AudioContext of a browser process starts its audio backend, 120-180 ms
-   * on this thread (Chromium; the next one takes ~20). One made and closed now keeps that out of the first touch.
+   * Boot, while nothing is on screen: the AudioContext is made now, behind the loading page, and kept (suspended, with no
+   * gesture yet) for the first touch to resume. Its constructor holds this thread 20-700 ms on a laptop's Edge; made and
+   * closed here, the first touch's own constructor opened the device again and froze the picture for as long.
    */
   warmBackend(): void {
+    if (this.rt || this.warm) return;
     setAmbientSession();
     const w = window as unknown as { AudioContext?: AudioCtor; webkitAudioContext?: AudioCtor };
     const AC = w.AudioContext ?? w.webkitAudioContext;
     try {
-      if (AC) void new AC({ latencyHint: 'interactive' }).close().catch(() => {});
+      if (AC) this.warm = new AC({ latencyHint: 'interactive' });
     } catch {
       /* no audio here: unlock() will find out */
     }
   }
+
+  /** the context warmBackend made, until the first gesture takes it */
+  private warm: AudioContext | null = null;
 
   /** Start on the long buffers before the first touch needs them (most outputs run at 48 kHz; another rate redoes them). */
   prepare(): void {
@@ -150,27 +155,22 @@ export class AudioEngine {
     const w = window as unknown as { AudioContext?: AudioCtor; webkitAudioContext?: AudioCtor };
     const AC = w.AudioContext ?? w.webkitAudioContext;
     if (!AC) return;
-    let ctx: AudioContext;
-    try {
-      ctx = new AC({ latencyHint: 'interactive' });
-    } catch {
+    // (the warm-up's context when it is there: no constructor inside the gesture)
+    let ctx: AudioContext | null = this.warm && this.warm.state !== 'closed' ? this.warm : null;
+    this.warm = null;
+    if (!ctx) {
       try {
-        ctx = new AC();
+        ctx = new AC({ latencyHint: 'interactive' });
       } catch {
-        return;
+        try {
+          ctx = new AC();
+        } catch {
+          return;
+        }
       }
     }
     this.rt = ctx;
-    // Older iOS only unlocks output once something starts inside the gesture.
-    try {
-      const b = ctx.createBuffer(1, 1, ctx.sampleRate);
-      const s = ctx.createBufferSource();
-      s.buffer = b;
-      s.connect(ctx.destination);
-      s.start(0);
-    } catch {
-      /* ignore */
-    }
+    kick(ctx);
     this.resume();
     this.installLifecycle(ctx);
     void this.synthAt(ctx.sampleRate).then((data) => {
@@ -472,9 +472,14 @@ export class AudioEngine {
 
   private installLifecycle(ctx: AudioContext): void {
     // iOS can suspend/interrupt the context (calls, Siri, backgrounding). A
-    // resume is only honoured inside a gesture, so retry on every tap.
+    // resume is only honoured inside a gesture, so retry on every tap: the first
+    // touch's pointerup or touchend too, which iPhone Safari may want over its
+    // pointerdown for a context made before any gesture.
     const onGesture = () => {
-      if (!this.muted && !document.hidden && ctx.state !== 'running') this.resume();
+      if (!this.muted && !document.hidden && ctx.state !== 'running') {
+        kick(ctx);
+        this.resume();
+      }
     };
     for (const ev of GESTURES) window.addEventListener(ev, onGesture, { capture: true, passive: true });
     document.addEventListener('visibilitychange', () => {
@@ -487,6 +492,19 @@ export class AudioEngine {
         this.selfSuspended = false;
       } else if (ctx.state !== 'suspended') this.selfSuspended = false; // 'interrupted' / 'closed': the OS took it
     });
+  }
+}
+
+/** Older iOS only unlocks output once something starts inside the gesture: one silent sample. */
+function kick(ctx: AudioContext): void {
+  try {
+    const b = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const s = ctx.createBufferSource();
+    s.buffer = b;
+    s.connect(ctx.destination);
+    s.start(0);
+  } catch {
+    /* ignore */
   }
 }
 
