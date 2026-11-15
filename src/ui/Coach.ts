@@ -139,9 +139,10 @@ export class Coach {
     let cue: Cue = 'none';
     if (f.openingOver || f.door) {
       if (!this.has(TAUGHT.tap)) {
-        // (a glint flickering between buildings shouldn't blink the cue)
-        this.glintT = f.glinting ? 0.6 : Math.max(0, this.glintT - dt);
-        if (this.glintT > 0) cue = 'tap';
+        // (a glint flickering between buildings shouldn't blink the cue; on the door it shows exactly while a tap would paint the bridge (main.ts), not
+        // 0.6 s after it has gone out of reach)
+        this.glintT = f.glinting ? (f.door ? 0 : 0.6) : Math.max(0, this.glintT - dt);
+        if (f.glinting || this.glintT > 0) cue = 'tap';
       } else if (!this.has(TAUGHT.drag) && f.splats > 0) {
         this.dragT += dt;
         if (this.dragT >= 8) this.learn(TAUGHT.drag);

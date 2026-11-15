@@ -96,7 +96,8 @@ export class Controls {
   /** Curb's hint is off (?nohud, ?nocoach) */
   private readonly curbHintOff: boolean;
   private readonly cf: CoachFrame = { glinting: false, openingOver: false, splats: 0, thumb: false, stillPress: 0, charged: false };
-  private splats = 0;
+  /** taps that breathed this session (main.ts reads it: the door's first paint) */
+  splats = 0;
   private chargedOnce = false;
   private bombedOnce = false;
   private lobbedOnce = false;
