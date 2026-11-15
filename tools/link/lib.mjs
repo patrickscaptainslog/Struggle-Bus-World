@@ -18,7 +18,7 @@ export async function load() {
 export function loadStamp() {
   const src = readFileSync(path('../../src/link/stamp.js'), 'utf8');
   if (/=>|\blet\b|\bconst\b|`|\.\.\.|\bclass\b/.test(src.replace(/\/\/.*$/gm, ''))) throw new Error('stamp.js is not ES5');
-  return new Function(`${src}\nreturn sbwStamp;`)();
+  return new Function(`${src}\nreturn { stamp: sbwStamp, lastCard: sbwLastCard };`)();
 }
 
 /** San Francisco's own files: city.json, and hoods.bin unzipped */

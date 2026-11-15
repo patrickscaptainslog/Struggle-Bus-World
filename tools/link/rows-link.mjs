@@ -8,6 +8,11 @@ export async function linkRows(R, L, stamp) {
   /** every address these rows make, for the stamp's row */
   const hrefs = [];
   const keep = (href) => (hrefs.length < 700000 && hrefs.push(href), href);
+  /** an address as a page gets it: through the URL parser every browser has (it escapes what an app left raw) */
+  const asPage = (href) => {
+    const u = new URL(href);
+    return [u.pathname, u.search, u.hash];
+  };
   const headOf = (c) => same({ map: c.map, ix: c.ix, iz: c.iz, crew: c.crew, at: c.at, caption: c.caption });
   const coreOf = (c) => same({ squares: c.body.squares, answers: c.body.answers, score: c.body.score });
   /** a card's text as its sections: [start of its length, end of its check] for the head, the core, the tail */
@@ -95,6 +100,9 @@ export async function linkRows(R, L, stamp) {
     const bad = Object.keys(GOLDEN).filter((k) => GOLDEN[k] !== made[k]);
     need(Object.keys(made).length === Object.keys(GOLDEN).length && !bad.length, () => `moved: ${bad.join(', ') || 'the list'} (${bad.length ? `${bad[0]} is now ${made[bad[0]]}` : ''})`);
     for (const k of Object.keys(GOLDEN)) if (k.startsWith('s') || k === 'mark') keep(`${ORIGIN}/p/sf/0#${GOLDEN[k]}`);
+    const told = [L.explain(`${ORIGIN}/p/mission/3#${GOLDEN['squares 2']}`), L.explain(`${ORIGIN}/p/ggb/0#${GOLDEN.mark}`), L.explain(`${ORIGIN}/s/tt1#${GOLDEN['squares 3'].slice(0, -4)}`), L.explain(`${ORIGIN}/p/mission/0#junk`)].join('\n--\n');
+    if (process.argv.includes('--print-golden')) console.log(`explain: ${JSON.stringify(told)}`);
+    need(process.argv.includes('--print-golden') || told === EXPLAINED, () => `explain's words moved: ${JSON.stringify(told)}`);
     return `${Object.keys(GOLDEN).length} pinned texts still come out bit for bit: the two checks' test values, cards of 1, 2, 3, 4, 5, 8, 9, 16, 17 and 32 squares, a place alone and a landmark`;
   });
 
@@ -110,7 +118,7 @@ export async function linkRows(R, L, stamp) {
       'a line broken inside it': (p, t) => `${p}#${into(t, rnd.pick(['\n', '\r\n', '\n  ', ' ']))}`,
       'a line broken in three places': (p, t) => `${p}#${into(into(into(t, '\n'), '\r\n> '.replace('>', '')), '\t')}`,
       '%20 put inside it': (p, t) => `${p}#${into(t, rnd.pick(['%20', '%0A', '%0d%0a', '%09']))}`,
-      'a soft break inside it': (p, t) => `${p}#${into(t, rnd.pick(['​', '‌', '‍', '⁠', '﻿', '­']))}`,
+      'a soft break inside it': (p, t) => `${p}#${into(t, rnd.pick(['\u200b', '\u200c', '\u200d', '\u2060', '\ufeff', '\u00ad']))}`,
       'words after it': (p, t) => `${p}#${t} ${rnd.pick(['check this out', 'look!!', 'Sent from my iPhone', '— P', '(see you there)'])}`,
       'a full stop after it': (p, t) => `${p}#${t}${rnd.pick(['.', ',', ')', '>', '"', '!', '?'])}`,
       'a tracker after it': (p, t) => `${p}#${t}${rnd.pick(['?fbclid=IwAR0x', '&utm_source=ig', '?igshid=abc123', '#extra'])}`,
@@ -119,6 +127,13 @@ export async function linkRows(R, L, stamp) {
       'its # escaped': (p, t) => `${p}%23${t}`,
       'its # escaped twice': (p, t) => `${p}%2523${t}`,
       'its # escaped, behind a tracker': (p, t) => `${p}?fbclid=IwAR0x%23${t}`,
+      'a no-break space inside it': (p, t) => `${p}#${into(t, '\u00a0')}`,
+      'its # escaped twice, behind a tracker': (p, t) => `${p}?fbclid=IwAR0x%2523${t}`,
+      'junk escaped into the path, the card after the real #': (p, t) => `${p}%23junk#${t}`,
+      'a # that holds no card, the card escaped into the path': (p, t) => `${p}%23${t}#extra`,
+      'a # that holds no card, the card escaped into the query': (p, t) => `${p}?a=1%23${t}#top`,
+      'a bad escape beside an escaped card': (p, t) => `${p}?x=%zz&y=%E0%A4%A%23${t}`,
+      'a bad escape in the path of an escaped card': (p, t) => `${p}%zz%23${t}`,
       'no page in front': (_, t) => `${ORIGIN}/#${t}`,
       'the path in capitals': (p, t) => `${p.replace('/p/', '/P/').toUpperCase().replace('HTTPS://STRUGGLE-BUS-WORLD.VERCEL.APP', ORIGIN)}#${t}`,
     };
@@ -126,13 +141,17 @@ export async function linkRows(R, L, stamp) {
     for (let i = 0; i < 2000; i++) {
       const card = randCard(L, rnd), e = L.encode(card);
       for (const name of names) {
-        const href = keep(ways[name](`${ORIGIN}/p/mission-dolores/${i % 100}`, e.text)), v = L.parseLocation(...split(href));
-        need(v.kind === 'card' && v.link.level === 'full' && v.link.canon === e.text, () => `${name}: card ${i} read as '${v.link.level}' (${v.link.why}) from ${JSON.stringify(href)}`);
-        if (name !== 'no page in front' && name !== 'the path in capitals') need(v.place === 'mission-dolores' && v.gen === i % 100, () => `${name}: the page read as ${v.place}/${v.gen} from ${JSON.stringify(href)}`);
+        const href = keep(ways[name](`${ORIGIN}/p/mission-dolores/${i % 100}`, e.text));
+        keep(new URL(href).href);
+        for (const [how, parts] of [['as text', split(href)], ['as a page gets it', asPage(href)]]) {
+          const v = L.parseLocation(...parts);
+          need(v.kind === 'card' && v.link.level === 'full' && v.link.canon === e.text, () => `${name}, ${how}: card ${i} read as '${v.link.level}' (${v.link.why}) from ${JSON.stringify(href)}`);
+          if (name !== 'no page in front' && name !== 'the path in capitals') need(v.place === 'mission-dolores' && v.gen === i % 100, () => `${name}, ${how}: the page read as ${v.place}/${v.gen} from ${JSON.stringify(href)}`);
+        }
         tally[name]++;
       }
     }
-    return `2,000 cards bent ${names.length} ways each (${names.join('; ')}) all read as the same whole card`;
+    return `2,000 cards bent ${names.length} ways each, read both as the text stands and as a page gets it from a browser's own URL parser (${names.join('; ')}): all the same whole card`;
   });
 
   await row('ladder', () => {
@@ -162,7 +181,7 @@ export async function linkRows(R, L, stamp) {
       while (n === c);
       return n;
     };
-    const kinds = ['one character', 'three neighbours', 'six neighbours', 'a length character', 'one dropped', 'one added', 'two swapped', 'a run doubled'];
+    const kinds = ['one character', 'three neighbours', 'six neighbours', 'a length character', 'three neighbours across a length', 'one dropped', 'one added', 'two swapped', 'a run doubled'];
     const tries = Object.fromEntries(kinds.map((k) => [k, 0])), slips = Object.fromEntries(kinds.map((k) => [k, { head: 0, core: 0, full: 0 }]));
     let lower = 0, none = 0;
     for (let i = 0; i < 4000; i++) {
@@ -181,6 +200,10 @@ export async function linkRows(R, L, stamp) {
         } else if (kind === 'a length character') {
           at = rnd.pick([...lens]);
           bent = t.slice(0, at) + other(t[at]) + t.slice(at + 1);
+        } else if (kind === 'three neighbours across a length') {
+          at = Math.max(1, Math.min(t.length - 3, rnd.pick([...lens]) - rnd.int(0, 2)));
+          const part = [...t.slice(at, at + 3)].map((c) => (rnd() < 0.8 ? other(c) : c));
+          bent = t.slice(0, at) + part.join('') + t.slice(at + 3);
         } else if (kind === 'one dropped') bent = t.slice(0, at) + t.slice(at + 1);
         else if (kind === 'one added') bent = t.slice(0, at) + rnd.pick([...A]) + t.slice(at);
         else if (kind === 'two swapped') {
@@ -205,7 +228,7 @@ export async function linkRows(R, L, stamp) {
     for (const k of ['one character', 'three neighbours']) need(slips[k].head + slips[k].core + slips[k].full === 0, () => `${k}: read as another card ${same(slips[k])}`);
     for (const k of kinds) need(slips[k].core + slips[k].full === 0, () => `${k}: read as other squares ${same(slips[k])}`);
     const loose = kinds.filter((k) => slips[k].head).map((k) => `${k} ${slips[k].head} of ${tries[k].toLocaleString('en')}`);
-    return `${total.toLocaleString('en')} damaged cards: none read as other squares or another whole card; ${none.toLocaleString('en')} read as nothing and ${lower.toLocaleString('en')} as a true lower level. Damage of one to three neighbouring characters was caught every time, as promised. Wider damage that left a head reading as another place (a 15-bit check's one in 32,768): ${loose.length ? loose.join(', ') : 'none'}`;
+    return `${total.toLocaleString('en')} damaged cards: none read as other squares or another whole card; ${none.toLocaleString('en')} read as nothing and ${lower.toLocaleString('en')} as a true lower level. Damage of one to three neighbouring characters that leaves a section's two length characters alone was caught every time, as promised. Damage that is wider, or on a length character, and left a head reading as another place (a 15-bit check's luck): ${loose.length ? loose.join(', ') : `none in ${kinds.filter((k) => k !== 'one character' && k !== 'three neighbours').map((k) => `${tries[k].toLocaleString('en')} of ${k}`).join(', ')}`}`;
   });
 
   await row('total', () => {
@@ -336,7 +359,7 @@ export async function linkRows(R, L, stamp) {
   });
 
   await row('caption', () => {
-    const rnd = dice(7), pool = "abcXYZ 0189.,/:;!?#@&'’-–—_()éÈñüßøÅçîõ​\n\t漢字🚌&&  +";
+    const rnd = dice(7), pool = "abcXYZ 0189.,/:;!?#@&'’-–—_()éÈñüßøÅçîõ\u200b\n\t漢字🚌&&  +";
     let made = 0, empty = 0;
     for (let i = 0; i < 50000; i++) {
       let s = '';
@@ -348,6 +371,11 @@ export async function linkRows(R, L, stamp) {
       if (!c) empty++;
     }
     const said = [['Martin Luther King Jr Dr & John F Kennedy Dr', 'MARTIN LUTHER KING JR & JOHN F KENNEDY'], ['Guerrero St & 24th St', 'GUERRERO ST & 24TH ST'], ["O'Farrell St", "O'FARRELL ST"], ['www.evil.com/free', 'WWW EVIL COM FREE'], ['Café Düsseldorf + Ñandú', 'CAFÉ DÜSSELDORF & ÑANDÚ'], ['  spaced   out  ', 'SPACED OUT']];
+    said.push(['Guerrero St &', 'GUERRERO ST'], ['& Valencia &', 'VALENCIA'], ['Reka Lodz'.replace('R', '\u0158').replace('L', '\u0141').replace('o', '\u00f3').replace('z', '\u017a'), 'REKA L\u00d3DZ'], ['Stra\u00dfe', 'STRASSE'], ['Dolores+Park', 'DOLORES & PARK']);
+    for (const long of ['A VERY LONG NAME OF A PARK THAT RUNS ON THE & X', 'SAN FRANCISCO MARITIME NATIONAL PARK & AQUATIC', 'W'.repeat(60), 'AB '.repeat(30) + '&']) {
+      const c = L.captionFrom(long);
+      need(c.length <= 40 && c.length >= 20 && !c.endsWith('&') && !c.endsWith(' ') && long.startsWith(c.replace(/ &$/, '')), `captionFrom(${JSON.stringify(long)}) gave ${JSON.stringify(c)}`);
+    }
     for (const [from, want] of said) need(L.captionFrom(from) === want, () => `captionFrom(${JSON.stringify(from)}) is ${JSON.stringify(L.captionFrom(from))}, not ${JSON.stringify(want)}`);
     return `${made.toLocaleString('en')} random strings as captions: every one fits a card (40 characters, the table's letters, no address's marks; ${empty.toLocaleString('en')} came out empty), and ${said.length} said ones read as expected ("${said[0][0]}" is "${said[0][1]}")`;
   });
@@ -386,6 +414,8 @@ export async function linkRows(R, L, stamp) {
       need(slug === '' || (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length <= 48), () => `slugOf(${JSON.stringify(s)}) is ${JSON.stringify(slug)}`);
       if (slug) need(P(`${ORIGIN}/p/${slug}/1`).place === slug, `the page name ${slug} did not read back from its own path`);
     }
+    for (const [place, gen, want] of [['', 0, '/p/sf/0#'], ['Noe Valley', 3, '/p/sf/3#'], ['a'.repeat(49), 3, '/p/sf/3#'], ['noe-valley', -1, '/p/noe-valley/0#'], ['noe-valley', 100, '/p/noe-valley/99#'], ['noe-valley', 2.5, '/p/noe-valley/0#'], ['noe-valley', 7, '/p/noe-valley/7#'], [null, NaN, '/p/sf/0#'], ['a'.repeat(48), 99, `/p/${'a'.repeat(48)}/99#`]])
+      need(L.cardUrl(ORIGIN, place, gen, t) === ORIGIN + want + t, () => `cardUrl(${JSON.stringify(place)}, ${gen}) is ${L.cardUrl(ORIGIN, place, gen, t).replace(ORIGIN, '').slice(0, 60)}`);
     const dealt = new Set();
     for (let i = 0; i < 5000; i++) {
       const id = rnd.int(0, 2 ** 30 - 1), sender = rnd.int(1, 5), crew = L.dealCrew(id, sender);
@@ -398,10 +428,66 @@ export async function linkRows(R, L, stamp) {
     return `${cases.length} addresses read as the right kind, page, generation and source; nonsense for an address never throws; 20,000 random names make page names that read back from their own path; a dealt crew is never the sender's, the same every time, and all 20 deals come up`;
   });
 
+  await row('refuse', () => {
+    const base = () => ({ v: 1, map: 0, ix: -3, iz: 14, crew: 2, at: 459000, caption: 'HAYES ST', body: { form: 'squares', squares: [{ ix: -3, iz: 14, stage: 2 }, { ix: -2, iz: 14, stage: 1 }], order: [0, 1, 0], answers: null, score: null } });
+    const mark = (c) => (c.body = { form: 'mark', key: 'GGB', stage: 4, answers: null });
+    const many = Array.from({ length: 33 }, (_, i) => ({ ix: -3 + (i % 8), iz: 14 + Math.floor(i / 8), stage: 1 }));
+    const cases = [
+      ['version', (c) => (c.v = 2)], ['map', (c) => (c.map = 4096)], ['map', (c) => (c.map = -1)], ['map', (c) => (c.map = 1.5)], ['square', (c) => (c.ix = 32768)], ['square', (c) => (c.iz = -32769)], ['square', (c) => (c.ix = '3')],
+      ['crew', (c) => (c.crew = 0)], ['crew', (c) => (c.crew = 6)], ['crew', (c) => (c.crew = 15)], ['minute', (c) => (c.at = -1)], ['minute', (c) => (c.at = 2 ** 25)], ['minute', (c) => (c.at = 0.5)],
+      ['caption', (c) => (c.caption = 'hayes st')], ['caption', (c) => (c.caption = 'W'.repeat(41))], ['caption', (c) => (c.caption = ' A')], ['caption', (c) => (c.caption = 'A ')], ['caption', (c) => (c.caption = 'A  B')], ['caption', (c) => (c.caption = 'A.B')], ['caption', (c) => (c.caption = 5)],
+      ['body', (c) => (c.body = 5)], ['body', (c) => (c.body = undefined)], ['answers', (c) => (c.body.answers = 2 ** 30)], ['answers', (c) => (c.body.answers = -1)], ['answers', (c) => (mark(c), (c.body.answers = 1.5))], ['form', (c) => (c.body.form = 'other')],
+      ['count', (c) => (c.body.squares = [])], ['count', (c) => (c.body.squares = many)], ['a square', (c) => (c.body.squares[1].stage = 0)], ['a square', (c) => (c.body.squares[1].stage = 5)], ['a square', (c) => (c.body.squares[1].ix = 40000)], ['a square', (c) => (c.body.squares[1] = null)],
+      ['sorted', (c) => c.body.squares.reverse()], ['sorted', (c) => (c.body.squares[1] = { ix: -3, iz: 14, stage: 1 })], ['its own square', (c) => (c.ix = 5)], ['box', (c) => (c.body.squares[1].ix = 13)], ['box', (c) => (c.body.squares[1] = { ix: -3, iz: 30, stage: 1 })],
+      ['order', (c) => (c.body.order = [0, 1])], ['order', (c) => (c.body.order = [0, 0, 1, 1])], ['order', (c) => (c.body.order = [0, 1, 2])], ['order', (c) => (c.body.order = [1, 1, 0])], ['order', (c) => (c.body.order = 'x')], ['order', (c) => (c.body.order = [0, 1, 0.5])],
+      ['score', (c) => (c.body.score = { budget: 256, used: 0 })], ['score', (c) => (c.body.score = { budget: 1 })], ['score', (c) => (c.body.score = { budget: 3, used: -1 })],
+      ['key', (c) => (mark(c), (c.body.key = 'ggb'))], ['key', (c) => (mark(c), (c.body.key = ''))], ['key', (c) => (mark(c), (c.body.key = 'A'.repeat(17)))], ['key', (c) => (mark(c), (c.body.key = 'PIER 39'))], ['stage', (c) => (mark(c), (c.body.stage = 0))], ['stage', (c) => (mark(c), (c.body.stage = 5))],
+    ];
+    for (const [why, bend] of cases) {
+      const c = base();
+      bend(c);
+      const e = L.encode(c);
+      need(!e.ok && e.why === why && L.cardFault(c) === why, () => `a card with a bad ${why} was ${e.ok ? `written as ${e.text}` : `refused for its ${e.why}`}: ${same(c)}`);
+    }
+    for (const junk of [null, undefined, 5, 'card', [], {}]) need(L.encode(junk).ok === false, `encode(${JSON.stringify(junk)}) wrote something`);
+    const edges = [(c) => (c.map = 4095), (c) => ((c.ix = -32768), (c.body = null)), (c) => (c.crew = 5), (c) => (c.at = 2 ** 25 - 1), (c) => (c.caption = ''), (c) => (c.caption = 'W'.repeat(40)), (c) => (c.body.answers = 2 ** 30 - 1), (c) => (c.body.score = { budget: 255, used: 255 }), (c) => (c.body.squares[1].ix = 12), (c) => (mark(c), (c.body.key = 'A-1'))];
+    for (const bend of edges) {
+      const c = base();
+      bend(c);
+      const e = L.encode(c);
+      need(e.ok && same(L.decode(e.text).card) === same(c), () => `a card at the edge of what one may say was refused or misread: ${same(c)}`);
+    }
+    return `${cases.length} cards that say what no card may (a crew of 0 or 6, a square off the grid, squares out of order or twice, a card without its own square, an order that is none, a box too wide, a caption with a full stop) are each refused, and for the right reason; ${edges.length} at the very edge of what one may say are written and read back`;
+  });
+
+  await row('speed', () => {
+    const big = { 'a path of junk': 'p/' + '!'.repeat(1e6), 'a path of half-junk': '/p/x/' + '0!'.repeat(5e5), 'a card that never ends': '#1' + 'z'.repeat(1e6), 'percents': '%'.repeat(1e6), 'ampersands': '& '.repeat(5e5), 'a million words': 'AB '.repeat(3e5),
+      'accents': 'e\u0301'.repeat(5e5), 'spaces': ' '.repeat(1e6), 'slashes': '/'.repeat(1e6), 'escaped hashes': '%2523x'.repeat(2e5), 'hashes': '#'.repeat(1e6), 'letters': 'x'.repeat(1e6), 'base64': 'A'.repeat(1e6), 'brackets': '['.repeat(1e6) };
+    const fns = { parseLocation: (x) => (L.parseLocation(x, x, x), L.parseLocation(x, '', ''), L.parseLocation('', x, ''), L.parseLocation('', '', x)), sbwStamp: (x) => (stamp(x), stamp(`https://x.app/${x}`), stamp(`https://x.app/p/x/0?${x}`), stamp(`https://x.app/p/x/0#${x}`)),
+      decode: L.decode, clean: L.clean, explain: L.explain, captionFrom: L.captionFrom, captionOk: L.captionOk, slugOf: L.slugOf, parseSave: (x) => L.parseSave(`SBW2\n${x}\n${x}\n${x}\n${x}\n${x}`), fromAreasText: L.fromAreasText };
+    let worst = 0, where = '';
+    for (const [fn, f] of Object.entries(fns))
+      for (const [what, x] of Object.entries(big)) {
+        const t0 = performance.now();
+        f(x);
+        const ms = performance.now() - t0;
+        if (ms > worst) (worst = ms), (where = `${fn} on ${what}`);
+      }
+    need(worst < 500, `${where} took ${worst.toFixed(0)} ms on a megabyte`);
+    return `${Object.keys(fns).length} readers on ${Object.keys(big).length} hostile megabytes each (junk paths, endless cards, a million words): none threw, and the slowest took ${worst.toFixed(0)} ms (${where})`;
+  });
+
   await row('stamp', () => {
-    let read = 0, blank = 0;
-    for (const href of hrefs) {
-      const v = L.parseLocation(...split(href));
+    // addresses of this row's own, so it holds when run alone: cards under every kind of path, and the path's own edges
+    const rnd = dice(9), paths = ['/', '/p/mission-dolores/3', '/p/x/250', '/p/x/99', '/p/x/100', '/p/x/007', `/p/${'a'.repeat(48)}/1`, `/p/${'a'.repeat(49)}/1`, '/p/Mission/3.', '/p/mission--dolores/3', '/p/x/3/extra/more/yet', '/s/tt1', '/s/TikTok-Bio', '/p/x', '/p//3', '/index.html', '/p/x/12abc', '/p/x/-3'];
+    for (let i = 0; i < 4000; i++) {
+      const t = L.encode(randCard(L, rnd)).text, path = rnd.pick(paths);
+      for (const href of [`${ORIGIN}${path}#${t}`, `${ORIGIN}${path}%23${t}`, `${ORIGIN}${path}%2523${t}`, `${ORIGIN}${path}?a=b%23${t}`, `${ORIGIN}${path}?a=b%2523${t}`, `${ORIGIN}${path}%23junk#${t}`, `${ORIGIN}${path}%23${t}#junk`, `${ORIGIN}${path}?q=%23${t}#junk`, `${ORIGIN}${path}%23${t}?after#`, `${ORIGIN}${path}#${t.slice(0, rnd.int(0, t.length))}`, `${ORIGIN}${path}?x=%zz%23${t}`, `${ORIGIN}${path}`]) keep(href);
+    }
+    need(hrefs.length >= 40000, `the row has only ${hrefs.length} addresses`);
+    let read = 0, blank = 0, pages = 0;
+    const agree = (href, parts, how) => {
+      const v = L.parseLocation(...parts);
       let s;
       try {
         s = stamp(href);
@@ -409,19 +495,31 @@ export async function linkRows(R, L, stamp) {
         throw new Error(`stamp.js threw ${e.message} on ${JSON.stringify(href)}`);
       }
       if (v.link.level === 'none') {
-        need(s === null, () => `stamp.js read a head where link.ts read nothing: ${JSON.stringify(href)}`);
+        need(s === null, () => `stamp.js read a head where link.ts read nothing (${how}): ${JSON.stringify(href)}`);
         blank++;
-        continue;
+        return;
       }
       const c = v.link.card;
-      need(s && s.map === c.map && s.ix === c.ix && s.iz === c.iz && s.crew === c.crew && s.at === c.at && s.caption === c.caption && s.place === v.place && s.gen === v.gen, () => `stamp.js and link.ts read two heads from ${JSON.stringify(href)}: ${JSON.stringify(s)} against ${same(c)}`);
+      need(s && s.map === c.map && s.ix === c.ix && s.iz === c.iz && s.crew === c.crew && s.at === c.at && s.caption === c.caption && s.place === v.place && s.gen === v.gen, () => `stamp.js and link.ts read two heads (${how}) from ${JSON.stringify(href)}: ${JSON.stringify(s)} against ${same(c)} at ${v.place}/${v.gen}`);
       read++;
+    };
+    for (const href of hrefs) {
+      agree(href, split(href), 'as text');
+      let u = null;
+      try {
+        u = new URL(href);
+      } catch {
+        continue; // (not an address a browser would open)
+      }
+      agree(u.href, [u.pathname, u.search, u.hash], 'as a page gets it');
+      pages++;
     }
-    return `index.html's own reader (src/link/stamp.js, ES5, run from its source) agrees with link.ts on every one of the ${hrefs.length.toLocaleString('en')} addresses the rows above made: ${read.toLocaleString('en')} heads read the same, ${blank.toLocaleString('en')} refused by both`;
+    return `index.html's own reader (src/link/stamp.js, ES5, run from its source) agrees with link.ts on every one of the ${hrefs.length.toLocaleString('en')} addresses these rows made, read as the text stands and (${pages.toLocaleString('en')} of them) as a page gets them: ${read.toLocaleString('en')} heads read the same, ${blank.toLocaleString('en')} refused by both`;
   });
 }
 
 /** `node tools/link/fuzz.mjs golden --print-golden` prints these as the code now makes them */
+const EXPLAINED = "visit: card, page mission, generation 3\ncard: read to 'full'\nhead: map 0, square -10,20, crew 3, 2026-11-16T10:42Z, caption \"GOLDEN 2\"\nsquares: -10,20:1 -9,20:2\norder: 0 1 1\nid: 566195233 (42 characters)\n--\nvisit: card, page ggb, generation 0\ncard: read to 'full'\nhead: map 0, square -41,-34, crew 1, 2026-11-15T18:00Z, caption \"GOLDEN GATE BRIDGE\"\nlandmark: GGB at stage 4\nid: 540168523 (54 characters)\n--\nvisit: card, source tt1\ncard: read to 'core' (cut short)\nhead: map 0, square -10,20, crew 4, 2026-11-16T10:43Z, caption \"GOLDEN 3\"\nsquares: -10,20:1 -9,20:2 -8,20:3\norder (made up: the card's own was lost): 0 1 2 1 2 2\nid: 277222692 (42 characters)\n--\nvisit: place, page mission, generation 0\ncard: read to 'none' (a newer format)";
 const GOLDEN = {
   "crc15": "29967",
   "crc30": "406111430",

@@ -18,7 +18,7 @@ for (const [c, v] of [['i', 1], ['l', 1], ['o', 0]] as const) {
 }
 
 /** A caption's characters, six bits each. Codes 40 to 45 are kept back (they were . / , ! ? #): a card can't spell an address. */
-export const CAPTION = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 &'-\0\0\0\0\0\0ÉÈÁÀÍÓÚÜÖÄÑÇÅØÆÏÊÔ";
+export const CAPTION = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 &'-\0\0\0\0\0\0\u00c9\u00c8\u00c1\u00c0\u00cd\u00d3\u00da\u00dc\u00d6\u00c4\u00d1\u00c7\u00c5\u00d8\u00c6\u00cf\u00ca\u00d4";
 const CAPV = new Map<string, number>();
 for (let i = 0; i < 64; i++) if (CAPTION[i] !== '\0') CAPV.set(CAPTION[i], i);
 
@@ -103,6 +103,8 @@ export interface Read {
   id: string;
   /** the same in 30 bits, for a square's record and for `answers`; -1 where there's no id */
   id30: number;
+  /** what a newcomer's crew is dealt by: the head's text in 30 bits, the same for a link whole or torn; -1 at 'none' */
+  seed: number;
   /** the text as this build would write what it read */
   canon: string;
   /** the tags of blocks passed over: a newer build's, which this one may skip */
@@ -364,8 +366,8 @@ export function encode(card: Card): Written {
 
 // ---- reading ----
 
-/** %20 and its like, and every kind of space and soft break an app may put in a long word */
-const GAPS = /%(?:20|09|0a|0d)|[\s­​-‍⁠﻿]/gi;
+/** every kind of space and soft break an app may put in a long word, as it stands and as a browser hands it to a page (%20, %E2%80%8B) */
+const GAPS = /%(?:20|09|0a|0d|c2%a0|c2%ad|e2%80%8[bcd]|e2%81%a0|ef%bb%bf)|[\s\u00ad\u200b-\u200d\u2060\ufeff]/gi;
 
 /**
  * The text as it is read: every # in front dropped, a wrapped line mended, one case, look-alikes folded, and everything from the first character that
@@ -394,7 +396,7 @@ function take(s: string, pos: number, k: number): Taken {
   return { state: 'ok', payload: s.slice(pos + 2, end), end: end + k };
 }
 const lost = (t: Taken): string => (t.state === 'cut' ? 'cut short' : 'damaged');
-const NONE = (why: string): Read => ({ level: 'none', why, card: null, id: '', id30: -1, canon: '', skipped: [] });
+const NONE = (why: string): Read => ({ level: 'none', why, card: null, id: '', id30: -1, seed: -1, canon: '', skipped: [] });
 
 /** Any text at all as a card, as far as it holds. Never throws. */
 export function decode(raw: unknown): Read {
@@ -410,11 +412,11 @@ export function decode(raw: unknown): Read {
   let caption = '';
   for (let i = 0; i < n; i++) caption += CAPTION[r.u(6)];
   if (r.bad || !captionOk(caption) || !readBlocks(r, {}, skipped)) return NONE('damaged');
-  const card: Card = { v: 1, map, ix, iz, crew, at, caption, body: null }, headText = s.slice(0, hs.end);
-  const head = (why: string): Read => ({ level: 'head', why, card, id: '', id30: -1, canon: headText, skipped });
+  const card: Card = { v: 1, map, ix, iz, crew, at, caption, body: null }, headText = s.slice(0, hs.end), seed = crc(headText, 30, POLY[6]);
+  const head = (why: string): Read => ({ level: 'head', why, card, id: '', id30: -1, seed, canon: headText, skipped });
   // (a later build's sixth crew: the place still lands, under a crest that takes no side)
   if (crew > linkTune.crews) return head('a crew this build does not know');
-  if (parts === 0 && form === 0) return { level: 'full', why: '', card, id: headText, id30: crc(headText, 30, POLY[6]), canon: headText, skipped };
+  if (parts === 0 && form === 0) return { level: 'full', why: '', card, id: headText, id30: seed, seed, canon: headText, skipped };
   if (form > 1) return head('a newer kind of card');
   if (parts !== (form ? 1 : 2)) return head('damaged');
   // ---- the core ----
@@ -430,7 +432,7 @@ export function decode(raw: unknown): Read {
     const stage = c.u(2) + 1;
     if (c.bad || !KEY.test(key) || !readBlocks(c, known, skipped)) return head('damaged');
     card.body = { form: 'mark', key, stage, answers };
-    return { level: 'full', why: '', card, id, id30, canon: id, skipped };
+    return { level: 'full', why: '', card, id, id30, seed, canon: id, skipped };
   }
   known[16] = (rr, size) => size === 16 && ((score = { budget: rr.u(8), used: rr.u(8) }), true);
   const w = c.u(4) + 1, d = c.u(4) + 1, ox = c.u(4), oz = c.u(4);
@@ -454,7 +456,7 @@ export function decode(raw: unknown): Read {
   if (c.bad || !readBlocks(c, known, skipped)) return head('damaged');
   const body: SquaresBody = { form: 'squares', squares, order: defaultOrder(squares, ix, iz), answers, score };
   card.body = body;
-  const core = (why: string): Read => ({ level: 'core', why, card, id, id30, canon: id, skipped });
+  const core = (why: string): Read => ({ level: 'core', why, card, id, id30, seed, canon: id, skipped });
   // ---- the tail ----
   const ts = take(s, cs.end, CHECK.tail);
   if (ts.state !== 'ok') return core(lost(ts));
@@ -464,7 +466,7 @@ export function decode(raw: unknown): Read {
   for (let i = 0; i < sum; i++) order.push(t.u(bits));
   if (t.bad || !orderOk(order, squares) || !readBlocks(t, {}, skipped)) return core('damaged');
   body.order = order;
-  return { level: 'full', why: '', card, id, id30, canon: s.slice(0, ts.end), skipped };
+  return { level: 'full', why: '', card, id, id30, seed, canon: s.slice(0, ts.end), skipped };
 }
 
 // ---- what a card shows ----
@@ -489,9 +491,9 @@ export function beats(card: Card, top?: (ix: number, iz: number) => number): Bea
   return out;
 }
 
-/** A newcomer's crew, dealt by the card that brought them: one of the others, the same one however often the link is opened. */
-export function dealCrew(id30: number, sender: number, crews: number = linkTune.crews): number {
-  const n = id30 >= 0 ? id30 : 0;
+/** A newcomer's crew, dealt by the card that brought them (its `seed`): one of the others, the same one however often the link is opened, whole or torn. */
+export function dealCrew(seed: number, sender: number, crews: number = linkTune.crews): number {
+  const n = seed >= 0 ? seed : 0;
   if (sender < 1 || sender > crews) return 1 + (n % crews);
   const pick = 1 + (n % (crews - 1));
   return pick >= sender ? pick + 1 : pick;
@@ -504,32 +506,55 @@ export function wornBy(crew: number, mine: number, crews: number = linkTune.crew
 
 /** the words a street is called by, dropped first when a caption runs long */
 const STREET_WORDS = new Set(['ST', 'AVE', 'AV', 'BLVD', 'DR', 'RD', 'WAY', 'LN', 'CT', 'PL', 'TER', 'HWY', 'STREET', 'AVENUE', 'BOULEVARD', 'DRIVE', 'ROAD', 'LANE', 'COURT', 'PLACE', 'TERRACE', 'HIGHWAY']);
-const PLAIN: Record<string, string> = { 'Â': 'A', 'Ã': 'A', 'Ë': 'E', 'Î': 'I', 'Ì': 'I', 'Õ': 'O', 'Ò': 'O', 'Û': 'U', 'Ù': 'U', 'Ý': 'Y', 'ß': 'SS', '’': "'", '‘': "'", '–': '-', '—': '-', '+': '&' };
+const PLAIN: Record<string, string> = { 'ß': 'SS', 'Ł': 'L', 'Đ': 'D', 'Þ': 'TH', 'Œ': 'OE', '’': "'", '‘': "'", '–': '-', '—': '-', '+': ' & ' };
 
-/** Any words as a caption a card can carry: capitals, what the table lacks dropped, and over 40 characters the street words go first, then whole words from the end. */
+/**
+ * Any words as a caption a card can carry: capitals; a letter with a mark the table lacks as its plain letter, a letter it has no like of left out (the
+ * word stays whole), anything that is no letter a gap; and over 40 characters the street words go first, then whole words from the end.
+ */
 export function captionFrom(text: unknown): string {
-  let s = '';
-  for (const ch of String(text ?? '').toUpperCase()) {
-    const c = PLAIN[ch] ?? ch;
-    for (const one of c) s += CAPV.has(one) ? one : ' ';
+  let src = '';
+  try {
+    src = String(text ?? '').slice(0, 512).normalize('NFC').toUpperCase();
+  } catch {
+    return ''; // (a thing that can't be made a string)
   }
+  let s = '';
+  for (const ch of src)
+    for (const one of PLAIN[ch] ?? ch) {
+      if (CAPV.has(one)) s += one;
+      else {
+        const base = one.normalize('NFD')[0];
+        if (base !== one && CAPV.has(base)) s += base;
+        else if (one.toLowerCase() === one.toUpperCase()) s += ' ';
+      }
+    }
   let words = s.split(' ').filter(Boolean);
-  const fits = (): boolean => words.join(' ').length <= linkTune.caption;
-  if (!fits()) words = words.filter((w) => !STREET_WORDS.has(w));
-  while (words.length > 1 && !fits()) words.pop();
+  const long = (w: string[]): number => w.reduce((n, x) => n + x.length, 0) + Math.max(0, w.length - 1);
+  if (long(words) > linkTune.caption) words = words.filter((w) => !STREET_WORDS.has(w));
+  let n = long(words);
+  while (words.length > 1 && n > linkTune.caption) n -= words.pop()!.length + 1;
   while (words.length && words[words.length - 1] === '&') words.pop();
+  while (words.length && words[0] === '&') words.shift();
   return words.join(' ').slice(0, linkTune.caption).trim();
 }
 
 // ---- the address ----
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** letters a page name writes out, having no accent to drop */
+const SPELT: Record<string, string> = { 'ø': 'o', 'æ': 'ae', 'ß': 'ss', 'đ': 'd', 'ð': 'd', 'ł': 'l', 'þ': 'th', 'œ': 'oe', 'ı': 'i' };
 
 /** A neighbourhood's or a landmark's page name: "Fisherman's Wharf" is fishermans-wharf, "Tenderloin / Little Saigon" tenderloin-little-saigon. */
 export function slugOf(name: string): string {
-  return String(name).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/['’]/g, '').replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, linkTune.place).replace(/-+$/, '');
+  return String(name).slice(0, 512).toLowerCase().replace(/[øæßđðłþœı]/g, (c) => SPELT[c]).normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/['’]/g, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, linkTune.place).replace(/-+$/, '');
 }
+
+/** The cities a card can name, by their number: a city keeps its number for good, and a new one goes on the end. */
+export const MAPS: readonly string[] = ['sf', 'amsterdam', 'london'];
+/** A city's number on a card by its slug, -1 for one that has none yet. */
+export const mapOf = (slug: string): number => MAPS.indexOf(slug);
 
 /** What an address asks for. `kind`: 'card' (its link read to some level), 'place' (a neighbourhood's page), 'source' (a post's tag), 'door'. */
 export interface Visit {
@@ -543,44 +568,40 @@ export interface Visit {
   link: Read;
 }
 
-function unescapeOnce(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s; // (a bad escape: as it stands)
+/** where a card starts in a path or a query an app moved it into: a # as it is, escaped once, or twice */
+const MARK = /#|%23|%2523/i;
+/** a path's part without what a sentence leaves on its end (".../3." and ".../3)") */
+function trimEnd(x: string): string {
+  let n = x.length;
+  for (; n > 0; n--) {
+    const c = x.charCodeAt(n - 1);
+    if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 45) break;
   }
+  return x.slice(0, n);
 }
 
 /**
- * location's three parts as a visit. Where an app escaped the # the card is in the path: a real # is looked for first, then one escaped once (%23), then
- * twice (%2523). Read once when the page starts and never again: a page that could re-read its address could be steered card after card by another page.
+ * location's three parts as a visit. The card is what follows the #. Where that reads as no card and an app has escaped a # into the path (%23, or twice,
+ * %2523) or pushed one into the query, what follows that is tried, the path's first: the first that reads as a card is the card. Read once when the page
+ * starts and never again: a page that could re-read its address could be steered card after card by another page.
  */
 export function parseLocation(pathname: unknown, search: unknown, hash: unknown): Visit {
-  let path = String(pathname ?? ''), frag = String(hash ?? '');
-  const lookIn = String(search ?? '');
-  for (let pass = 0; pass < 3; pass++) {
-    const cut = path.indexOf('#');
-    if (cut >= 0) {
-      if (clean(frag) === '') frag = path.slice(cut);
-      path = path.slice(0, cut);
-      break;
-    }
-    if (pass < 2) path = unescapeOnce(path);
+  const all = String(pathname ?? '').slice(0, linkTune.input * 2), query = String(search ?? '').slice(0, linkTune.input * 2);
+  const inPath = MARK.exec(all), inQuery = MARK.exec(query);
+  let link = decode(String(hash ?? ''));
+  for (const [text, m] of [[all, inPath], [query, inQuery]] as const) {
+    if (link.level !== 'none' || !m) continue;
+    const other = decode(text.slice(m.index + m[0].length));
+    if (other.level !== 'none') link = other;
   }
-  if (clean(frag) === '') {
-    // (a card an app moved into the query: ?...%23<card>, or a # that came through as text)
-    let q = lookIn;
-    for (let pass = 0; pass < 3; pass++) {
-      const cut = q.indexOf('#');
-      if (cut >= 0) {
-        frag = q.slice(cut);
-        break;
-      }
-      if (pass < 2) q = unescapeOnce(q);
-    }
+  let path = inPath ? all.slice(0, inPath.index) : all;
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // (a bad escape in the path: read as it stands)
   }
-  const seg = path.toLowerCase().split('/').filter(Boolean).slice(0, 4).map((x) => x.replace(/[^a-z0-9-]+$/, ''));
-  const out: Visit = { kind: 'door', place: '', gen: 0, tag: '', link: decode(frag) };
+  const seg = path.toLowerCase().split('/').filter(Boolean).slice(0, 4).map(trimEnd);
+  const out: Visit = { kind: 'door', place: '', gen: 0, tag: '', link };
   if (seg[0] === 'p' && seg[1] && seg[1].length <= linkTune.place && SLUG.test(seg[1])) {
     out.place = seg[1];
     const g = /^[0-9]{1,6}/.exec(seg[2] ?? '');
@@ -596,7 +617,7 @@ export function parseLocation(pathname: unknown, search: unknown, hash: unknown)
 
 /** A card's whole address. `origin` has no slash at its end; a place that is no page name, or a generation out of range, is written as the plainest one. */
 export function cardUrl(origin: string, place: string, gen: number, text: string): string {
-  const p = SLUG.test(place) && place.length <= linkTune.place ? place : 'sf';
+  const p = typeof place === 'string' && SLUG.test(place) && place.length <= linkTune.place ? place : 'sf';
   const g = whole(gen, 0, linkTune.gen) ? gen : gen > linkTune.gen ? linkTune.gen : 0;
   return `${origin}/p/${p}/${g}#${text}`;
 }
