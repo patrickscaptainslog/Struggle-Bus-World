@@ -1,7 +1,7 @@
 # GREETINGS FROM SAN FRANCISCO: the studio's direction
 
 The game director, 2026-11-14. Final after the red team. Built from the studio's working papers (four studies, four pitches, four judges, two red teams; not in the repo) and the producer's rulings in `CLAUDE.md`.
-Marks: **known** = measured, or read in the code, the docs or a study. **infer** = the studio's reading. **guess** = no source. Every engineer-day ("day") is an ESTIMATE. Nothing here is ruled until the producer answers part 12; meanwhile the studio builds on its own picks, on preview links only, and the producer judges them by playing.
+Marks: **known** = measured, or read in the code, the docs or a study. **infer** = the studio's reading. **guess** = no source. Every engineer-day ("day") is an ESTIMATE. The producer was shown the direction (the spine, what waits until after the San Francisco launch, the milestones) and asked "Go with this direction?": "Looks good to me" (2026-11-14). The rest of part 12 is still asked as it says there: the studio builds on its own picks, on preview links only, and the producer judges them by playing.
 Where we start from is saved: every branch as it stood, tags `save-2026-11-14/*` (`docs/SAVEPOINT-2026-11-14.md`).
 The first milestone, as work: `docs/M1.md`.
 
