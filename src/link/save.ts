@@ -12,15 +12,16 @@ import type { Beat, Card, CardSquare, Read, Visit } from './link';
 export const REC = 24;
 /** `ay` of a record no tile has given its anchor yet */
 export const NO_ANCHOR = -32768;
-/** the last `rev` there is. A record's `rev` only gets here by counting, one a change */
-const REV_TOP = 0xfffffffe;
-/** a clock past this (2100-01-01, epoch s) is a broken clock: it is not believed */
-const CLOCK_TOP = 4102444800;
+/** a clock past this (2100-01-01, epoch s) is a broken clock: it is not believed. No `rev` goes past it, and a record that says one does is no record */
+export const CLOCK_TOP = 4102444800;
+const REV_TOP = CLOCK_TOP;
 
 export const saveTune = {
-  /** the cards a phone remembers: ones it sent, and ones it opened */
+  /** the cards a phone remembers whole: ones it sent, and ones it opened */
   sent: 192,
   opened: 64,
+  /** and the short ids of this many more (8 bytes each), so that a card whose note has been let go still never lands twice */
+  seen: 1024,
   /** the climbs it keeps for a card's order */
   climbs: 512,
   /** old building paint makes a record this high at most (STAGES.md 1.5, "Old saves") */
@@ -107,10 +108,12 @@ export interface Save {
   climbs: Climb[];
   /** how many older climbs have been let go: past 0, a stage with no climb kept was reached "long ago" */
   forgot: number;
+  /** every card this phone has sent or opened, by its id30: when it was first known here (epoch s) */
+  seen: Map<number, number>;
 }
 
 export function emptySave(): Save {
-  return { squares: new Map(), marks: new Map(), notes: new Map(), crew: { value: 0, rev: 0 }, climbs: [], forgot: 0 };
+  return { squares: new Map(), marks: new Map(), notes: new Map(), crew: { value: 0, rev: 0 }, climbs: [], forgot: 0, seen: new Map() };
 }
 
 /** Any clock as whole epoch seconds a record can hold: one given in milliseconds is taken as such; nonsense, and a clock past 2100, is 0. */
@@ -121,10 +124,12 @@ export function seconds(now: unknown): number {
 }
 /**
  * The `rev` of a change made now to a record that was `old`: now, or one past what was known where the clock has been put back or is not to be
- * believed. Never 0: that is old paint's.
+ * believed. Never 0: that is old paint's. `more` is a change that only adds to what was there (an encore: hits, and tended, up, nothing else): it
+ * stands over the old record by its own fields at the same `rev`, so it needs no step past it, and a square tapped five times a second doesn't run
+ * its `rev` ahead of the clock.
  */
-export function nextRev(old: { rev: number } | undefined | null, now: unknown): number {
-  return Math.min(REV_TOP, Math.max(seconds(now), old ? old.rev + 1 : 1));
+export function nextRev(old: { rev: number } | undefined | null, now: unknown, more = false): number {
+  return Math.min(REV_TOP, Math.max(seconds(now), old ? old.rev + (more ? 0 : 1) : 1));
 }
 
 // ---- a record's bytes ----
@@ -150,7 +155,7 @@ export function unpack(b: Uint8Array, o = 0): Rec | null {
   const v = new DataView(b.buffer, b.byteOffset + o, REC);
   const sb = v.getUint8(5), stage = sb & 15, owner = v.getUint8(4), via = v.getUint32(20, true);
   const has = Math.floor(via / 2 ** 30) % 2 === 1, guest = via >= 2 ** 31;
-  if (owner < 1 || owner > 15 || stage < 1 || stage > 5) return null;
+  if (owner < 1 || owner > 15 || stage < 1 || stage > 5 || v.getUint32(16, true) > REV_TOP) return null;
   const ax = v.getUint8(12), az = v.getUint8(13), ay = v.getInt16(14, true);
   if (ay !== NO_ANCHOR && (ax > 127 || az > 127)) return null;
   if (ay === NO_ANCHOR && (ax || az)) return null;
@@ -209,7 +214,15 @@ export function joinSave(a: Save, b: Save): Save {
   out.crew = (a.crew.rev - b.crew.rev || a.crew.value - b.crew.value) >= 0 ? { ...a.crew } : { ...b.crew };
   out.climbs = sortedClimbs([...a.climbs, ...b.climbs]);
   out.forgot = Math.max(a.forgot, b.forgot);
+  for (const [id, at] of [...a.seen, ...b.seen]) out.seen.set(id, Math.min(at, out.seen.get(id) ?? at));
   return out;
+}
+
+/** Note that this phone knows a card (sent or opened). */
+function know(save: Save, id30: number, now: unknown): void {
+  if (!num(id30, 0, 2 ** 30 - 1)) return;
+  const at = seconds(now);
+  save.seen.set(id30, Math.min(at, save.seen.get(id30) ?? at));
 }
 
 /**
@@ -229,6 +242,11 @@ export function trim(save: Save): Save {
   const opened = [...save.notes.values()].filter((n) => n.role === 'in').sort((p, q) => (carried.has(p.id30) ? 1 : 0) - (carried.has(q.id30) ? 1 : 0) || byAge(p, q));
   for (let i = 0; i < sent.length - saveTune.sent; i++) save.notes.delete(sent[i].id);
   for (let i = 0; i < opened.length - saveTune.opened; i++) save.notes.delete(opened[i].id);
+  if (save.seen.size > saveTune.seen) {
+    const keep = [...save.seen].sort((p, q) => q[1] - p[1] || q[0] - p[0]).slice(0, saveTune.seen);
+    for (const n of save.notes.values()) if (!keep.some((k) => k[0] === n.id30)) keep.push([n.id30, save.seen.get(n.id30) ?? n.at]);
+    save.seen = new Map(keep);
+  }
   return save;
 }
 
@@ -306,10 +324,12 @@ export function fromAreasText(text: unknown): { squares: Map<number, Rec>; lost:
 const MAGIC = 'SBW2';
 /** base64 characters a square (24 bytes) and a climb (15: its time as a float, its square, its owner and stage, two spare) */
 const SQ_CHARS = 32, CLIMB_BYTES = 15, CLIMB_CHARS = 20;
+/** and a card known (9 bytes: its id30, when, one spare) */
+const SEEN_CHARS = 12;
 const num = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 const MARK_KEY = /^[a-z0-9-]{1,16}$/;
 
-/** The whole save as one text, the same text for the same save: what a Storage holds, and what two saves are compared by. */
+/** The whole save as one text of seven lines, the same text for the same save: what a Storage holds, and what two saves are compared by. */
 export function saveText(save: Save): string {
   const marks: Record<string, number[]> = {};
   for (const k of [...save.marks.keys()].sort()) {
@@ -320,7 +340,9 @@ export function saveText(save: Save): string {
     .map((n) => [n.id, n.id30, n.role === 'out' ? 1 : 0, n.text, n.at, n.gen, n.place, n.key, n.crew, n.taken, n.answers]);
   const list = sortedClimbs(save.climbs), climbs = new Uint8Array(list.length * CLIMB_BYTES), v = new DataView(climbs.buffer);
   list.forEach((c, i) => (v.setFloat64(i * CLIMB_BYTES, c[0], true), v.setUint32(i * CLIMB_BYTES + 8, c[1], true), v.setUint8(i * CLIMB_BYTES + 12, c[2])));
-  return [MAGIC, toBase64(squaresBytes(save.squares)), JSON.stringify(marks), JSON.stringify(notes), JSON.stringify([save.crew.value, save.crew.rev, save.forgot]), toBase64(climbs)].join('\n');
+  const ids = [...save.seen.keys()].sort((p, q) => p - q), seen = new Uint8Array(ids.length * 9), sv = new DataView(seen.buffer);
+  ids.forEach((id, i) => (sv.setUint32(i * 9, id, true), sv.setUint32(i * 9 + 4, save.seen.get(id)!, true)));
+  return [MAGIC, toBase64(squaresBytes(save.squares)), JSON.stringify(marks), JSON.stringify(notes), JSON.stringify([save.crew.value, save.crew.rev, save.forgot]), toBase64(climbs), toBase64(seen)].join('\n');
 }
 
 /**
@@ -352,7 +374,7 @@ export function parseSave(text: unknown): { save: Save; lost: number } {
   if (marks && typeof marks === 'object' && !Array.isArray(marks))
     for (const k of Object.keys(marks)) {
       const m = (marks as Record<string, unknown>)[k];
-      if (MARK_KEY.test(k) && Array.isArray(m) && m.length === 7 && num(m[0], 1, 15) && num(m[1], 1, 5) && num(m[2], 0, 15) && num(m[3], 0, 0xffff) && num(m[4], 0, 0xffffffff) && num(m[5], 0, 0xffffffff) && num(m[6], -1, 2 ** 30 - 1))
+      if (MARK_KEY.test(k) && Array.isArray(m) && m.length === 7 && num(m[0], 1, 15) && num(m[1], 1, 5) && num(m[2], 0, 15) && num(m[3], 0, 0xffff) && num(m[4], 0, 0xffffffff) && num(m[5], 0, REV_TOP) && num(m[6], -1, 2 ** 30 - 1))
         save.marks.set(k, { owner: m[0], stage: m[1], cracks: m[2], hits: m[3], tended: m[4], rev: m[5], card: m[6] });
       else lost++;
     }
@@ -377,6 +399,13 @@ export function parseSave(text: unknown): { save: Save; lost: number } {
   }
   if (cl.length % CLIMB_CHARS) lost++;
   save.climbs = sortedClimbs(climbs);
+  const sn = line[6] ?? '';
+  for (let at = 0; at + SEEN_CHARS <= sn.length; at += SEEN_CHARS) {
+    const b = chunk(sn, at, SEEN_CHARS), v = b ? new DataView(b.buffer) : null, id = v ? v.getUint32(0, true) : -1;
+    if (v && num(id, 0, 2 ** 30 - 1)) save.seen.set(id, Math.min(v.getUint32(4, true), save.seen.get(id) ?? Infinity));
+    else lost++;
+  }
+  if (sn.length % SEEN_CHARS) lost++;
   return { save, lost };
 }
 
@@ -493,9 +522,13 @@ export function touch(save: Save, a: AreaLike, now: unknown, ground?: Ground): R
   if (!num(a.faction, 1, 15) || !num(a.stage, 1, 5)) return null;
   const rec: Rec = {
     key: a.key, owner: a.faction, stage: a.stage, cracks: Math.max(0, Math.min(15, a.cracks | 0)), hits: Math.max(0, Math.min(0xffff, a.hits | 0)), tended: seconds(a.tended),
-    ax: old ? old.ax : 0, az: old ? old.az : 0, ay: old ? old.ay : NO_ANCHOR, rev: nextRev(old, now), card: old ? old.card : -1,
+    ax: old ? old.ax : 0, az: old ? old.az : 0, ay: old ? old.ay : NO_ANCHOR, rev: 0, card: old ? old.card : -1,
     guest: !!old && old.guest && old.owner === a.faction,
   };
+  const more = !!old && old.owner === rec.owner && old.stage === rec.stage && old.cracks === rec.cracks && old.guest === rec.guest && rec.hits >= old.hits && rec.tended >= old.tended;
+  rec.rev = nextRev(old, now, more);
+  // (a record no change on this phone has made: old paint, or the save before this one. Its stages were reached long ago, and go first in a card's order)
+  if (old && old.rev === 0) longAgo(save, old);
   if (!old || old.owner !== rec.owner || old.stage !== rec.stage) noteClimb(save, now, rec.key, rec.owner, rec.stage);
   save.squares.set(rec.key, settle(rec, ground));
   return rec;
@@ -511,6 +544,16 @@ export function touchMark(save: Save, key: string, a: Omit<AreaLike, 'key'>, now
   const rec: MarkRec = { owner: a.faction, stage: a.stage, cracks: Math.max(0, Math.min(15, a.cracks | 0)), hits: Math.max(0, Math.min(0xffff, a.hits | 0)), tended: seconds(a.tended), rev: nextRev(old, now), card: old ? old.card : -1 };
   save.marks.set(k, rec);
   return rec;
+}
+
+/** A record's stages as one climb before every other: what a square had before this save knew it. Once a square, whatever the order things happen in. */
+function longAgo(save: Save, r: Rec): void {
+  const c: Climb = [0, r.key >>> 0, ((r.owner & 15) << 4) | (r.stage & 15)];
+  let i = 0;
+  while (i < save.climbs.length && save.climbs[i][0] === 0 && climbOrder(save.climbs[i], c) < 0) i++;
+  if (i < save.climbs.length && climbOrder(save.climbs[i], c) === 0) return;
+  if (save.climbs.some((x) => x[0] === 0 && x[1] === c[1])) return;
+  save.climbs.splice(i, 0, c);
 }
 
 /** Note a counted change of a square's owner or stage. Its time is the clock's in ms, or 1 past the last climb's where the clock hasn't moved on. */
@@ -744,6 +787,11 @@ export function openLink(save: Save, visit: Visit, frame: Frame, now: unknown, o
     if (known.role === 'in' && known.text === known.id && r.level === 'full' && r.canon.length > known.text.length) known.text = r.canon;
     return out;
   }
+  // (a card whose note has been let go, known still by its short id: it never lands twice)
+  if (r.id && r.level !== 'head' && save.seen.has(r.id30)) {
+    out.kind = 'seen';
+    return out;
+  }
   if (save.crew.value === 0) {
     if (opts.returning) save.crew = { value: 1, rev: nextRev(save.crew, now) };
     else {
@@ -755,6 +803,7 @@ export function openLink(save: Save, visit: Visit, frame: Frame, now: unknown, o
   if (!b || r.level === 'head' || !r.id) return out;
   const note: Note = { id: r.id, id30: r.id30, role: 'in', text: r.canon, at: t, gen: visit.gen, place: visit.place, key: own, crew: card.crew, taken: 0, answers: b.answers ?? -1 };
   save.notes.set(note.id, note);
+  know(save, note.id30, now);
   out.note = note;
   if (b.form === 'mark') {
     out.kind = 'mark';
@@ -790,6 +839,7 @@ export function noteSent(save: Save, written: { text: string; id: string; id30: 
   const b = card.body;
   if (save.crew.value === 0) save.crew = { value: card.crew, rev: nextRev(save.crew, now) };
   const note: Note = { id: written.id, id30: written.id30, role: 'out', text: written.text, at: seconds(now), gen: num(gen, 0, linkTune.gen) ? gen : 0, place: String(place), key: packSquare(card.ix, card.iz), crew: card.crew, taken: 0, answers: b && b.answers !== null ? b.answers : -1 };
+  know(save, note.id30, now);
   const have = save.notes.get(note.id);
   if (have) {
     have.role = 'out';
@@ -798,6 +848,24 @@ export function noteSent(save: Save, written: { text: string; id: string; id30: 
   }
   save.notes.set(note.id, note);
   return note;
+}
+
+/**
+ * The player's own squares for a postcard of here: the square `key` and the crew's others nearest it (by rings, ties by key), 32 at most, all within
+ * 7 squares of it each way so they fit a card's box, sorted as a card wants them. None where `key` itself isn't the crew's (or a god stands there).
+ * Its order is `orderFrom(save, squares, crew)`.
+ */
+export function squaresFor(save: Save, key: number, crew: number): CardSquare[] {
+  const own = save.squares.get(key);
+  if (!own || own.owner !== crew || own.stage > linkTune.top) return [];
+  const ix = squareIx(key), iz = squareIz(key), near: { d: number; r: Rec }[] = [];
+  for (const r of save.squares.values()) {
+    if (r.owner !== crew || r.stage > linkTune.top) continue;
+    const d = Math.max(Math.abs(squareIx(r.key) - ix), Math.abs(squareIz(r.key) - iz));
+    if (d <= 7) near.push({ d, r });
+  }
+  near.sort((a, b) => a.d - b.d || a.r.key - b.r.key);
+  return near.slice(0, linkTune.squares).map(({ r }) => ({ ix: squareIx(r.key), iz: squareIz(r.key), stage: r.stage })).sort((a, b) => a.iz - b.iz || a.ix - b.ix);
 }
 
 /** The newest card this phone sent, or null: what the next visit's loading page offers (stamp.js's sbwLastCard reads the same from the save's text). */

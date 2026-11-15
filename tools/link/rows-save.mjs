@@ -28,7 +28,7 @@ export async function saveRows(R, L, sf, lastCard) {
     return {
       key, owner: rnd.int(1, 15), stage, cracks: rnd() < 0.7 ? 0 : rnd.int(0, 15), hits: rnd.pick([0, 1, stage, rnd.int(0, 0xffff)]), tended: rnd.pick([0, NOW, rnd.int(0, 0xffffffff)]),
       ax: anchored ? rnd.int(0, 127) : 0, az: anchored ? rnd.int(0, 127) : 0, ay: anchored ? rnd.int(-32767, 32767) : L.NO_ANCHOR,
-      rev: rnd.pick([0, 1, NOW, NOW + 1, rnd.int(0, 0xfffffffe)]), card: has ? rnd.int(0, 2 ** 30 - 1) : -1, guest: has && rnd() < 0.5,
+      rev: rnd.pick([0, 1, NOW, NOW + 1, rnd.int(0, L.CLOCK_TOP)]), card: has ? rnd.int(0, 2 ** 30 - 1) : -1, guest: has && rnd() < 0.5,
     };
   };
   const randNote = (rnd, id) => ({
@@ -36,7 +36,7 @@ export async function saveRows(R, L, sf, lastCard) {
     place: rnd.pick(['', 'mission', 'noe-valley']), key: rnd.int(0, 0xffffffff), crew: rnd.int(1, 5), taken: rnd() < 0.7 ? 0 : rnd.int(1, 0xffffffff), answers: rnd() < 0.7 ? -1 : rnd.int(0, 2 ** 30 - 1),
   });
   /** a save as plain values in a fixed order: what two saves are compared by when the text itself is what is under test */
-  const plain = (v) => same({ squares: [...v.squares.values()].sort((a, b) => a.key - b.key), marks: [...v.marks].sort((a, b) => (a[0] < b[0] ? -1 : 1)), notes: [...v.notes.values()].sort((a, b) => (a.id < b.id ? -1 : 1)), crew: v.crew, climbs: v.climbs.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]), forgot: v.forgot });
+  const plain = (v) => same({ squares: [...v.squares.values()].sort((a, b) => a.key - b.key), marks: [...v.marks].sort((a, b) => (a[0] < b[0] ? -1 : 1)), notes: [...v.notes.values()].sort((a, b) => (a.id < b.id ? -1 : 1)), crew: v.crew, climbs: v.climbs.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]), forgot: v.forgot, seen: [...v.seen].sort((a, b) => a[0] - b[0]) });
   /** a random save over a small set of squares and cards, so that two of them overlap, and often tie */
   const randSave = (rnd, keys, ids) => {
     const s = L.emptySave();
@@ -45,6 +45,8 @@ export async function saveRows(R, L, sf, lastCard) {
     for (const id of ids) if (rnd() < 0.5) s.notes.set(id, randNote(rnd, id));
     s.crew = { value: rnd.int(0, 5), rev: rnd.pick([0, 1, NOW]) };
     s.forgot = rnd.pick([0, 0, 3, rnd.int(0, 0xffffffff)]);
+    for (const n of s.notes.values()) if (rnd() < 0.8) s.seen.set(n.id30, n.at);
+    for (let n = rnd.int(0, 6); n > 0; n--) s.seen.set(rnd.pick([rnd.int(0, 2 ** 30 - 1), rnd.int(0, 30)]), rnd.pick([NOW, NOW + 1, rnd.int(0, 0xffffffff)]));
     for (let n = keys.length ? rnd.int(0, 12) : 0; n > 0; n--) s.climbs.push([rnd.pick([NOW * 1000, NOW * 1000 + 1, NOW * 1000 + 2, rnd.int(0, 2 ** 40)]), rnd.pick(keys), (rnd.int(1, 5) << 4) | rnd.int(1, 4)]);
     s.climbs = [...new Map(s.climbs.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).map((c) => [c.join(), c])).values()];
     return s;
@@ -150,7 +152,7 @@ export async function saveRows(R, L, sf, lastCard) {
 
   await row('clock', () => {
     const cases = [[NOW, null, NOW], [NOW * 1000, null, NOW], [NOW + 0.9, null, NOW], [NaN, null, 1], [-5, null, 1], ['soon', null, 1], [undefined, null, 1], [Infinity, null, 1], [0, null, 1],
-      [NOW, { rev: NOW }, NOW + 1], [NOW - 86400, { rev: NOW }, NOW + 1], [NOW, { rev: 0 }, NOW], [0, { rev: 0 }, 1], [4.33e9, null, 1], [4.33e12, null, 1], [4.33e9, { rev: NOW }, NOW + 1], [NOW, { rev: 0xfffffffe }, 0xfffffffe], [NOW, { rev: 0xfffffffd }, 0xfffffffe]];
+      [NOW, { rev: NOW }, NOW + 1], [NOW - 86400, { rev: NOW }, NOW + 1], [NOW, { rev: 0 }, NOW], [0, { rev: 0 }, 1], [4.33e9, null, 1], [4.33e12, null, 1], [4.33e9, { rev: NOW }, NOW + 1], [NOW, { rev: L.CLOCK_TOP }, L.CLOCK_TOP], [NOW, { rev: L.CLOCK_TOP - 1 }, L.CLOCK_TOP]];
     for (const [now, old, want] of cases) need(L.nextRev(old, now) === want, () => `a change at ${now} over rev ${old ? old.rev : 'none'} got rev ${L.nextRev(old, now)}, not ${want}`);
     // a phone whose clock was put back a day still writes the later record, and the join takes it
     const key = L.packSquare(3, 3), a = L.emptySave(), b = L.emptySave();
@@ -171,7 +173,30 @@ export async function saveRows(R, L, sf, lastCard) {
     for (const [now, k] of [[NOW, 1], [NOW, 2], [NOW + 0.4, 3], [NOW - 86400, 4], [Date.UTC(2107, 0, 1), 5], [NOW + 5, 6], [NaN, 7], [(NOW + 6) * 1000, 8]]) L.noteClimb(c, now, k, 1, 1);
     need(same(c.climbs.map((x) => x[1])) === '[1,2,3,4,5,6,7,8]' && c.climbs.every((x, i) => !i || x[0] > c.climbs[i - 1][0]) && same(L.parseSave(L.saveText(c)).save.climbs) === same(c.climbs), `climbs out of order: ${same(c.climbs)}`);
     need(L.seconds(Date.UTC(2026, 10, 14)) === Date.UTC(2026, 10, 14) / 1000 && L.cardMinute(L.cardSeconds(459000)) === 459000 && L.cardMinute(-1e12) === 0 && L.cardMinute(1e15) === L.linkTune.atMost && L.cardMinute(NaN) === 0, 'seconds and minutes');
-    return `${cases.length} clocks (in milliseconds, with a fraction, nonsense, put back, past 2100): a change is always later than the record it changes, never 0, never wrapped; a change made with the clock a day back still wins the join; a clock in 2107 is not believed, and an honest change after it wins; eight climbs noted under every kind of clock keep the order they were made in`;
+    // a square tapped five times a second for twenty seconds (the encores only add to it): its rev stays with the clock, and a card landed a few
+    // seconds after the last tap, from another tab that read the store before the taps, still stands
+    {
+      const areas = new L.Areas(), tab = L.emptySave(), key = open[50], { x, z } = L.squareCentre(key);
+      areas.onChange = (a) => L.touch(tab, a, (NOW + t) * 1000);
+      let t = 0;
+      const out = {};
+      for (let i = 0; i < 100; i++) {
+        t += 0.2;
+        const o = areas.hit(x, z, 1, t, { now: Math.floor(NOW + t) }).outcome;
+        out[o] = (out[o] ?? 0) + 1;
+      }
+      const ahead = tab.squares.get(key).rev - Math.floor(NOW + t);
+      need(ahead <= 3, `20 s of taps put a square's rev ${ahead} s ahead of the clock (${same(out)})`);
+      const stale = L.emptySave();
+      const lc = L.openLink(stale, visitOf(text(cardOf([[key, 2]], 3, dice(5))).text), frame, Math.floor(NOW + t) + 5);
+      need(lc.kind === 'flyby' && L.joinSave(tab, stale).squares.get(key).owner === lc.as && L.joinSave(stale, tab).squares.get(key).owner === lc.as, 'a card landed five seconds after the taps lost to them');
+    }
+    // a record stored with a rev past 2100 is no record (the square is made again by the next change, never frozen)
+    {
+      const r = { key: 7, owner: 2, stage: 2, cracks: 0, hits: 2, tended: NOW, ax: 0, az: 0, ay: L.NO_ANCHOR, rev: NOW, card: -1, guest: false };
+      for (const [rev, ok] of [[L.CLOCK_TOP, true], [L.CLOCK_TOP + 1, false], [0xfffffffe, false], [0xffffffff, false]]) need(!!L.unpack(L.pack({ ...r, rev })) === ok, `a record with rev ${rev} was ${ok ? 'refused' : 'read'}`);
+    }
+    return `${cases.length} clocks (in milliseconds, with a fraction, nonsense, put back, past 2100): a change is always later than the record it changes, never 0, never wrapped; a change made with the clock a day back still wins the join; a clock in 2107 is not believed, and an honest change after it wins; eight climbs noted under every kind of clock keep the order they were made in; twenty seconds of taps five a second keep a square's rev within 3 s of the clock, and a card landed five seconds later from a tab that read the store before them stands; a record stored with a rev past 2100 is refused`;
   });
 
   await row('land', () => {
@@ -325,7 +350,11 @@ export async function saveRows(R, L, sf, lastCard) {
       // 10. the note lost, the squares remember: the card never lands on a square twice, taken back or not
       B.notes.delete(ex.id);
       const tb = same([...B.squares.values()]), lost = L.openLink(B, visitOf(ex.text), frame, NOW + 999);
-      ok(lost.landed.length === 0 && same([...B.squares.values()]) === tb && lost.kind === 'spot', `a card whose note was lost landed again: ${lost.kind}`);
+      ok(lost.landed.length === 0 && same([...B.squares.values()]) === tb && lost.kind === 'seen', `a card whose note was lost landed again: ${lost.kind}`);
+      // and with its short id lost as well, the squares themselves still remember it
+      B.seen.delete(ex.id30);
+      const lost2 = L.openLink(B, visitOf(ex.text), frame, NOW + 999);
+      ok(lost2.landed.length === 0 && same([...B.squares.values()]) === tb && lost2.kind === 'spot', `a card known only to its squares landed again: ${lost2.kind}`);
       // 11. another card over the same squares does land
       const w = cardOf(block.slice(0, 5).map((k) => [k, 2]), 1, rnd), lw = L.openLink(B, visitOf(text(w).text), frame, NOW + 1000);
       ok(lw.kind === 'flyby' && lw.landed.length === 5 && lw.dealt === 0 && B.crew.value === 4, 'a second card over the first');
@@ -396,6 +425,45 @@ export async function saveRows(R, L, sf, lastCard) {
       ok(r1.ax === 5 && r1.az === 6 && r1.ay === 70 && r2.ay === 70 && r2.ax === 5 && j.stage === 3 && j.ay === 70 && j.ax === 5 && same(j) === same(j2), 'an anchor was lost');
       const lgd = L.openLink(fresh(), visitOf(e.text), frame, NOW, { ground: (k) => (k === block[0] ? g0 : null) });
       ok(lgd.landed.find((x) => x.rec.key === block[0]).rec.ay === 70 && lgd.landed.filter((x) => x.rec.ay === L.NO_ANCHOR).length === 5, 'a card landing with a tile in');
+    }
+    // 15. what the third pass answers
+    for (let run = 0; run < 60; run++) {
+      const block = pickBlock(), me = rnd.int(1, 5), them = (me % 5) + 1;
+      // old paint's stages were reached long ago: they go first in a card's order
+      const O = fresh();
+      O.crew = { value: me, rev: 1 };
+      L.landTile(O, [{ key: block[0], ax: 1, az: 1, ay: 9, old: 3, oldCrew: me }], frame);
+      L.touch(O, { key: block[1], faction: me, stage: 1, cracks: 0, hits: 1, tended: NOW }, NOW + 10);
+      L.touch(O, { key: block[0], faction: me, stage: 4, cracks: 0, hits: 4, tended: NOW }, NOW + 20);
+      const two = [sq(block[0], 4), sq(block[1], 1)].sort(bySquare), a0 = two.findIndex((q) => L.packSquare(q.ix, q.iz) === block[0]), b0 = 1 - a0;
+      ok(same(L.orderFrom(O, two, me)) === same([a0, a0, a0, b0, a0]), () => `old paint's order: ${same(L.orderFrom(O, two, me))}`);
+      L.touch(O, { key: block[0], faction: me, stage: 4, cracks: 0, hits: 5, tended: NOW + 30 }, NOW + 30);
+      ok(O.climbs.filter((c) => c[0] === 0).length === 1 && O.squares.get(block[0]).rev === NOW + 30, 'old paint noted twice, or an encore stepped its rev');
+      // a card whose note has been let go never lands again: 70 more cards opened after it
+      const F = fresh();
+      F.crew = { value: me, rev: 1 };
+      const fc = cardOf(block.slice(0, 3).map((k) => [k, 2]), them, rnd), fe = text(fc);
+      L.openLink(F, visitOf(fe.text), frame, NOW);
+      L.openLink(F, visitOf(text(cardOf(block.slice(0, 3).map((k) => [k, 1]), them, rnd)).text), frame, NOW + 1);
+      for (let i = 0; i < 70; i++) L.openLink(F, visitOf(text({ ...cardOf([[block[5 + (i % 9)], 1]], them, rnd), at: L.cardMinute(NOW) + i }).text), frame, NOW + 2 + i);
+      L.trim(F);
+      ok(!F.notes.has(fe.id) && F.seen.has(fe.id30), 'the row needs the first card\'s note let go and its short id kept');
+      const before = same([...F.squares.values()].sort((p, q) => p.key - q.key)), again = L.openLink(F, visitOf(fe.text), frame, NOW + 500);
+      ok(again.kind === 'seen' && again.landed.length === 0 && same([...F.squares.values()].sort((p, q) => p.key - q.key)) === before, `a card whose note was let go landed again: ${again.kind}`);
+      const back = L.parseSave(L.saveText(F)).save;
+      ok(L.openLink(back, visitOf(fe.text), frame, NOW + 501).kind === 'seen', 'the cards known did not survive the save');
+      // a postcard of here: the player's own squares round it, 32 at most, within the box, sorted; none where the square isn't the player's
+      const H = fresh();
+      H.crew = { value: me, rev: 1 };
+      const c0 = block[0], cx = L.squareIx(c0), cz = L.squareIz(c0);
+      for (let dz = -9; dz <= 9; dz++) for (let dx = -9; dx <= 9; dx++) if (rnd() < 0.6 || (!dx && !dz)) H.squares.set(L.packSquare(cx + dx, cz + dz), { key: L.packSquare(cx + dx, cz + dz), owner: rnd() < 0.8 ? me : them, stage: rnd.int(1, 5), cracks: 0, hits: 1, tended: 0, ax: 0, az: 0, ay: L.NO_ANCHOR, rev: 1, card: -1, guest: false });
+      H.squares.get(c0).owner = me, (H.squares.get(c0).stage = 2);
+      const got = L.squaresFor(H, c0, me), card = { v: 1, map: 0, ix: cx, iz: cz, crew: me, at: 0, caption: '', body: { form: 'squares', squares: got, order: L.orderFrom(H, got, me), answers: null, score: null } };
+      const mine = [...H.squares.values()].filter((r) => r.owner === me && r.stage <= 4 && Math.max(Math.abs(L.squareIx(r.key) - cx), Math.abs(L.squareIz(r.key) - cz)) <= 7);
+      ok(L.cardFault(card) === '' && got.length === Math.min(32, mine.length) && got.some((q) => q.ix === cx && q.iz === cz), () => `a postcard of here: ${L.cardFault(card)}, ${got.length} squares of ${mine.length}`);
+      const far = Math.max(...got.map((q) => Math.max(Math.abs(q.ix - cx), Math.abs(q.iz - cz)))), nearer = mine.filter((r) => Math.max(Math.abs(L.squareIx(r.key) - cx), Math.abs(L.squareIz(r.key) - cz)) < far).length;
+      ok(nearer <= got.length, 'a postcard of here passed over a nearer square for a farther one');
+      ok(L.squaresFor(H, L.packSquare(cx + 30, cz), me).length === 0 && L.squaresFor(H, c0, them).length === 0, 'a postcard of a square that is not the player\'s');
     }
     // 14. the frame, pinned: the Golden Gate's own square, every neighbourhood's page name and heart, the city's number
     ok(frame.map === 0 && L.mapOf('sf') === 0 && L.mapOf('amsterdam') === 1 && L.mapOf('london') === 2 && L.mapOf('paris') === -1, 'the cities\' numbers');
@@ -770,6 +838,24 @@ export async function saveRows(R, L, sf, lastCard) {
     const plainRec = { ...good, card: -1, guest: false }, later = { ...plainRec, stage: 2, hits: 1, rev: plainRec.rev + 1 }, tie = { ...plainRec, owner: 3 };
     ok(L.joinRec(plainRec, later) === later && L.joinRec(later, plainRec) === later, 'the later record lost a join');
     ok(L.joinRec(plainRec, tie).owner === 3 && L.joinRec(tie, plainRec).owner === 3 && L.joinRec(plainRec, undefined) === plainRec && L.joinRec(undefined, plainRec) === plainRec, 'two records of one second fell two ways');
+    // (a tie of one second falls by owner, then stage, then cracks, hits, tended, card: pinned, so that two builds never pick two records)
+    const t1 = { ...plainRec, owner: 2, stage: 3, hits: 9 }, t2 = { ...plainRec, owner: 3, stage: 1, hits: 1 }, t3 = { ...plainRec, owner: 3, stage: 1, cracks: 1 };
+    ok(L.joinRec(t1, t2) === t2 && L.joinRec(t2, t1) === t2 && L.joinRec(t2, t3) === t3 && L.joinRec(t3, t2) === t3, 'the order a tie falls in moved');
+    ok(L.unpack(L.pack({ ...plainRec, rev: L.CLOCK_TOP + 1 })) === null, 'a record with a rev past 2100 was read');
+    // a tile's old paint on a square nothing can be lifted on makes no record; on one that can, it does
+    const wet = L.emptySave(), waterKey = (() => { for (let i = -68; i < 44; i++) if (frame.inside(L.packSquare(i, 0)) && frame.top(L.packSquare(i, 0)) === 0) return L.packSquare(i, 0); })();
+    L.landTile(wet, [{ key: waterKey, ax: 1, az: 1, ay: 5, old: 3 }, { key: open[9], ax: 1, az: 1, ay: 5, old: 3 }], frame);
+    ok(!wet.squares.has(waterKey) && wet.squares.get(open[9]).stage === 3 && wet.squares.get(open[9]).rev === 0, 'old paint on water made a record');
+    // the cards known by their short id: joined as a union, the first time each was known, and held to the cap newest first, notes' own always kept
+    const k1 = L.emptySave(), k2 = L.emptySave();
+    k1.seen.set(5, 100), k1.seen.set(6, 50), k2.seen.set(5, 90), k2.seen.set(7, 70);
+    const kj = L.joinSave(k1, k2);
+    ok(same([...kj.seen].sort()) === same([[5, 90], [6, 50], [7, 70]]) && same([...L.joinSave(k2, k1).seen].sort()) === same([[5, 90], [6, 50], [7, 70]]), 'the cards known were joined wrong');
+    const many = L.emptySave();
+    for (let i = 0; i < 1500; i++) many.seen.set(i, NOW + i);
+    many.notes.set('1old', { id: '1old', id30: 3, role: 'in', text: '1old', at: NOW + 3, gen: 0, place: '', key: 0, crew: 2, taken: 0, answers: -1 });
+    L.trim(many);
+    ok(many.seen.size === 1025 && many.seen.has(1499) && many.seen.has(476) && !many.seen.has(475) && many.seen.has(3), `the cards known held to ${many.seen.size}, or the wrong ones`);
     const twice = L.emptySave(), lines = L.saveText(twice).split('\n');
     lines[1] = Buffer.concat([Buffer.from(L.pack(later)), Buffer.from(L.pack(plainRec))]).toString('base64');
     ok(L.parseSave(lines.join('\n')).save.squares.get(good.key).stage === 2, 'a square written twice in one text: the earlier stood');
@@ -805,6 +891,7 @@ export async function saveRows(R, L, sf, lastCard) {
     small.crew = { value: 4, rev: NOW };
     small.forgot = 3;
     small.climbs = [[NOW * 1000 + 7, good.key, 0x24]];
+    small.seen = new Map([[7, 100], [562624823, NOW]]);
     const smallText = L.saveText(small);
     if (process.argv.includes('--print-golden')) console.log(`save: ${JSON.stringify(smallText)}`);
     ok(process.argv.includes('--print-golden') || smallText === PINS.save, `the save's text moved: ${JSON.stringify(smallText)}`);
@@ -846,5 +933,5 @@ export async function saveRows(R, L, sf, lastCard) {
 /** `node tools/link/fuzz.mjs records --print-golden` prints these as the code now makes them */
 const PINS = {
   record: "0e00fdff02140700e0f2f86a641b7b00e5f2f86a37f988e1",
-  save: "SBW2\nDgD9/wIUBwDg8vhqZBt7AOXy+Go3+Yjh\n{\"ggb\":[1,4,0,9,1794700000,10,-1]}\n[[\"1x\",7,1,\"1x\",100,3,\"a\",9,2,77,-1]]\n[4,1794700000,3]\nAHCwS8cdekIOAP3/JAAA",
+  save: "SBW2\nDgD9/wIUBwDg8vhqZBt7AOXy+Go3+Yjh\n{\"ggb\":[1,4,0,9,1794700000,10,-1]}\n[[\"1x\",7,1,\"1x\",100,3,\"a\",9,2,77,-1]]\n[4,1794700000,3]\nAHCwS8cdekIOAP3/JAAA\nBwAAAGQAAAAAN/mIIeDy+GoA",
 };

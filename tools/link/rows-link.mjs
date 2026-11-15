@@ -128,6 +128,7 @@ export async function linkRows(R, L, stamp) {
       'its # escaped twice': (p, t) => `${p}%2523${t}`,
       'its # escaped, behind a tracker': (p, t) => `${p}?fbclid=IwAR0x%23${t}`,
       'a no-break space inside it': (p, t) => `${p}#${into(t, '\u00a0')}`,
+      'a thin, a line or a wide space inside it': (p, t) => `${p}#${into(t, rnd.pick(['\u2009', '\u2028', '\u3000', '\u202f', '\u2029']))}`,
       'its # escaped twice, behind a tracker': (p, t) => `${p}?fbclid=IwAR0x%2523${t}`,
       'junk escaped into the path, the card after the real #': (p, t) => `${p}%23junk#${t}`,
       'a # that holds no card, the card escaped into the path': (p, t) => `${p}%23${t}#extra`,
@@ -483,6 +484,26 @@ export async function linkRows(R, L, stamp) {
     for (let i = 0; i < 4000; i++) {
       const t = L.encode(randCard(L, rnd)).text, path = rnd.pick(paths);
       for (const href of [`${ORIGIN}${path}#${t}`, `${ORIGIN}${path}%23${t}`, `${ORIGIN}${path}%2523${t}`, `${ORIGIN}${path}?a=b%23${t}`, `${ORIGIN}${path}?a=b%2523${t}`, `${ORIGIN}${path}%23junk#${t}`, `${ORIGIN}${path}%23${t}#junk`, `${ORIGIN}${path}?q=%23${t}#junk`, `${ORIGIN}${path}%23${t}?after#`, `${ORIGIN}${path}#${t.slice(0, rnd.int(0, t.length))}`, `${ORIGIN}${path}?x=%zz%23${t}`, `${ORIGIN}${path}`]) keep(href);
+    }
+    // and heads of its own that no honest card has: bits turned with the check made right again, padding that is not zero, a crew of 0
+    const { Writer: W, section, checkOf, CAPV } = L.forTests;
+    for (let i = 0; i < 20000; i++) {
+      const e = L.encode(randCard(L, rnd)), len = A.indexOf(e.text[1]) * 32 + A.indexOf(e.text[2]), payload = [...e.text.slice(3, 3 + len)];
+      for (let f = rnd.int(1, 3); f > 0 && payload.length; f--) {
+        const at = rnd.int(0, payload.length - 1);
+        payload[at] = A[A.indexOf(payload[at]) ^ (1 << rnd.int(0, 4))];
+      }
+      const head = '1' + e.text.slice(1, 3) + payload.join('');
+      keep(`${ORIGIN}/p/x/${i % 100}#${head + checkOf(head, 3)}${e.text.slice(3 + len + 3)}`);
+    }
+    for (const [crew, pad] of [[0, 0], [3, 1], [3, 3], [16, 0]]) {
+      const h = new W();
+      h.u(0, 2), h.u(0, 2), h.u(crew & 15, 4), h.uv(0), h.zz(-7), h.zz(9), h.u(460000, 25), h.u(5, 6);
+      for (const c of 'HAYES') h.u(CAPV.get(c), 6);
+      const t = section('1', h, 3), bits = (A.indexOf(t[t.length - 4]) & ~((1 << ((5 - (h.bits.length % 5)) % 5)) - 1)) | pad;
+      const bent = t.slice(0, -4) + A[bits & 31];
+      keep(`${ORIGIN}/p/x/0#${bent + checkOf(bent, 3)}`);
+      keep(`${ORIGIN}/p/x/0#${t}`);
     }
     need(hrefs.length >= 40000, `the row has only ${hrefs.length} addresses`);
     let read = 0, blank = 0, pages = 0;

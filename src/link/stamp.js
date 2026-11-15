@@ -17,7 +17,15 @@ function sbwStamp(href) {
   };
   var clean = function (raw) {
     var s = raw.length > 16384 ? raw.slice(0, 16384) : raw, out = '', i, v;
-    s = s.replace(/%(?:20|09|0a|0d|c2%a0|c2%ad|e2%80%8[bcd]|e2%81%a0|ef%bb%bf)|[\s\u00ad\u200b-\u200d\u2060\ufeff]/gi, '').replace(/^#+/, '');
+    // (any space or soft break, as it stands or as a browser escapes it: %20, %C2%A0, %E2%80%8B)
+    s = s.replace(/%(?:[0-7][0-9a-f]|[cd][0-9a-f]%[89ab][0-9a-f]|e[0-9a-f](?:%[89ab][0-9a-f]){2}|f[0-4](?:%[89ab][0-9a-f]){3})/gi, function (m) {
+      try {
+        return /^[\s\u00ad\u200b-\u200d\u2060\ufeff]$/.test(decodeURIComponent(m)) ? '' : m;
+      } catch (e) {
+        return m;
+      }
+    });
+    s = s.replace(/[\s\u00ad\u200b-\u200d\u2060\ufeff]/g, '').replace(/^#+/, '');
     for (i = 0; i < s.length && out.length < 4096; i++) {
       v = s.charCodeAt(i) < 128 ? val(s.charAt(i)) : -1;
       if (v < 0) break;

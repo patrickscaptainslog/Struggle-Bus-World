@@ -366,8 +366,18 @@ export function encode(card: Card): Written {
 
 // ---- reading ----
 
-/** every kind of space and soft break an app may put in a long word, as it stands and as a browser hands it to a page (%20, %E2%80%8B) */
-const GAPS = /%(?:20|09|0a|0d|c2%a0|c2%ad|e2%80%8[bcd]|e2%81%a0|ef%bb%bf)|[\s\u00ad\u200b-\u200d\u2060\ufeff]/gi;
+/** every kind of space and soft break an app may put in a long word */
+const GAPS = /[\s\u00ad\u200b-\u200d\u2060\ufeff]/g;
+const GAP = /^[\s\u00ad\u200b-\u200d\u2060\ufeff]$/;
+/** one character as a browser escapes it for a page: a byte, or the two, three or four of one UTF-8 character (%20, %C2%A0, %E2%80%8B) */
+const ESCAPED = /%(?:[0-7][0-9a-f]|[cd][0-9a-f]%[89ab][0-9a-f]|e[0-9a-f](?:%[89ab][0-9a-f]){2}|f[0-4](?:%[89ab][0-9a-f]){3})/gi;
+function unspaced(m: string): string {
+  try {
+    return GAP.test(decodeURIComponent(m)) ? '' : m;
+  } catch {
+    return m;
+  }
+}
 
 /**
  * The text as it is read: every # in front dropped, a wrapped line mended, one case, look-alikes folded, and everything from the first character that
@@ -377,7 +387,7 @@ const GAPS = /%(?:20|09|0a|0d|c2%a0|c2%ad|e2%80%8[bcd]|e2%81%a0|ef%bb%bf)|[\s\u0
 export function clean(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   let s = raw.length > linkTune.input * 4 ? raw.slice(0, linkTune.input * 4) : raw;
-  s = s.replace(GAPS, '').replace(/^#+/, '');
+  s = s.replace(ESCAPED, unspaced).replace(GAPS, '').replace(/^#+/, '');
   let out = '';
   for (let i = 0; i < s.length && out.length < linkTune.input; i++) {
     const c = s.charCodeAt(i), v = c < 128 ? VAL[c] : -1;

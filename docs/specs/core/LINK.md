@@ -4,7 +4,7 @@ M1's task 6 (`docs/M1.md`), 2026-11-15, the second account. Format 1.
 
 A postcard is a picture and a link. This is the link: what is written after the `#`, how any phone reads it back, what it does to the saved city, and how that city is saved. The code is `src/link/link.ts` (the link), `src/link/save.ts` (the save, and a card's landing) and `src/link/stamp.js` (the loading page's own readers). `node tools/link/fuzz.mjs` holds all of it; section 10 has what it printed.
 
-It was designed three ways and judged twice (a workflow of three designers and two judges; both judges picked the same base). Once built it was attacked from four sides, each finding checked by a second reader: section 11 says what they found and what was done. Section 9 lists the calls that are the studio's or the producer's, each with a pick.
+It was designed three ways and judged twice (a workflow of three designers and two judges; both judges picked the same base). Once built it was attacked from four sides, each finding checked by a second reader, and the answers re-checked one by one: section 11 says what they found and what was done. Section 9 lists the calls that are the studio's or the producer's, each with a pick.
 
 ## 1. What a link says
 
@@ -179,7 +179,7 @@ The first one, bit by bit. `1`, then `15` (a payload of 37 characters), then the
 
 `decode(text)` takes any text at all and never throws. `parseLocation(pathname, search, hash)` does the same for a whole address, as a page has it from `location`.
 
-**Cleaning.** Every `#` in front is dropped. Spaces, line breaks, and the soft breaks an app may put in a long word (U+00A0, U+00AD, U+200B to U+200D, U+2060, U+FEFF) are taken out wherever they are, both as they stand and as a browser hands them to a page (`%20`, `%0A`, `%C2%AD`, `%E2%80%8B` and the rest). Then the card is the run of the alphabet's characters from the start: the first character that isn't one ends it. So `?fbclid=…`, a full stop or a bracket after a link do nothing.
+**Cleaning.** Every `#` in front is dropped. Every kind of space and line break (all that JavaScript's `\s` takes: U+00A0, U+2009, U+2028 and U+3000 among them) and the soft breaks an app may put in a long word (U+00AD, U+200B to U+200D, U+2060, U+FEFF) are taken out wherever they are, both as they stand and as a browser escapes them for a page (`%20`, `%C2%A0`, `%E2%80%8B`, `%E3%80%80`). An escaped character is undone only if it is one of these; any other escape stays as it is, and ends the card where it stands. Then the card is the run of the alphabet's characters from the start: the first character that isn't one ends it. So `?fbclid=…`, a full stop or a bracket after a link do nothing.
 
 Spaces can be taken out anywhere only because every section says how long it is. Words that follow a link ("…k09k check this out") can add characters after the card, never inside it, and whatever follows the last section is not read.
 
@@ -215,7 +215,7 @@ A card cut anywhere reads as exactly what it still holds. `explain(href)` says a
 
 The first 16 bytes are `areas.ts`'s save, byte for byte (the `engine` row checks it against `Areas.encode` and `Areas.decode`). The 8 new ones are what makes saving safe:
 
-- **`rev`** says which of two records of one square is the later. A change made now gets `max(now, old rev + 1)`, so a clock put back still moves forward. A clock in milliseconds is read as one. A clock that is nonsense, or past 2100, is not believed: the change counts on from what was known.
+- **`rev`** says which of two records of one square is the later. A change made now gets `max(now, old rev + 1)`, so a clock put back still moves forward. A change that only adds to what was there (an encore: hits and tended up, nothing else) gets `max(now, old rev)`: it stands over the old record by its own fields at the same `rev`, so a square tapped five times a second keeps its `rev` with the clock. A clock in milliseconds is read as one. A clock that is nonsense, or past 2100, is not believed: the change counts on from what was known. No `rev` goes past 2100-01-01 (4102444800), and a record that says one does is no record.
 - **`card`** is the last card that put this square here. That card never lands on this square again, even if the phone forgets it ever saw the card. It stays through the engine's changes.
 - **`guest`** is set while the square is as a card left it and whose it was. It clears when the square changes hands. It is how the game knows a square is a friend's to take back, and how a take-back is told.
 
@@ -223,8 +223,9 @@ The first 16 bytes are `areas.ts`'s save, byte for byte (the `engine` row checks
 
 - **Landmarks**: by key in lower case (`ggb`), the same fields without a place: owner, stage, cracks, hits, tended, rev, card. `touchMark` writes one (the door's crown).
 - **Cards the phone knows** (`Note`): id, id30, `out` (sent) or `in` (opened), the card's text (so a sent card can be sent again exactly), when, generation, page name, the card's own square, the sender's crew, when it was taken back (`taken`, 0 while it stands), and the card it answers. 192 sent and 64 opened are kept. `wornNow(save, note)` is the crew an opened card's squares wear now.
+- **Cards known** (`seen`): the id30 of every card this phone has sent or opened, with when it was first known, 1,024 kept (the newest first, every note's own always). A card whose note has been let go is still known by it, and never lands twice. A new card whose id30 is that of one known (about one in a million with the list full) is taken for it and not landed.
 - **The crew**: the player's, with when it was set. 0 until one is picked, dealt, or the phone sends its first card. Until then it paints as Rainbow (`crewOf`).
-- **The climbs**: the last 512 counted changes of a square's owner or stage (when in ms, where, owner and stage after). A climb's time is the clock's, or one past the climb before it where the clock hasn't moved on: so two climbs in one second, a clock put back, and a broken clock all keep the order things happened in. This is where a card's order comes from: `orderFrom(save, squares, crew)`. Once older climbs have been let go (`forgot`), the stages below a square's first kept climb count as long ago and go first. It is always an order a card can carry, and while nothing has been forgotten it is the true one.
+- **The climbs**: the last 512 counted changes of a square's owner or stage (when in ms, where, owner and stage after). A climb's time is the clock's, or one past the climb before it where the clock hasn't moved on: so two climbs in one second, a clock put back, and a broken clock all keep the order things happened in. This is where a card's order comes from: `orderFrom(save, squares, crew)`. What a square had before this save knew it (old paint, the save before this one: a record whose `rev` is 0) is noted as one climb at time 0 the first time the engine changes it, so its stages go first. Once older climbs have been let go (`forgot`), the stages below a square's first kept climb count as long ago and go first too. It is always an order a card can carry, and while nothing has been forgotten it is the true one.
 
 ### 5.3 The join
 
@@ -238,7 +239,7 @@ It has no order in it: a joined with b is b joined with a; three saves joined ei
 
 ### 5.4 As text, and where
 
-`saveText(save)` is the save as one text of six lines: `SBW2`; the squares (24 bytes each, by key, in base64: 32 characters a square, no padding); the landmarks; the notes; `[crew, when, forgot]`; the climbs (15 bytes, 20 characters each). The same save is always the same text. `parseSave` reads any text, never throws, and loses only what it can't read: one bad character costs the one square it is in.
+`saveText(save)` is the save as one text of seven lines: `SBW2`; the squares (24 bytes each, by key, in base64: 32 characters a square, no padding); the landmarks; the notes; `[crew, when, forgot]`; the climbs (15 bytes, 20 characters each); the cards known (9 bytes, 12 characters each). The same save is always the same text. `parseSave` reads any text, never throws, and loses only what it can't read: one bad character costs the one square it is in.
 
 - **M1**: one key a city in `localStorage`, `strugglebus.city.v2:<slug>` (`storageBackend`; `loadSave` reads it). A Storage that throws reads as empty and says the write failed. Something stored there that is no save is said (`lost` -1) and written over.
 - **The save before this** (`strugglebus.areas.v1:<slug>`, 16 bytes a square, written only under `?lift` and `?recess`): `fromAreasText` brings it across with `rev` 0, so anything newer stands over it; a square it can't read is left out and counted.
@@ -262,7 +263,7 @@ It has no order in it: a joined with b is b joined with a; three saves joined ei
 
 **The rules.**
 
-1. **A card lands once a phone.** It is remembered by its id. A card read with its order lost lands the same squares under the same id, so the whole card opened later is one the phone has seen.
+1. **A card lands once a phone.** It is remembered by its id, and by its id30 in the cards known long after its note is let go; and each square it wrote carries its id30. A card read with its order lost lands the same squares under the same id, so the whole card opened later is one the phone has seen.
 2. **What it lands is the sender's.** Every square the card names becomes: the card's crew (rule 4), the card's stage (held to what that ground can reach), no cracks, hits equal to the stage, tended at the card's minute (never later than now), `guest`, and the card's id30. **Whatever stood there**, the player's own higher square included. Nothing in the rule asks whose a square was.
 3. **Left alone** are only: a square nothing can be lifted on (water, off the map); a square where a god stands (stage 5); a square this very card has already been on.
 4. **The crew it wears.** The sender's. Where that is the player's own crew, the next crew round the wheel (`wornBy`), so there is always something to take back. And it stays so: when the player picks another crew (`setCrew`), or two tabs were dealt two crews, any card's square that would wear the player's own moves on round the wheel (`rewear`).
@@ -304,11 +305,11 @@ To change one reader, change both.
 
 ## 8. How it is used
 
-**M1, postcard v1 (task 7).** This type-checks against the files as they are.
+**M1, postcard v1 (task 7).**
 
 ```ts
-import { encode, cardUrl, cardMinute, captionFrom, parseLocation } from './link/link';
-import { loadSave, flush, openLink, noteSent, crewOf, lastSent, frameFrom, storageBackend, packSquare, squareIx, squareIz } from './link/save';
+import { encode, cardUrl, cardMinute, captionFrom, parseLocation, slugOf } from './link/link';
+import { loadSave, flush, openLink, noteSent, crewOf, frameFrom, storageBackend, squareIx, squareIz } from './link/save';
 
 const backend = storageBackend(localStorage, city.slug);
 let save = loadSave(backend).save;
@@ -328,8 +329,11 @@ if (written.ok) {
   const place = frame.pageOf(key) || 'ggb', url = cardUrl(location.origin, place, 0, written.text);
   noteSent(save, written, card, 0, place, Date.now());   // the settings sheet's stack is the notes with role 'out'; lastSent(save) is the newest
   save = flush(save, backend, Date.now()).save;
+  share(url);                                           // the host's: the share sheet, inside the tap
 }
 ```
+
+`city`, `hoods`, `areas`, `hasOldPaint`, `squareUnderBus`, `streetName`, `landing`'s use and `share` are the host's. With those declared, the block above type-checks word for word against the files as they are, under the repo's own `tsconfig.json` (strict, no unused names).
 
 The postmark in Pacific time is `new Date(cardSeconds(card.at) * 1000)` through `Intl.DateTimeFormat` with the city's `tz`.
 
@@ -337,7 +341,7 @@ The postmark in Pacific time is `new Date(cardSeconds(card.at) * 1000)` through 
 
 - The engine's `onChange` calls `touch(save, area, Date.now(), ground)`; a flip to the player's crew calls `noteTaken(save, key, was, Date.now())` with the record as it was.
 - A tile that loads calls `landTile(save, squares, frame)`; `ground(key)` is a loaded tile's anchor for a square, or null.
-- A card of squares: `squares` sorted by `iz` then `ix`, `order: orderFrom(save, squares, crewOf(save))`, and for a reply `answers: note.id30` of the card taken (`noteTaken`'s note).
+- A card of squares ("send a postcard of here"): `squares: squaresFor(save, key, crewOf(save))` (the player's own squares round `key`, 32 at most, nearest first, sorted as a card wants them; none where `key` isn't the player's), `order: orderFrom(save, squares, crewOf(save))`, and for a reply `answers: note.id30` of the card taken (`noteTaken`'s note).
 - The Flyby plays `landing.beats` (`{ i, ix, iz, stage }`, in order). `landing.landed` is one entry a square written: `i` its index on the card (the beats' `i`), `rec` its record, `was` what stood there, for the fall. Hold a landed square not ready (the engine's `last = +Infinity`, as `liftRules`' seed does) until its beats have shown.
 - The faction button calls `setCrew(save, crew, Date.now())` and redraws the squares it returns.
 - After a flush, `changedSquares(before, after)` is what another tab changed.
@@ -370,17 +374,17 @@ Each is built one way so the rows can run. Changing any of them changes one func
 | `tiles` | all 362,880 orders of nine tiles, at six places: one saved city each, and what the tiles did asked outright. 24,000 more plays with the card landing at any point and reloads in the middle. Two wrong rules caught |
 | `length` | a 17-square place's address: 163 characters as usually sent, 311 at its worst; the longest any card makes is 389 |
 | `golden` | 14 pinned texts, bit for bit, and `explain`'s words for four addresses |
-| `mangle` | 2,000 cards bent 23 ways, each read as the text stands and as a browser's URL parser hands it to a page (capitals, O for 0, a broken line, `%20`, soft breaks, a no-break space, words after, trackers before and after, `##`, `%23`, `%2523`, a `#` that holds no card, a bad escape beside the card): each still the same whole card |
+| `mangle` | 2,000 cards bent 24 ways, each read as the text stands and as a browser's URL parser hands it to a page (capitals, O for 0, a broken line, `%20`, soft breaks, a no-break space, a thin, a line or a wide space, words after, trackers before and after, `##`, `%23`, `%2523`, a `#` that holds no card, a bad escape beside the card): each still the same whole card |
 | `ladder` | 1,500 cards cut at every length (132,561 cuts): each reads as exactly what it still holds |
 | `damage` | 158,685 damaged cards: none read as other squares or another whole card; one to three neighbouring characters off the length characters always caught; none of the wider or length-character damage left a head reading as another place in this run |
 | `total` | 400,000 texts that are no honest card: none threw; every one that read whole is exactly the text its card is written as |
 | `refuse` | 52 cards that say what no card may, each refused for the right reason; 10 at the edge of what one may say written and read back |
 | `blocks`, `caption`, `path` | later builds' blocks, crews and kinds; 50,000 random captions; 30 addresses, `cardUrl`'s fallbacks, 20,000 page names, the deal and the wheel |
-| `speed` | 10 readers on 14 hostile megabytes each: the slowest 147 ms |
-| `stamp` | the loading page's reader agrees with `link.ts` on all 591,889 addresses the rows made, as text and as a page gets them |
-| `text`, `laws`, `clock` | 21,000 damaged saves, one bad character costing one square; 4,000 triples joined every way round; 18 broken clocks, and climbs that keep their order under all of them |
-| `records` | one record and one small save pinned to their bytes and text; the save's key and a card's minute 0 pinned; 12 kinds of nonsense record refused; the later record, landmark and note stands; the crown saved and read back |
-| `land` | 40,063 checks of rules 1 to 11, and the frame's squares and page names pinned |
+| `speed` | 10 readers on 14 hostile megabytes each: the slowest 195 ms |
+| `stamp` | the loading page's reader agrees with `link.ts` on all 615,897 addresses the rows made (20,000 damaged heads of its own among them, so it holds run alone), as text and as a page gets them |
+| `text`, `laws`, `clock` | 21,000 damaged saves, one bad character costing one square; 4,000 triples joined every way round; 18 broken clocks, climbs that keep their order under all of them, twenty seconds of taps that keep a square's `rev` with the clock, a record with a `rev` past 2100 refused |
+| `records` | 42 checks: one record and one small save pinned to their bytes and text; the save's key and a card's minute 0 pinned; 12 kinds of nonsense record refused; the later record, landmark and note stands, and the order a tie falls in is pinned; old paint on water makes no record; the cards known joined and held to their cap; the crown saved and read back |
+| `land` | 40,643 checks of rules 1 to 11, old paint first in a card's order, a card whose note was let go never landing again, a postcard of here, and the frame's squares and page names pinned |
 | `engine` | 400 games on the real `areas.ts`, hits four a second: the save's squares are what `Areas.encode` writes; the card's order is the true order in all 365 games that fit the kept climbs; the card lands on a friend's phone and the friend's own engine takes it back hit by hit, a same-crew friend included |
 | `tabs` | 300 runs of two tabs on one store: one save at the end, no later change lost, each flush naming exactly what the other tab changed; a newcomer with two cards in two tabs ends with one crew no card's square wears; a flush holds what it writes to the caps |
 | `last` | the page's reader of the last card sent agrees with `save.ts` on 5,000 saves |
@@ -405,9 +409,13 @@ They found 59 faults and their checkers ten more; every one was confirmed. None 
 - **The rows could not see 24 kinds of wrong code**: a card written that no reader would take, a record of crew 0 let through, TAKEN forgotten by a join, the save's key or a card's date moved. Each has a row now.
 - **Section 8 did not type-check**, and the host list missed that the page builds `./` addresses of its own. Both rewritten from the files.
 
+Then two more readers went through all 69, one by one, on the answering commit, each with a check of its own: 49 fixed, 7 fixed another way, 5 left and said here, 8 still there in part. Those 8 are answered in the commit after: every escaped space, not only the seven named; old paint's stages first in a card's order; a stored `rev` past 2100 refused; a square's `rev` kept with the clock under encores; the cards known kept by id30 past their notes; the order a tie falls in pinned; `squaresFor` for a postcard of here; and the `stamp` row's own damaged heads. Each of the six that had been a surviving change to the code was made again on the new code and is caught, by the row named for it, the `stamp` row run alone included.
+
 **Known limits, left as they are:**
 
-- **`rev` can run a few seconds ahead of the clock** under many changes in one second. Two tabs changing the same square inside those seconds: the tab with more changes stands. It needs two tabs of the game and a card landing in the same breath.
+- **Two changes of one square in one second** (rare: the engine allows one a square every five seconds, so it takes a card landing in the same second as a hit) step `rev` one past the clock. Two tabs doing that to the same square: the later by `rev` stands, and a tie falls by the record's own fields, the same way on every phone.
+- **A damaged store** can hold a record whose `rev` is in the future (up to 2100). That record beats honest changes from another tab until the clock passes it; this phone's own later changes still count on from it. A store left unreadable is written over (`flush` says so with `lost` -1).
+- **Past 1,024 cards known**, the oldest card's id30 is let go. Its link would land again only on squares that no longer carry it.
 - **The checks' promise stops at the length characters** (3.2).
 - **A card proves nothing** (section 9, call 7).
 
