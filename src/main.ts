@@ -14,7 +14,7 @@ import { CameraRig, looksAway, shotTip, turnedAway } from './game/CameraRig';
 import { Splatter, BLOOM_BOMB, BLOOM_HOSE, BLOOM_REPOP, type Blast, type SuperTag } from './game/Splat';
 import { pogoOn } from './world/pogo';
 import { crew } from './game/crew';
-import { CrewBus } from './game/crewBus';
+import { busBodyOf, CrewBus } from './game/crewBus';
 import { FACTION_RAINBOW, paintAsOf } from './game/factions';
 import { Aimer, tapOpts, type Shot } from './game/Aim';
 import { latLonToLocal } from './game/geo';
@@ -1555,9 +1555,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     }
     // (a lock life or Recess holds takes the tap: its next shot homes, Holds.tap)
     if (holds.tap()) return;
-    // (?swerve: with a rival's bus in front of the nose the tap is the shell, and goes for it. Not under a far shot's glint and ring: from about 4.5 km up the
-    // shell can't arrive inside its 5 s, and the tap went to it while the far shot showed, the far shots' review F5)
-    if (!aimer.planned?.far && rivals?.tap()) return;
+    // (?swerve: with a rival's bus in front of the nose the tap is the shell, and goes for it. In front is within the shell's reach along the slant
+    // (Rivals.inFront), so from high up, where the far shots show, no bus is: the tap went to a shell that could not arrive, the far shots' review F5)
+    if (rivals?.tap()) return;
     tapSplat();
   };
 
@@ -1835,6 +1835,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         barf: (x, z, o) => void splatter.barf(x, z, o.tag === undefined ? { ...o, tag: RIVAL_LOUD } : o), faction: () => splatter.faction, hue: () => splatter.hueNext, particles,
         kick: (k) => rig.kick(k), flash: () => pipeline.flash(0.5, 0.5, 5, 1, 1.6), pull: (m) => (rig.matchPull = m), kit: () => audio.voiceKit(), toast: (l, t) => controls.hud.toast(l, t),
         heroScale: () => rig.heroScale, arm: (t) => swerve.arm(t),
+        // (a hitter's colours drain back to the crew's row where the bus wears its crew: the first account's ask, 2026-11-13)
+        busBody: crewBus ? () => busBodyOf(crewBus.faction) : undefined,
       })
     : null;
   /** what the rivals show of a hit on the bus, for its crew's look (game/crewBus.ts) */
@@ -2838,6 +2840,8 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
         // (and the street's sky writes no table onto the flight's while it has the frame)
         if (live) live.held = true;
         controls.hud.setVisible(false);
+        // (?swerve: the rival crews' tags are the page's, and would stand on the glass over the whole flight)
+        rivals?.hide();
         controls.leftGround();
         audio.hushGround();
         perf.setVisible(false);

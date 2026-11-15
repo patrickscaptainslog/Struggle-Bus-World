@@ -145,6 +145,8 @@ export interface RecessHost {
   rig: { matchFov: number; matchPull: number; kick(k: number): void };
   /** the player's bus: its colours flood with a hitter's, and it rolls when it's flung (main.ts sets its pose each frame before the match's frame) */
   bus: BusModel;
+  /** the row the player's bus's body wears out of a flood: its crew's, where a page has it wear one (game/crewBus.ts). None: school-bus yellow, as built */
+  busBody?(): number;
   /** the shots' holds: the duel is a handler on them, its shots are theirs (game/Hold.ts) */
   holds: Holds;
   /** the steering thumb, -1 to 1: a hard turn in a shot's white dodges it */
@@ -508,10 +510,12 @@ export class RecessGame implements MoverAim {
         fl.shown = shown;
         const ra = this.h.bus.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute, span = this.busZmax - this.busZmin;
         const reach = this.busZmin + k * span, gone = this.busZmax - kd * span;
+        // (the drain leaves the row the bus wears: its crew's, where the page gives one, as the rival buses' flood does)
+        const home = this.h.busBody?.() ?? Ramp.BUS_YELLOW;
         for (let i = 0; i < this.busRamp.length; i++) {
           if (this.busRamp[i] !== Ramp.BUS_YELLOW) continue;
           const z = this.busZ[i];
-          ra.setX(i, z <= reach && z < gone ? fl.ramp : Ramp.BUS_YELLOW);
+          ra.setX(i, z <= reach && z < gone ? fl.ramp : home);
         }
         ra.needsUpdate = true;
       }

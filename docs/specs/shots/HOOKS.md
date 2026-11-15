@@ -267,7 +267,8 @@ What it leans on of yours:
 - **`Holds.fire`** for the shells, a rival's at another rival too (`shellBetween`). The player's (`belly` true, so the shot code spends the belly and coughs as it always does): 420 m/s over the bus's speed, 2.4 rad/s, 0.5 s white, `vel` the rival's, `onWhite` the rival's cue to try a skid. A rival's at the player: `from` its nose, `belly: false`, `whistle: true`, `holds.bus` and `holds.busVel`, 0.6 s white.
 - **`Splatter.barf`** for all the paint: a rival's own splats and its half of a ram's with `faction` and a quiet tag (`QUIET_RIVAL`, as a captain's `QUIET`); the head-on's rings with `inner` and `side`, a half each crew, and its crater with `jump: 2`; the player's paint where a soaked rival lands, with a tap's whole show. main.ts tags a blast the hook barfs with no tag `RIVAL_LOUD` (its show is a tap's, as before), so the floating block hears none of the rivals' blasts, whatever their faction (`LiftGame.fromRivals`, LIFT.md).
 - **`Flight.shove`** for the player's bus thrown by a hit (since `feat/handling`: it was `Flight.x` and `.z` written after the steps and `turbo.floor` raised under a long throw); a short throw's hop still writes `Flight.y`.
-- **The bus's mesh**: its `ramp` attribute rewritten for the flood (as Recess's did), its `root.quaternion` rolled after `main.ts` has posed it. The rivals' buses are `BusModel`s, three, made at the boot, each crew's colour put on by the same attribute.
+- **The bus's mesh**: its `ramp` attribute rewritten for the flood (as Recess's did), its `root.quaternion` rolled after `main.ts` has posed it. The rivals' buses are `BusModel`s, three, made at the boot, each crew's colour put on by the same attribute, from `FACTIONS[k].bus` (the one table).
+- **`busBody()`**, a hook the page may give (`main.ts` does where `crewBus` is): the row the player's bus wears out of a flood. The hitter's colours drain back to it, not to the literal yellow. With no hook it is yellow, as built. `recessBoot.ts` takes the same hook.
 - **`CameraRig.matchPull`** (the match's hook) for the head-on's wide view, `rig.kick`, `pipeline.flash`, `controls.hud.toast`, `audio.voiceKit()`.
 
 What it asks of `main.ts`, each marked `?swerve` where it stands:
@@ -282,6 +283,19 @@ What it asks of `main.ts`, each marked `?swerve` where it stands:
 | the frame | `rivals?.pre()` after `swerve?.pre`; `rivals?.frame(...)` after `recess?.frame`, told when the opening is over: they aren't out before it |
 
 `src/recess/tag.ts` is the match's HUD tag, moved out of `recessBoot.ts` so both wear it.
+
+### The five asks of 2026-11-13, answered (`feat/crewasks`, cut from `feat/handling` f9accb0, 2026-11-14)
+
+1. **The body rows** are read from `FACTIONS[k].bus` (`rivalsBoot.ts`'s `BODY`).
+2. **The drain goes back to the crew's row** (`busBody()`, above). `crewBus.ts` is not touched: it still follows the flood by its timing, and still works, because with the drain to its own row it finds nothing to write (the smoke's row: `crewBusWroteDuringIt: 0`). To let it stop following: `rivals.busFlood` (`{ on, ramp, reach, gone }`, read after `rivals.frame`) says what of the bus is under a hitter's colours this frame (parts with z <= reach and z < gone show `ramp`), so `pre()`, `RivalsSeen` and the counting of `flung` can go, and a Rainbow hitter's yellow needs no guess. One thing stays yellow on purpose until then: when the crew changed within 0.6 s before the hit, or at any time during the flood, the drain goes to the literal yellow as before (`toYellow`), because `crewBus.ts` takes back what reads yellow and leaves any other row alone, and with its switch still flooding in a part given the new row early would be left out of its books for good (the next switch would skip it). When `crewBus.ts` reads `busFlood`, say so and `toYellow` goes.
+3. **`recessBoot.ts`** drains to `busBody()` too. `main.ts` gives Recess no hook yet: `crewBus` is made only without `?recess` (`crew.on && !recessMod`), and that line is yours.
+4. **The flight's own bus wears the crew** (`src/sky/moonrun.ts`): your reverted 4343310, taken as it was. Only type-checked here: nobody has seen it above 15 km.
+5. **In front is along the slant** (`Rivals.inFront`, and a rival's own eye the same: `ahead`, and its two shots at the player): a bus 600 m over another is not in front of it. `main.ts`'s stop-gap is gone (`!aimer.planned?.far &&`). Left for you to judge on the laptop: low enough for both to show (a far Comet's glint and a rival ringed within 400 m), the tap is the shell's again, as before the stop-gap. Your `swervefar` row has not run here.
+
+Two more in the rivals' own files, from the review of the one link (`docs/reviews`, 2026-11-14):
+
+- **The tags went on standing over the flight.** They are the page's own (DOM), and only the street's frame showed or hid them, so past 15 km on `?show` whatever tags the last street frame had stayed on the glass. `RivalsGame.hide()`, called from `main.ts`'s `leave()` beside the HUD's; and a tag's reach, and the metres it reads, are along the slant now (a bus 5 km under the player read "1200M").
+- **The grey block on a rival's roof** (your question of 2026-11-13): the valve's lid, standing open because a rival was drawn with a full belly (`fullness` 1: `BusModel` pops the lid at ready). Not meant. A rival is drawn at 0.97 now: the band lit, the lid shut.
 
 What a proper build would want of you: a bus of its own for each crew; the ram's and the head-on's sounds (`src/rivals/rivalsSfx.ts` are stand-ins; the horns after a head-on are Parade's honk); a hit-stop the flight's own fx can ask for, where this scales the frame's step; the head-on's ring drawn as `&boom`'s is.
 

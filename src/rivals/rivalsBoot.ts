@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LOOKAHEAD, type Kit } from '../audio/dsp';
 import { BusModel, type BusPose } from '../bus/BusModel';
+import { FACTIONS } from '../game/factions';
 import type { Flight } from '../game/Flight';
 import type { Holds } from '../game/Hold';
 import type { BarfOpts } from '../game/Splat';
@@ -36,7 +37,8 @@ import { shellAt, shellBack, shellBetween } from './shell';
 /** The tag a rival's own blast carries: main.ts's impact plays no flash, kick, sign or sound for it, as for a captain's. */
 export const QUIET_RIVAL = { rivals: 'quiet' } as const;
 
-const BODY: Record<number, number> = { 1: Ramp.BUS_YELLOW, 2: Ramp.TEAL, 3: Ramp.MOSS, 4: Ramp.MAGENTA, 5: Ramp.CRIMSON };
+/** each crew's bus body: the one table's rows (game/factions.ts), which the player's bus wears too where it wears its crew (game/crewBus.ts) */
+const BODY: Record<number, number> = Object.fromEntries(FACTIONS.map((f) => [f.id, Ramp[f.bus]]));
 const NAME: Record<number, string> = { 1: 'RAINBOW', 2: 'ATLANTIS', 3: 'ELDERWOOD', 4: 'HYPERGLOW', 5: 'INFERNO' };
 const WORD = ['BUMP!', 'SMASH!', 'WRECK!', 'HEAD-ON!'];
 
@@ -74,6 +76,9 @@ export interface RivalsDeps {
   flight: Flight;
   /** the player's bus: its colours flood with a hitter's, and it rolls when it's flung */
   bus: BusModel;
+  /** the row the player's bus's body wears out of a flood, now: its crew's where it wears its crew (game/crewBus.ts). The hitter's colours drain back to it.
+   *  None: school-bus yellow, as built */
+  busBody?(): number;
   holds: Holds;
   /** the nose off the bus's way (rad): ?swerve's skid */
   slip(): number;
@@ -145,7 +150,14 @@ export class RivalsGame {
   private readonly busZ: Float32Array;
   private busZmin = Infinity;
   private busZmax = -Infinity;
-  private flood: { at: number; ramp: number; drainAt: number; shown: number } | null = null;
+  /** ...the hitter's colours on it, and whether they drain back to yellow: the crew changed as the hit landed or since (homeAt), and game/crewBus.ts,
+   *  which may still be flooding the new crew in, takes back what reads yellow and leaves any other row alone */
+  private flood: { at: number; ramp: number; drainAt: number; shown: number; home: number; toYellow: boolean } | null = null;
+  private homeWas = NaN;
+  private homeAt = -Infinity;
+  /** What of the player's bus is under a hitter's colours this frame, for whoever else writes its body (game/crewBus.ts): its parts with z <= reach and
+   *  z < gone show `ramp` (the bus's own z: its nose is -z). on false: none */
+  readonly busFlood = { on: false, ramp: 0, reach: -Infinity, gone: Infinity };
   /** the player flung: how far along (ux, uz), over how long, with how many rolls, how high */
   private readonly hurt = { on: false, t: 0, air: 1, far: 0, ux: 0, uz: 0, e: 0, rolls: 1, apex: 0, y0: 0 };
   private wobble = 0;
@@ -447,30 +459,44 @@ export class RivalsGame {
     H.apex = far > 90 ? Math.max(top - f.y, Math.min(260, far * 0.12)) : 0;
     // (the throw itself is the flight's, through its own floors, ending inside the map: Flight.shove, the first account's, for your review)
     f.shove(far, ux, uz, air, w.bounds);
-    this.flood = { at: this.now, ramp: BODY[faction] ?? Ramp.GLOW_WHITE, drainAt: Infinity, shown: -1 };
+    // (a crew switch floods in over crewBus's half second: one that near, and the body isn't one row yet)
+    const home = this.h.busBody?.() ?? Ramp.BUS_YELLOW;
+    this.flood = { at: this.now, ramp: BODY[faction] ?? Ramp.GLOW_WHITE, drainAt: Infinity, shown: -1, home, toYellow: this.now - this.homeAt < 0.6 };
     this.h.kick(1.4);
     this.count('flung');
   }
 
   /** The flood's colours on the player's bus, the throw and its roll, a bump's wobble: after main.ts has posed the bus this frame. */
   private hitFx(dt: number, simTime: number): void {
-    const S = rivalScreen, f = this.h.flight, root = this.h.bus.root, H = this.hurt;
+    const S = rivalScreen, f = this.h.flight, root = this.h.bus.root, H = this.hurt, B = this.busFlood;
+    // (the row the bus wears out of a flood, and when it last changed: a crew switch)
+    const home = this.h.busBody?.() ?? Ramp.BUS_YELLOW;
+    if (home !== this.homeWas) {
+      this.homeWas = home;
+      this.homeAt = simTime;
+    }
     const fl = this.flood;
+    B.on = false;
     if (fl) {
       const k = Math.min(1, (simTime - fl.at) / S.flood), kd = Math.max(0, Math.min(1, (simTime - fl.drainAt) / S.drain));
-      // (front to back: the bus's nose is its -z; the drain leaves from its back. Redone only while it moves, in 30 steps)
+      const span = this.busZmax - this.busZmin, reach = this.busZmin + k * span, gone = this.busZmax - kd * span;
+      if (home !== fl.home) fl.toYellow = true;
+      // (front to back: the bus's nose is its -z; the drain leaves from its back, to the row the bus wears: its crew's. Redone only while it moves, in 30 steps)
       const shown = Math.round(k * 30) + Math.round(kd * 30) * 31;
       if (shown !== fl.shown) {
         fl.shown = shown;
-        const ra = this.h.bus.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute, span = this.busZmax - this.busZmin;
-        const reach = this.busZmin + k * span, gone = this.busZmax - kd * span;
+        const ra = this.h.bus.mesh.geometry.getAttribute('ramp') as THREE.BufferAttribute, back = fl.toYellow ? Ramp.BUS_YELLOW : home;
         for (let i = 0; i < this.busRamp.length; i++) {
           if (this.busRamp[i] !== Ramp.BUS_YELLOW) continue;
           const z = this.busZ[i];
-          ra.setX(i, z <= reach && z < gone ? fl.ramp : Ramp.BUS_YELLOW);
+          ra.setX(i, z <= reach && z < gone ? fl.ramp : back);
         }
         ra.needsUpdate = true;
       }
+      B.on = kd < 1;
+      B.ramp = fl.ramp;
+      B.reach = reach;
+      B.gone = gone;
       if (kd >= 1) this.flood = null;
     }
     let roll = 0;
@@ -493,6 +519,12 @@ export class RivalsGame {
   }
 
   // ---------------------------------------------------------------- drawing
+
+  /** The street's frame stops (the sky's flight has the bus: main.ts's leave): the tags are the page's own, not the scene's, and would stand where they
+   *  were over the whole flight. They come back with the street's next frame. */
+  hide(): void {
+    for (const t of this.tags.values()) t.hide();
+  }
 
   private slotOf(r: Rival): Slot | null {
     for (const s of this.slots) if (s.rival === r) return s;
@@ -519,7 +551,8 @@ export class RivalsGame {
         tag?.hide();
         continue;
       }
-      const d = Math.hypot(r.x - f.x, r.z - f.z);
+      // (how far it is, along the slant: a bus kilometres under the player's is no nearer for being under it, and wears no tag reading a few hundred metres)
+      const d = Math.hypot(r.x - f.x, r.z - f.z, r.y - f.y);
       if (d < S.drawFar) {
         let k = DRAWN - 1;
         if (!near[k] || d < nearD[k]) {
@@ -589,7 +622,9 @@ export class RivalsGame {
       p.speed = r.speed;
       p.eye = flung ? 1 : r.state === RState.Hunt ? 0.35 : 0.8;
       p.wheeze = flung ? 0.6 : 0;
-      p.fullness = r.soaked ? 0 : 1;
+      // (a belly just short of ready: the band lit, and the valve's lid shut. Full, the lid stands open, a grey slab on every rival's roof: the first account's
+    // question on its stills, 2026-11-13)
+    p.fullness = r.soaked ? 0 : 0.97;
       s.arm = Math.max(0, s.arm - dt);
       p.mouth = s.arm > 0 ? 0.13 : 0;
       s.bus.update(dt, simTime, p);

@@ -4,7 +4,9 @@
 // nearest drawn and tagged, none of the player's crew, and after a minute of the player flying on they have each gone their own way; one put in front takes
 // the shell on a tap, is thrown and soaked, and the player's paint lands where it comes down; one put across the nose in Express is smashed (the word, the
 // beat, the throw); the player's bus hit is flooded, thrown and rolled, and flies on; one put nose to nose in Jet is the head-on (time slows, the white beat,
-// the rings); &norivals has none of them; and nothing compiled on the way. Frames land in `out`. Prints a row each, exits 1 on a failure.
+// the rings); &norivals has none of them; nothing compiled on the way; and on a page with the faction button a hit's colours drain back to the row the bus
+// wears for its crew, a Rainbow hitter's yellow shows, and a crew switched in the middle of a flood is worn when it has gone. Frames land in `out`. Prints
+// a row each, exits 1 on a failure.
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { browserOptions } from '../browser.mjs';
@@ -40,7 +42,7 @@ async function open(q) {
       const g = window.__game, f = g.flight, R = window.__rivals, t = g.controls.turbo;
       return {
         x: f.x, y: f.y, z: f.z, heading: f.heading, speed: f.speed, full: f.fullness, breathing: f.barfT >= 0, gear: t.gear + t.level,
-        rivals: R ? { live: R.sim.live, counts: { ...R.counts }, out: R.out, rings: R.rings.length, slow: !!R.slowWith, list: R.sim.list.filter((r) => r.live).map((r) => ({ id: r.id, faction: r.faction, state: r.state, act: r.act, soaked: r.soaked, x: Math.round(r.x), z: Math.round(r.z), d: Math.round(Math.hypot(r.x - f.x, r.z - f.z)), y: Math.round(r.y) })) } : null,
+        rivals: R ? { live: R.sim.live, counts: { ...R.counts }, out: R.out, rings: R.rings.length, slow: !!R.slowWith, list: R.sim.list.filter((r) => r.live).map((r) => ({ id: r.id, faction: r.faction, state: r.state, act: r.act, soaked: r.soaked, x: Math.round(r.x), z: Math.round(r.z), d: Math.round(Math.hypot(r.x - f.x, r.z - f.z, r.y - f.y)), y: Math.round(r.y) })) } : null,
         drawn: g.scene.children.filter((o) => /^Rival\d/.test(o.name) && o.visible).length, tags: [...document.querySelectorAll('[data-hud="recess-tag"]')].filter((e) => e.style.display !== 'none').length,
         programs: g.pipeline?.renderer?.info?.programs?.length ?? null,
       };
@@ -81,6 +83,12 @@ try {
   await P.page.screenshot({ path: `${OUT}/in.png` });
   const within = (list, m) => list.filter((r) => r.d < m).length;
   row(a.rivals.live === 20 && a.drawn >= 1 && a.drawn <= 4 && a.tags >= 1 && a.tags === within(a.rivals.list, 2400 * (1 + a.speed / 300)) && !a.rivals.list.some((r) => r.faction === 1) && new Set(a.rivals.list.map((r) => r.faction)).size === 4, 'the city\'s buses are out', { live: a.rivals.live, drawn: a.drawn, tagged: a.tags, within1km: within(a.rivals.list, 1000), within2400m: within(a.rivals.list, 2400), nearestM: Math.min(...a.rivals.list.map((r) => r.d)), crews: [...new Set(a.rivals.list.map((r) => r.faction))].sort() });
+  // ---- the tags are the page's own: they go when the street's frame stops (the sky's flight takes the bus, main.ts's leave), and are back with its next
+  await P.page.evaluate(() => window.__rivals.hide());
+  const hidden = await P.page.evaluate(() => [...document.querySelectorAll('[data-hud="recess-tag"]')].filter((e) => e.style.display !== 'none').length);
+  await P.frames(2);
+  const back = await P.read();
+  row(hidden === 0 && back.tags >= 1, 'the tags, the street let go', { showingAfterHide: hidden, backWithTheNextFrame: back.tags });
   // ---- a minute of the player flying on, straight, at Express: they have gone their own ways, not the player's. (Their brain stepped by itself, the page's
   // own, with the player's bus as it would be: a minute of frames here is a quarter of an hour.)
   const b = await P.page.evaluate(() => {
@@ -194,6 +202,57 @@ try {
   const end = await P.read();
   row(end.programs === p0 && P.errors.length === 0, 'nothing compiled', { programs: [p0, end.programs], errors: P.errors.slice(0, 4), counts: end.rivals.counts });
   await P.ctx.close();
+  // ---- a bus that wears its crew (the faction button's page), hit: the hitter's colours drain back to the crew's row, not to yellow
+  {
+    const C = await open(`swerve&crew&${Q}`);
+    await C.frames(20);
+    /** the body's parts (built yellow) by their row now: { row: count }, and the nose's; crewBus's writes; the flood the rivals show */
+    const body = () =>
+      C.page.evaluate(() => {
+        const R = window.__rivals, ra = R.h.bus.mesh.geometry.getAttribute('ramp'), pa = R.h.bus.mesh.geometry.getAttribute('position');
+        if (!window.__body) window.__body = Array.from({ length: ra.count }, (_, i) => i).filter((i) => ra.getX(i) === 14);
+        const rows = {};
+        let nose = -1, z = Infinity;
+        for (const i of window.__body) {
+          rows[ra.getX(i)] = (rows[ra.getX(i)] ?? 0) + 1;
+          if (pa.getZ(i) < z) (z = pa.getZ(i)), (nose = ra.getX(i));
+        }
+        return { rows, nose, parts: window.__body.length, writes: window.__game.crewBus?.qa().writes ?? -1, flood: { ...R.busFlood }, out: R.out };
+      });
+    const only = (b, row) => b.rows[row] === b.parts;
+    const b0 = await body();
+    // (Atlantis: TEAL 26, at once; and a second flown before the hit, so the hit finds the crew settled: one within 0.6 s of a switch drains to yellow, as built)
+    await C.page.evaluate(() => window.__game.crewBus.set(2, true));
+    await C.frames(30);
+    const b1 = await body();
+    // (hit by Inferno, CRIMSON 30: the flood from the nose, the throw, the drain)
+    await C.page.evaluate(() => window.__rivals.hurtMe(1, 1, 0, 170, 5));
+    await C.frames(12);
+    const b2 = await body();
+    await C.frames(110);
+    const b3 = await body();
+    // (hit by Rainbow: its yellow shows on the nose, and goes)
+    await C.page.evaluate(() => window.__rivals.hurtMe(1, 1, 0, 170, 1));
+    await C.frames(12);
+    const b4 = await body();
+    await C.frames(110);
+    const b5 = await body();
+    // (the crew switched in the middle of a flood, to the Elderwood, MOSS 28: its row when the flood has gone; and the next switch, Hyperglow's, takes every part)
+    await C.page.evaluate(() => window.__rivals.hurtMe(1, 1, 0, 170, 5));
+    await C.frames(12);
+    await C.page.evaluate(() => window.__game.crewBus.set(3));
+    await C.frames(110);
+    const b6 = await body();
+    const magenta = await C.page.evaluate(() => (window.__game.crewBus.set(4), window.__game.crewBus.qa().ramp));
+    await C.frames(30);
+    const b7 = await body();
+    row(
+      only(b0, 14) && only(b1, 26) && b2.nose === 30 && b2.flood.on && b2.out && only(b3, 26) && !b3.flood.on && b3.writes === b1.writes && b4.nose === 14 && only(b5, 26) && only(b6, 28) && only(b7, magenta) && C.errors.length === 0,
+      'the flood, a crew worn',
+      { parts: b0.parts, yellowAtBoot: only(b0, 14), tealWorn: only(b1, 26), floodedCrimsonAtTheNose: b2.nose === 30, tealAfterIt: only(b3, 26), crewBusWroteDuringIt: b3.writes - b1.writes, aRainbowHittersYellowShows: b4.nose === 14, tealAfterThat: only(b5, 26), switchedMidFloodToMoss: only(b6, 28), andTheNextSwitchTakesEveryPart: only(b7, magenta), errors: C.errors.slice(0, 3) },
+    );
+    await C.ctx.close();
+  }
 } finally {
   await browser.close();
 }

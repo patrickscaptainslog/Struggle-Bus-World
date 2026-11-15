@@ -7,7 +7,8 @@
 //            more than one gear and played; how their time splits; how far apart they are
 //   met      a player painting in one place for ten minutes: how long before one of them is within 400 m, how often one is within a kilometre, and within
 //            the tags' reach; and the same for a player who paints nothing. Printed: it's a city of twenty, not a guard of three
-//   front    what a tap goes for: the rival nearest the nose's line within the cone and the reach, nobody outside them, never the player's own crew
+//   front    what a tap goes for: the rival nearest the nose's line within the cone and the reach, nobody outside them, never the player's own crew; the
+//            reach along the slant, for the player's tap and for a rival's eye alike: a bus far over another is not in front of it
 //   ram      two buses driven at each other every way, at closing speeds from 40 to 1,800 m/s, at 30 and at 60 frames a second: every one touches (none passes
 //            through the other), the tier goes by the closing speed alone, the one struck in its side or tail takes all of it and nose to nose both do
 //   fling    a bus that takes it flies 1.5 s of the closing speed, 1.5 km at the most, and comes down
@@ -161,7 +162,26 @@ for (const paints of [true, false]) {
   // (one of the player's own crew, dead ahead: a tap is a splat)
   put(0, 0, 150, RState.Roam, 1);
   const pick5 = R.inFront(me);
-  row(pick1 === b && pick2 === null && pick3 === null && pick4 === d && pick5 === null, 'front', { nearestTheLine: pick1 === b, outsideConeAndReach: pick2 === null, aFlungOne: pick3 === null, byTheNoseInASkid: pick4 === d, itsOwnCrew: pick5 === null });
+  clear();
+  // (the reach is the shell's, along the slant: 200 m ahead by the map and 600 m under the bus is out of it; 300 m under it, in)
+  const under = put(0, 0, 200);
+  const pick6 = R.inFront({ ...me, y: 630 }), pick7 = R.inFront({ ...me, y: 330 });
+  // (and a rival's own eye, the same: the player 150 m ahead of its nose by the map, level with it, is in front of it and gets its honk; 2 km over it, nobody is)
+  const honks = (y: number): number => {
+    const count = T.count, mischief = T.mischief;
+    T.count = 0;
+    T.mischief = 1;
+    const R2 = new Rivals(5), r = R2.list[0];
+    Object.assign(r, { live: true, faction: 2, bold: 1, state: RState.Roam, act: Act.Travel, tripGear: 0, x: 0, z: 0, y: 30, heading: 0, speed: T.speeds[0], tx: 0, tz: -1e7, grudge: false, ramIn: 1e9, mischiefIn: 0, shotIn: 1e9 });
+    let n = 0;
+    R2.onEvent = (e) => void (e === 'honk' && n++);
+    for (let k = 0; k < 10 * 30; k++) R2.step(1 / 30, { x: r.x, y, z: r.z - 150, heading: r.heading, nose: r.heading, speed: r.speed, faction: 1, out: false }, flat);
+    T.count = count;
+    T.mischief = mischief;
+    return n;
+  };
+  const level = honks(30), over = honks(2030);
+  row(pick1 === b && pick2 === null && pick3 === null && pick4 === d && pick5 === null && pick6 === null && pick7 === under && level > 0 && over === 0, 'front', { nearestTheLine: pick1 === b, outsideConeAndReach: pick2 === null, aFlungOne: pick3 === null, byTheNoseInASkid: pick4 === d, itsOwnCrew: pick5 === null, farUnderTheBus: pick6 === null, underItInReach: pick7 === under, honksAtAPlayerLevelWithIt: level, andOneFarOverIt: over });
 }
 
 // ---------------------------------------------------------------- the ram

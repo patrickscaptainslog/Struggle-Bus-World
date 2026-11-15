@@ -333,7 +333,8 @@ export class Rivals {
     let best: Rival | null = null, score = Infinity;
     for (const r of this.list) {
       if (!r.live || r.state === RState.Flung || r.faction === me.faction) continue;
-      const dx = r.x - me.x, dz = r.z - me.z, d = Math.hypot(dx, dz);
+      // (the reach is the shell's, so along the slant: from high up a bus under the nose is on its line by the map and kilometres out of it)
+      const dx = r.x - me.x, dz = r.z - me.z, d = Math.hypot(dx, dz, r.y - me.y);
       if (d > T.reach || d < 1) continue;
       const off = Math.abs(wrap(Math.atan2(dx, -dz) - me.nose));
       if (off > cone) continue;
@@ -653,12 +654,13 @@ export class Rivals {
   private ahead(r: Rival, me: Me): number {
     const T = rivalTune, cone = T.cone * DEG;
     let best = -2, score = Infinity;
-    const near = Math.hypot(me.x - r.x, me.z - r.z);
-    if (!me.out && me.faction !== r.faction && near < T.reach && near > 1 && !this.hunter) {
+    const near = Math.hypot(me.x - r.x, me.z - r.z), slant = Math.hypot(near, me.y - r.y);
+    // (the player by the slant, as it has them: a bus far overhead is nobody's to shoot at)
+    if (!me.out && me.faction !== r.faction && slant < T.reach && near > 1 && !this.hunter) {
       const off = Math.abs(wrap(Math.atan2(me.x - r.x, -(me.z - r.z)) - r.heading));
       if (off < cone) {
         best = -1;
-        score = off / cone + (0.5 * near) / T.reach;
+        score = off / cone + (0.5 * slant) / T.reach;
       }
     }
     // (between two of them, only where the player would see it)
@@ -682,11 +684,13 @@ export class Rivals {
   private drive(r: Rival, dt: number, me: Me, world: RivalWorld): void {
     const T = rivalTune;
     const dxm = me.x - r.x, dzm = me.z - r.z, dm = Math.hypot(dxm, dzm), toMe = Math.atan2(dxm, -dzm);
+    /** the player in a shell's reach: along the slant */
+    const inReach = Math.hypot(dm, me.y - r.y) < T.reach;
     let want = r.heading, speed = T.speeds[0], yawPlay = NaN;
     if (r.state === RState.Honk && r.t >= T.honk) {
       if (r.oneShot) {
         // (its one shot of mischief, if the player is still in front of it; then back to what it was about)
-        if (!me.out && dm < T.reach && Math.abs(wrap(toMe - r.heading)) < T.cone * DEG) this.onEvent?.('shell', r);
+        if (!me.out && inReach && Math.abs(wrap(toMe - r.heading)) < T.cone * DEG) this.onEvent?.('shell', r);
         this.hunter = null;
         this.home(r);
       } else this.to(r, RState.Hunt);
@@ -703,7 +707,7 @@ export class Rivals {
       want = Math.atan2(me.x + Math.sin(me.heading) * me.speed * lead - r.x, -(me.z - Math.cos(me.heading) * me.speed * lead - r.z));
       speed = clamp(me.speed * (dm > 350 ? 1.35 : 0.95), T.speeds[0], T.speeds[3]);
       r.shotIn -= dt;
-      if (r.shotIn <= 0 && !me.out && dm < T.reach && Math.abs(wrap(toMe - r.heading)) < T.cone * DEG) {
+      if (r.shotIn <= 0 && !me.out && inReach && Math.abs(wrap(toMe - r.heading)) < T.cone * DEG) {
         r.shotIn = T.shotEvery;
         this.onEvent?.('shell', r);
       }

@@ -29,6 +29,7 @@ import { SWING, TripView } from './TripView';
 import { EarthLanding, type StreetWorld } from './EarthLanding';
 import { earthResume, SWAP_FRAME, SWAP_KEY } from './flag';
 import { crew } from '../game/crew';
+import { CrewBus } from '../game/crewBus';
 import { lookOf } from '../render/factionLook';
 export { laterStreet } from './EarthLanding';
 import { geodeticToFix, sphereToFix } from './WorldFrame';
@@ -344,6 +345,15 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
   crew.init(new URLSearchParams(location.search));
   if (crew.on) crewFaction(crew.faction);
   crew.listen(crewFaction);
+  // (and the flight's bus wears the crew, as the street's does: game/crewBus.ts. Under the street, ?earth and ?moonland, the street's chimes for a switch)
+  const crewBus = crew.on ? new CrewBus(bus) : null;
+  if (crewBus) {
+    crewBus.set(crew.faction, true);
+    crew.listen((f) => {
+      crewBus.set(f);
+      if (!land) breath.audio?.superReady();
+    });
+  }
   if (landing) landing.big = (s) => breath.lowStroke(s);
   const names = trip ? new MoonNames() : null;
   if (names) scene.add(names.object);
@@ -636,6 +646,7 @@ export async function bootMoonrun({ pipeline, scene, warm, land, earth, clock: p
     if (landing?.near) landing.busLight(globals.uLight.value, config.light, busTune, tripTune.busSunSoft);
     breath.pose(busPose, dt);
     bus.update(dt, time, busPose);
+    crewBus?.frame(time);
     if (breath.rear > 0) bus.root.quaternion.multiply(rearQ.setFromAxisAngle(pitchAxis, breath.rear));
     if (landing?.near) landing.snap(camera, bus.root);
     earthLanding?.ease(camera, bus.root, real);
