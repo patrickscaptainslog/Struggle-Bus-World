@@ -16,6 +16,8 @@
 //  (9) a downtown record (the bus 60 m up among the Financial District's towers): after the fog the bus is over the towers, P projects as in (2)
 // (10) a record on the Golden Gate's deck: no start, why "bridge"  (11) no record: the skip tap at 0.5 s puts the bus past openingClimbAfter in one
 //      frame, the gears free within 1 s; the regions in over the next 2 s are printed (not a pass line)
+// (on a build with the door, docs/specs/sf/DOOR.md, "the Golden Gate" below is the door, (1)'s tap is onto houses the page sets the bus over, (11) asks that the
+// door's tap paints with no skip, and (5) holds frame 1 to (1)'s, not to the ref's old start)
 // (12) the record's building's paint gone from the store: the Golden Gate   (13) localStorage throwing on getItem, then on setItem: the first visit's
 //      path, no page error, nothing stored   (14) ?recess and ?swerve with a good record: no start
 // --budget: (9)'s record, and a Marina record (a tap at 37.8005, -122.4380, its own height), each a reload into the return start: every frame from the
@@ -40,6 +42,11 @@ mkdirSync(out, { recursive: true });
 const T = '&t=2026-11-07T00:22:00Z&rate=0';
 const SEEN = 'strugglebus.opening.v1';
 const CLIMB_AFTER = 230; // config.camera.openingClimbAfter
+/** the build has the door (set at (1)): a visit with no return start begins there, not at the old Golden Gate start with its gate */
+let DOOR = false;
+const START = () => (DOOR ? 'the door' : 'the Golden Gate');
+/** a load's first frame is the start a visit with no return start gets: the door's (no gate), else the Golden Gate's gate */
+const start0 = (L) => (DOOR ? L.first.door === true && !L.first.gate : L.first.gate);
 
 const fails = [];
 const R = {};
@@ -69,7 +76,7 @@ const TRACE = () => {
       // (from the first drawn frame: html.drawn, set at its end (index.html's loader); a build without the loader, from its clock's first move)
       const tick = () => {
         if (window.__trace.length < 4000 && (document.documentElement.classList.contains('drawn') || (!document.getElementById('sb-load') && v.clock() > 0)))
-          window.__trace.push({ t: performance.now(), c: v.clock(), x: f.x, y: f.y, z: f.z, h: f.heading, hold: v.returnHold?.() ?? false, gate: v.openingBridge ? v.openingBridge() !== null : v.controls.gearsLocked, locked: v.controls.gearsLocked, opening: v.controls.opening, shot: v.lastShot()?.t ?? null, roof: v.city.obstacleAt(f.x, f.z), regions: v.city.loadedRegionCount(), d: v.perf?.calls ?? null, tr: v.perf?.tris ?? null, w: v.city.firstsWaiting ?? null, inside: v.city.obstacleAt(v.camera.position.x, v.camera.position.z) - v.camera.position.y });
+          window.__trace.push({ t: performance.now(), c: v.clock(), x: f.x, y: f.y, z: f.z, h: f.heading, hold: v.returnHold?.() ?? false, gate: v.openingBridge ? v.openingBridge() !== null : v.controls.gearsLocked, door: v.crown ? v.crown().door : false, locked: v.controls.gearsLocked, opening: v.controls.opening, shot: v.lastShot()?.t ?? null, roof: v.city.obstacleAt(f.x, f.z), regions: v.city.loadedRegionCount(), d: v.perf?.calls ?? null, tr: v.perf?.tris ?? null, w: v.city.firstsWaiting ?? null, inside: v.city.obstacleAt(v.camera.position.x, v.camera.position.z) - v.camera.position.y });
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -273,9 +280,25 @@ if (budget) {
   await throttle(cdp, true);
   let L = await load(page, Q);
   await page.evaluate(HELPERS);
-  ok(L.first.gate && !L.start.pose && L.start.why === 'first visit', `(1) a first visit gets the Golden Gate (gate ${L.first.gate}, ${L.start.why})`);
+  // (a build with the door, docs/specs/sf/DOOR.md: a visit with no return start is the door's, beside the Golden Gate's deck with no gate, not the old Golden Gate start)
+  DOOR = await page.evaluate(() => typeof window.__game.crown === 'function');
+  R.firstBoot = L.boot;
+  ok(start0(L) && !L.start.pose && L.start.why === 'first visit', `(1) a first visit gets ${START()} (gate ${L.first.gate}, door ${L.first.door}, ${L.start.why})`);
   await until(page, () => !window.__game.controls.gearsLocked && !window.__game.controls.opening, 300);
   await throttle(cdp, false);
+  if (DOOR) {
+    // (the door's taps paint the bridge, which keeps no record (a landmark has no building id): the bus is set over houses by the page, as (3)'s ?lat pose,
+    // and the tap below is a real one onto a building there)
+    await page.evaluate(() => {
+      const f = window.__game.flight, [x, z] = window.__ll(37.7762, -122.438);
+      f.x = x;
+      f.z = z;
+      f.heading = Math.PI / 2;
+      f.speed = f.glideSpeed = 20;
+      f.holdAt(70);
+    });
+    await page.waitForFunction(() => window.__game.city.loadedRegionCount() > 0 && !window.__game.city.busy, null, { timeout: 60000, polling: 100 }).catch(() => {});
+  }
   await page.evaluate(() => {
     const p = window.__game.city.paint, was = p.afterSave;
     window.__saves = [];
@@ -369,7 +392,7 @@ if (budget) {
     outside[4] = good[4] + 0.5; // ~55 km north
     await setRec(page, outside);
     L = await load(page, Q);
-    ok(!L.start.pose && L.start.why === 'outside' && L.first.gate, `(6) a record outside the bounds: the Golden Gate (${L.start.why})`);
+    ok(!L.start.pose && L.start.why === 'outside' && start0(L), `(6) a record outside the bounds: ${START()} (${L.start.why})`);
     await page.evaluate(HELPERS);
     const deck = await page.evaluate(() => {
       const g = window.__game, ggb = g.city.manifest.landmarks.find((l) => l.kind === 'ggb');
@@ -392,7 +415,7 @@ if (budget) {
     await setRec(page, onDeck);
     L = await load(page, Q);
     R.deck = { record: onDeck, start: L.start, m: deck.m };
-    ok(!L.start.pose && L.start.why === 'bridge' && L.first.gate, `(10) a record on the Golden Gate's deck: no start, why "bridge" (${L.start.why}), the Golden Gate (${L.first.gate})`);
+    ok(!L.start.pose && L.start.why === 'bridge' && start0(L), `(10) a record on the Golden Gate's deck: no start, why "bridge" (${L.start.why}), ${START()} (gate ${L.first.gate}, door ${L.first.door})`);
     // ((12) before (14): the store's key is read on a plain page. On the one link a ?swerve page's paint keeps to the session (main.ts, its slug
     // sf~swerve has no id scheme), so its city.paint.key is null, and the store it was to empty was left whole)
     await page.evaluate(HELPERS);
@@ -403,7 +426,7 @@ if (budget) {
     });
     await setRec(page, good);
     L = await load(page, Q);
-    ok(!L.start.pose && L.start.why === 'paint not saved' && L.first.gate, `(12) the building's paint gone from the store: the Golden Gate (${L.start.why})`);
+    ok(!L.start.pose && L.start.why === 'paint not saved' && start0(L), `(12) the building's paint gone from the store: ${START()} (${L.start.why})`);
     await page.evaluate(({ k, v }) => v && localStorage.setItem(k, v), paint);
     await setRec(page, good);
     // (?recess on the one link boots its arena before the return start and gives it its own lat and skipintro (docs/specs/core/STAGE1.md): no start, the
@@ -446,8 +469,25 @@ if (budget) {
   await page.evaluate(HELPERS);
   await setRec(page, null);
   L = await load(page, Q);
-  ok(!L.start.pose && L.start.why === 'no record' && L.first.gate, `(11) no record: the Golden Gate (${L.start.why})`);
-  {
+  ok(!L.start.pose && L.start.why === 'no record' && start0(L), `(11) no record: ${START()} (${L.start.why})`);
+  if (DOOR) {
+    // (the door has no skip: a tap at 0.5 s paints at once, and nothing jumps the bus)
+    const t0 = await page.evaluate(() => window.__trace[0].t);
+    await page.waitForFunction((t) => performance.now() - t >= 500, t0, { polling: 10 });
+    const n = await page.evaluate(() => window.__trace.length);
+    await tap(cdp, 200, 500, 60);
+    const tapAt = await page.evaluate(() => performance.now());
+    await page.waitForFunction((t) => performance.now() - t >= 2200, tapAt, { polling: 50 });
+    const r = await page.evaluate((n) => {
+      const tr = window.__trace.slice(n);
+      let jump = 0;
+      for (let i = 1; i < tr.length; i++) jump = Math.max(jump, Math.hypot(tr[i].x - tr[i - 1].x, tr[i].z - tr[i - 1].z));
+      return { shot: tr.some((f) => f.shot !== null), jump };
+    }, n);
+    R.skip = r;
+    ok(r.shot && r.jump < 30, `(11) the door: a tap at 0.5 s is a splat, no skip (shot ${r.shot}, the longest step a frame ${r.jump.toFixed(1)} m)`);
+    await page.screenshot({ path: `${out}/11-door-tap.png` });
+  } else {
     const t0 = await page.evaluate(() => window.__trace[0].t);
     await page.waitForFunction((t) => performance.now() - t >= 500, t0, { polling: 10 });
     const n = await page.evaluate(() => window.__trace.length);
@@ -481,8 +521,8 @@ if (budget) {
     await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 400000 }), page.evaluate(() => window.__game.tuner.onResetPaint())]);
     await page.waitForFunction(() => (window.__trace?.length ?? 0) > 1, null, { timeout: 400000, polling: 50 });
     await page.evaluate(HELPERS);
-    const r7 = await page.evaluate(() => ({ rec: window.__rec(), start: window.__game.returnStart?.() ?? { pose: null }, gate: window.__trace[0].gate }));
-    ok(r7.rec === null && !r7.start.pose && r7.gate, `(7) the tuner's reset: the record gone (${JSON.stringify(r7.rec)}), then the Golden Gate (${r7.start.why})`);
+    const r7 = await page.evaluate(() => ({ rec: window.__rec(), start: window.__game.returnStart?.() ?? { pose: null }, gate: window.__trace[0].gate, door: window.__trace[0].door }));
+    ok(r7.rec === null && !r7.start.pose && (DOOR ? r7.door && !r7.gate : r7.gate), `(7) the tuner's reset: the record gone (${JSON.stringify(r7.rec)}), then ${START()} (${r7.start.why})`);
   }
 
   // ---- (8) the Moon: a crater painted, no record touched
@@ -511,8 +551,13 @@ if (!budget && !high) {
     return L;
   };
   const b5 = await first5(url);
-  ok(!b5.start.pose && b5.start.why === 'no record' && b5.first.gate, `(5) the opening seen and nothing else: the Golden Gate (${b5.start.why})`);
-  if (ref) {
+  ok(!b5.start.pose && b5.start.why === 'no record' && start0(b5), `(5) the opening seen and nothing else: ${START()} (${b5.start.why})`);
+  if (DOOR && R.firstBoot) {
+    // (the ref, the core, opens at the old Golden Gate start: the door's frame 1 is held to a first visit's on this build instead)
+    const d = Math.hypot(b5.boot.x - R.firstBoot.x, b5.boot.z - R.firstBoot.z) + Math.abs(b5.boot.y - R.firstBoot.y) + Math.abs(b5.boot.h - R.firstBoot.h);
+    R.same = { b: b5.boot, first: R.firstBoot };
+    ok(d === 0, `(5) the boot's pose equal to a first visit's, the door's (off by ${d})`);
+  } else if (ref) {
     const r5 = await first5(ref);
     const d = Math.hypot(b5.boot.x - r5.boot.x, b5.boot.z - r5.boot.z) + Math.abs(b5.boot.y - r5.boot.y) + Math.abs(b5.boot.h - r5.boot.h);
     R.same = { b: b5.boot, r: r5.boot };
@@ -532,7 +577,7 @@ if (!budget && !high) {
       for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i));
       return keys.filter((k) => k.startsWith('strugglebus.last'));
     });
-    ok(!L.start.pose && L.first.gate && errors.length === n && st.length === 0, `(13) localStorage throwing on ${which}: the first visit's path (${L.start.why}, gate ${L.first.gate}), a tap (${!!s}), no page error (${errors.length - n}), nothing stored (${st.length})`);
+    ok(!L.start.pose && start0(L) && errors.length === n && st.length === 0, `(13) localStorage throwing on ${which}: the first visit's path (${L.start.why}, gate ${L.first.gate}, door ${L.first.door}), a tap (${!!s}), no page error (${errors.length - n}), nothing stored (${st.length})`);
     await c.ctx.close();
   }
   ok(errors.length === 0, `no page error in any case (${errors.length}${errors.length ? ': ' + errors[0] : ''})`);
