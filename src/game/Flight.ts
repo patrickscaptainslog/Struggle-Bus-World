@@ -280,6 +280,14 @@ export class Flight {
    * refills as after a tap, whatever a pour before it set (a lock that took a hold mid-pour: the review of fd6d413, m83); a breath with its own refill sets it
    * after (the Bomb).
    */
+  /** Seconds until the belly is full again: what is left of a breath, then its refill (Infinity while the Hose pours). */
+  get fullIn(): number {
+    const S = config.splat;
+    if (this.pouring) return Infinity;
+    const r = Math.max(0.05, this.rechargeSeconds > 0 ? this.rechargeSeconds : S.recharge);
+    return this.barfT >= 0 ? S.duration - this.barfT + (1 - clamp(this.refund, 0, 1)) * r : (0.999 - Math.min(0.999, this.fullness)) * r;
+  }
+
   tryBarf(min = 0.999): boolean {
     if (this.barfT >= 0 || this.fullness < min) return false;
     this.barfT = 0;

@@ -1649,21 +1649,26 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       controls.splatted();
     } else {
       aimer.unfire();
-      // (the door: a tap the belly can't take yet is held, one at most, and goes the frame it is full, never a wheeze: a newcomer taps to the refill's own
-      // beat, or as fast as a thumb goes, and a frame's lag lost every other tap, or most of them (docs/specs/sf/DOOR.md; the review's m2). Each tap holds
-      // it DOOR_HOLD from itself, so taps that keep coming keep it, and it never breathes later than that after the last touch: held from any moment
-      // for a whole refill, one stale tap fired 2.6 s late and pushed every tap after it late in a chain, shots no touch meant (the check's B1))
-      if (door) {
+      // (the door: a tap the belly will take within DOOR_HOLD is held, one at most, and goes the frame it is full: a newcomer tapping to the refill's own
+      // beat, or as fast as a thumb goes, lost every other tap to a frame's lag (docs/specs/sf/DOOR.md; the review's m2). Any other refused tap wheezes at
+      // once, there as everywhere: held for longer, it either breathed late, shots no touch meant (the check's B1), or was dropped unheard (the second
+      // check's B2))
+      if (door && flight.fullIn <= DOOR_HOLD) {
         if (heldTap >= 0) tapsMerged++;
         heldTap = simTime + DOOR_HOLD;
-      } else {
-        audio.denied();
-        tapsDenied++;
-      }
+      } else refused();
     }
   };
-  /** the door's held tap: until when (game s), -1 none; and how long it may wait for the belly after the last tap (s): within the half second a shot
-   *  may follow the touch that meant it (tools/flight5.mjs's intents), and over the 0.4 s before full a newcomer's tap to the refill's beat comes */
+  /** A tap the belly refused: the wheeze, and a small dry puff at the bus's face that reads with the sound off (particles the game already draws) */
+  const refusedV = new THREE.Vector3();
+  const refused = () => {
+    audio.denied();
+    tapsDenied++;
+    const p = mouthWorld();
+    for (let i = 0; i < 3; i++) particles.puff(p, refusedV.set((Math.random() - 0.5) * 2, 2.5 + Math.random() * 2, (Math.random() - 0.5) * 2), Ramp.GREY, 1.4);
+  };
+  /** the door's held tap: until when (game s), -1 none; and how soon the belly must be full for a refused tap to be held (s): within the half second a
+   *  shot may follow the touch that meant it (tools/flight5.mjs's intents), and over the 0.4 s before full a newcomer's tap to the refill's beat comes */
   let heldTap = -1;
   const DOOR_HOLD = 0.5;
   /** QA: taps the belly refused (no paint), and taps on the door that came while one was held already (the one held paints for them) */
@@ -2476,14 +2481,14 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     const glint = doorAim && aimed?.index !== doorSpot!.ref.index ? null : aimed;
     controls.glinting = glint !== null || (!doorAim && (!!moonPaint?.target || aimer.moverGlinting));
     // (the door's held tap: it goes the frame the belly is full, through the tap's own guards (the tuner, the hose, a hold, a rival's shell, as when it was
-    // made: the review's m5), or is dropped, unheard, if it never fills)
+    // made: the review's m5), or, if it never fills, wheezes as a refused tap does)
     if (heldTap >= 0) {
       if (flight.fullness >= 0.999 && flight.barfT < 0) {
         heldTap = -1;
         input.onTap?.();
       } else if (simTime > heldTap) {
         heldTap = -1;
-        tapsDenied++;
+        refused();
       }
     }
     // the landmarks' crowns (src/game/Crown.ts): a fourth counted hit has landed; the ring and its pips while the one last hit climbs, near it
