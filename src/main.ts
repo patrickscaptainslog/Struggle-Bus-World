@@ -328,6 +328,9 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
    *  on the city's side, the bridge in reach of the first tap and nothing locked; the opening's short fog lifts round it. Not under ?skipintro (the tools'
    *  Golden Gate, gate and all, as before), ?lift, ?earth or a page that boots anywhere of its own */
   let door = false;
+  /** the door's line: the north tower, the span's direction and length, the bus's side line off the deck (m, signed), which way it flies along it (+1, -1);
+   *  null once the bridge is crowned or a thumb has steered */
+  let doorLine: { x: number; z: number; ux: number; uz: number; len: number; off: number; dir: number } | null = null;
   if (!params.has('lat') && !liftPlaced && !resumed && !returned && !params.has('skipintro') && !liftOn && !earthFly && !moon && start.opening === 'golden-gate' && ggb?.points && ggb.deck) {
     const [, t1, t2] = ggb.points, D = config.door;
     // (from the north tower toward the south one; the side toward the city's middle, the map's origin)
@@ -339,6 +342,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     flight.holdAt(deckTopAt(ggb.deck, flight.x, flight.z) + D.over);
     flight.speed = flight.glideSpeed = D.speed;
     door = true;
+    doorLine = { x: t2[0], z: t2[1], ux, uz, len: L, off: D.side * side, dir: 1 };
   }
   if (!door && !params.has('lat') && !liftPlaced && !resumed && !returned && start.opening === 'golden-gate' && ggb?.points) {
     // thread the gap just north of the south tower so the tower fills the
@@ -2343,6 +2347,23 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       let dh = home - flight.heading;
       dh = Math.atan2(Math.sin(dh), Math.cos(dh));
       sx = clamp(sx + clamp(dh, -1, 1) * clamp((ex + ez - edgeOut) / 600, 0, 1), -1, 1);
+    }
+    // (the door: while its bridge waits for its crown and no thumb has steered, the bus turns back short of each tower, away from the deck, and comes
+    // back along its side line: one who doesn't touch, or only taps, keeps the bridge in a tap's reach. It flew on over Marin, out of the pull's reach,
+    // with TAP TO PAINT still up (the check's M1). A thumb down flies as it always does; the first real steer, or the crown, ends it: nothing locked)
+    if (doorLine) {
+      const dl = doorLine, spot = crowns.byKey('lm:ggb');
+      if (!spot || crowns.isCrowned(spot) || (st.thumb && Math.abs(st.stretch.x) > 0.3) || qaStick) doorLine = null;
+      else if (!dragging) {
+        const rx = flight.x - dl.x, rz = flight.z - dl.z, along = rx * dl.ux + rz * dl.uz;
+        if ((dl.dir > 0 && along > dl.len - config.door.along) || (dl.dir < 0 && along < config.door.along)) dl.dir = -dl.dir;
+        // (a point on the side line 150 m on in the way it flies; turning round, outward first)
+        const a = along + dl.dir * 150, px = dl.x + dl.ux * a - dl.uz * dl.off, pz = dl.z + dl.uz * a + dl.ux * dl.off;
+        let dh = Math.atan2(px - flight.x, -(pz - flight.z)) - flight.heading;
+        dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+        if (Math.abs(dh) > 2.5) dh = Math.sign(Math.cos(flight.heading) * -dl.uz * Math.sign(dl.off) + Math.sin(flight.heading) * dl.ux * Math.sign(dl.off)) * Math.abs(dh);
+        if (Math.abs(dh) > 0.02) sx = clamp(dh * 1.5, -1, 1);
+      }
     }
     const pastMap = floorPastMap(ex + ez);
     if (pastMap > 0) flight.turbo.floor = Math.max(flight.turbo.floor, pastMap);

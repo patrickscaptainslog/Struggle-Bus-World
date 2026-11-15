@@ -1004,7 +1004,8 @@ export const config = {
   door: {
     /** The door's fog (s): the opening's, cut short. */
     fog: 2.4,
-    /** The bus's start: this far past the north tower along the main span (m), this far to the bay side of the deck's line (m), this high over the deck (m), this fast (m/s). */
+    /** The bus's start: this far past the north tower along the main span (m), this far to the bay side of the deck's line (m), this high over the deck (m), this fast (m/s).
+     *  Untouched, it turns back `along` m short of each tower (main.ts, the door's line). */
     along: 160,
     side: 40,
     over: 24,
