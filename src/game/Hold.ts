@@ -167,6 +167,8 @@ export interface HoldHost {
   faction(): number;
   /** a breath leaves: the bus's anticipation (squash, heave), as a tap's */
   breath(): void;
+  /** a shot the belly refused: the wheeze and its dry puff at the bus, as a refused tap's (main.ts); just the wheeze without it (a harness) */
+  refused?(): void;
 }
 
 /** holds.bomb before main.ts sets it (a harness, a tool): nothing. */
@@ -472,7 +474,10 @@ export class Holds {
     // (the player's refused shot coughs, whatever refused it: a lift that fires nothing is never silent)
     if (threw || n >= (belly ? MAX_MINE : MAX_SHOTS) || (belly && !H.flight.tryBarf(hoseTune.minTank))) {
       this.stats.refused++;
-      if (belly) H.audio.denied();
+      if (belly) {
+        if (H.refused) H.refused();
+        else H.audio.denied();
+      }
       return null;
     }
     if (belly) H.breath();

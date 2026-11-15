@@ -147,6 +147,8 @@ export interface HoseHost {
   flash(at: THREE.Vector3, frames: number, strength: number): void;
   /** the street sign for the neighbourhood the stream sweeps into */
   sign(ref: BuildingRef, hue: number, cx: number, cz: number, r: number): void;
+  /** a tap refused while it pours: the wheeze and its dry puff at the bus, as any refused tap's (main.ts); just the wheeze without it (a harness) */
+  refused?(): void;
 }
 
 export class Hose implements HoldHandler {
@@ -287,7 +289,8 @@ export class Hose implements HoldHandler {
   /** A tap while it pours (main.ts, before anything splats): it doesn't splat, and the bus coughs, as on an empty belly, never a tap that does nothing (the review of fd6d413, m84). */
   tapWhilePouring(): boolean {
     if (!this.pouring) return false;
-    this.h.audio.denied();
+    if (this.h.refused) this.h.refused();
+    else this.h.audio.denied();
     return true;
   }
 

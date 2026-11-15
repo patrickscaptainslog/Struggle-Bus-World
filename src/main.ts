@@ -1790,6 +1790,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       audio.heave();
       controls.splatted();
     },
+    refused: () => refused(),
   });
   const hose = new Hose({
     flight, city, splatter, particles, audio, rig,
@@ -1802,6 +1803,7 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
     },
     // (the Hose has no breath: its stream is short, the bus near, so the flight's pose as the sign is queued)
     sign: (ref, hue, cx, cz, r) => queueSign(ref, hue, cx, cz, r, flight),
+    refused: () => refused(),
   });
   holds.add(hose, { last: true });
   input.onAimStart = () => {
