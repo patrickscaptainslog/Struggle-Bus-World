@@ -1649,20 +1649,23 @@ async function boot(land?: Landing, shared?: { input: Input; audio: AudioEngine;
       controls.splatted();
     } else {
       aimer.unfire();
-      // (the door: a tap the belly can't take yet is held, one at most, and goes the frame it is full, never dead and never a wheeze: a newcomer taps to the
-      // refill's own beat, or as fast as a thumb goes, and a frame's lag lost every other tap, or most of them. docs/specs/sf/DOOR.md; the review's m2)
+      // (the door: a tap the belly can't take yet is held, one at most, and goes the frame it is full, never a wheeze: a newcomer taps to the refill's own
+      // beat, or as fast as a thumb goes, and a frame's lag lost every other tap, or most of them (docs/specs/sf/DOOR.md; the review's m2). Each tap holds
+      // it DOOR_HOLD from itself, so taps that keep coming keep it, and it never breathes later than that after the last touch: held from any moment
+      // for a whole refill, one stale tap fired 2.6 s late and pushed every tap after it late in a chain, shots no touch meant (the check's B1))
       if (door) {
         if (heldTap >= 0) tapsMerged++;
-        else heldTap = simTime + DOOR_HOLD;
+        heldTap = simTime + DOOR_HOLD;
       } else {
         audio.denied();
         tapsDenied++;
       }
     }
   };
-  /** the door's held tap: until when (game s), -1 none; and how long one may wait for the belly at most (s): a breath and a whole refill */
+  /** the door's held tap: until when (game s), -1 none; and how long it may wait for the belly after the last tap (s): within the half second a shot
+   *  may follow the touch that meant it (tools/flight5.mjs's intents), and over the 0.4 s before full a newcomer's tap to the refill's beat comes */
   let heldTap = -1;
-  const DOOR_HOLD = config.splat.recharge + 1;
+  const DOOR_HOLD = 0.5;
   /** QA: taps the belly refused (no paint), and taps on the door that came while one was held already (the one held paints for them) */
   let tapsDenied = 0;
   let tapsMerged = 0;
