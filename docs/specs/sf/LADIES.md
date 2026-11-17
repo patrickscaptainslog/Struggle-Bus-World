@@ -30,4 +30,30 @@ node tools/ladies/shots.mjs <url> <outdir>                    # the four posed v
 
 ## What ran
 
-(numbers below)
+`score.py` against the scan, over the box (1,111 parts graded; trees 6 m inside its edge):
+
+| | Today (`feat/sf`) | Rebuilt |
+|---|---|---|
+| Trees | 395 | 2,574 |
+| The scan's canopy (over 3 m, outside buildings) under a game crown | 9 % | 82 % |
+| Game crowns over no canopy | 56 % | 24 % |
+| Pitched roofs | 8 | 302 |
+| Roof error (root mean square, each residual capped at 1.5 m) | 0.66 m | 0.56 m |
+
+The fit, before the limits that went in after the first shots: 339 pitched, some of them a taller neighbour's wall read as a roof (a 22 m mansard, 13 m lean-tos). Now a pitched fit must explain the part's returns to 0.8 m^2 (mean capped square), rise at most 9 m, a face at most 50 degrees (a lean-to's 24). 810 parts fit flat; 357 of those fit it to 0.12 m^2 and are drawn flat (the bake's procedural front gable off); the rest (twin ridges, an M roof, a gable on a flat back) keep the bake's roof.
+
+Trees: 2,719 crowns found in the box, 2,574 planted (6 m inside its edge); heights 5.4 / 9.7 / 15.8 m (10th / 50th / 90th percentile), crown radii 1.6 / 3.1 / 5.3 m. The game's crowns are wider for their height than the scan's, so a tree's size is the mean (geometric) of the size its height asks and the size its width asks. Kinds: 2,148 street trees, 467 eucalyptus or pine, 303 cypress, in the 25 tiles round the box (with the trees outside the box).
+
+The frames (`tools/ladies/shots.mjs`, the machine's Chromium, no GPU: each frame several minutes; draws and triangles from the game's own counter, `perf.snapshot()`):
+
+| View | Today: draws, triangles | Rebuilt |
+|---|---|---|
+| postcard (the Ladies from the park) | 136, 942,079 | 177, 950,434 |
+| rooftops (170 m up, south-west of the park) | 191, 1,007,137 | 193, 1,034,068 |
+| overhead (300 m, east of the park) | 151, 1,111,967 | 192, 1,164,661 |
+| postcard, painted | 138, 935,938 | 185, 997,450 |
+| overhead, painted | 153, 1,113,135 | 199, 1,203,407 |
+
+About 40 more draws over the box, near the top of the 120-200 budget. Not the trees' count: trees are one instanced draw a tile (`Props.ts`), and every one of the 25 tiles had trees before. Most likely the new pitched roofs (302 where there were 8), whose cost in draws the mesher and the renderer know: the first account's to read. Not measured on an A15.
+
+Not checked: a flight through the box end to end (the frames are fixed poses); the obstacle grid (raised where a ridge rose, roof + 3 m as the bake) against the bus at speed; Safari.

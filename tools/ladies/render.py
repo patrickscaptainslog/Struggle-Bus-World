@@ -64,5 +64,6 @@ can = Image.new('RGB', (W * 3 + 8, Hh), (255, 255, 255))
 for k, (t, im) in enumerate(ims): can.paste(im, (k * (W + 4), 0))
 can = can.resize((can.width * 2, can.height * 2), Image.NEAREST)
 dr = ImageDraw.Draw(can)
-for k, (t, im) in enumerate(ims): dr.text((k * (W + 4) * 2 + 10, 8), t, fill=(200, 20, 20))
+if os.environ.get('LABELS', '1') == '1':
+    for k, (t, im) in enumerate(ims): dr.text((k * (W + 4) * 2 + 10, 8), t, fill=(200, 20, 20))
 can.save(out); print('wrote', out, can.size)

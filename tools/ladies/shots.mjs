@@ -20,7 +20,7 @@ export const POSES = [
   { name: 'postcard', lat: 37.7762, lon: -122.43345, h: 17, lookLat: 37.77622, lookLon: -122.4326, lookH: 10, hfov: 60, paint: 130 },
   { name: 'roofs', lat: 37.7738, lon: -122.4385, h: 170, lookLat: 37.7772, lookLon: -122.4318, lookH: 0, hfov: 58, paint: 280 },
   { name: 'overhead', lat: 37.7745, lon: -122.4312, h: 300, lookLat: 37.7756, lookLon: -122.4300, lookH: 0, hfov: 52, paint: 260 },
-  { name: 'street', lat: 37.77566, lon: -122.43257, h: 9, lookLat: 37.77605, lookLon: -122.42962, lookH: 5, hfov: 62, paint: 200 },
+  { name: 'street', lat: 37.77566, lon: -122.43257, h: 18, lookLat: 37.77605, lookLon: -122.42962, lookH: 3, hfov: 62, paint: 200 },
 ].filter((p) => !opt.only || opt.only.split(',').includes(p.name));
 const Q = '&skipintro&nohud&t=2026-11-07T22:30:00Z&rate=0&fixeddt=0.0333333&px=400';
 
