@@ -24,7 +24,9 @@ python3 tools/ladies/fit.py          # every part's roof fitted (fits.pkl)
 python3 tools/ladies/trees.py        # the crowns (trees.pkl)
 python3 tools/ladies/dataset.py      # the answer key for the rules (dataset.pkl)
 python3 tools/ladies/apply.py public/city/sf                 # the four regions rewritten: the LiDAR roofs and trees
-python3 tools/ladies/grade.py <rule>.py [--split test]       # a rule's score against the scan
+python3 tools/ladies/grade.py tools/ladies/rules/context.py [--split test]   # a rule's score against the scan
+python3 tools/ladies/score.py public/city/sf                 # today and the rebuild against the scan
+python3 tools/ladies/apply.py <city dir> --rule <rule>.py    # the roofs a rule gives instead, the trees as baked
 node tools/ladies/shots.mjs <url> <outdir>                    # the four posed views
 ```
 
@@ -55,5 +57,18 @@ The frames (`tools/ladies/shots.mjs`, the machine's Chromium, no GPU: each frame
 | overhead, painted | 153, 1,113,135 | 199, 1,203,407 |
 
 About 40 more draws over the box, near the top of the 120-200 budget. Not the trees' count: trees are one instanced draw a tile (`Props.ts`), and every one of the 25 tiles had trees before. Most likely the new pitched roofs (302 where there were 8), whose cost in draws the mesher and the renderer know: the first account's to read. Not measured on an A15.
+
+### The rules from the map alone
+
+`tools/ladies/rules/` (four agents, one approach each, run as one workflow): `geom.py` hand-written thresholds on the footprint in its street's frame; `tree.py` a small decision tree learned on the train rows and written into the file; `expected.py` the roof of least expected loss among a few candidates; `context.py` a part's neighbours along its row. None reads the scan, a part's id or its seed. Each was tuned on the west half of the box (x < -1180, 544 parts) and graded once on the east half (567 parts), with `grade.py`'s skill (0 every roof flat, 1 as good as the scan's own fit; the scan's fit itself scores 0.93 on the east half, its eave set like every rule's):
+
+| Rule | West (tuned on) | East (never seen) |
+|---|---|---|
+| `context.py` | 0.142 | 0.103 |
+| `geom.py` | 0.150 | 0.100 |
+| `expected.py` | 0.148 | 0.075 |
+| `tree.py` | 0.148 | 0.071 |
+
+What they found, in `expected.py`'s words: "Even if we knew exactly which parts are pitched, a hip of the best height would only reach about 0.23. The real limit is telling pitched from flat, not the shape." A footprint barely says whether its roof is pitched. For roofs, the scan is what matters; the rules are the fallback where there is none. The grading's answer key is the fit before its limits (339 pitched); the fifth agent, merging the four, was stopped when the result was clear.
 
 Not checked: a flight through the box end to end (the frames are fixed poses); the obstacle grid (raised where a ridge rose, roof + 3 m as the bake) against the bus at speed; Safari.
