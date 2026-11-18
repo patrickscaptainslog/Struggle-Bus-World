@@ -132,3 +132,65 @@ Unchanged: paint is the only saturated thing; no new button on the play screen; 
 - **Matches of a hundred, last bus flying.** Needs a server on day one, and most players lose at once.
 - **One life, lost whole.** The producer's rule is kinder and makes more fights: a bus that is hit is back in it in 3 s.
 - **Turf war only.** Paint with nobody to fight is what the first player flew past.
+
+# Everywhere on Earth
+
+**Added the same day, at the producer's ask. A proposal like the rest: nothing is ruled.**
+
+The producer: "Ok but I think we should use our full creative extravagances and try and figure out how not only will this be good in environments like the Bay Area, for instance but succeed all across the country and the world"
+
+## The trouble, and the rule that answers it
+
+"The money is where the buildings are" makes San Francisco rich and a farm town poor. Most players do not live downtown. A game whose hook is "your own street" has to be good on any street.
+
+**Every place on Earth is the best in the world at something, and the game finds it from the map.**
+
+## The ideas
+
+1. **Every town has a throne, a route and a treasure.**
+   - *The throne.* Each real school's bus guards its town. Beat it and the player is Top Bus of that town; then the county, the state, the country.
+   - *The route.* Each day the game draws a bus route through the town from its own roads and named things: the school, the tallest thing, the pitch, the bridge. Five minutes, a wage, new every day, the same for every player there.
+   - *The treasure.* Rare pays. Whatever a place has one of (a water tower, a grain silo, a lighthouse, a stadium, a dam) pays as a landmark does. A town of 500 has all three.
+2. **The farther it is carried, the more it is worth.** Coins banked far from where they were earned pay more, and most of all at a school in the middle of nowhere. The empty land between cities becomes the dangerous road, with the computer's pirate crews on it, and a child in a farm town lives beside the best bank in the country. It is the second answer to "why not camp in Antarctica?": the far places are where a long haul ends.
+3. **Different land, different game, and each crew has a home.** From land cover the whole planet has: Atlantis on coasts, rivers and lakes; the Elderwood in forests; Inferno in deserts and near volcanoes; Hyperglow in city centres; Rainbow belongs to no country and travels. Farmland has freight trains a mile long, the best piñatas on Earth, and harvest machines. Mountains have canyon runs timed through real valleys, and summits to flag (COINS.md's flag). Coasts have piers, lighthouses and the ships LIVING.md already plans.
+4. **Empty land is the world's sketchbook.** Paint laid on desert, snow and ice shows from orbit. Antarctica is where a player goes to draw something a friend can see from space.
+5. **Every colour comes from somewhere.** Real colours are named after real places: ultramarine was ground from lapis mined in Afghanistan, Tyrian purple came from Tyre, magenta is named after a town in Italy, turquoise means "Turkish". A player wins each colour, as a look for its paint, by flying to its home. No browns (the ruling stands).
+6. **The world's painted buses.** Guatemala's chicken buses and Panama's diablos rojos are retired American school buses repainted in wild colours and put back to work. Kenya has matatus, the Philippines jeepneys, Haiti tap-taps, Lagos yellow danfos, Pakistan its painted trucks, London double-deckers, Japan kindergarten buses shaped like animals. Each is the look of its country's champion bus, won by beating it there.
+7. **The real calendar is the season's pass.** Holi is a fight with colours already, Songkran with water, La Tomatina with tomatoes. For that week the world's players fly there and everything pays more. Lunar new year is the Dragon Dance's own week.
+8. **One Earth, painted by everyone.** From orbit and from the Moon a player sees the crews' colours spread over the real planet, added up from every player. Each player's own paint stays on the phone as today; a small server keeps only sums for each patch of the map, with no names. Countries, states and schools compete.
+9. **A daily hide and seek the whole world plays.** One gold bus hides somewhere on Earth each day, the same for everyone from the date alone, with clues. "Found it in 3 clues" is the thing sent.
+10. **Smaller ones.** Paint sounds different by country (the splat's chord in the local scale). A weekly field trip to a wonder. The real hour and the real season in every place (the hour is built). Real planes overhead (approved, with its relay). Real weather as the world's storm (on hold).
+
+## What each reads
+
+| Idea | From data every place has | Curated by hand |
+|---|---|---|
+| The throne, the route, the treasure | Overture's divisions (towns, with population), schools by a building's class and the places theme, roads, infrastructure | nothing |
+| Carrying far | distance | nothing |
+| Crews' homes, the sketchbook | ESA WorldCover's classes, water, built-up density | nothing |
+| Trains, canyon runs, summits | rail in Overture's segments, cropland, ground heights | nothing |
+| Colours, buses, the calendar | | a list each, with advisers: the producer's call against "no hand-made one-offs", which was written about a city's looks |
+| One Earth | sums by patch | a small server: the producer's call, after the lawyer |
+| The daily hide and seek | landmarks from data, a seed from the date | the clues' wording |
+
+## How any place gets built
+
+Two kinds of place.
+- **A season's city** gets everything: the scan where one exists, its landmarks, its set pieces. Alamo Square on `exp/ladies` is the sample.
+- **Everywhere else** is built with no hand work from the open maps San Francisco came from. `tools/bake` is driven by a box and a release already ("City-agnostic", `overture.py`); it made Amsterdam and London, London with no scan and flat ground.
+
+Not proven: how an ordinary place looks and plays; ground heights outside the US in the bake; and building a place as a player arrives, with no bake ahead of time, which needs the world's map hosted where a page can read a small piece of it (a cost and an account, the producer's, not priced).
+
+## How it spreads
+
+- **Local pride.** "Our town is in it, and I am its Top Bus" is a sentence for a class, a family chat and a local paper.
+- **Links.** A web page with no install travels through any chat app, in countries where few have iPhones.
+- **Parents and teachers.** It teaches the map: where a colour comes from, which road leads to the next town.
+- **Devices.** Most of the world's children have a cheap Android phone or a school laptop. Nothing here has run on either.
+- **Words.** The game has few. The sign already shows a street's own name.
+
+## The proof to run first
+
+Six very different places with no hand work, as frames and links: a farm town in Kansas, a suburb of Phoenix, Lagos, Tokyo, a fjord village in Norway, a base in Antarctica. It shows what each kind of land has and lacks before any of the ideas above is built.
+
+It needs the producer's word twice. "Other cities until the world render run" and "wild places and their download" are held (STUDIO.md part 6). And it is a download: Overture Maps' release 2026-10-21.0 for six boxes of about 3 km (public, ODbL; `overture.py --check` prints each size before anything is fetched), ESA WorldCover crops for them (public, CC BY 4.0, small), and Copernicus GLO-30 ground heights for the two mountain places (public, free, a tile of one degree each). Asked for with a cap of 1 GB together. The bake's Python needs two libraries this machine lacks (`pyarrow`, `rasterio`).
