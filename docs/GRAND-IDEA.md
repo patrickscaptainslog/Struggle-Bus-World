@@ -1,5 +1,7 @@
 **A proposal, written by the second account at the producer's ask on 2026-11-18. Nothing in it is ruled. `docs/STUDIO.md` is the direction until the producer says otherwise, and the first account leads the studio.**
 
+**The producer, 2026-11-19:** the coin and piñata dynamics "haven't been built into the game. They were purely hypothetical." Read every rule below as an idea that might be taken up, never as the game or its plan.
+
 # The grand idea: every bus is a piñata
 
 ## The producer's words (2026-11-18)
